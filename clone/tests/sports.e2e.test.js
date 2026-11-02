@@ -74,9 +74,11 @@ function remaining(r) {
 const liveOf = (sports) => dbq(`SELECT * FROM sports_milestones WHERE status='live' AND sport IN (${sports.map(() => '?').join(',')})`, ...sports);
 const longest = (...sports) => liveOf(sports).sort((a, b) => remaining(b) - remaining(a))[0];
 // In play (not at a break) with at least 4 minutes of game clock left in the current period: plays keep coming.
-// Sports are tried in the order given (basketball scores far more often than football).
-const playing = (...sports) => sports.map((sp) => liveOf([sp]).filter((r) => { const st = JSON.parse(r.state_json); return st.phase === 'play' && (r.sport === 'soccer' ? 5400 - st.clock > 600 && st.clock !== 2700 : st.remain > 240); })
-  .sort((x, y) => remaining(y) - remaining(x))[0]).find(Boolean) || longest(...sports);
+// Sports are tried in the order given (basketball scores far more often than football). Breaks (half-time is
+// 10-15 game minutes) produce no plays, so callers wait until some game is actually in play.
+const inPlay = (...sports) => sports.map((sp) => liveOf([sp]).filter((r) => { const st = JSON.parse(r.state_json); return st.phase === 'play' && (r.sport === 'soccer' ? 5400 - st.clock > 600 && st.clock !== 2700 : st.remain > 240); })
+  .sort((x, y) => remaining(y) - remaining(x))[0]).find(Boolean) || null;
+const playing = (...sports) => eventually(() => inPlay(...sports), { timeout: 120000, interval: 500, msg: `a ${sports.join('/')} game in play` });
 const BOX_STAT = { basketball: 'reb', football: 'total_yards', soccer: 'shots' };
 const liveCountDb = () => dbq("SELECT COUNT(DISTINCT e.ticker) c FROM events e JOIN markets m ON m.event_ticker=e.ticker WHERE e.is_live=1 AND m.status='active'")[0].c;
 
@@ -193,30 +195,32 @@ test('Live page: FEATURED leagues + collapsible sports with counts, live cards w
 
 test('clock and score advance live without a reload; odds follow the live win probability', async () => {
   const page = await newPage();
+  const g = await playing('basketball', 'football');
   await page.goto(BASE + '/live');
-  const g = playing('basketball', 'football');
   const card = `[data-milestone="${g.id}"]`;
-  console.log('DBG pick', g.sport, g.live_label, g.home_score, g.away_score, liveOf(['basketball', 'football']).map((r) => `${r.sport}:${r.live_label}`).join(' | '));
   await page.waitForSelector(`${card} [data-testid=sb-sub]`);
   await page.evaluate(() => { window.__noReload = true; });
   const sub0 = await page.textContent(`${card} [data-testid=sb-sub]`);
   const score = async () => (await page.$$eval(`${card} [data-testid=sb-score]`, (els) => els.map((e) => Number(e.textContent)))).reduce((a, b) => a + b, 0);
   const s0 = await score();
   await page.waitForFunction(([sel, t]) => document.querySelector(sel).textContent !== t, [`${card} [data-testid=sb-sub]`, sub0], { timeout: 10000 });
-  await eventually(async () => (await score()) > s0, { timeout: 60000, msg: 'score advances' }).catch(async (e) => { console.log('DBG fail', s0, await score(), ms(g.id).home_score, ms(g.id).away_score, ms(g.id).live_label, await page.textContent(`${card} [data-testid=sb-sub]`), await page.innerHTML(card)); throw e; });
+  await eventually(async () => (await score()) > s0, { timeout: 60000, msg: 'score advances' });
   assert.equal(await page.evaluate(() => window.__noReload), true, 'no reload');
   assert.ok(stateOf(g.id).t > 0);
 
-  // Event page: the YES price of the home market tracks the DB win probability as the game moves.
-  const home = marketsOf(g.id).find((m) => m.outcome === 'home').t;
-  await page.goto(BASE + evUrl(g.id));
+  // Event page: the YES price of the home market tracks the DB win probability as a competitive game moves.
+  const ORDER = ['basketball', 'tennis', 'esports', 'cricket', 'football', 'soccer'];
+  const close = await eventually(() => liveOf(ORDER).filter((r) => { const st = JSON.parse(r.state_json); return st.phase === 'play' && r.win_home > 0.12 && r.win_home < 0.88; })
+    .sort((x, y) => ORDER.indexOf(x.sport) - ORDER.indexOf(y.sport))[0], { timeout: 60000, msg: 'a competitive game' });
+  const home = marketsOf(close.id).find((m) => m.outcome === 'home').t;
+  await page.goto(BASE + evUrl(close.id));
   const probSel = `[data-testid="prob-${home}"]`;
   await page.waitForSelector(probSel);
   const p0 = await page.textContent(probSel);
-  await page.waitForFunction(([s, v]) => document.querySelector(s).textContent !== v, [probSel, p0], { timeout: 45000 });
+  await page.waitForFunction(([s, v]) => document.querySelector(s).textContent !== v, [probSel, p0], { timeout: 60000 });
   await eventually(async () => {
     const shown = Number((await page.textContent(probSel)).replace('%', ''));
-    const wp = Math.min(98, Math.max(2, Math.round(ms(g.id).win_home * 100)));
+    const wp = Math.min(98, Math.max(2, Math.round(ms(close.id).win_home * 100)));
     assert.ok(Math.abs(shown - wp) <= 3, `shown ${shown} vs win probability ${wp}`);
     return true;
   }, { msg: 'odds near win probability' });
@@ -277,7 +281,7 @@ test('tennis sets with tiebreak + serve + game points; cricket target, run rate 
 
 test('event page: full scoreboard above the chart, live play-by-play, box score from the DB stats', async () => {
   const page = await newPage();
-  const g = playing('basketball', 'football');
+  const g = await playing('basketball', 'football');
   const STAT = BOX_STAT[g.sport];
   await page.goto(BASE + evUrl(g.id));
   await page.waitForSelector('[data-testid=scoreboard] [data-testid=sb-score-home]');
@@ -404,7 +408,7 @@ test('existing pages unaffected, 390px without horizontal overflow, and a restar
   }
   assert.ok(advanced >= 1, 'clocks run again after the restart');
   const page2 = await newPage();
-  const g = playing('basketball', 'football', 'soccer');
+  const g = await playing('basketball', 'football', 'soccer');
   await page2.goto(BASE + evUrl(g.id));
   await page2.waitForSelector('[data-testid=scoreboard] [data-testid=sb-status]');
   const s1 = await page2.textContent('[data-testid=sb-status]');

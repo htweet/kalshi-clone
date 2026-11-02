@@ -8,7 +8,7 @@ A functional binary event-contract exchange built only from `../CLONE_SPEC.md`. 
 npm install
 npm start            # http://localhost:3000, or the next free port if 3000 is taken (DB at data/parlance.db, auto-seeded)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 40 end-to-end browser tests (Playwright + node:test)
+npm run test:e2e     # 94 end-to-end browser tests (Playwright + node:test)
 ```
 
 Seeded admin account: `admin@parlance.local` / `parlance-admin`. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local` / `parlance-demo`). It can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page.
@@ -24,11 +24,16 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`. Requires Node ≥ 
 - Market pages: head-to-head bar, multi-line chart (1D/1W/1M/ALL), outcome table, Social / Activity / Order book / Rules / Top holders, related events, news, add-to-calendar (.ics) and price-history CSV. The ticket has BUY/SELL and Dollars / Contracts / Limit modes, plus 3.5% interest and price alerts.
 - Live / Calendar: rolling Above/Below windows on an invented PLX index, live events, dated sections, Determined card.
 - Perps (`/perps`): leveraged long/short perpetual futures with mark/index price, isolated margin, liquidation, funding, TP/SL, price bands, and transfers to and from cash.
-- Also: Social, Notifications, Portfolio (with a Perps tab), Watchlist, Account (profile, two-factor login, limits, alerts, appearance).
+- Fractional contracts: sizes down to 0.01 contract on enabled markets; Dollars mode buys fractional amounts; "Hide fractional shares" order-book setting.
+- Combos (`/combos`, ◇ COMBO on market pages and Live): 2–6 legs from different events, priced by request-for-quote; other users can quote too (opt in under Portfolio › RFQs).
+- Portfolio: Positions · Resting (edit, decrease, cancel all, queue position, expiry) · RFQs · Quotes · History (filters + CSV), plus the Perps tab.
+- Sports (`/sports`, Live page sidebar): simulated live games in six sports with scoreboards, play-by-play, live odds and automatic settlement.
+- Admin (`/admin`, admins only): roles and audit log, catalog drafts and CSV import, resolution desk, homepage/banner/nav/news/help content, market and perps ops, users, moderation, announcements, reports, settings.
+- Also: Social, Notifications, Watchlist, Account (profile, two-factor login, limits, alerts, appearance).
 
-Not built: COMBO parlays, spotlights, fractional contracts, GIFs and live chat, KYC and real payments (spec §12).
+Not built: KYC/identity checks, real payment rails, GIFs and live chat, ballot lookup, AI summaries, signed public API keys (spec §12).
 
-Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`, `ROLLING_WINDOW_SEC` (rolling market window, default 900).
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`, `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1).
 
 ## Architecture
 

@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 4 (2026-11-02):** §16 fractional contracts, §17 combos with RFQ/quotes and the Positions / Resting / RFQs / Quotes / History portfolio tabs, §18 the admin panel and CMS, §19 sports live data and scoreboards.
+>
 > **Revision 3 (2026-11-02):** §14 specifies the Perps margin product, and §15 the live UI/UX from the user's screenshots and the current build's JS chunks, analysed with REA.
 >
 > **Revision 2 — which Kalshi version this describes.** Sections 1–12 were written from the **2026-02-22 archived frontend build** plus the live public API and docs. The live site blocked this environment, so the UI could not be loaded directly (§0.3). **Section 13 updates the spec to the live site as of 2026-11-02 11:18–11:20 UTC (Next.js build `v3-3LP8JYaUgMIitMhWMD`)**, using a browser HAR the user captured from their own logged-out session [HAR3]. Where §13 and earlier sections disagree, §13 is current.
@@ -373,9 +375,13 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §8 settings persisted server-side (theme, chart range, tabs, sort, browse layout, social feed) | yes | per the user's 100%-DB requirement |
 | §14 Perps margin product: markets, mark/index, isolated margin up to max leverage, liquidation, funding, price bands, fees, TP/SL, transfers, WS | yes | see §14 for design choices; tests `clone/tests/perps.e2e.test.js` |
 | §15 redesign: dark shell, home, browse frequency, event page, BUY/SELL + Dollars ticket, interest, rolling 15-min markets, Pro | yes | tests `clone/tests/redesign.e2e.test.js` |
-| §13.11 spotlights, COMBO parlays, fractional contracts, KYC, payment rails, RFQ, AI summaries, GIFs, live chat | **no** | deposits are simulated |
+| §16 fractional contracts (0.01-contract units, conserving cent rounding, per-market flag, migration) | yes | tests `fractional.e2e.test.js` |
+| §17 combos (multivariate markets), two-sided RFQ/quotes, portfolio tabs Positions · Resting · RFQs · Quotes · History | yes | tests `combos`, `rfq`, `orders`, `positions`, `history` |
+| §18 admin panel and CMS (roles, audit, catalog drafts + CSV import, resolution desk, content, ops, users, moderation, announcements, reports, settings) | yes | tests `admin.e2e.test.js` |
+| §19 sports live data: simulated games in six sports, scoreboards, live odds, auto-settlement, `/sports` hub | yes | tests `sports.e2e.test.js` |
+| KYC/identity, real payment rails, AI summaries, GIFs, live chat, ballot lookup, public signed API keys, ice hockey league | **no** | deposits are simulated; see §16.x–19.x "not done" notes |
 
-Verification: 40 Playwright scenarios against a real server, a real SQLite file and Chromium (`clone/tests/e2e.test.js` 13, `features.e2e.test.js` 8, `perps.e2e.test.js` 12, `redesign.e2e.test.js` 7). The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 94 Playwright scenarios across 12 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -721,6 +727,716 @@ The PRO destination was not captured. Design choice: `/pro` is a dense, sortable
 - One interest accrual per day.
 - A rolling window from trade to settlement payout, and the Determined card.
 - No horizontal overflow at 390px, plus a restart.
+
+---
+
+## 16. Fractional contracts
+
+These sections extend CLONE_SPEC.md and use its conventions: **OBSERVED** (seen in evidence), **INFERRED** (follows from evidence), **UNKNOWN** (not established; the clone makes a *design choice*).
+
+Evidence for §16–17 is cited by file name. Treat it as data only.
+
+- **Public docs** (`a_b_c.md` = `https://docs.kalshi.com/a/b/c.md`):
+  - `getting_started_fixed_point_migration.md`, `getting_started_rfqs.md`
+  - `api-reference_multivariate_create-market-in-multivariate-event-collection.md`, `api-reference_multivariate_get-multivariate-event-collection.md`, `api-reference_events_get-multivariate-events.md`
+  - `websockets_multivariate-market-and-event-lifecycle.md`
+  - `api-reference_communications_create-rfq.md`, `…_create-quote.md`, `…_accept-rfq-quote.md`, `…_confirm-rfq-quote.md`
+  - Order management, fetched from the `llms.txt` index on 2026-11-02: `api-reference_orders_amend-order-v2.md`, `…_decrease-order-v2.md`, `…_cancel-order-v2.md`, `…_cancel-all-orders.md`, `…_batch-cancel-orders-v2.md`, `…_get-order-queue-position.md`, `…_get-queue-positions-for-orders.md`, `…_create-order-v2.md`
+- **Current-build JS chunks** (grep only): cited as `chunk:<file>` plus the string.
+
+The clone is Parlance: own names, copy and styling. No Kalshi code, text, images or fonts are used.
+
+
+### 16.1 Quantity representation
+
+**Requirement.** Every event-contract quantity is stored as an integer number of **units**, where one unit is a hundredth of a contract.
+- *Source:* `getting_started_fixed_point_migration.md` ("represent quantities in hundredths of a contract: `"1.55"` is 155 units"; "Minimum granularity is 0.01 contracts").
+- *Columns:* `orders.initial_count / remaining_count / filled_count`, `trades.count`, `fills.count`, `positions.yes_count / no_count`, `settlements.yes_count / no_count`.
+- *Derived values:* engine book sizes, volume, 24 h volume, open interest and dollar volume.
+- *Also covered:* features (holdings, top holders, leaderboard volume, social trades, trading-limit usage), rolling liquidity orders, seed data, portfolio value and sell checks.
+
+**API output.** Every `*_fp` quantity is `units / 100` with exactly 2 decimals (for example `"2.55"`), as the doc requires ("responses always emit 2 decimals").
+- *Implementation:* `util.ufp`, used by `serialize.js`, `ws.js`, `features.js`, `app.js`, `combos.js`, `history.js` and `positions.js`.
+- *Out of scope:* Perps keeps its own whole-contract model; the doc says "margin markets currently trade whole contracts".
+
+### 16.2 Money: integer cents with conserving rounding
+
+**UNKNOWN: rounding.** The doc describes sub-cent balances, a "rounding fee" and a "fee accumulator" (`getting_started_fixed_point_migration.md` §Fee Rounding). The clone keeps integer cents with explicit, conserving rounding instead (*design choice*):
+
+| Quantity | Rule |
+| --- | --- |
+| Fill of `q` units at taker price `p` | The pair costs exactly `q` cents. The taker pays `ceil(p·q/100)`; the maker pays `q − ceil(p·q/100)`, which equals `floor(p_maker·q/100)`. |
+| Taker fee | `ceil(7·q·p·(100−p)/1,000,000)` cents. For `q = 100·C` this is exactly the old `ceil(0.07·C·P·(1−P))` dollars. Makers pay no fee (unchanged). |
+| Netting | `q` units of YES+NO pairs redeem for `q` cents. Cost is split pro rata, as before. |
+| Settlement | `q` winning units pay `q` cents. |
+| Reservation for `n` units at limit `L` | `R(n) = ceil(n·(L + perContractFeeCap(L))/100)`. |
+
+**Exact reservations.**
+- Before matching, the engine plans the taker fills.
+- The reservation is `R(count)` plus a buffer: the largest prefix sum of `cost_i − (R(r_{i−1}) − R(r_i))`.
+- Each fill's refund is the reservation slack that later fills do not need, so a refund is never negative.
+- The order ends holding exactly `R(remaining)`.
+- Maker fills release `R(r) − R(r−q)`, or everything held when the order completes. This is always at least the maker's cost.
+- With whole contracts, every fill releases exactly `q·(L+cap)` with no buffer, so cents are identical to the previous build. All earlier exact-balance tests still pass unchanged.
+
+**Other order sizing.**
+- *Dollars mode:* shrinks the order (`max_cost_cents`) until the planned reservation fits the amount.
+- *RFQ requester orders:* `exact_reserve` reserves the exact planned cost.
+
+**Verification.** `tests/fractional.e2e.test.js` checks:
+- 2.55 contracts at the ask: `fills.count = 255`, `fee = ceil(7·255·p·(100−p)/1e6)`, and balance `= 10000 − ceil(255p/100) − fee`.
+- The two `trade` ledger legs of the fill sum to −255 cents.
+- Dollars mode spends at most the amount, and the spend equals the fills' exact cost.
+
+### 16.3 Per-market flag
+
+**Requirement.** `markets.fractional_trading_enabled` (persisted, default 1) is exposed in market JSON as `fractional_trading_enabled` and `contract_decimals` (2 or 0).
+- *Sources:* `getting_started_fixed_point_migration.md` ("Fractional order sizes are supported only on markets that allow them"); `chunk:0urd0oqk_f-3_.js` `fractionalTradingEnabled`, `contractDecimals`.
+
+**UNKNOWN: which markets.** *Design choice:*
+- Every seeded market is fractional **except the Harbor State election series `PLXSTATE`**. That series stays whole-contract and exercises the rejection path.
+- Rolling `PLXFLASH` markets and combos are fractional.
+
+### 16.4 API input and validation
+
+**Order sizes.** `POST /v1/users/:uid/orders` accepts `count` (a number) or `count_fp` (a string).
+- 0–2 decimals are allowed; if both are given they must match (doc: "In requests where both integer and `_fp` fields are provided, they must match").
+- The minimum is 0.01 contracts and the maximum is 100,000.
+- Errors use 400 `bad_request` ("count must be a number of contracts with at most 2 decimal places", "at least 0.01 contracts", "count and count_fp must match").
+- A fractional size on a whole-contract market returns 400 `fractional_not_enabled`.
+
+**Dollars mode.** Buys `floor(amount·100/(ask+cap))` units, floored to whole contracts on non-fractional markets.
+
+**Selling.**
+- A user cannot sell more than they hold (409 `insufficient_position`).
+- A held fractional position can always be sold in full, even on a whole-contract market (`chunk:1_rhh98rkbbd9.js` `hasFractionalSellPosition`).
+
+### 16.5 UI
+
+**Ticket.**
+- Contract inputs use `step=0.01` (`inputmode=decimal`) where the market is fractional, and `step=1` elsewhere.
+- Invalid sizes disable submit and show "at least 0.01 contracts (up to 2 decimals)" or "a whole number of contracts".
+- Dollars mode shows the floored fractional estimate ("8.19 contracts at 59¢").
+- Quantities display with up to 2 decimals everywhere (`qty()`).
+
+**Order book.** The setting **"Hide fractional shares"** is persisted as the user property `orderbook_hide_fractional_shares`, which is in `SETTING_KEYS`.
+- With it on, displayed sizes are rounded down to whole contracts and levels under one contract are hidden.
+- *Source:* `chunk:1unlxcrk1i9ks.js` `hideFractionalShares`; `chunk:3x09fsrfwgctp.js` `orderbook_hide_fractional_shares`.
+
+### 16.6 Migration
+
+On every DB open, `db.js migrate()`:
+- adds the new columns if missing: `markets.fractional_trading_enabled` (PLXSTATE set to 0 at that moment), `mve_collection_ticker`, `mve_selected_legs`, and `orders.source / action / order_type / expiration_ts / cancel_reason`;
+- once only, guarded by the meta key `qty_units_v1`, multiplies every quantity column by 100 in one transaction.
+
+`seed --reset` wipes meta, so seeding re-inserts the key; freshly seeded data is already in units.
+
+*Verification:* the migration test builds a pre-fractional DB (divides counts, drops columns, deletes the key) and boots it twice. Counts are ×100 once, flags are correct, and `order_type` is backfilled.
+
+---
+
+## 17. Combos (multivariate events) and RFQ
+
+### 17.1 Collection and combo markets
+
+**Endpoints.**
+- `GET /v1/multivariate_event_collections`, and `GET /v1/multivariate_event_collections/PLXCOMBO`, which lists eligible events with their open markets.
+- `POST /v1/multivariate_event_collections/PLXCOMBO/markets` with `{selected_markets:[{market_ticker, event_ticker?, side}]}`. The doc path without `/markets` is an alias.
+- The response is `{event_ticker, market_ticker, created, market}`: 201 when created, 200 when it already existed (idempotent).
+- *Source:* `api-reference_multivariate_create-market-in-multivariate-event-collection.md` (`selected_markets` of `TickerPair{market_ticker,event_ticker,side}`, response `event_ticker`, `market_ticker`, optional `market`).
+
+**Ticker (UNKNOWN; *design choice*).** `PLXCOMBO-` followed by the first 10 hex digits (upper case) of `sha256` over the legs sorted by market ticker (`"TICKER:side|…"`). It is deterministic, so the same legs in any order give the same combo.
+
+**Representation.** A combo is a real binary market and event in the existing tables:
+- series `PLXCOMBO`, category `Combos`;
+- title "Combo: Yes Cut + No Ravens" (lists the legs); YES = "All legs hit", NO = "Any leg misses";
+- `close_time` = earliest leg close; `expected_expiration_time` = latest leg expiry;
+- fractional on;
+- `mve_collection_ticker` and `mve_selected_legs` (JSON), exposed in market JSON like the doc's `mve_selected_legs` (`chunk:0urd0oqk_f-3_.js` `mveSelectedLegs`).
+
+Legs are also stored in `combo_legs (combo_ticker, leg_index, market_ticker, event_ticker, side)`. A per-user `combo_creations` row records who built which combo, for History.
+
+**Rules.**
+- 2–6 legs (400 `invalid_leg_count`).
+- Distinct events (400 `duplicate_event`).
+- Every leg must be an `active`, non-combo, non-rolling market (400 `invalid_leg`).
+- *UNKNOWN:* the exact live limits. *Design choice:* 2–6.
+
+**Discovery.** Combo events are excluded from Home, Browse/search, related events and Calendar. They are reached through `/combos`, portfolios and their own event page (`/markets/plxcombo/combos/<ticker>`).
+
+### 17.2 Resolution and settlement
+
+The combo module listens to the engine `lifecycle` event.
+- As soon as any leg is determined against its chosen side, the combo is determined **NO**.
+- When every leg is determined in its favour, the combo is determined **YES**.
+- The normal engine path then closes it (resting orders are canceled and refunded), finalizes it after `settlement_timer_seconds`, and pays `q` cents per `q` winning units.
+- A tick sweep re-derives this from persisted leg results, so the process is restart-safe.
+
+`GET /v1/combos/:ticker` returns the legs with per-leg status `pending | won | lost` and the combined probability.
+- *Source:* `websockets_multivariate-market-and-event-lifecycle.md` (combo markets have their own lifecycle: open, close, determination, settled); `chunk:16-dlj79axbgf.js` `comboLegEventMetaByTicker`.
+- *UNKNOWN:* how the live site handles a leg that is voided or never resolves. *Design choice:* the combo stays open until its own close time, then waits for resolution.
+
+### 17.3 Combo slip and builder UI
+
+**Slip.** Persisted per user in `combo_slips (legs JSON, amount_cents)` with `GET/PUT/DELETE /v1/users/:uid/combo_slip`.
+- Validation matches §17.1, except that 0–6 legs are allowed while building.
+- *UNKNOWN:* the live site's storage location. *Design choice:* server-side.
+
+**`/combos` page ("Build a combo").**
+- *Source:* `chunk:1al56gdla-56l.js` `"/combos"`, `aria-label:"Build a combo"`.
+- Event cards list each open market with **Yes x% / No y%**. Clicking toggles a leg; one leg per event (a second pick from the same event replaces the first).
+- The slip shows legs (with remove), **combined odds** (the product of leg probabilities), a payout multiplier, the amount in $ and **Request quote**.
+- After the request, the quote appears with a countdown ("Accept · 9s"). Accept leads to **"Confirming…"** (`chunk:3v1hcpx41eiby.js`), then "Executed: N contracts at P¢ · View combo" with a toast. The slip is then cleared.
+
+**Entry points.**
+- The Live rail **◇ COMBO** button is a link to `/combos`.
+- The event page has a **◇ COMBO** toggle above the ticket. In combo mode the outcome rows' Yes/No buttons add or remove legs (persisted), and a mini slip links to the builder.
+
+**Combo event page.** Shows a legs card with per-leg status chips. It re-renders on the lifecycle events of the combo **and of its legs**. Normal order-book trading on the combo is allowed.
+
+### 17.4 RFQ model
+
+**Endpoints** (the docs' `/communications/...` paths under `/v1`):
+- `POST /v1/communications/rfqs`
+- `GET /v1/communications/rfqs?scope=mine|others`
+- `GET /v1/communications/rfqs/:id`
+- `DELETE /v1/communications/rfqs/:id`
+
+**Sizing** takes exactly one of:
+- `contracts_fp` / `contracts`: 0.01 steps, must match if both are given, never reduced for fees;
+- `target_cost_dollars`: the requester's debit **including the taker fee**. Each quote derives the maximum units whose `ceil(u·p/100)+fee ≤ target` and returns them as `yes_contracts_fp` / `no_contracts_fp`.
+
+*Source:* `getting_started_rfqs.md` §Sizing; `api-reference_communications_create-rfq.md`.
+
+**Limits.**
+- At most 100 open RFQs per user (doc).
+- One open RFQ per user per market: 409 `rfq_exists` unless `replace_existing:true` (doc: "409 Conflict: Open RFQ already exists on this market ticker"; create-rfq has a "delete existing RFQs" flag).
+
+**Persistence.** `rfqs`, with status `open | accepted | executed | expired | cancelled`, `closed_reason`, `expires_ts`.
+- *UNKNOWN:* the RFQ lifetime. *Design choice:* 10 minutes (`combos.rfqTtlMs`).
+
+**Pseudonymous IDs.** `creator_id` is `sha256(salt+uid)` truncated (`getting_started_rfqs.md` §Creator identity). The salt is persisted in meta.
+
+### 17.5 Quotes, accept, confirm, execution
+
+**Quotes.** `POST /v1/communications/quotes {rfq_id, yes_bid, no_bid}` (alias `POST /v1/communications/rfqs/:id/quotes`).
+- Bids are dollars on the 1¢ grid. 0 declines a side, but not both. `yes_bid + no_bid ≤ $1.00` (400 `invalid_parameters`).
+- A new quote from the same maker replaces the previous one (old status `cancelled`, reason `replaced`).
+- Quotes are private to the requester and that maker.
+- A quote expires after `quoteTtlMs` (default 20 s; configurable).
+- *Sources:* `getting_started_rfqs.md` §Quotes; `api-reference_communications_create-quote.md`.
+- *UNKNOWN:* combos use the `center_deci_edge_centi_cent` grid (doc). *Design choice:* the cent grid everywhere.
+
+**Accept.** `PUT /v1/communications/rfqs/:id/quotes/:qid/accept {accepted_side}` (alias `PUT /v1/communications/quotes/:qid/accept`).
+- `accepted_side` names the **bid accepted**: `"no"` accepts the maker's NO bid, so the requester buys **YES at `100 − no_bid`**; `"yes"` means the requester buys NO at `100 − yes_bid`.
+- *UNKNOWN; design choice.* `chunk:3v1hcpx41eiby.js` colours `accepted_side==="no"` with the YES colour, consistent with this choice.
+- The requester's balance is checked at accept (409 `insufficient_balance`), and so is the trading limit.
+- The quote becomes `accepted` with `confirm_deadline_ts`; the RFQ becomes `accepted`.
+
+**Confirm.** `PUT /v1/communications/quotes/:qid/confirm` (maker only).
+- After the window (`confirmWindowMs`, default 30 s) the accepted quote becomes `expired` (reason `not_confirmed`) and the RFQ reopens.
+- *Source:* `getting_started_rfqs.md` §Timing (standard 30 s, HVM 3 s).
+- *UNKNOWN; design choice:* one configurable window for all markets, because human makers also quote combos. The execution timer is 0: confirmation executes synchronously so errors reach the confirmer.
+
+**Execution through the real engine.**
+1. The maker's **post-only** order rests at its bid for the RFQ size, with `order_type 'rfq'`.
+2. The requester's IOC order crosses **exactly that order** (`match_order_id`) at the quoted price, with `exact_reserve`.
+3. Any maker remainder is canceled.
+4. Fills, taker fee, ledger, positions, netting and notifications behave as for any trade. The quote stores `maker_order_id` (`creator_order_id`) and `taker_order_id` (`rfq_creator_order_id`) (doc: "Match on `creator_order_id` … or `rfq_creator_order_id`").
+
+**Failures.**
+- Maker short of cash: 409 `insufficient_balance`, and the quote stays `accepted` so the maker can retry within the window.
+- Maker order would cross the book: 409 `post_only_cross`, the quote is `cancelled` (`would_cross`), and the RFQ reopens (doc §Post-only quotes).
+- Requester short of cash at execution: 409 `requester_insufficient_balance`, the maker order is canceled, and the quote is `cancelled`.
+
+### 17.6 Two-sided RFQs, opt-in and Portfolio tabs
+
+**Opt-in.** The user property `rfq_enabled` (in `SETTING_KEYS`; `chunk:3v1hcpx41eiby.js` `rfqEnabled` / `useRfqEnabled`) is required to:
+- see and quote other users' RFQs (`scope=others`);
+- request RFQs on single markets (403 `rfq_not_enabled`).
+
+Requesting on combos is always allowed. The event-page ticket gets a **Request quote** mode (`order_type:"rfq"` in `chunk:3v1hcpx41eiby.js`) when the property is on.
+
+**Portfolio tabs.** The observed tab set is `["position","resting","rfqs","quotes","history"]` (`chunk:0b-vmmhwqitt_.js`). Deep links: `/portfolio?tab=rfqs|quotes` (`&scope=others`). The tab is persisted in `portfolio_view`.
+- **RFQs:** "Yours" | "Other RFQs" (`chunk:3v1hcpx41eiby.js` `myRfqs`, `allQuotes`, `quotesForMyRfqs`, `myOpenRfq`, `"Other RFQs"`).
+  - Yours: market, size or target, status, age, open quotes as **Buy YES p¢ · n** / **Buy NO p¢ · n** with countdowns, and Cancel. Accepted RFQs show "waiting for maker" with a countdown.
+  - Other RFQs: market, size, age, your quote and status, and a quote form (cents; client validation mirrors the server's).
+- **Quotes:** quotes you made and quotes on your RFQs. Shows prices, size, status, **Confirm order · Ns** (shows **"Confirming…"** while running) and Delete (open quotes only; an accepted quote cannot be deleted).
+
+### 17.7 Simulated maker
+
+The liquidity user `liquidity@parlance.local` quotes **combo** RFQs only.
+- *UNKNOWN; design choice:* single markets have book liquidity.
+- Pricing: `fair = Π leg probabilities` (last price, else mid). Spread `s = max(3¢, ceil(8%·fair))`. `yes_bid = floor(fair − s)`, `no_bid = floor(100 − fair − s)`, clamped. The sum stays below $1.
+- It re-quotes an open RFQ whenever it has no live quote, so an expired quote is replaced.
+- It auto-confirms accepted quotes after `autoConfirmMs`.
+- All timers are accelerators only. The tick sweep re-derives quotes, expiries, lapses and auto-confirms from persisted timestamps, so a restart neither loses nor repeats a transition.
+- Test configuration: `start({combos:{quoteTtlMs, rfqTtlMs, confirmWindowMs, makerDelayMs, autoConfirmMs, spreadCents}})`.
+
+### 17.8 WebSocket and notifications
+
+**Private channel `communications`** (`server/ws.js`; doc: "Quote notifications arrive on the `communications` WebSocket channel").
+- `rfq_created` and `rfq_deleted` go to every authenticated subscriber, with no requester identity beyond `creator_id`.
+- `quote_created`, `quote_accepted`, `quote_executed`, `quote_expired` and `quote_deleted` go only to the requester and that maker.
+- The RFQs, Quotes, Positions and History tabs and `/combos` update live.
+
+**Notifications** (persisted; toasts):
+- `rfq_quote` ("Quote received", to the requester, for human makers);
+- `rfq_accepted` ("Your quote was accepted — confirm within Ns", to the maker);
+- `rfq_executed` (both sides);
+- `rfq_failed`;
+- `order_expired` (§17.10).
+
+### 17.9 Portfolio History
+
+**Endpoint.** `GET /v1/users/:uid/history?type=all|trades|orders|settlements|combos|cash&market=&from=&to=&cursor=&limit=` returns one server-paginated timeline. It is a `UNION ALL` over persisted tables; no new event table is needed.
+
+| Row type | Source |
+| --- | --- |
+| Order placed (with the user's action, side, type and "x of y filled") | `orders` |
+| Canceled / expired remainder | `orders` |
+| Fill (signed cost: taker ceil, maker floor; fee; maker/taker role) | `fills` |
+| Settlement (result, quantity, +payout) | `settlements` |
+| Netting, deposit, withdrawal, interest, perps transfer | `ledger` (the perps tables are not read) |
+| Combo built | `combo_creations` |
+| RFQ requested, quote made, RFQ execution (as requester or maker) | `rfqs` / `rfq_quotes` |
+
+- **Ordering:** time desc, then a tie-break priority (cancel > settlement/ledger > fill > order), then id.
+- **Cursor:** a keyset `(ts, prio, id)`, so live inserts do not shift pages.
+- **Sells:** sells are stored as buys of the other side. History shows the user's intent ("Sold YES …"), using the new `orders.action` and `order_type` columns.
+
+**CSV.** `GET /v1/users/:uid/history.csv` (same filters, up to 10,000 rows) has the columns `time,type,market,description,side,action,quantity,price_dollars,amount_dollars,fee_dollars,status`, with RFC-4180 quoting.
+
+**UI.**
+- Chips: All, Trades, Orders, Settlements, Combos/RFQ, Cash. Also a market search and from/to dates.
+- Filters are persisted in the user property `history_filters`.
+- **Load more** uses the cursor; **Download CSV** exports the filtered view.
+- New fills and order or balance changes prepend live without a reload.
+- The earlier Trade history, Settlements and Transactions tables are History sub-views (`data-tab=fills|settlements|transactions`).
+
+**UNKNOWN:** the live site's exact History columns and grouping. *Design choice:* the columns above.
+
+### 17.10 Resting orders
+
+**Server** (doc paths `/portfolio/events/orders/{id}/amend|decrease`, `DELETE /portfolio/events/orders`, `/portfolio/orders/{id}/queue_position`, `/portfolio/orders/queue_positions` map to `/v1/users/:uid/orders/...`):
+- **Amend:** `POST …/orders/:id/amend {price|price_dollars, count|count_fp (new total = filled + remaining), expiration_time}`.
+  - A price change or a size increase **forfeits queue position**: the order gets a new `seq`, the same id, a new reservation, and may fill immediately.
+  - Changing only the expiry, or decreasing the size, keeps it.
+  - The response includes `queue_priority_kept`.
+  - *Source:* `api-reference_orders_amend-order-v2.md` ("Amending only expiry or decreasing size preserves queue position. Increasing size or changing price forfeits queue position").
+  - Prices are in the user's terms: for sells, the stored price is `100 − p`.
+- **Decrease:** `POST …/orders/:id/decrease {reduce_by | reduce_to}`, exactly one (`api-reference_orders_decrease-order-v2.md`). It keeps `seq` and refunds `reserved − R(new)` exactly. `reduce_to 0` cancels.
+- **Cancel all:** `DELETE /v1/users/:uid/orders?market_ticker=&event_ticker=` (`api-reference_orders_cancel-all-orders.md`, here scoped).
+- **Queue position:** contracts ahead at the same market, side and price with a lower `seq` (`api-reference_orders_get-order-queue-position.md`: "number of preceding shares"). Returned as `queue_position_fp` per order and in bulk.
+- **Good-til-time:** limit orders may carry `expiration_time`. IOC types cannot (`api-reference_orders_create-order-v2.md`: "`immediate_or_cancel` … cannot be combined with `expiration_time`").
+  - The engine tick cancels expired orders (`cancel_reason='expired'`), releases the reservation, emits `user_orders` and notifies (`order_expired`).
+  - It is persisted (`orders.expiration_ts`), so it works across restarts.
+
+**UI.** The **Resting** tab lists rows grouped by event, then market (market link, outcome).
+- Columns: side as BUY/SELL YES/NO, limit price, filled/total (2 dp), remaining, reserved, queue position, placed time, expiry countdown (or GTC) and status.
+- Actions: inline **Edit** (price, total, expiry: keep / never / end of day / custom) with validation; **Decrease**; **Cancel**; per-market **Cancel market**; **Cancel all** with a confirm dialog; and an empty state.
+- The ticket's Limit mode has **Expires: Never (GTC) / End of day / Custom**.
+- *UNKNOWN:* the live end-of-day definition. *Design choice:* the user's local 23:59:59.
+
+### 17.11 Positions
+
+**Server.** `GET /v1/users/:uid/portfolio/positions?sort=value|pnl|closing&filter=all|open|closing|combos` returns positions grouped by event. Each position carries:
+- side and quantity (2 dp);
+- average price;
+- **cost basis including fees paid** (the position's `fees_paid_cents`; `chunk:3v1hcpx41eiby.js` `positionFeeCost`);
+- mark: last trade, else mid, mirrored for NO;
+- market value; unrealized P&L in $ and %; realized P&L;
+- **payout if right** (`q` units = `q` cents);
+- **sell now**: walks the resting bids of the held side, excluding the user's own orders, exactly like a market sell (`q − ceil(q·(100−bid)/100) − fee` per level). INFERRED from `chunk:1al56gdla-56l.js` `collateralReturnedCents`; the exact live formula is UNKNOWN;
+- resting-order count, market status and close time;
+- state `open | settling (result) | closed`;
+- for combos, legs with per-leg status.
+
+Per-market position objects are INFERRED from `chunk:1_rhh98rkbbd9.js` `marketPosition`. The summary has total value (cash + held + positions), cash, positions value, today's change (vs `previous_price`) and all-time P&L (realized + unrealized). Open combos are counted (`chunk:2tu-kprteoa73.js` `openCombos`/`totalOpenCombos`/`openCombosEventTickers`).
+
+`GET /v1/users/:uid/positions/:ticker/sell_quote?count=` is the Sell sheet estimate.
+
+**UNKNOWN:** "closing soon" and the exact P&L definitions. *Design choices:* closing soon = closes within 7 days; unrealized P&L = value − (cost + fees).
+
+**UI.** Positions is the default tab.
+- A summary header; filter chips (All / Open / Closing soon / Combos) and a sort select (Value / P&L / Closing soon), persisted in `positions_filter` and `positions_sort`.
+- Event group rows. Market rows keep `tr[data-ticker]` with outcome, side and contracts first.
+- Each row has a **Sell** sheet: partial size or **Max**, Market or Limit, a live estimate of proceeds and fee from the server walk, submitted through the normal sell path. It also has **Buy more** (links to the ticket with market and side) and the existing **Close**.
+- Settled combos are listed below.
+- Live re-marking on `ticker`, `fill`, `user_orders` and `user_balance`.
+
+### 17.12 UNKNOWN / design-choice summary
+
+| # | Topic | Choice |
+| --- | --- | --- |
+| C1 | Sub-cent amounts | Integer cents; taker ceil / maker remainder; fee ceil; no accumulator (§16.2) |
+| C2 | Fractional markets | All seeded markets except PLXSTATE; combos and rolling markets on (§16.3) |
+| C3 | Combo ticker | sha256 of the sorted legs (§17.1) |
+| C4 | Leg limits | 2–6 legs, distinct events, active non-combo non-rolling markets |
+| C5 | Combo price grid | Cent grid (doc: deci/centi-cent edges) |
+| C6 | `accepted_side` meaning | The bid accepted; the requester takes the other side |
+| C7 | Timers | Quote 20 s, RFQ 10 min, one confirm window of 30 s, execution timer 0; all configurable |
+| C8 | Simulated maker | Combos only; product of leg odds ± max(3¢, 8%) |
+| C9 | Slip storage | Server-side, per user |
+| C10 | History columns / CSV | As in §17.9 |
+| C11 | End of day / closing soon | Local 23:59:59 / 7 days |
+
+### 17.13 Verification
+
+`npm run test:e2e` runs ten files. The six new ones:
+
+| File | Covers |
+| --- | --- |
+| `tests/fractional.e2e.test.js` | Units, exact cents, Dollars and sells, validation, hide-fractional setting, settlement, migration, restart, 390 px |
+| `tests/combos.e2e.test.js` | Rail button, slip persistence, quote → accept → Confirming… → executed with DB checks, idempotency and validation, expiry, re-quote and cancel, event combo mode, leg-driven resolution and settlement, restart, 390 px |
+| `tests/rfq.e2e.test.js` | Two users: opt-in, ticket Request quote, live Other RFQs, quote validation, live accept, maker confirm with exact fills, fees and balances, lapse, delete, cancel, balance errors, restart, 390 px |
+| `tests/orders.e2e.test.js` | Expires option, queue position, decrease keeps / amend loses priority with exact reservations, live partial fill, GTT expiry, cancel / market / all, restart, 390 px |
+| `tests/positions.e2e.test.js` | Default tab, values vs DB and book, live re-mark, Sell sheet cash = estimate, combo legs, sort/filter persistence, settling → removed, restart, 390 px |
+| `tests/history.e2e.test.js` | Every row type with signed amounts that reconcile to the cash balance, pagination, CSV, live prepend, persisted filters, restart, 390 px |
+
+---
+
+## 18. Admin panel and CMS
+
+Parlance's staff console lives at `/admin` (single-page route inside the existing SPA) and is backed by `clone/server/admin.js`. Every admin table is created there with `CREATE TABLE IF NOT EXISTS`; no existing table's schema changes. Everything is persisted in the same SQLite file and survives a restart.
+
+### 18.1 Evidence vs. design choice
+
+Almost none of a real exchange's back office is observable from outside. The table below separates what the captures show from what Parlance designed.
+
+| Area | Status | Evidence / rationale |
+|---|---|---|
+| Social moderation API | **OBSERVED call sites** (shape INFERRED) | `evidence/api_callsites_home.txt` lines 27-28: `DELETE users/{uid}/social/social-admin/posts/{post}` and `…/posts/{post}/comments/{comment}`. Line 144: `GET users/{uid}/social/social-admin/profiles?…`. Lines 236-239: `PUT …/social-admin/determine_profile_image/{id}`, `…/posts/{id}/market_status`, `…/post_subtype` and `…/update`. Parlance implements the first three paths (same URL shape, gated by the `social.moderate` permission). The four `PUT` ones are not implemented, because their bodies are UNKNOWN. |
+| Site banner | **OBSERVED** | §13.5: `manual-banner-details.json` returns `{content:"", visibilityTokens:["all"], position:"top"}`. Parlance banners keep `content`, `visibility` (exposed as `visibilityTokens: [visibility]`) and `position` (`top`/`bottom`), and add an optional link and an active window. |
+| Spotlights / promo cards | **OBSERVED fields** | §13.11 dehydrated `["spotlights"]`: `title`, `web_title`, `web_overline`, `share_link`, `primary_color`, targeting (`series_ticker_list`, `preferred_categories`, `hide_on_explore_page_web_logged_out`). Parlance promo cards use overline, title, subtitle, link, colour and active dates. Targeting is a design choice that was not built. |
+| Category navigation | **OBSERVED data** | §13.3 dehydrated `["categoryNavigation"]` and the `categoryOrdering` facet (§13.4) show that order and labels are data-driven. Parlance makes order, display labels, hidden flags and the featured tab (label, link, colour) editable. |
+| Market lifecycle controls | **DOC + OBSERVED** | §4.4 lifecycle (deactivate/activate/close/determine/finalize) and `settlement_timer_seconds` (§13.5). The resolution desk drives the existing `engine.close/determine/finalize`. |
+| Roles, audit log, permission matrix, catalog drafts, CSV import, reports, announcements, user support actions, settings | **UNKNOWN → design choice** | Not observable. These are all Parlance's own design. |
+
+### 18.2 Roles and permissions
+
+Roles are stored in `admin_roles(user_id, role)`. A user with `users.is_admin = 1` always has `admin`, and granting or removing `admin` keeps `is_admin` in sync, so the earlier `requireAdmin` routes still work. Every `/v1/admin/*` route checks a permission on the server (`can(perm)`). The last admin cannot be demoted, and admins cannot demote themselves.
+
+| Permission | admin | editor | resolver | risk | support | moderator |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| catalog.read (catalog, resolution queue view) | ✓ | ✓ | ✓ | ✓ | | |
+| catalog.write (create / edit / publish / import) | ✓ | ✓ | | | | |
+| content.write (hero, hubs, promos, banners, nav, info cards, news, help) | ✓ | ✓ | | | | |
+| resolution.write (resolve, reverse, settle now, early close) | ✓ | | ✓ | | | |
+| markets.ops (exchange switch, pause/resume, fees, liquidity bot, combo flag) | ✓ | | | ✓ | | |
+| perps.ops (halt/resume, max leverage, run funding) | ✓ | | | ✓ | | |
+| reports.read | ✓ | | | ✓ | | |
+| users.read (search, detail) | ✓ | | | | ✓ | |
+| users.support (lock/unlock, reset 2FA, clear session time) | ✓ | | | | ✓ | |
+| users.money (balance adjustment, limit override) | ✓ | | | | | |
+| announce | ✓ | | | | ✓ | |
+| social.moderate (reports, hide/delete, bans, verified badge, social-admin paths) | ✓ | | | | | ✓ |
+| settings.write (settings, health) | ✓ | | | | | |
+| roles.write | ✓ | | | | | |
+| audit.read | ✓ | | | | | |
+
+Users with no role who open `/admin` get a friendly page (`data-testid=admin-forbidden`), and the API returns 403. Signed-out visitors get 401 from the API and a sign-in prompt in the UI. A role that lacks a section's permission sees `section-forbidden` inside the shell.
+
+**Audit.** Every admin mutation writes one row to `admin_audit(id, ts, actor_id, actor_email, action, target_type, target_id, before_json, after_json, reason)`. The audit viewer filters by actor, action prefix, target and date range.
+
+### 18.3 Catalog CMS: draft → published
+
+- **Draft storage.** Drafts live in their own tables: `cms_draft_series`, `cms_draft_events` and `cms_draft_markets`. Public queries only ever read `series`, `events` and `markets`, so drafts can never reach a public API, search, the calendar, combos or the home page. No public query had to change.
+- **Publishing.** Publish copies the draft rows into the live tables and deletes the drafts, all in one transaction. Publishing an event also publishes its draft series and all of its draft markets. Publishing a market also publishes its draft parents. An event cannot be published until it has at least one market.
+- **Market status on publish.** A market becomes `active` if its open time has passed, otherwise `initialized`, and the engine tick activates it later.
+- **Editing live items.** Published items are edited in place, with these limits:
+  - A market's open time can only move while it is `initialized`.
+  - A market's close and expiration times are locked once it is closed.
+  - The icon colour of a published event is stored in `cms_event_meta`.
+- **Validation.** Tickers are unique per kind and use `[A-Z0-9._-]`, 2-64 characters. A single-market event may share its market's ticker, as the seed does.
+  - Categories must be one of the site categories.
+  - Colours use `#rrggbb`.
+  - Times: open < close ≤ expected expiration.
+  - Settlement timer: 0-604800 s. Starting price: 1-99¢.
+  - Fee multiplier: 0-10.
+  - Settlement source URLs must be `https://`.
+  - Field errors come back as `{error:{code:"validation_failed", fields:{…}}}` and are shown inline next to each field.
+- **Preview.** `/admin/preview/{EVENT}` renders the draft with the public `eventCard` component plus a table of its markets.
+- **CSV import.**
+  - Columns: `event_ticker, market_ticker, yes_sub_title, no_sub_title, title, color, open_time, close_time, expected_expiration_time, settlement_timer_seconds, rules_primary, initial_price, seed_liquidity`.
+  - The required columns are the first three plus `close_time`.
+  - The template is a download.
+  - Valid rows become draft markets. Invalid rows are reported as `{row, market_ticker, errors[]}`, and the report downloads as a CSV.
+- **Starting liquidity.** This is configurable in Settings: `publish_liquidity {enabled, spread_cents, size_contracts, levels}`. When a market with `seed_liquidity` is published, an `ops_liquidity` row is written and the existing liquidity user (`liquidity@parlance.local`) quotes both sides around `initial_price` with post-only orders. Markets that publish before their open time are quoted when the engine emits `activated`.
+
+### 18.4 Resolution desk
+
+- **Queue.** The desk lists closed markets, active or inactive markets past their close time, determined markets, and markets finalized in the last 7 days. Combo and rolling (PLXFLASH) markets are excluded because they resolve automatically.
+- **Resolve.** Requires YES/NO, a source note (5-1000 characters, stored in `res_resolutions`) and an optional settlement delay. The delay is written to `markets.settlement_timer_seconds`. The desk then calls `engine.determine()`; the existing tick runs `engine.finalize()` (payouts, `settlements`, `settlement` ledger rows, notifications) when the timer expires. A delay of 0 settles immediately.
+- **Reversal (before settlement only).** A `determined` market goes back to `closed` with `result=''` and `determined_at=NULL`, and the resolution row is marked `reversed` with a reversal note. No money has moved at that point, so this is ledger-correct by construction.
+  - Reversal is refused if a combo has already resolved from this leg.
+  - **Reversal after settlement is not supported.** Clawing back paid-out cash safely needs negative-balance handling and user-facing disputes. The desk returns `409 already_settled`. The settlement delay is the review window that allows a reversal.
+- **Settle now** finalizes a determined market immediately.
+- **Close early** requires a reason and the market's `can_close_early` flag, and calls `engine.close()`.
+
+### 18.5 Content CMS and how the public site reads it
+
+| Content | Table | Public effect | Default when empty |
+|---|---|---|---|
+| Hero carousel (ordered event list) | `cms_hero` | `bff/home.highlights` (open events only) | featured events |
+| Hubs | `cms_hubs` | `bff/home.hubs` (volume/count computed with `eventFull`) | the two built-in hubs |
+| Promo / spotlight cards | `cms_promos` | `bff/home.promos`, rendered in the home rail | Perps promo |
+| Site banner | `cms_banners` | `/v1/site_config.banners`, rendered in the shell under the header (top) or above the footer (bottom) | none |
+| Category navigation + featured tab | `cms_nav`, `admin_settings.featured_tab` | `/v1/site_config.nav`, rendered as the category strip | 10 categories, "Harbor 2026" → `/category/elections` |
+| Info cards | `cms_info_cards` | `bff/home.info_cards` | the three built-in cards |
+| News items | `cms_news` | `news_items[]` on every `eventFull` event, shown in the event page's News section | the event's `news` text only |
+| Help pages | `cms_help` | `GET /v1/help`, `GET /v1/help/:slug`, SPA route `/help/:slug` | — |
+
+**Safe help-page rendering.** Help text is HTML-escaped first. After that, only `#`/`##`/`###` headings, `-` bullets, paragraphs, `**bold**` and `[text](/path | https://…)` links are turned into markup. Scripts and HTML are shown as plain text; the test checks this with an injected `<script>` and `<img onerror>`.
+
+**How CMS data reaches public routes.** Public read routes are unchanged. `admin.js` registers small `v1` response decorators that wrap `res.json` for exact method + path pairs:
+
+- `GET /bff/home`
+- `GET /session`
+- `POST /log_in` and `POST /log_in_mfa` (to add `admin_roles`)
+- `GET /social/posts`, `/social/posts/:id` and `/social/posts/:id/comments`
+- `GET /social/profile` and `GET /social/leaderboard`
+- `GET /multivariate_event_collections/:c`
+
+`eventFull` in `app.js` also calls `admin.decorateEvent(vo)`, which adds the event's icon colour and news items.
+
+### 18.6 Market ops, perps ops and settings
+
+**Market ops**
+- Exchange trading on/off uses `engine.tradingActive` and is persisted in `meta.trading_active`.
+- Per-market pause/resume calls `engine.deactivate/activate`. Activation cancels resting orders, per the exchange rule; a configured liquidity bot then re-quotes.
+- Series fee multipliers are written to `series.fee_multiplier`, which the engine already applies to every fill.
+- Liquidity bot: `ops_liquidity` stores enable, spread, size and levels per market. Saving cancels the liquidity user's resting orders in that market and re-quotes around the last price.
+- Combo eligibility: `ops_market_flags.combo_eligible = 0` hides the market from the combo collection, and leg validation rejects it with `400 invalid_leg`. Both are enforced in `admin.js` without editing `combos.js`, and the toggle only appears if `server/combos.js` exists.
+- Rolling-market window: read-only view of the window length (set at boot), the current window and recent results.
+
+**Perps ops** update `perp_markets.status` (`halted`/`active`) and `max_leverage` directly; the perps engine already rejects orders on non-active markets and skips them in its tick. "Run funding" calls the exported `engine.perps.runFunding()`. `perps.js` was not modified.
+
+**Settings**
+
+| Setting | Behaviour |
+|---|---|
+| Interest APY | Stored in `meta.setting_interest_apy` and read by `features.js` on every accrual and by `GET /users/:uid/interest`. Effective: the test checks the next accrual uses it. |
+| Feature switches (social, perps, combos) | `admin_settings.features`. Server: mutating requests to the switched-off feature return `403 feature_disabled`. Client: entry points are hidden and routes show a "feature unavailable" page. |
+| Publish-liquidity defaults | Editable; see §18.3. |
+| Taker fee coefficient | **Display-only.** `0.07` is a constant in `engine.js`, which is out of bounds for this work. The effective per-series scaling is the fee multiplier above. |
+| Rate limit | Display-only view of the boot configuration. |
+| Health | DB size (+ WAL), uptime, WebSocket clients (`app.locals.wsHub`, set in `index.js`), memory and row counts. |
+
+### 18.7 Users, moderation and announcements
+
+**Users.** The detail view never interprets raw quantity columns. `asUser(uid, url)` dispatches the user-facing GET routes through the `v1` router as the target user: `/balance`, `/positions`, `/orders?status=resting`, `/transactions`, the three limit routes and `/mfa`. The admin view therefore shows exactly what the user sees, using the same SQL and serializers. Actions, each with a required reason:
+
+- **Credit/debit.** Writes an `adjustment` ledger row via `engine.credit`, cannot take cash below zero, emits `user_balance` (the header updates live) and notifies the user.
+- **Lock.** Writes to `acct_locks`, deletes the user's sessions and MFA challenges, and cancels resting orders. While locked, `/log_in` and `/log_in_mfa` return `403 account_locked`, and any surviving cookie is treated as signed out.
+- **Unlock.**
+- **Reset two-factor.**
+- **Clear today's session time.**
+- **Override a limit.** Takes effect immediately, skipping the cooling-off period.
+
+**Moderation**
+- Any signed-in user can report a post (⋯ menu) or a reply (Report button): `POST /v1/users/:uid/social/reports`, stored in `mod_reports` and de-duplicated per reporter and item.
+- The moderator queue can hide (`mod_hidden`, filtered out of feeds, and the single-post endpoint returns 404), delete, or dismiss a report. It can also ban or unban posting (`mod_bans` → `403 posting_banned` on new posts and replies) and verify profiles (`mod_verified` → `author.verified`, shown as a ✓ badge next to nicknames).
+
+**Announcements**
+- Sent with `notify()` to every unlocked user in a segment: everyone, traders, funded, never traded, social members or staff. Notifications are stored and pushed live over the private `notifications` channel.
+- Templates are stored in `ann_templates`, and the send history in `ann_announcements`.
+
+### 18.8 Reports
+
+`GET /v1/admin/reports?from=YYYY-MM-DD&to=YYYY-MM-DD` covers UTC days (default: the last 30 days, at most 400). It returns:
+
+- **Totals and per-day series:**
+  - trades
+  - volume in contracts (`ufp(Σcount)`)
+  - volume in dollars (`Σcount×price / UNITS`, the same conversion as `engine.quote().dollar_volume_cents`)
+  - fees (`Σ fills.fee_cents`)
+  - deposits and withdrawals (ledger)
+  - active traders (distinct non-system fillers)
+  - sign-ups
+- **Open interest:** the current figure only, from `marketVo`.
+- **Top markets** by volume in the range.
+- **Exposure per market:** open interest, maximum payout and the liquidity account's position, read through its own positions route.
+
+`/v1/admin/reports.csv` exports the daily rows plus a total row. The charts are hand-built SVG bar charts, one series per chart, with hover tooltips, using the app's `--brand` and `--line` tokens.
+
+### 18.9 Endpoints (all under `/v1`)
+
+**Public**
+- `GET /site_config`
+- `GET /help`, `GET /help/:slug`
+- `POST /users/:uid/social/reports`
+
+**social-admin aliases (`social.moderate`)**
+- `DELETE /users/:uid/social/social-admin/posts/:pid`
+- `DELETE /users/:uid/social/social-admin/posts/:pid/comments/:cid`
+- `GET /users/:uid/social/social-admin/profiles`
+
+**Admin (`/admin/…`)**
+
+| Area | Endpoints |
+|---|---|
+| Identity, roles, audit | `GET me`; `GET roles`; `PUT roles/:userId`; `GET audit` |
+| Catalog | `GET catalog/series\|events\|markets`; `POST catalog/series\|events\|markets`; `PUT catalog/{series\|events\|markets}/:ticker`; `DELETE catalog/:kind/:ticker` (drafts only); `POST catalog/:kind/:ticker/publish`; `GET catalog/preview/:ticker`; `GET catalog/import/template.csv`; `POST catalog/import` |
+| Resolution | `GET resolution/queue`; `GET resolution/:ticker`; `POST resolution/:ticker/{resolve\|reverse\|finalize\|close}` |
+| Content | `GET/POST content/{hubs\|promos\|banners\|info_cards\|news\|help}`; `PUT/DELETE content/:coll/:id`; `GET/PUT hero`; `GET/PUT nav` |
+| Market ops | `GET ops`; `POST ops/exchange`; `POST ops/markets/:ticker/{pause\|resume\|requote}`; `PUT ops/series/:ticker/fee`; `PUT ops/markets/:ticker/liquidity`; `PUT ops/markets/:ticker/combo` |
+| Perps ops | `GET perps`; `POST perps/:ticker/{halt\|resume\|funding}`; `PUT perps/:ticker/leverage` |
+| Users | `GET users`; `GET users/:id`; `POST users/:id/{adjust\|lock\|unlock\|reset_mfa\|clear_session_time}`; `PUT users/:id/limits/:kind` |
+| Moderation | `GET moderation/reports`; `POST moderation/reports/:id/{hide\|delete\|dismiss}`; `POST moderation/content/:kind/:id/{hide\|unhide\|delete}`; `GET moderation/hidden`; `GET moderation/profiles`; `POST moderation/users/:id/{ban\|unban\|verify\|unverify}` |
+| Announcements | `GET announcements`; `POST announcements`; `POST announcements/templates`; `DELETE announcements/templates/:id` |
+| Reports | `GET reports`; `GET reports.csv` |
+| Settings and health | `GET/PUT settings`; `GET health` |
+
+### 18.10 Tables (created by `server/admin.js`)
+
+| Purpose | Tables |
+|---|---|
+| Roles, audit, settings | `admin_roles`, `admin_audit`, `admin_settings` |
+| Catalog drafts | `cms_draft_series`, `cms_draft_events`, `cms_draft_markets`, `cms_event_meta` |
+| Content | `cms_hero`, `cms_hubs`, `cms_promos`, `cms_banners`, `cms_nav`, `cms_info_cards`, `cms_news`, `cms_help` |
+| Resolution | `res_resolutions` |
+| Market ops | `ops_liquidity`, `ops_market_flags` |
+| Accounts and moderation | `acct_locks`, `mod_reports`, `mod_hidden`, `mod_bans`, `mod_verified` |
+| Announcements | `ann_templates`, `ann_announcements` |
+
+Foreign keys point only to `users`, with `ON DELETE CASCADE`, so `npm run seed` (a reset) still works.
+
+### 18.11 Verification
+
+`clone/tests/admin.e2e.test.js` has 14 Playwright scenarios against a real server, a temp SQLite file and Chromium, and is included in `npm run test:e2e`. It covers:
+
+- non-admins blocked in the UI and the API
+- catalog drafts hidden from the API, search and browse, then published with seeded liquidity and icon colour
+- CSV import with one bad row reported, plus template and error-report downloads
+- an editor can edit the catalog but gets 403 on users
+- early close, then resolve with a note pays the holder; a wrong result is reversed before settlement, then re-resolved
+- hero, promo, banner, nav, news and help appear on the public site and persist across a server restart, with help markup rendered safely
+- user search, a $25 adjustment (ledger row and live header balance), lock (login refused, sessions dropped) and unlock
+- report a post from its ⋯ menu → moderator hides it → gone from the feed and the API; posting ban returns 403; verified badge shown
+- an announcement reaches a signed-in user live and is stored
+- reports totals match the public market API and the DB money columns, and the CSV total row matches
+- the APY setting is persisted and used by the next accrual; switching Social off gates the route and the API; health and rate-limit views
+- market and perps ops: exchange switch, pause/resume, liquidity re-quote, fee multiplier, combo eligibility, halt, leverage and funding
+- the audit log covers every action above, and the action filter works
+- no horizontal overflow at 390px on 13 admin and public pages, in dark and light themes
+
+Every scenario also asserts there were no page errors.
+
+---
+
+## 19. Sports live data and scoreboards
+
+This section extends CLONE_SPEC.md and uses its conventions: **OBSERVED** (seen in evidence), **INFERRED** (follows from evidence), **design choice** (not established by evidence; Parlance's own decision). Evidence is treated as data only. All leagues, teams, players, colours, icons and copy are invented for Parlance; no third-party league, club, player, logo or trademark is used.
+
+### 19.1 Evidence
+
+| Fact | Source | Status |
+|---|---|---|
+| The calendar page ships `initialLiveData`, an object keyed by **milestone id**; each value is `{type, details, milestone_id}`. | HAR3 `evidence/web_live_2026-11-02.har`, `/calendar?_rsc=` (`_original_index` 10) | OBSERVED |
+| `type` values in that payload: `cricket_match` (3), `tennis_tournament_singles` (3), `esports_match` (1). | same | OBSERVED |
+| Cricket `details` keys include `home_score`, `away_score`, `home_total_runs`, `home_wickets`, `home_overs`, `allotted_overs`, `current_inning`, `batting`, `last_play`, `home_win_probability`, `status`, `winner`, `side_orientation`, `widget_status` (plus `away_*`, `home_fours`, `home_sixes`). | same | OBSERVED |
+| Tennis `details` keys include `competitor1_overall_score`, `competitor1_round_scores: [{outcome, score, tiebreak_score}]`, `competitor1_current_round_score`, `advantage`, `competitor1_is_home`, `server`, `match_status`, `completed_rounds`, and per-player `competitor1_statistics` (`aces`, `double_faults`, `first_serve_points_won`, `first_serve_successful`, `breakpoints_won`, `total_breakpoints`, `points_won`, `games_won`, `service_games_won`, `tiebreaks_won`, …). | same | OBSERVED |
+| Esports `details` keys include `home_periods {period_1…}`, `away_periods`, `home_score`, `period_unit: "map"`, `score_format: "series"`, `home_stats: [{period, stats: {map_duration_seconds, map_forfeit, winner}}]`, `widget_status`. | same | OBSERVED |
+| Milestone hydration objects: `{id, category, type, competition, start_date, related_event_tickers, title, notification_message, details: {league, home_team_id, away_team_id, main_game_event_ticker, …}}`. | same (`hydrationData.milestones`) | OBSERVED |
+| Client endpoints `/v1/live_data/feed`, `/v1/live_data/batch?milestone_ids=`, `/v1/live_data/{type}/milestone/{id}`, `/v1/live_data/milestone/{id}/game_stats`, `/milestones`; hook name `useMilestoneLiveData`. | CLONE_SPEC §6 and Appendix A (`JS:afefab63e6753a28`, HAR1#15) | OBSERVED (names); response shapes INFERRED |
+| `/v1/live_data/count` polled every ~30 s. | CLONE_SPEC §13.5 | OBSERVED |
+| Live page: FEATURED leagues with sport icons, "What's next", collapsible sports with counts ("Tennis (257)"). Browse live tennis cards: red **LIVE** + competition subtitle, per-player set-score columns and the current game score next to the odds pill, red-tinted border. | User screenshots, CLONE_SPEC §15.3 / §15.5 | OBSERVED |
+
+Everything below that is not in this table — the simulation, rates, leagues, the hub page, the event-page scoreboard, table layouts, WS message shape — is a **design choice**.
+
+### 19.2 Model
+
+- **League** (`sports_leagues`): id (`GPL`, `CGA`, `CHL`, `CHW`, `CPL`, `LHO`, `HTB`, `VXM`), sport, name, short name, `featured`, series ticker `PLX{id}`. Featured leagues mirror the screenshot's FEATURED rail (pro football, college football, pro basketball, women's college basketball) plus soccer.
+- **Team / player** (`sports_teams`): name, short name, 3-letter abbreviation, colour, rating. Monograms are generated from the abbreviation and colour.
+- **Milestone** (`sports_milestones`): one game. `type` uses the observed names where they exist (`cricket_match`, `tennis_tournament_singles`, `esports_match`) and the same pattern otherwise (`soccer_match`, `basketball_game`, `football_game`). Status machine: `scheduled → live → final` (exposed to clients as `details.status` `scheduled | live | complete` and `widget_status` `pre | live | finished`, as observed).
+- The full deterministic game state (including the PRNG state) is stored as JSON in `state_json`; denormalised columns hold scores, win probability, winner, live label and last play.
+
+### 19.3 Simulation (design choice)
+
+Each game advances in **segments** of game time; a segment is resolved when the game clock passes its end. A seeded PRNG (mulberry32, state persisted) makes every game reproducible from its seed.
+
+| Sport (type) | Segment | Scoring model | Live label | Win probability |
+|---|---|---|---|---|
+| Soccer (`soccer_match`) | 1 match minute; 10-min half-time | Poisson goals per minute from team strength; shots, corners, fouls, yellow/red cards (a red card cuts the team's rate) | `1st half · 23'`, `Half-time`, `2nd half · 61'` | Exact three-way Poisson over remaining minutes (home / draw / away) |
+| Basketball (`basketball_game`) | One possession (6–24 s); 12-min (pro) or 10-min (college W) quarters; OT until decided | Turnovers, 2s/3s with make rates, shooting fouls, offensive rebounds | `Q3 4:12`, `Half-time`, `OT 2:10` | Normal approximation: margin + strength drift + possession, σ = 0.24·√(seconds left) |
+| Football (`football_game`) | One play (18–42 s); 15-min quarters; 10-min OT periods until decided | Downs & distance, runs/passes/sacks/turnovers, punts, field goals by distance, TD + PAT, safeties | `Q2 8:31` plus `2nd & 7 at OPP 34` | Normal approximation with field-position expected points, σ = 0.22·√(seconds left) |
+| Tennis (`tennis_tournament_singles`) | One point (25–48 s, +90 s changeovers) | Serve model (first serve in, aces, double faults, serve/return win rates); deuce/advantage; tiebreak at 6-6 with correct serve rotation; best of 3 | `Set 2 · 3-2`, `· Tiebreak` | Exact Markov chain: game → tiebreak → set → match |
+| Cricket T20 (`cricket_match`) | One delivery (28–45 s); 10-min innings break | Per-ball outcomes (dot, 1–3, 4, 6, wicket, wide) varying by powerplay / middle / death overs; target = first innings + 1; tie decided on boundary count (design choice) | `1st inns · 9.3 ov`, `Innings break`, `2nd inns · 12.4 ov` | Resource-based expected runs (balls and wickets left), normal approximation for the chase |
+| Esports (`esports_match`) | One round (80–120 s); 5-min map break | Round win probability per map; first to 13, win by 2 from 12-12; best of 3 maps | `Map 2 · 8-5` | Exact recursion per map, then series |
+
+A play is logged for every resolved segment that produces one (goals, shots, cards, possessions, plays, points of note, deliveries, rounds, period changes, final). Each play stores game time, period, clock text, team, kind, text, the score after it and the home win probability.
+
+### 19.4 Clock, speed and persistence
+
+- The game clock is driven by the exchange's engine tick (`engine.on('tick')`, every `tickMs`). Each tick advances every live game by `elapsed real ms × speed`.
+- `speed` = game seconds per real second: `start({ sports: { speed } })`, else env `SPORTS_SPEED`, default 1 (real time). Seeded start times are also scaled by `speed`, so with `speed: 20` a "kick-off in 30 min" game starts in 90 s.
+- Every tick writes the game row, new plays and changed stats in one transaction. **Restart:** the first tick after boot uses a zero time step, so each clock resumes exactly where the DB left it (no catch-up jump for downtime); later steps are capped at 5 s. Games whose scheduled start passed during downtime start at boot.
+- **Seeding (idempotent):** on first mount, 21 fixtures are created relative to now — 8 live (fast-forwarded through the same simulation, with back-dated plays and price history; the live tennis match is chosen to have a first-set tiebreak), 9 upcoming and 4 recently final (resolved through the normal path). A `meta` key `sports_seed_v1` marks it; `npm run seed` (which wipes `meta`) also clears the sports tables so they are rebuilt. Every league is kept stocked with at least one upcoming fixture.
+
+### 19.5 Markets, liquidity and settlement
+
+- One **event** per game in the league's series (category `Sports`, series tags `[sport label, league name]`, which become the Sports subcategory chips). Title `Home vs Away`, sub-title `{competition} · Winner`, `mutually_exclusive`.
+- **Winner markets:** one per team (`{event}-{ABBR}`); soccer adds `{event}-TIE` ("Draw") for a three-way market. Links: `sports_event_links (event_ticker ↔ milestone_id)`, `sports_markets (market_ticker → outcome home|away|draw)`.
+- `events.is_live` / `live_label` are kept in sync on every tick (`is_live=1` only while live; final sets `Final · 2-1`), so `GET /v1/live_data/count` stays correct without changes.
+- **Live odds:** when the fair price `round(100 × win probability)` (clamped 2–98¢) moves by ≥1¢ (at most once per `requoteMs`, default 1 s), the liquidity account cancels its resting orders, a reference trade of one contract prints at the fair price (system account `sportsflow@parlance.local` posts NO at `100−f`, the liquidity account takes it with an IOC YES at `f`), and the liquidity account rests a YES bid at `f−1` and a NO bid at `99−f` (`depthContracts`, default 150). Card and event-page odds (last price) therefore follow the win probability. Quantities use the engine's unit (`require('./engine').UNITS`, currently 100 = hundredths of a contract).
+- **Settlement:** at the final whistle every market of the game goes through `engine.determine(ticker, outcome === winner ? 'yes' : 'no')` (which closes it and cancels resting orders); the engine tick finalizes after `settlement_timer_seconds` (5 s), writing `settlements`, the `settlement` ledger credit and the user notification through the existing path.
+
+### 19.6 UI
+
+- **Scoreboard components** (`public/js/views/scoreboard.js`): sport icons (own inline SVG), team monograms, compact score columns per sport (single score; tennis set columns with tiebreak superscript, serve dot and current game points; cricket `runs/wkts` + overs; esports current-map rounds + maps), win-probability bar (home / draw / away), the full board (team sports: score line, clock, down & distance / possession / red cards, line score; tennis set table; cricket innings rows with Target, CRR, RRR, requirement and recent balls; esports maps), play-by-play list and per-sport box score.
+- **Cards** (`components.js` `eventCard`): events with `live_data` show red **LIVE** + competition + game state, home/away rows with score columns beside the odds pill, and a red-tinted border; finals show a "Final" tag.
+- **Live page / calendar** (`calendar.js`): FEATURED leagues with sport icons and live counts, "What's next", collapsible sports with counts (`Soccer (3)`), each opening to its leagues. Filters are URL-addressable: `/live?league=CPL`, `/calendar?sport=tennis`.
+- **Event page** (`event.js`): full scoreboard above the chart, Play-by-play / Box score tabs; live via WS; a final game shows **Final** and "{winner} won", and the ticket shows the resolved result.
+- **Hub** `/sports` and `/sports/:league`: league tabs (with live badges), sport chips (`?sport=`), sections **Live now / Upcoming / Results** of game cards (compact board, odds per side and draw, last play, win-probability bar). Linked from MORE ("Sports scores") and from the Sports category ("Live scores ›" chip, shown when the sports engine is running).
+- **Live updates:** one page-wide subscription to the `live_data` channel patches every element tagged `data-live-ms` (card columns, subtitles, hub state, last play, win bar); card odds pills follow the `ticker` channel once sports data is seen. The event page subscribes with `milestone_ids: [id]`. Polling fallback every 5 s while the socket is down (`/v1/live_data/batch`, `/v1/sports/events/{ticker}`).
+- Styles only in `public/sports.css`, using the shared tokens; dark default, light supported.
+
+### 19.7 API
+
+| Endpoint | Response |
+|---|---|
+| `GET /v1/live_data/feed?sport=&league=&limit=` | `{live:[item], upcoming:[item], results:[item]}`, item = `{milestone, live_data, event}` (`event` is the full event with markets) |
+| `GET /v1/live_data/batch?milestone_ids=a,b` (≤100) | `{live_datas:[live_data]}` |
+| `GET /v1/live_data/{type}/milestone/{id}` | `{live_data}`; 404 when the type does not match |
+| `GET /v1/live_data/milestone/{id}/game_stats` | `{milestone_id, type, stats:{home:{…}, away:{…}}, periods:{home:[…], away:[…]}, plays_count}` (from `sports_stats`) |
+| `GET /v1/live_data/count` | unchanged: `{count}` |
+| `GET /v1/milestones?category=&sport=&league=&type=&status=&related_event_ticker=&min_start_date=&max_start_date=&limit=&cursor=` | `{milestones:[milestone], cursor}` |
+| `GET /v1/milestones/{id}` | `{milestone}` |
+| `GET /v1/milestones/{id}/plays?limit=&before_seq=` | `{plays:[play]}` newest first |
+| `GET /v1/sports/leagues` | `{featured:[league], sports:[{sport, label, type, count, live_count, leagues}], leagues, totals}`; `count` = scheduled + live |
+| `GET /v1/sports/events/{event_ticker}` | `{milestone, live_data, plays}` (event page fallback); 404 for non-sports events |
+| `GET /trade-api/v2/events/{t}` and every `eventFull` user | events linked to a game gain `milestone_id` and `live_data` |
+
+`live_data` = `{milestone_id, type, sport, sport_label, league{id,name,short_name}, competition, title, start_date, status, live_label, event_ticker, home, away, outcomes{market_ticker: home|away|draw}, lines, stats, updated_ts, details}`; `details` carries the observed field names per type plus common `home_score, away_score, home_periods, away_periods, status, widget_status, winner, home_win_probability, away_win_probability, draw_probability (soccer), last_play, period, clock, period_label, side_orientation:"milestone"`. `milestone` = `{id, category:"Sports", type, sport, competition, title, start_date, end_date, status, league_id, league, related_event_tickers, notification_message, details{league, sport, home_team_id, away_team_id, main_game_event_ticker}, home, away, winner, last_updated_ts}`. `play` = `{seq, ts, game_time, period, clock, team, kind, text, home_score, away_score, home_win_probability}`.
+
+### 19.8 WebSocket
+
+- Public channel **`live_data`** on `/v1/ws`. Subscribe `{cmd:"subscribe", params:{channels:["live_data"], milestone_ids?:[…]}}` (no filter = every game).
+- Message per live game per tick: `{type:"live_data", sid, seq, msg: live_data + {plays:[newest plays this tick, ≤30]}}`; also sent on start and on the final whistle.
+- Market effects use the existing channels (`ticker`, `orderbook_delta`, `trade`, `market_lifecycle_v2`, private `fill`, `user_balance`, `notifications`).
+
+### 19.9 Tables (created by `server/sports.js` with `CREATE TABLE IF NOT EXISTS`)
+
+`sports_leagues`, `sports_teams`, `sports_milestones` (status, `state_json`, scores, `win_home/away/draw`, winner, `live_label`, `last_play`, `play_seq`, `start_ts`, `started_ts`, `ended_ts`, `updated_ts`), `sports_plays (milestone_id, seq)`, `sports_stats (milestone_id, side, stat, value)`, `sports_event_links (event_ticker ↔ milestone_id)`, `sports_markets (market_ticker → milestone_id, outcome, quoted_cents, quoted_ts)`. No foreign keys to core tables, so a full reseed can delete events and markets freely.
+
+### 19.10 Configuration
+
+- `start({ sports: { speed, requoteMs, depthContracts, settlementSeconds } })` enables the engine. `sports: false` (or omitting it from a programmatic `start()`) leaves it off, which keeps the existing scenario tests' fixed seed counts unchanged; `SPORTS=1` enables it for programmatic starts. `npm start` / `node server/index.js` enable it by default (`SPORTS=0` disables). Env `SPORTS_SPEED` sets the default speed.
+
+### 19.11 Verification
+
+`clone/tests/sports.e2e.test.js` (part of `npm run test:e2e`) boots `start({port, dbFile, tickMs: 250, sports: {speed: 10}})` on a temp DB and drives real Chromium:
+
+1. **Final whistle:** seeded counts (≥8 live, ≥8 upcoming, ≥4 final, >500 plays); a user signs up, deposits, buys YES on home (ticket, Dollars mode), draw and away (API) of the soccer game nearest full-time; full-time arrives live on the open event page ("Final", "{winner} won"); the three markets are determined and finalized with the right results; the winning market's `settlements` row pays the held units, a `settlement` ledger credit and a `Market settled YES` notification exist; losers pay 0; the event is no longer live.
+2. **Live page:** FEATURED leagues with icons; six collapsible sports whose counts equal the DB; every live game is a tinted card with LIVE + competition; soccer and basketball card scores equal the DB; header live count equals the DB; `?league=CPL`, the tennis group → Lighthouse Open link, and `/calendar?sport=cricket` filter correctly.
+3. **Live movement:** a basketball card's clock and score change without a reload; on a competitive game's event page the home market's price changes and stays within 3¢ of the DB win probability; the last trade equals the quoted fair price and liquidity rests around it.
+4. **Tennis/cricket:** set games and tiebreak superscripts equal the DB state, one serve dot, valid game points; the card shows the tiebreak superscript; cricket Target, CRR, RRR, runs/wickets and the requirement line equal the DB; observed detail field names are present in the API; a wrong type returns 404.
+5. **Event page:** scoreboard above the chart; scores equal the DB; line score; play-by-play newest first, new plays stream in, text equals the DB row; box-score totals equal `sports_stats`; non-sports events have no scoreboard; `game_stats` and `milestones?related_event_ticker=` respond.
+6. **Hub:** MORE → `/sports`; section counts equal the DB; league tab `/sports/chl` and `?sport=tennis` filter; results show final cards; unknown league is a not-found page; the Sports category shows the "Live scores" link.
+7. **Unaffected + mobile + restart:** home, calendar category filter, the rolling PLX card and the non-game live event still render normally; no horizontal overflow at 390 px on the Live page, calendar, hub, a league page, the Sports category and one event page per sport; after a stop (3 s down) and restart, no game advanced while stopped, nothing was reseeded, every clock resumed from its persisted value without a catch-up jump, and clocks run again (verified in the UI).
+
+No page errors are allowed in any scenario.
 
 ---
 
