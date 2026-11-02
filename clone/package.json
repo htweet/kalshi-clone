@@ -1,0 +1,17 @@
+{
+  "name": "parlance-exchange",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Clean-room binary event-contract exchange built from CLONE_SPEC.md",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --no-warnings server/index.js",
+    "seed": "node --no-warnings server/seed.js --reset",
+    "test:e2e": "node --no-warnings --test --test-concurrency=1 tests/e2e.test.js"
+  },
+  "engines": { "node": ">=22.5" },
+  "dependencies": {
+    "express": "5.1.0",
+    "ws": "8.18.3"
+  }
+}

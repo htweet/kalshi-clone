@@ -1,0 +1,49 @@
+[
+ {
+  "t": "req",
+  "m": "GET",
+  "u": "https://kalshi.com/",
+  "rt": "document"
+ },
+ {
+  "t": "res",
+  "s": 429,
+  "u": "https://kalshi.com/",
+  "ct": "text/html; charset=utf-8"
+ },
+ {
+  "t": "req",
+  "m": "GET",
+  "u": "https://kalshi.com/.well-known/vercel/security/static/challenge.v2.min.js",
+  "rt": "script"
+ },
+ {
+  "t": "res",
+  "s": 200,
+  "u": "https://kalshi.com/.well-known/vercel/security/static/challenge.v2.min.js",
+  "ct": "application/javascript"
+ },
+ {
+  "t": "req",
+  "m": "GET",
+  "u": "https://kalshi.com/.well-known/vercel/security/static/challenge.v2.wasm",
+  "rt": "fetch"
+ },
+ {
+  "t": "res",
+  "s": 200,
+  "u": "https://kalshi.com/.well-known/vercel/security/static/challenge.v2.wasm",
+  "ct": "application/wasm"
+ },
+ {
+  "t": "req",
+  "m": "POST",
+  "u": "https://kalshi.com/.well-known/vercel/security/request-challenge",
+  "rt": "fetch"
+ },
+ {
+  "t": "res",
+  "s": 708,
+  "u": "https://kalshi.com/.well-known/vercel/security/request-challenge"
+ }
+]
