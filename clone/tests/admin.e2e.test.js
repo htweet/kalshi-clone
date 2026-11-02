@@ -230,8 +230,8 @@ test('roles: an editor can edit the catalog but not users (UI and API permission
   await ep.click('[data-testid=account-menu]');
   await ep.click('[data-testid=admin-link]');
   await ep.waitForURL(/\/admin\/catalog$/);
+  await ep.locator('.adm-side [data-section=content]').waitFor();
   assert.equal(await ep.locator('.adm-side [data-section=users]').count(), 0);
-  assert.equal(await ep.locator('.adm-side [data-section=content]').count(), 1);
   await ep.goto(BASE + '/admin/catalog/events');
   await ep.fill('[data-q]', 'robot');
   await ep.locator('[data-row="PLXADM-27ROBOT"]').waitFor();
