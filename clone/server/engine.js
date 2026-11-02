@@ -57,6 +57,9 @@ class Engine extends EventEmitter {
     const last = this.db.prepare('SELECT yes_price_cents p FROM trades WHERE market_ticker=? ORDER BY created_ts DESC, rowid DESC LIMIT 1').get(ticker);
     const dayAgo = Date.now() - 86400000;
     const prev = this.db.prepare('SELECT yes_price_cents p FROM trades WHERE market_ticker=? AND created_ts<=? ORDER BY created_ts DESC LIMIT 1').get(ticker, dayAgo);
+    const priceAt = (ms) => this.db.prepare('SELECT yes_price_cents p FROM trades WHERE market_ticker=? AND created_ts<=? ORDER BY created_ts DESC LIMIT 1').get(ticker, ms)?.p ?? null;
+    const hourAgo = priceAt(Date.now() - 3600000);
+    const weekAgo = priceAt(Date.now() - 7 * 86400000);
     const vol = this.db.prepare('SELECT COALESCE(SUM(count),0) v FROM trades WHERE market_ticker=?').get(ticker).v;
     const vol24 = this.db.prepare('SELECT COALESCE(SUM(count),0) v FROM trades WHERE market_ticker=? AND created_ts>?').get(ticker, dayAgo).v;
     const oi = this.db.prepare('SELECT COALESCE(SUM(yes_count),0) v FROM positions WHERE market_ticker=?').get(ticker).v;
@@ -69,6 +72,8 @@ class Engine extends EventEmitter {
       yes_ask_size: sizeAt('no', nb),
       last_price: last ? last.p : null,
       previous_price: prev ? prev.p : (last ? last.p : null),
+      previous_hour_price: hourAgo ?? (last ? last.p : null),
+      previous_week_price: weekAgo ?? (prev ? prev.p : (last ? last.p : null)),
       volume: vol,
       volume_24h: vol24,
       open_interest: oi,
@@ -289,6 +294,7 @@ class Engine extends EventEmitter {
     const m = this.market(ticker);
     if (m.status !== 'determined') return;
     const touched = new Set();
+    const paid = [];
     tx(this.db, () => {
       for (const p of this.db.prepare('SELECT * FROM positions WHERE market_ticker=? AND (yes_count>0 OR no_count>0)').all(ticker)) {
         const payout = m.result === 'yes' ? p.yes_count * 100 : p.no_count * 100;
@@ -299,11 +305,13 @@ class Engine extends EventEmitter {
           .run(payout - cost, nowIso(), p.user_id, ticker);
         this.credit(p.user_id, payout, 'settlement', ticker, `settled ${m.result.toUpperCase()}`);
         touched.add(p.user_id);
+        paid.push({ user_id: p.user_id, market_ticker: ticker, result: m.result, payout_cents: payout });
       }
       this.db.prepare("UPDATE markets SET status='finalized', settled_at=?, updated_at=? WHERE ticker=?").run(nowIso(), nowIso(), ticker);
     });
     this.emit('lifecycle', ticker, 'settled', 'finalized');
     for (const u of touched) this.emit('user_balance', u, this.balance(u));
+    for (const s of paid) this.emit('settlement', s.user_id, s);
   }
 
   // Time-driven transitions; persisted timestamps make this restart-safe.

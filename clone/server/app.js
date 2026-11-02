@@ -4,12 +4,12 @@ const express = require('express');
 const { tx } = require('./db');
 const { nowIso, newId, token, dollars, fp, usd, ApiError, E, hashPassword, verifyPassword, encCursor, decCursor } = require('./util');
 const { marketVo, eventVo, seriesVo, orderVo, fillVo } = require('./serialize');
+const { mountFeatures, CATEGORIES } = require('./features');
 
 const SESSION_COOKIE = 'plx_session';
 const SESSION_DAYS = 30;
-const CATEGORIES = ['Politics', 'Sports', 'Culture', 'Crypto', 'Climate', 'Economics', 'Companies', 'Financials', 'Tech & Science'];
 const STATUS_FILTER = { unopened: ['initialized'], open: ['active'], paused: ['inactive'], closed: ['closed', 'determined'], settled: ['finalized'] };
-const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'portfolio_view', 'chart_range']);
+const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed']);
 
 function parseCookies(header) {
   const out = {};
@@ -63,6 +63,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
     const vo = eventVo(e, marketsOf(e.ticker));
     vo.series_title = s.title;
     vo.series_slug = s.slug;
+    vo.tags = JSON.parse(s.tags);
     vo.total_volume_fp = fp(vo.markets.reduce((a, m) => a + Number(m.volume_fp), 0));
     return vo;
   };
@@ -106,6 +107,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
 
   const v2 = express.Router();
   const v1 = express.Router();
+  const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, startSession, publicUser });
+  app.use('/v1', feat.sessionMiddleware);
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));
@@ -242,6 +245,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
     const { email, password } = req.body || {};
     const u = db.prepare('SELECT * FROM users WHERE email=? AND is_system=0').get(String(email || '').trim().toLowerCase());
     if (!u || !verifyPassword(String(password || ''), u.password_hash)) throw new ApiError(401, 'invalid_credentials', 'incorrect email or password');
+    const gate = feat.loginGate(u);
+    if (gate) return res.json(gate);
     const csrf = startSession(res, u);
     res.json({ user: publicUser(u), csrf_token: csrf });
   });
@@ -297,7 +302,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
   };
   v1.post('/users/:uid/deposits', requireUser, (req, res) => {
     const cents = moneyBody(req.body);
-    tx(db, () => engine.credit(req.auth.user.id, cents, 'deposit', null, 'simulated deposit'));
+    tx(db, () => { feat.checkDeposit(req.auth.user.id, cents); engine.credit(req.auth.user.id, cents, 'deposit', null, 'simulated deposit'); });
     engine.emit('user_balance', req.auth.user.id, engine.balance(req.auth.user.id));
     res.status(201).json({ balance_dollars: dollars(engine.balance(req.auth.user.id)) });
   });
@@ -318,6 +323,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
     let price = b.price;
     if (b.price_dollars != null) price = Math.round(Number(b.price_dollars) * 100);
     if (type === 'market') price = 99;
+    if (Number.isInteger(price) && Number.isInteger(b.count) && b.count > 0) feat.checkTrading(req.auth.user.id, b.count * price);
     const order = engine.placeOrder(req.auth.user.id, { ticker: String(b.ticker || ''), side: b.side, price, count: b.count, time_in_force: type === 'market' ? 'ioc' : 'gtc', client_order_id: b.client_order_id });
     res.status(201).json({ order: orderVo(order), status: order.status });
   });
@@ -412,7 +418,6 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
   });
 
   v1.get('/live_data/count', (req, res) => res.json({ count: db.prepare("SELECT COUNT(DISTINCT e.ticker) c FROM events e JOIN markets m ON m.event_ticker=e.ticker WHERE e.is_live=1 AND m.status='active'").get().c }));
-  v1.get('/categories', (req, res) => res.json({ categories: CATEGORIES }));
 
   // Search / browse (spec §4.5).
   v1.get('/search/series', (req, res) => {
@@ -427,6 +432,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
     if (cat && !CATEGORIES.some((c) => c.toLowerCase() === cat.toLowerCase())) throw E.badRequest('unknown category');
     let evs = eventCards();
     if (cat) evs = evs.filter((e) => e.category.toLowerCase() === cat.toLowerCase());
+    if (req.query.tag) { const tg = String(req.query.tag).toLowerCase(); evs = evs.filter((e) => e.tags.some((x) => x.toLowerCase() === tg)); }
     if (status !== 'all') {
       const st = STATUS_FILTER[status];
       evs = evs.filter((e) => e.markets.some((m) => st.includes(m.status)));

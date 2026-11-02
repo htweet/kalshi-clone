@@ -2,13 +2,15 @@
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, multiplier, money, qty, shortDate, toast, eventHref } from '../lib.js';
-import { lineChart } from './components.js';
+import { esc, cents, prob, multiplier, money, qty, shortDate, toast, eventHref, catColor, catSlug, compact, relTime, ICON } from '../lib.js';
+import { lineChart, postCard } from './components.js';
+import { wirePosts, composer, wireComposer } from './social.js';
 
 const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], 'all': [60 * 86400, 1440] };
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
+const TABS = [['rules', 'Rules'], ['book', 'Order book'], ['trades', 'Activity'], ['ideas', 'Ideas'], ['holders', 'Top holders']];
 
-export async function render({ el, params, navigate }) {
+export async function render({ el, params, query, navigate }) {
   const eventTicker = params.event.toUpperCase();
   const { event: ev } = await api.event(eventTicker);
   const { series } = await api.series(ev.series_ticker);
@@ -18,11 +20,11 @@ export async function render({ el, params, navigate }) {
   const props = session.props;
   const state = {
     ev,
-    selected: ev.markets.find((m) => m.status === 'active')?.ticker || ev.markets[0].ticker,
-    side: 'yes',
+    selected: (query && ev.markets.find((m) => m.ticker === query.get('market'))?.ticker) || ev.markets.find((m) => m.status === 'active')?.ticker || ev.markets[0].ticker,
+    side: query && query.get('side') === 'no' ? 'no' : 'yes',
     orderType: 'limit',
     range: props.chart_range || '1w',
-    bottomTab: props.event_bottom_tab || 'rules',
+    bottomTab: TABS.some(([k]) => k === props.event_bottom_tab) ? props.event_bottom_tab : 'rules',
     book: { yes: new Map(), no: new Map() },
     watching: false,
   };
@@ -33,14 +35,16 @@ export async function render({ el, params, navigate }) {
 
   el.innerHTML = `<div class="ev-layout">
     <div>
-      <div class="crumbs"><a href="/category/${esc(ev.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}" data-link>${esc(ev.category)}</a> · ${esc(series.title)}</div>
       <div class="ev-header">
-        <div><h1 data-testid="event-title">${esc(ev.title)}</h1><div class="muted">${esc(ev.sub_title)}</div>
-          ${ev.is_live ? `<div class="live-tag" style="margin-top:6px">Live · ${esc(ev.live_label)}</div>` : ''}</div>
+        <span class="mcard-icon" style="width:56px;height:56px;font-size:22px;background:${catColor(ev.category)}" aria-hidden="true">${esc(series.title[0])}</span>
+        <div style="flex:1;min-width:0"><div class="crumbs"><a href="/category/${catSlug(ev.category)}" data-link>${esc(ev.category)}</a><span>·</span><span>${esc(series.title)}</span></div>
+          <h1 class="typ-title-x10" data-testid="event-title">${esc(ev.title)}</h1><div class="muted">${esc(ev.sub_title)}</div>
+          ${ev.is_live ? `<div class="live-dot" style="margin-top:6px">Live · ${esc(ev.live_label)}</div>` : ''}
+          <div class="ev-stats" id="ev-stats"></div></div>
         <button class="btn" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}"></button>
       </div>
-      <section class="card chart-box">
-        <div class="chart-head"><div><strong id="chart-label"></strong> <span class="num" id="chart-prob" data-testid="chart-prob"></span></div>
+      <section class="chart-box">
+        <div class="chart-head"><div><div class="faint" id="chart-label"></div><span class="chart-prob" id="chart-prob" data-testid="chart-prob"></span> <span class="change-chips" id="changes" data-testid="changes"></span></div>
           <div class="seg" role="tablist" aria-label="Chart range">${Object.keys(RANGES).map((r) => `<button data-range="${r}" class="${r === state.range ? 'on' : ''}">${r.toUpperCase()}</button>`).join('')}</div></div>
         <div id="chart"></div>
       </section>
@@ -48,13 +52,14 @@ export async function render({ el, params, navigate }) {
         <table class="mkt-table" aria-label="Outcomes"><thead><tr><th>Outcome</th><th>Chance</th><th></th><th></th></tr></thead><tbody id="mkt-rows"></tbody></table>
       </section>
       <div class="tabs" role="tablist">
-        ${['rules', 'book', 'trades'].map((t) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${{ rules: 'Rules', book: 'Order book', trades: 'Recent trades' }[t]}</button>`).join('')}
+        ${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}
       </div>
       <div id="bottom"></div>
     </div>
     <aside>
       <section class="card ticket" id="ticket" aria-label="Trade ticket"></section>
       <div id="position"></div>
+      <div id="alerts"></div>
       <div id="admin"></div>
     </aside>
   </div>`;
@@ -63,7 +68,7 @@ export async function render({ el, params, navigate }) {
 
   function drawWatch() {
     const b = $('#watch-btn');
-    b.textContent = state.watching ? '★ Watching' : '☆ Watch';
+    b.innerHTML = state.watching ? `${ICON.star} Watching` : '☆ Watch';
     b.setAttribute('aria-pressed', String(state.watching));
   }
   $('#watch-btn').onclick = async () => {
@@ -95,15 +100,30 @@ export async function render({ el, params, navigate }) {
         state.selected = tr.dataset.ticker;
         if (pick) state.side = pick.dataset.pick;
         drawRows(); drawTicket(pick ? defaultPrice() : null);
-        if (changed) { subscribeBook(); drawChart(); drawBottom(); drawPosition(); }
+        if (changed) { subscribeBook(); drawChart(); drawBottom(); drawPosition(); drawAlerts(); }
       };
     }
+  }
+
+  function drawHeadline() {
+    const m = market();
+    const p = prob(m);
+    $('#chart-prob').textContent = p == null ? '' : `${p}% chance`;
+    const chip = (label, prev) => {
+      if (p == null || prev == null) return '';
+      const d = p - cents(prev);
+      return `<span>${label} <span class="${d >= 0 ? 'delta-up' : 'delta-down'}">${d >= 0 ? '▲' : '▼'}${Math.abs(d)}</span></span>`;
+    };
+    $('#changes').innerHTML = chip('1H', m.previous_hour_price_dollars) + chip('1D', m.previous_day_price_dollars) + chip('1W', m.previous_week_price_dollars);
+    const vol = state.ev.markets.reduce((a, x) => a + Number(x.volume_fp || 0), 0);
+    const close = Math.min(...state.ev.markets.map((x) => Date.parse(x.close_time)));
+    $('#ev-stats').innerHTML = `<span><strong>${compact(vol)}</strong> contracts traded</span><span>Closes <strong>${shortDate(new Date(close).toISOString())}</strong></span><span>${state.ev.markets.length} outcome${state.ev.markets.length > 1 ? 's' : ''}</span>`;
   }
 
   async function drawChart() {
     const m = market();
     $('#chart-label').textContent = m.yes_sub_title;
-    $('#chart-prob').textContent = prob(m) == null ? '' : `${prob(m)}% chance`;
+    drawHeadline();
     const [span, period] = RANGES[state.range];
     const now = Math.floor(Date.now() / 1000);
     try {
@@ -136,14 +156,14 @@ export async function render({ el, params, navigate }) {
       t.innerHTML = `<h3>${esc(m.yes_sub_title)}</h3><p class="muted" data-testid="ticket-closed">Trading is ${m.status === 'initialized' ? 'not open yet. Opens ' + shortDate(m.open_time) : 'closed for this market'}.${m.result ? ` Result: <strong>${esc(m.result.toUpperCase())}</strong>` : ''}</p>`;
       return;
     }
-    t.innerHTML = `<h3>${esc(m.yes_sub_title)}</h3><div class="faint">Closes ${shortDate(m.close_time)}</div>
-      <div class="side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">Buy Yes</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">Buy No</button></div>
+    t.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><span class="outcome-dot" style="background:${esc(m.color_code)};width:12px;height:12px"></span><h3>${esc(m.yes_sub_title)}</h3></div><div class="faint">Closes ${shortDate(m.close_time)}</div>
+      <div class="side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">Buy Yes ${cents(m.yes_ask_dollars) ? cents(m.yes_ask_dollars) + '¢' : ''}</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">Buy No ${cents(m.no_ask_dollars) ? cents(m.no_ask_dollars) + '¢' : ''}</button></div>
       <div class="seg" style="width:100%"><button data-otype="limit" class="${state.orderType === 'limit' ? 'on' : ''}" style="flex:1">Limit</button><button data-otype="market" class="${state.orderType === 'market' ? 'on' : ''}" style="flex:1">Market</button></div>
       ${state.orderType === 'limit' ? `<label class="field">Limit price (¢)<input id="t-price" type="number" min="1" max="99" step="1" value="${ticketPrice}" inputmode="numeric"></label>` : ''}
       <label class="field">Contracts<input id="t-count" type="number" min="1" step="1" value="10" inputmode="numeric"></label>
       <div class="summary" id="t-summary"></div>
       <div class="form-error" id="t-error" role="alert"></div>
-      <button class="btn btn-primary" style="width:100%" id="t-submit" data-testid="submit-order">${session.user ? 'Place order' : 'Log in to trade'}</button>`;
+      <button class="btn btn-primary" style="width:100%;height:44px" id="t-submit" data-testid="submit-order">${session.user ? 'Place order' : 'Log in to trade'}</button>`;
     for (const b of t.querySelectorAll('[data-side]')) b.onclick = () => { state.side = b.dataset.side; drawRows(); drawTicket(defaultPrice()); };
     for (const b of t.querySelectorAll('[data-otype]')) b.onclick = () => { state.orderType = b.dataset.otype; drawTicket(); };
     const recalc = () => {
@@ -220,12 +240,24 @@ export async function render({ el, params, navigate }) {
       box.innerHTML = `<div class="card" style="padding:16px" data-testid="orderbook"><div class="book">
         <div><h4 style="color:var(--no)">Offers to sell YES</h4>${asks.map(([p, c]) => row(p, c, 'var(--no)')).join('') || '<p class="faint">None</p>'}</div>
         <div><h4 style="color:var(--yes)">Bids to buy YES</h4>${bids.map(([p, c]) => row(p, c, 'var(--yes)')).join('') || '<p class="faint">None</p>'}</div></div></div>`;
-    } else {
+    } else if (state.bottomTab === 'trades') {
       try {
-        const r = await api.trades(m.ticker);
-        box.innerHTML = `<div class="card" style="padding:8px 16px"><table class="table" data-testid="trades"><thead><tr><th>Time</th><th>Taker</th><th class="num">Yes price</th><th class="num">Contracts</th></tr></thead><tbody>
-          ${r.trades.map((t) => `<tr><td>${new Date(t.created_time).toLocaleString()}</td><td>${t.taker_side.toUpperCase()}</td><td class="num">${cents(t.yes_price_dollars)}¢</td><td class="num">${qty(t.count_fp)}</td></tr>`).join('') || '<tr><td colspan="4" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
+        const r = await api.socialTrades({ event_ticker: ev.event_ticker });
+        if (state.bottomTab !== 'trades') return;
+        box.innerHTML = `<div class="card" style="padding:4px 16px"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
+          ${r.trades.slice(0, 25).map((t) => { const px = t.taker_side === 'yes' ? cents(t.price_dollars) : 100 - cents(t.price_dollars); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : '<span class="faint">Anonymous</span>'}</td><td>${esc(t.outcome)}</td><td><strong style="color:var(--${t.taker_side})">${t.taker_side.toUpperCase()}</strong></td><td class="num">${px}¢</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
       } catch (e) { box.innerHTML = `<p class="faint">${esc(e.tooManyRequests ? 'Too many requests, try again shortly.' : e.message)}</p>`; }
+    } else if (state.bottomTab === 'ideas') {
+      const r = await api.posts({ event_ticker: ev.event_ticker });
+      if (state.bottomTab !== 'ideas') return;
+      box.innerHTML = `${composer(ev.event_ticker)}<div class="card" style="margin-top:8px" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || '<div class="empty" data-testid="no-ideas">No ideas yet. Be the first to share your view.</div>'}</div>`;
+      wirePosts(box.querySelector('#ev-posts'), { navigate });
+      wireComposer(box, (post) => { const list = box.querySelector('#ev-posts'); list.querySelector('[data-testid=no-ideas]')?.remove(); list.insertAdjacentHTML('afterbegin', postCard(post, { showEvent: false })); });
+    } else {
+      const r = await api.topHolders(m.ticker);
+      if (state.bottomTab !== 'holders') return;
+      const col = (title, rows, side) => `<div><h4 style="color:var(--${side})">${title}</h4>${rows.map((h, i) => `<a class="rank-row" href="/social/profile/${encodeURIComponent(h.nickname)}" data-link style="grid-template-columns:18px 1fr auto"><span class="faint">${i + 1}</span><span class="t">@${esc(h.nickname)}</span><span class="num">${qty(h.position_fp)}</span></a>`).join('') || '<p class="faint">No public holders yet.</p>'}</div>`;
+      box.innerHTML = `<div class="card" style="padding:16px" data-testid="holders"><div class="faint" style="margin-bottom:8px">${esc(m.yes_sub_title)}</div><div class="book">${col('Yes holders', r.yes, 'yes')}${col('No holders', r.no, 'no')}</div></div>`;
     }
   }
   for (const b of el.querySelectorAll('[data-tab]')) {
@@ -244,10 +276,31 @@ export async function render({ el, params, navigate }) {
       const [{ positions }, { orders }] = await Promise.all([api.positions(session.uid), api.orders(session.uid, 'resting')]);
       const mine = positions.filter((p) => p.event_ticker === ev.event_ticker && p.side);
       const resting = orders.filter((o) => state.ev.markets.some((m) => m.ticker === o.ticker));
-      box.innerHTML = (mine.length || resting.length) ? `<section class="card" style="padding:16px;margin-top:16px" data-testid="my-position"><h3 style="margin:0 0 8px;font-size:15px">Your position</h3>
+      box.innerHTML = (mine.length || resting.length) ? `<section class="card side-card" data-testid="my-position"><h3>Your position</h3>
         ${mine.map((p) => `<div class="outcome-row"><span class="outcome-name">${esc(p.outcome)} · <strong>${p.side.toUpperCase()}</strong></span><span class="num">${qty(p.position_fp)} @ ${cents(p.avg_price_dollars)}¢</span></div>`).join('')}
         ${resting.length ? `<div class="faint" style="margin-top:6px">${resting.length} resting order(s) — manage in <a href="/portfolio" data-link>Portfolio</a></div>` : ''}</section>` : '';
     } catch { box.innerHTML = ''; }
+  }
+
+  async function drawAlerts() {
+    const box = $('#alerts');
+    if (!session.user) { box.innerHTML = ''; return; }
+    const m = market();
+    let list = [];
+    try { list = (await api.priceTargets(session.uid, m.ticker)).price_targets; } catch { /* ignore */ }
+    if (market() !== m) return;
+    const p = prob(m) ?? 50;
+    box.innerHTML = `<section class="card side-card" data-testid="alert-card"><h3 style="display:flex;align-items:center;gap:6px">${ICON.bell.replace('<svg', '<svg width="16" height="16"')} Price alert</h3>
+      <form class="inline-form" id="alert-form"><label class="field" style="flex:1 1 90px">When Yes is<select name="direction"><option value="above">above</option><option value="below">below</option></select></label>
+      <label class="field" style="flex:1 1 70px">Price (¢)<input name="price" type="number" min="1" max="99" value="${Math.min(99, p + 5)}" required></label><button class="btn" type="submit">Add</button></form>
+      <div class="form-error" id="alert-error" role="alert"></div>
+      ${list.map((t) => `<div class="outcome-row" data-alert="${esc(t.id)}"><span class="outcome-name">${t.direction} ${cents(t.price_dollars)}¢ <span class="faint">${t.triggered_time ? '· triggered' : '· active'}</span></span><button class="btn btn-sm btn-ghost" data-del-alert>Remove</button></div>`).join('')}</section>`;
+    const f = box.querySelector('#alert-form');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try { await api.addPriceTarget(session.uid, { market_ticker: m.ticker, direction: f.direction.value, price_cents: Number(f.price.value) }); toast('Price alert set'); drawAlerts(); } catch (ex) { box.querySelector('#alert-error').textContent = ex.message; }
+    };
+    for (const b of box.querySelectorAll('[data-del-alert]')) b.onclick = async () => { await api.deletePriceTarget(session.uid, b.closest('[data-alert]').dataset.alert); drawAlerts(); };
   }
 
   function drawAdmin() {
@@ -269,25 +322,29 @@ export async function render({ el, params, navigate }) {
     const r = await api.event(eventTicker);
     state.ev = r.event;
     drawRows(); drawTicket(); drawAdmin(); drawPosition();
-    const p = prob(market());
-    $('#chart-prob').textContent = p == null ? '' : `${p}% chance`;
+    drawHeadline();
   }
 
   // Live updates: tickers for every market of the event, lifecycle, my fills.
   const tickers = ev.markets.map((m) => m.ticker);
   const unsubs = [];
   let pending = null;
+  let tradeT = null;
   unsubs.push(socket.subscribe({ channels: ['ticker'] }, (msg) => {
     const m = state.ev.markets.find((x) => x.ticker === msg.msg.market_ticker);
     if (!m) return;
     Object.assign(m, { yes_bid_dollars: msg.msg.yes_bid_dollars, yes_ask_dollars: msg.msg.yes_ask_dollars, no_bid_dollars: msg.msg.yes_ask_dollars == null ? null : (1 - Number(msg.msg.yes_ask_dollars)).toFixed(4), no_ask_dollars: msg.msg.yes_bid_dollars == null ? null : (1 - Number(msg.msg.yes_bid_dollars)).toFixed(4), last_price_dollars: msg.msg.last_price_dollars, volume_fp: msg.msg.volume_fp });
     clearTimeout(pending);
-    pending = setTimeout(() => { drawRows(); const p = prob(market()); $('#chart-prob').textContent = p == null ? '' : `${p}% chance`; }, 100);
+    pending = setTimeout(() => { drawRows(); drawHeadline(); }, 100);
   }));
   unsubs.push(socket.subscribe({ channels: ['market_lifecycle_v2'], market_tickers: tickers }, () => refreshEvent().catch(() => {})));
+  unsubs.push(socket.subscribe({ channels: ['trade'], market_tickers: tickers }, () => { if (state.bottomTab === 'trades') { clearTimeout(tradeT); tradeT = setTimeout(() => drawBottom(), 150); } }));
+  const onNotif = (e) => { if (e.detail.type === 'price_target') drawAlerts(); };
+  window.addEventListener('parlance:notification', onNotif);
+  unsubs.push(() => window.removeEventListener('parlance:notification', onNotif));
   if (session.user) unsubs.push(socket.subscribe({ channels: ['fill'] }, (msg) => { if (tickers.includes(msg.msg.ticker)) drawPosition(); }));
 
-  drawWatch(); drawRows(); drawTicket(); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAdmin();
+  drawWatch(); drawRows(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin();
   // Keep canonical URL (slug is decorative, spec §3).
   const canonical = eventHref({ ...ev, series_slug: series.slug });
   if (location.pathname !== canonical) history.replaceState({}, '', canonical);

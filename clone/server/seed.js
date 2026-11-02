@@ -38,7 +38,17 @@ const CATALOG = [
         { t: 'PLXHOOPS-27CHAMP-OWLS', yes: 'Midnight Owls', fair: 22, color: '#862e9c' },
         { t: 'PLXHOOPS-27CHAMP-FOXES', yes: 'Desert Foxes', fair: 12, color: '#c92a2a' }] },
   ] },
-  { s: 'PLXFILM', title: 'Golden Reel awards', cat: 'Culture', tags: ['Film'], events: [
+  { s: 'PLXSTATE', title: 'Harbor State elections', cat: 'Elections', tags: ['Governor', 'Senate'], events: [
+    { e: 'PLXSTATE-26GOV', title: 'Harbor State governor winner?', sub: 'General election', mutually: 1, closesIn: 1 * D,
+      markets: [
+        { t: 'PLXSTATE-26GOV-ALVAREZ', yes: 'Rosa Alvarez', fair: 57, color: '#1c7ed6' },
+        { t: 'PLXSTATE-26GOV-HUANG', yes: 'Martin Huang', fair: 43, color: '#e8590c' }] },
+    { e: 'PLXSTATE-26SEN', title: 'Harbor State senate seat', sub: 'Which party wins?', mutually: 1, closesIn: 1 * D,
+      markets: [
+        { t: 'PLXSTATE-26SEN-BLUE', yes: 'Blue Party', fair: 51, color: '#1c7ed6' },
+        { t: 'PLXSTATE-26SEN-RED', yes: 'Red Party', fair: 49, color: '#e03131' }] },
+  ] },
+  { s: 'PLXFILM', title: 'Golden Reel awards', cat: 'Entertainment', tags: ['Film'], events: [
     { e: 'PLXFILM-27PIC', title: 'Golden Reel for Best Picture', sub: 'Ceremony in February', mutually: 1, featured: 1,
       markets: [
         { t: 'PLXFILM-27PIC-LIGHTHOUSE', yes: 'The Last Lighthouse', fair: 44, color: '#364fc7' },
@@ -49,7 +59,7 @@ const CATALOG = [
     { e: 'PLXCOIN-26DEC', title: 'Will the PLX token close above $5 on Dec 31?', sub: 'Year-end close',
       markets: [{ t: 'PLXCOIN-26DEC-T5', yes: 'Above $5', no: 'At or below $5', fair: 37 }] },
   ] },
-  { s: 'PLXRAIN', title: 'Monthly rainfall', cat: 'Climate', tags: ['Rain'], events: [
+  { s: 'PLXRAIN', title: 'Monthly rainfall', cat: 'Climate and Weather', tags: ['Rain'], events: [
     { e: 'PLXRAIN-26NOV', title: 'Harbor City rainfall in November', sub: 'Total inches',
       markets: [
         { t: 'PLXRAIN-26NOV-B2', yes: 'Under 2 in', fair: 21 },
@@ -63,7 +73,7 @@ const CATALOG = [
         { t: 'PLXRATE-26DEC-HOLD', yes: 'Hold', fair: 39, color: '#868e96' },
         { t: 'PLXRATE-26DEC-HIKE', yes: 'Hike', fair: 3, color: '#e03131' }] },
   ] },
-  { s: 'PLXLAUNCH', title: 'Orbital launches', cat: 'Tech & Science', tags: ['Space'], events: [
+  { s: 'PLXLAUNCH', title: 'Orbital launches', cat: 'Science and Technology', tags: ['Space'], events: [
     { e: 'PLXLAUNCH-27Q1', title: 'Will the Kestrel rocket reach orbit by March?', sub: 'Before April 1, 2027',
       markets: [{ t: 'PLXLAUNCH-27Q1', yes: 'Reaches orbit', no: 'Does not', fair: 46 }] },
   ] },
@@ -81,7 +91,12 @@ const CATALOG = [
 
 function seed(db, { reset = false } = {}) {
   if (reset) {
-    db.exec(`DELETE FROM recently_visited; DELETE FROM watchlist; DELETE FROM ledger; DELETE FROM settlements; DELETE FROM positions; DELETE FROM fills; DELETE FROM trades; DELETE FROM orders; DELETE FROM markets; DELETE FROM events; DELETE FROM series; DELETE FROM user_settings; DELETE FROM sessions; DELETE FROM users; DELETE FROM meta;`);
+    db.exec(`DELETE FROM follows; DELETE FROM comments; DELETE FROM post_likes; DELETE FROM post_bookmarks; DELETE FROM posts; DELETE FROM social_profiles; DELETE FROM notifications; DELETE FROM price_targets; DELETE FROM user_limits; DELETE FROM session_usage; DELETE FROM mfa_challenges; DELETE FROM mfa; DELETE FROM recently_visited; DELETE FROM watchlist; DELETE FROM ledger; DELETE FROM settlements; DELETE FROM positions; DELETE FROM fills; DELETE FROM trades; DELETE FROM orders; DELETE FROM markets; DELETE FROM events; DELETE FROM series; DELETE FROM user_settings; DELETE FROM sessions; DELETE FROM users; DELETE FROM meta;`);
+  }
+  // Migrate databases seeded by the first version to the current category names (spec §13.3).
+  for (const [from, to] of [['Culture', 'Entertainment'], ['Climate', 'Climate and Weather'], ['Tech & Science', 'Science and Technology']]) {
+    db.prepare('UPDATE series SET category=? WHERE category=?').run(to, from);
+    db.prepare('UPDATE events SET category=? WHERE category=?').run(to, from);
   }
   if (db.prepare('SELECT COUNT(*) c FROM series').get().c > 0) return false;
   const r = rng(20261102);
@@ -90,23 +105,25 @@ function seed(db, { reset = false } = {}) {
     const mk = (email, name, cents, admin, system) => {
       const id = newId('u_');
       db.prepare('INSERT INTO users(id,email,display_name,password_hash,is_admin,is_system,balance_cents,created_at) VALUES(?,?,?,?,?,?,?,?)')
-        .run(id, email, name, hashPassword(system ? newId() : 'parlance-admin'), admin, system, cents, nowIso());
+        .run(id, email, name, hashPassword(system ? newId() : admin ? 'parlance-admin' : 'parlance-demo'), admin, system, cents, nowIso());
       return id;
     };
     const lp = mk('liquidity@parlance.local', 'Parlance Liquidity', 1_000_000_00, 0, 1);
     mk('admin@parlance.local', 'Exchange Admin', 0, 1, 0);
     let seq = 0;
+    let evIndex = 0;
     for (const s of CATALOG) {
       db.prepare('INSERT INTO series(ticker,title,slug,category,tags,frequency,fee_type,fee_multiplier,settlement_sources,rules) VALUES(?,?,?,?,?,?,?,?,?,?)')
         .run(s.s, s.title, slugify(s.title), s.cat, JSON.stringify(s.tags), 'custom', 'quadratic', 1,
           JSON.stringify([{ name: 'Parlance Resolution Desk', url: 'https://example.org/resolution' }]),
           `Contracts in the ${s.title} series resolve from the named settlement source. Each contract pays $1.00 if its outcome occurs, otherwise $0.00.`);
       for (const ev of s.events) {
+        evIndex += 1;
         db.prepare('INSERT INTO events(ticker,series_ticker,title,sub_title,category,mutually_exclusive,is_live,live_label,news,featured,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
           .run(ev.e, s.s, ev.title, ev.sub || '', s.cat, ev.mutually ? 1 : 0, ev.live ? 1 : 0, ev.live_label || '', ev.news || '', ev.featured ? 1 : 0, iso(now - 20 * D));
         for (const m of ev.markets) {
           const openTime = ev.opensIn ? now + ev.opensIn : now - 14 * D;
-          const closeTime = ev.closesIn ? now + ev.closesIn : now + 120 * D;
+          const closeTime = now + (ev.closesIn || (6 + (evIndex % 9) * 11) * D);
           const status = ev.opensIn ? 'initialized' : 'active';
           db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
             .run(m.t, ev.e, ev.markets.length > 1 ? `${ev.title} — ${m.yes}` : ev.title, m.yes, m.no || `Not ${m.yes}`, m.color || '#5b5bd6', status,
@@ -137,6 +154,32 @@ function seed(db, { reset = false } = {}) {
         }
       }
     }
+    // Demo community (invented): social profiles, posts, comments, likes, follows.
+    const people = [
+      ['maple_quant', 'Rates nerd. Mostly trading the central bank and index markets.'],
+      ['harborwatch', 'Local politics junkie in Harbor City.'],
+      ['rainmaker', 'Weather models and too much coffee.'],
+    ].map(([nick, bio], i) => {
+      const id = mk(`${nick}@parlance.local`, nick, 0, 0, 0);
+      db.prepare('INSERT INTO social_profiles(user_id,nickname,bio,share_trades,created_at) VALUES(?,?,?,1,?)').run(id, nick, bio, iso(now - (30 - i) * D));
+      return id;
+    });
+    const posts = [
+      [0, 'PLXRATE-26DEC', 'Cut is still the base case for me. The hold side looks expensive after this week.'],
+      [1, 'PLXCOUNCIL-27TRAM', 'Second reading is scheduled. Turnout at the hearing was mostly supportive.'],
+      [2, 'PLXRAIN-26NOV', 'Models keep drifting wetter for the last week of November. Leaning 2 to 4 in.'],
+      [1, 'PLXCOUNCIL-27MAYOR', 'Debate next week could move this a lot. Okafor has the edge on name recognition.'],
+      [0, null, 'Reminder: limit orders rest on the book. You only pay a fee when you take liquidity.'],
+    ];
+    posts.forEach(([who, et, body], i) => {
+      const pid = newId('p_');
+      db.prepare('INSERT INTO posts(id,user_id,event_ticker,body,created_ts) VALUES(?,?,?,?,?)').run(pid, people[who], et, body, now - (posts.length - i) * 3 * H);
+      for (const [j, liker] of people.entries()) if (j !== who && (i + j) % 2 === 0) db.prepare('INSERT INTO post_likes(post_id,user_id,created_at) VALUES(?,?,?)').run(pid, liker, nowIso());
+      if (i === 0) db.prepare('INSERT INTO comments(id,post_id,user_id,body,created_ts) VALUES(?,?,?,?,?)').run(newId('c_'), pid, people[2], 'Agree, though one strong jobs print would change that.', now - 2 * H);
+    });
+    db.prepare('INSERT INTO follows(follower_id,followee_id,created_at) VALUES(?,?,?)').run(people[2], people[0], nowIso());
+    db.prepare('INSERT INTO follows(follower_id,followee_id,created_at) VALUES(?,?,?)').run(people[0], people[1], nowIso());
+
     // Liquidity reservations come out of the liquidity account's available cash.
     const held = db.prepare("SELECT COALESCE(SUM(reserved_cents),0) c FROM orders WHERE user_id=? AND status='resting'").get(lp).c;
     db.prepare('UPDATE users SET balance_cents = balance_cents - ? WHERE id=?').run(held, lp);

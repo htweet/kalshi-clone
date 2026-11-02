@@ -16,7 +16,7 @@ export async function render({ el }) {
     <div>
       <section class="card hero" id="hero" aria-roledescription="carousel"></section>
       <h2 class="section-title">Top markets <a href="/browse?order_by=event-volume" data-link>See all →</a></h2>
-      <div class="cards" id="top-markets">${home.top_markets.map(eventCard).join('')}</div>
+      <div class="grid" id="top-markets">${home.top_markets.map(eventCard).join('')}</div>
     </div>
     <aside class="rail">
       <div class="card rail-box"><h3>Trending</h3>${rankList(home.trending)}</div>
@@ -28,7 +28,7 @@ export async function render({ el }) {
   async function drawHero() {
     if (!hl.length) { hero.innerHTML = '<p class="faint">No featured markets.</p>'; return; }
     const ev = hl[idx];
-    hero.innerHTML = `<div class="hero-head"><a href="${eventHref(ev)}" data-link><h2 data-testid="hero-title">${esc(ev.title)}</h2></a>
+    hero.innerHTML = `<div class="hero-head"><a href="${eventHref(ev)}" data-link><h2 data-testid="hero-title" class="typ-title-x20" style="font-size:24px;line-height:30px">${esc(ev.title)}</h2></a>
         <div class="pager"><button class="icon-btn" id="hero-prev" aria-label="Previous">‹</button><span data-testid="hero-pager">${idx + 1} of ${hl.length}</span><button class="icon-btn" id="hero-next" aria-label="Next">›</button></div></div>
       <div><div class="outcome-row faint"><span style="flex:1">Outcome</span><span>Pays</span><span style="min-width:60px;text-align:right">Odds</span></div>
         ${outcomeRows(ev, 4)}

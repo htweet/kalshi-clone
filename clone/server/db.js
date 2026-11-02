@@ -181,6 +181,88 @@ CREATE TABLE IF NOT EXISTS recently_visited (
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- Social (spec §13.6): public profile, posts, comments, likes, bookmarks, follows.
+CREATE TABLE IF NOT EXISTS social_profiles (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  nickname TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  bio TEXT NOT NULL DEFAULT '',
+  share_trades INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS posts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_ticker TEXT REFERENCES events(ticker),
+  body TEXT NOT NULL,
+  created_ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_posts_ts ON posts(created_ts);
+CREATE TABLE IF NOT EXISTS post_likes (post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY (post_id, user_id));
+CREATE TABLE IF NOT EXISTS post_bookmarks (post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY (post_id, user_id));
+CREATE TABLE IF NOT EXISTS comments (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS follows (follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, followee_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY (follower_id, followee_id));
+
+-- Notifications and custom price targets (spec §13.7).
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  link TEXT NOT NULL DEFAULT '',
+  read_at TEXT,
+  created_ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_ts);
+CREATE TABLE IF NOT EXISTS price_targets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  market_ticker TEXT NOT NULL REFERENCES markets(ticker),
+  direction TEXT NOT NULL,           -- above|below (YES price)
+  price_cents INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  triggered_at TEXT
+);
+
+-- Account controls (spec §13.8): limits with a 24 h cooling-off period for loosening.
+CREATE TABLE IF NOT EXISTS user_limits (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,                -- deposit|trading|session
+  value INTEGER,                     -- cents per day (deposit/trading) or minutes per day (session); NULL = none
+  pending_value INTEGER,
+  pending_set INTEGER NOT NULL DEFAULT 0,
+  pending_effective_at TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, kind)
+);
+CREATE TABLE IF NOT EXISTS session_usage (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,
+  seconds INTEGER NOT NULL DEFAULT 0,
+  last_seen_ms INTEGER NOT NULL,
+  PRIMARY KEY (user_id, day)
+);
+
+-- Two-factor login (spec §13.9): TOTP authenticator codes.
+CREATE TABLE IF NOT EXISTS mfa (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  secret TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mfa_challenges (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL
+);
 `;
 
 function open(file) {

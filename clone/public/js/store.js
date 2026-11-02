@@ -23,8 +23,10 @@ class SessionStore extends Observable {
 
   async setUser(user) {
     this.user = user;
-    const [b, p] = await Promise.all([api.balance(user.user_id), api.properties(user.user_id)]);
+    // Each call may be refused (e.g. session_time_limit_reached); the user is still signed in.
+    const [b, p, sp] = await Promise.all([api.balance(user.user_id).catch(() => ({ balance_dollars: null })), api.properties(user.user_id).catch(() => ({ properties: {} })), api.myProfile(user.user_id).catch(() => ({ profile: null }))]);
     this.balance = b.balance_dollars;
+    this.nickname = sp.profile ? sp.profile.nickname : null;
     this.props = p.properties || {};
     applyTheme(this.props.theme);
     this.wsBind();
@@ -40,8 +42,17 @@ class SessionStore extends Observable {
     }));
   }
 
+  // Returns {mfa_token} when a second factor is required, otherwise completes the sign-in.
   async login(email, password) {
     const r = await api.logIn({ email, password });
+    if (r.mfa_required) return { mfa_token: r.mfa_token };
+    await this.finishLogin(r);
+    return null;
+  }
+
+  async loginMfa(mfaToken, code) { await this.finishLogin(await api.logInMfa({ mfa_token: mfaToken, code })); }
+
+  async finishLogin(r) {
     csrf.set(r.csrf_token);
     socket.reconnect();
     await this.setUser(r.user);
@@ -59,7 +70,7 @@ class SessionStore extends Observable {
     csrf.clear();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.user = null; this.balance = null; this.props = {};
+    this.user = null; this.balance = null; this.props = {}; this.nickname = null;
     applyTheme(localTheme());
     queries.clear();
     socket.reconnect();

@@ -9,7 +9,7 @@ const { dollars, fp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2']);
-const PRIVATE = new Set(['user_balance', 'user_orders', 'fill']);
+const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications']);
 
 function attachWs(server, { db, engine }) {
   const wss = new WebSocketServer({ noServer: true });
@@ -92,6 +92,7 @@ function attachWs(server, { db, engine }) {
   engine.on('user_balance', (uid, cents) => publish('user_balance', null, 'user_balance', { available_dollars: dollars(cents) }, uid));
   engine.on('user_order', (uid, o) => publish('user_orders', o.market_ticker, 'user_order', orderVo(o), uid));
   engine.on('fill', (uid, f) => publish('fill', f.market_ticker, 'fill', fillVo(f), uid));
+  engine.on('notification', (uid, n) => publish('notifications', null, 'notification', n, uid));
 
   // Keep-alive pings (spec §7.1 control frames).
   const iv = setInterval(() => {

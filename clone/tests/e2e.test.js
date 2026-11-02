@@ -38,14 +38,14 @@ async function signUp(page, u) {
   await page.fill('input[name=email]', u.email);
   await page.fill('input[name=password]', PW);
   await page.click('button[type=submit]');
-  await page.waitForSelector('[data-testid=header-user]');
+  await page.waitForSelector('[data-testid=account-menu]');
 }
 async function logIn(page, email, pw = PW) {
   await page.goto(BASE + '/sign-in');
   await page.fill('input[name=email]', email);
   await page.fill('input[name=password]', pw);
   await page.click('button[type=submit]');
-  await page.waitForSelector('[data-testid=header-user]');
+  await page.waitForSelector('[data-testid=account-menu]');
 }
 // Exact price-row presence in the rendered order book (avoids "3¢" matching "53¢").
 const bookHas = (page, label, present = true) => page.waitForFunction(([l, want]) => {
@@ -80,7 +80,7 @@ test('public pages: home carousel, categories, search, 404, no console errors', 
   await page.waitForURL(/\/search\?q=hawks/);
   await page.waitForSelector('[data-testid=event-card]');
   assert.equal(await page.locator('[data-testid=event-card]').count(), 1);
-  assert.match(await page.textContent('[data-testid=event-card] h3'), /Pro hoops champion/);
+  assert.match(await page.textContent('[data-testid=event-card] .mcard-title'), /Pro hoops champion/);
 
   await page.goto(BASE + '/search?q=zzzz-nothing');
   await page.waitForSelector('[data-testid=empty-results]');
@@ -101,7 +101,7 @@ test('auth: validation errors, sign up, log out, bad login, log in', async () =>
   await page.click('button[type=submit]');
   await page.waitForSelector('#auth-error:has-text("at least 8")');
   await signUp(page, alice);
-  assert.equal(await page.textContent('[data-testid=header-user]'), alice.name);
+  assert.equal((await sess(page)).user.display_name, alice.name);
   assert.equal(await page.textContent('[data-testid=header-balance]'), '$0.00');
   // duplicate email
   const p2 = await newPage();
@@ -113,6 +113,7 @@ test('auth: validation errors, sign up, log out, bad login, log in', async () =>
   await p2.waitForSelector('#auth-error:has-text("already exists")');
   await p2.context().close();
 
+  await page.click('[data-testid=account-menu]');
   await page.click('#logout-btn');
   await page.waitForSelector('a:has-text("Log in")');
   assert.equal((await sess(page)).user, null);
@@ -262,6 +263,7 @@ test('watchlist, recently viewed and settings persist in the DB across sessions'
   await page.goto(BASE + EVENT_URL);
   await page.click('[data-testid=watch-btn]');
   await page.waitForSelector('[data-testid=watch-btn][aria-pressed=true]');
+  await page.click('[data-testid=account-menu]');
   await page.click('#theme-toggle');
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await page.click('[data-range=all]');
@@ -287,6 +289,7 @@ test('watchlist, recently viewed and settings persist in the DB across sessions'
   await p2.waitForSelector('[data-testid=watch-btn][aria-pressed=false]');
   await p2.goto(BASE + '/watchlist');
   await p2.waitForSelector('[data-testid=watchlist-empty]');
+  await p2.click('[data-testid=account-menu]');
   await p2.click('#theme-toggle');
   await p2.waitForFunction(() => document.documentElement.dataset.theme === 'light');
   await p2.context().close();

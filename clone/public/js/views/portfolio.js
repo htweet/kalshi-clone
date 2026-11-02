@@ -12,14 +12,14 @@ export async function render({ el, navigate }) {
   let tab = session.props.portfolio_view || 'positions';
   const uid = session.uid;
 
-  el.innerHTML = `<h1 class="section-title" style="margin-top:0">Portfolio</h1>
+  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Portfolio</h1></div>
     <div class="stat-row">
       <div class="card stat"><div class="label">Cash available</div><div class="value" id="s-cash" data-testid="cash">—</div></div>
       <div class="card stat"><div class="label">Positions value</div><div class="value" id="s-value" data-testid="positions-value">—</div></div>
       <div class="card stat"><div class="label">Held for open orders</div><div class="value" id="s-reserved" data-testid="reserved">—</div></div>
       <form class="card stat" id="funds" aria-label="Move funds">
         <div class="label">Simulated funds</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"><input id="f-amount" type="number" min="0.01" step="0.01" placeholder="Amount $" aria-label="Amount in dollars" style="flex:1 1 90px;min-width:0;padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface)">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"><input id="f-amount" type="number" min="0.01" step="0.01" placeholder="Amount $" aria-label="Amount in dollars" style="flex:1 1 90px;min-width:0;padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface-x10)">
           <button class="btn btn-primary" data-act="deposit" type="submit">Deposit</button><button class="btn" data-act="withdraw" type="button">Withdraw</button></div>
         <div class="form-error" id="f-error" role="alert"></div>
       </form>
