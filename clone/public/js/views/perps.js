@@ -70,6 +70,7 @@ async function renderList({ el, params }) {
       <tbody>${shown.map(rowHtml).join('')}</tbody></table></div>
   </div>`;
   const byT = new Map(shown.map((m) => [m.ticker, m]));
+  const root = el.firstElementChild;
   el.querySelector('tbody').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-ticker]');
     if (tr && !e.target.closest('a')) tr.querySelector('a').click();
@@ -77,7 +78,7 @@ async function renderList({ el, params }) {
   const unsub = socket.subscribe({ channels: ['perp_ticker'] }, (msg) => {
     if (msg.type !== 'perp_ticker') return;
     const m = byT.get(msg.msg.market_ticker);
-    const tr = m && el.querySelector(`tr[data-ticker="${m.ticker}"]`);
+    const tr = m && root.isConnected && el.querySelector(`tr[data-ticker="${m.ticker}"]`);
     if (!tr) return;
     Object.assign(m, msg.msg);
     tr.outerHTML = rowHtml(m);
@@ -151,6 +152,13 @@ function positionsHtml(positions, metas, { showMarket = true } = {}) {
         <td><button class="btn btn-sm" data-close="${esc(p.market_ticker)}" data-testid="close-position">Close</button></td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
+// Live refreshes must not wipe a TP/SL editor the user is typing in: keep the table while one is open.
+function keepEditor(panel, positions) {
+  const open = panel.querySelector('.perps-tpsl-row');
+  if (!open) return false;
+  const shown = [...panel.querySelectorAll('[data-testid=perp-position]')].map((r) => r.dataset.ticker).join();
+  return shown === positions.map((p) => p.market_ticker).join();
+}
 const pnlText = (u, roe) => `${signedUsd(u)}${roe == null ? '' : ` <span class="faint">(${signedPct(n(roe))})</span>`}`;
 function livePnl(root, positions, metas, ticker, markDollars) {
   for (const p of positions) {
@@ -201,11 +209,12 @@ function wirePositions(root, positions, metas, refresh) {
         try {
           await P.setExitTrigger(t, { take_profit_price: tp ? toContract(m, tp) : null, stop_loss_price: sl ? toContract(m, sl) : null });
           toast('Exit trigger saved');
+          f.closest('tr').remove();
           refresh();
         } catch (er) { f.querySelector('[data-testid=tpsl-error]').textContent = er.message; }
       };
       const clr = f.querySelector('[data-clear]');
-      if (clr) clr.onclick = async () => { try { await P.clearExitTrigger(t); toast('Exit trigger removed'); refresh(); } catch (er) { toast(er.message, 'error'); } };
+      if (clr) clr.onclick = async () => { try { await P.clearExitTrigger(t); toast('Exit trigger removed'); f.closest('tr').remove(); refresh(); } catch (er) { toast(er.message, 'error'); } };
     };
   }
 }
@@ -294,7 +303,9 @@ async function renderMarket({ el, params, navigate }) {
         ${authed ? transferBox() : ''}
       </aside>
     </div></div>`;
-  const $ = (s) => el.querySelector(s);
+  const root = el.firstElementChild;
+  const live = () => root.isConnected; // async work may finish after the user navigated away
+  const $ = (s) => root.querySelector(s);
 
   function ticketHtml() {
     return `<div class="perps-seg perps-side-seg" data-testid="perp-side">${['long', 'short'].map((s) => `<button data-side="${s}" class="${s === t.side ? `on ${s}` : ''}">${s === 'long' ? 'Long' : 'Short'}</button>`).join('')}</div>
@@ -320,6 +331,7 @@ async function renderMarket({ el, params, navigate }) {
 
   // ---- header stats
   function drawHead() {
+    if (!live()) return;
     $('[data-testid=perp-mark]').textContent = fmtPx(m, m.mark_price);
     const chg = n(m.price_change_24h_pct);
     const c = $('[data-testid=perp-chg]');
@@ -341,7 +353,7 @@ async function renderMarket({ el, params, navigate }) {
     const now = Math.floor(Date.now() / 1000);
     const { candlesticks } = await P.candles(m.ticker, { period_interval: r.period, start_ts: now - r.span, end_ts: now });
     series = candlesticks.filter((c) => c.price.close != null).map((c) => [c.end_period_ts * 1000, n(c.price.close)]);
-    drawChart();
+    if (live()) drawChart();
   }
   function drawChart() {
     const box = $('[data-testid=perp-chart]');
@@ -370,6 +382,7 @@ async function renderMarket({ el, params, navigate }) {
 
   // ---- book + trades
   function drawBook(b) {
+    if (!live()) return;
     const asks = b.asks.slice(0, 8).reverse();
     const bids = b.bids.slice(0, 8);
     const maxQ = Math.max(1, ...[...asks, ...bids].map((l) => n(l[1])));
@@ -382,7 +395,7 @@ async function renderMarket({ el, params, navigate }) {
   }
   let trades = tr.trades;
   function drawTrades() {
-    $('[data-testid=perp-trades]').innerHTML = trades.length ? `<div class="perps-lvl head faint"><span>Price</span><span>Size</span><span>Time</span></div>${trades.slice(0, 18).map((x) => `<div class="perps-lvl trade ${x.taker_side === 'bid' ? 'bid' : 'ask'}"><span>${fmtPx(m, x.price)}${x.is_liquidation ? ' <em class="faint">liq</em>' : ''}</span><span>${n(x.count).toLocaleString('en-US')}</span><span class="faint">${time(x.created_time)}</span></div>`).join('')}` : '<div class="empty faint">No trades yet.</div>';
+    $('[data-testid=perp-trades]').innerHTML = trades.length ? `<div class="perps-lvl trade head faint"><span>Price</span><span>Size</span><span>Time</span></div>${trades.slice(0, 18).map((x) => `<div class="perps-lvl trade ${x.taker_side === 'bid' ? 'bid' : 'ask'}"><span>${fmtPx(m, x.price)}${x.is_liquidation ? ' <em class="faint">liq</em>' : ''}</span><span>${n(x.count).toLocaleString('en-US')}</span><span class="faint">${time(x.created_time)}</span></div>`).join('')}` : '<div class="empty faint">No trades yet.</div>';
   }
 
   // ---- ticket
@@ -409,7 +422,7 @@ async function renderMarket({ el, params, navigate }) {
     return { contracts, px, notional, cost, fees, liq };
   }
   function drawTicket() {
-    if (!authed) return;
+    if (!authed || !live()) return;
     const c = calc();
     const o = (k) => el.querySelector(`[data-o=${k}]`);
     o('contracts').textContent = c.contracts ? c.contracts.toLocaleString('en-US') : '—';
@@ -472,15 +485,17 @@ async function renderMarket({ el, params, navigate }) {
     bal = b;
     positions = ps.positions;
     for (const p of positions) if (!metas.has(p.market_ticker)) metas.set(p.market_ticker, (await P.market(p.market_ticker)).market);
+    if (!live()) return;
     const av = el.querySelector('[data-testid=perps-available]');
     if (av) av.textContent = money(b.available_dollars);
     drawTicket();
     await drawPanel();
   }
   async function drawPanel() {
-    const panel = $('[data-testid=perp-panel]');
+    const panel = live() && $('[data-testid=perp-panel]');
     if (!panel) return;
     if (tab === 'positions') {
+      if (keepEditor(panel, positions)) return;
       panel.innerHTML = positionsHtml(positions, metas);
       wirePositions(panel, positions, metas, refreshAccount);
     } else if (tab === 'orders') {
@@ -508,6 +523,7 @@ async function renderMarket({ el, params, navigate }) {
   drawTrades();
   wireTicket();
   await Promise.all([loadChart(), refreshAccount()]);
+  if (!live()) return undefined;
   const unsubXfer = authed ? wireTransfer(el, refreshAccount) : () => {};
 
   const refreshSoon = debounce(refreshAccount, 120);
@@ -522,7 +538,7 @@ async function renderMarket({ el, params, navigate }) {
       drawTicket();
     }),
     socket.subscribe({ channels: ['perp_orderbook'], market_tickers: [m.ticker] }, (msg) => { if (msg.type === 'perp_orderbook_snapshot') drawBook(msg.msg); }),
-    socket.subscribe({ channels: ['perp_trade'], market_tickers: [m.ticker] }, (msg) => { if (msg.type === 'perp_trade') { trades = [msg.msg, ...trades].slice(0, 40); drawTrades(); } }),
+    socket.subscribe({ channels: ['perp_trade'], market_tickers: [m.ticker] }, (msg) => { if (msg.type === 'perp_trade' && live()) { trades = [msg.msg, ...trades].slice(0, 40); drawTrades(); } }),
   ];
   if (authed) {
     unsubs.push(socket.subscribe({ channels: ['perp_positions', 'perp_orders', 'perp_account'] }, (msg) => {
@@ -558,10 +574,12 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
         <div class="perps-panel" data-testid="perps-port-panel"></div></section></div>
       <aside class="perps-side-col">${transferBox()}</aside>
     </div></div>`;
-  const $ = (s) => el.querySelector(s);
+  const root = el.firstElementChild;
+  const $ = (s) => root.querySelector(s);
 
   async function drawStats() {
     const b = await P.balance();
+    if (!root.isConnected) return;
     $('[data-testid=perps-equity]').textContent = money(b.account_equity);
     $('[data-testid=perps-port-available]').textContent = money(b.available_dollars);
     $('[data-testid=perps-available]').textContent = money(b.available_dollars);
@@ -575,6 +593,7 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
     const p = $('[data-testid=perps-port-panel]');
     if (tab === 'positions') {
       positions = (await P.positions()).positions;
+      if (!root.isConnected || keepEditor(p, positions)) return;
       p.innerHTML = positionsHtml(positions, metas);
       wirePositions(p, positions, metas, refresh);
     } else if (tab === 'orders') {
@@ -596,6 +615,7 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
     };
   }
   await refresh();
+  if (!root.isConnected) return undefined;
   const unsubXfer = wireTransfer(el, refresh);
   const refreshSoon = debounce(refresh, 150);
   const unsubs = [

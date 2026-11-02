@@ -806,7 +806,9 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     const px = Number(price);
     if (!(px > 0)) throw E.badRequest('price must be a positive number');
     const frozen = freeze == null ? m0.sim_frozen : (freeze ? 1 : 0);
-    db.prepare('UPDATE perp_markets SET index_price=?, sim_frozen=?, basis=CASE WHEN ?=1 THEN 0 ELSE basis END, sim_ts=? WHERE ticker=?').run(px, frozen, frozen, Date.now(), m0.ticker);
+    // Pinning (freezing) starts a fresh premium window with a flat basis, so the next funding rate is the interest component only.
+    const pin = frozen && !m0.sim_frozen ? 1 : 0;
+    db.prepare('UPDATE perp_markets SET index_price=?, sim_frozen=?, basis=CASE WHEN ?=1 THEN 0 ELSE basis END, premium_sum=CASE WHEN ?=1 THEN 0 ELSE premium_sum END, premium_n=CASE WHEN ?=1 THEN 0 ELSE premium_n END, sim_ts=? WHERE ticker=?').run(px, frozen, frozen, pin, pin, Date.now(), m0.ticker);
     let m = getMarket(m0.ticker);
     recordHistory(m, Date.now());
     requote(m, Date.now(), true);

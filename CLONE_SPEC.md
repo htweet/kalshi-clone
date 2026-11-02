@@ -371,9 +371,11 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §5 dollar-string/fp encodings, cursor pagination, error envelopes, 429 | yes | |
 | §7.2 WS: shared connection, dedup subscriptions, 5 s response timeout, backoff, resubscribe | yes | plus private `notifications` channel |
 | §8 settings persisted server-side (theme, chart range, tabs, sort, browse layout, social feed) | yes | per the user's 100%-DB requirement |
-| §13.10 Perps (margin products), §13.11 spotlights, fractional contracts, KYC, payment rails, RFQ, AI summaries | **no** | Perps would need a margin, funding and liquidation engine; deposits are simulated |
+| §14 Perps margin product: markets, mark/index, isolated margin up to max leverage, liquidation, funding, price bands, fees, TP/SL, transfers, WS | yes | see §14 for design choices; tests `clone/tests/perps.e2e.test.js` |
+| §15 redesign: dark shell, home, browse frequency, event page, BUY/SELL + Dollars ticket, interest, rolling 15-min markets, Pro | yes | tests `clone/tests/redesign.e2e.test.js` |
+| §13.11 spotlights, COMBO parlays, fractional contracts, KYC, payment rails, RFQ, AI summaries, GIFs, live chat | **no** | deposits are simulated |
 
-Verification: 21 Playwright scenarios against a real server, a real SQLite file and Chromium (`clone/tests/e2e.test.js` 13, `clone/tests/features.e2e.test.js` 8). The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 40 Playwright scenarios against a real server, a real SQLite file and Chromium (`clone/tests/e2e.test.js` 13, `features.e2e.test.js` 8, `perps.e2e.test.js` 12, `redesign.e2e.test.js` 7). The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -494,6 +496,126 @@ Not implemented; the clone keeps the home hero carousel.
 | Social | "SOCIAL" nav item | `/ideas/feed`, trader nicknames on trades |
 | Market page data | `/v1/events/{e}` + WS | `/v1/bff/cards`, `/v1/cached/*` endpoints and 4–10 s polling loops |
 | Products | binary event contracts | plus margin **Perps** and fractional contracts |
+
+---
+
+## 14. Perpetual futures ("Perps")
+
+Parlance's leveraged perpetual-futures product. This section was written from the public margin API docs (cited by file name: a doc file `a_b_c.md` is `https://docs.kalshi.com/a/b/c.md`, fetched 2026-11-02; not redistributed here), one live public listing sample (`/v1/search/series?derivative_type=margin`, cited as **[live]**), and strings in the shipped web bundle (cited by chunk file name). These sources were treated as data. No code, text, images or fonts were copied. Anything the sources do not establish is marked **UNKNOWN**, followed by the design choice the clone makes.
+
+Implementation: `clone/server/perps.js` (engine + REST), `clone/server/ws.js` (channels), `clone/public/js/views/perps.js`, `clone/public/js/perps-api.js`, `clone/public/perps.css`; tests: `clone/tests/perps.e2e.test.js`.
+
+### 14.1 Product model
+
+| Topic | Evidence | Clone behaviour |
+| - | - | - |
+| Naming | "Perps", "margin" and "perpetual futures" all mean the same product; the API uses the *margin* namespace (`margin.md`). | UI says "Perps"; REST lives under `/v1/perps/*`; doc field names are kept (`account_equity`, `margin_used`, `funding_amount` …). |
+| Listing shape | Each perp is a single market with `contract_size`, `last_price`, `previous_price`, `funding_rate`, `funding_time`, `leverage_estimate(s)`, `asset_class`, and `product_metadata` (`asset_name`, `funding_schedule` cron, `decimal_count`, `description`, `index_provider`) **[live]**. | `GET /v1/perps/markets[/:ticker]` returns these fields, plus the `MarginMarket` fields from `margin-rest_market_get-market.md`. |
+| Asset classes | `PERPS_ASSET_CLASSES = [Crypto, Equities, Metals, FX, Energy, Indices, Rates, Compute, GPU, EventContracts]` (chunk `0b-vmmhwqitt_.js`); the docs enum is `Crypto, Equities, Metals, Indices, Energy` (`api-reference_get-funding-schedule.md`). | Seven invented markets: `PLXBTCPERP`, `PLXETHPERP`, `PLXSOLPERP` (Crypto), `PLXGOLDPERP` (Metals), `PLXOILPERP` (Energy), `PLXUS10YPERP` (Rates), `PLXGPUHRPERP` (Compute). Chips appear in the bundle's order, and only for classes that have markets. |
+| Routes | Landing `/perps` with `/perps/{ticker}` (chunk `23fib2gc7zn_d.js`, `landing:"/perps"`); category route `/perps/categories/{assetClass}` lower-cased (chunk `23fib2gc7zn_d.js`); portfolio `portfolioProductRoutes.perpetuals = "/portfolio/perps"` with `perpsTab ∈ positions\|orders\|history`, default `positions` (chunk `0b-vmmhwqitt_.js`). | All of these routes exist. `/portfolio?perpsTab=…` also renders the Perps portfolio, and the Predictions portfolio links to it. |
+| Contract size and price | BTC `contract_size 0.0001`, `last_price 7.7923` **[live]**: per-contract price = underlying level × contract size. The bundle computes contracts = dollars × leverage ÷ (conversionPrice × contractSize) (chunk `36qdzse90bk1i.js`). Tick is $0.0001 (`margin_price-banding.md`). | Orders, fills and books are priced **per contract** in 4-dp dollars. Internally prices are integer centicents (1 cc = $0.0001 = one tick). The UI shows the underlying level (contract price ÷ contract size), for example BTC at $100,000.00. |
+| Quantities | Fixed-point counts with fractional contracts down to 0.01 (`FixedPointCount` in `margin-rest_risk_get-risk.md`). | **Design choice:** whole contracts only, emitted as `"99.00"` `fp` strings. |
+| Display terms | `PERPS_DISPLAY_TERMS = {marginRequirement:"Cost", positionEquity:"Position value", notionalExposure:"Total size"}` (chunks `36qdzse90bk1i.js`, `3x09fsrfwgctp.js`). Leverage is shown as `"10x"` (`formatLeverage`) and the funding rate as a percent with 4 dp (`formatFundingRate`), both in chunk `0b-vmmhwqitt_.js`. | Ticket rows: Contracts, Total size, Cost (margin), Est. fees, Est. liq. price. The positions table has a Position value column. |
+
+### 14.2 Prices: last, index (reference) and mark
+
+- `price` is the last trade. `reference_price` is the underlying index scaled per contract. `settlement_mark_price` is used for settlement and funding, and `liquidation_mark_price` for liquidation (`margin-rest_market_get-market.md`, `margin-ws_websockets_market-ticker.md`). The docs name third-party index sources, which Parlance does not use.
+- **UNKNOWN**: the formula for the mark price. **Design:** both marks equal the reference price (index × contract size, rounded to the tick).
+- **Design:** the index is a deterministic simulation. It is a geometric random walk with mean reversion toward an anchor, uses a per-market daily volatility, and draws from a seeded PRNG whose state is persisted in `perp_markets`. It advances on the engine tick and is persisted every tick. Mark prices go into `perp_price_history` as 1-minute OHLC bars. Seeding adds 7 days of 15-minute bars, 2 hours of 1-minute bars, a 24-hour public trade tape, and past funding rates.
+- Admin and test hook: `POST /v1/perps/admin/markets/:ticker/index {price, freeze}` (also `engine.perps.setIndex`) pins the index. Pinning resets the funding premium window.
+
+### 14.3 Margin, leverage, liquidation
+
+- Initial margin = maintenance margin × `initial_margin_multiplier` (`margin-rest_risk_get-risk-parameters.md`). Liquidation happens at a margin ratio threshold (`liquidation_margin_ratio_threshold`), and there is also a queue-entry threshold.
+- Docs leverage is 1 ÷ margin rate and falls as notional grows (`leverage_estimates` keyed 1k…1M in `margin-rest_market_get-market.md`). Live values are about 2x–15x **[live]**.
+- **UNKNOWN**: the real maintenance-margin model. The docs describe scenario matrices (hvar/apc/aug/funding), market-impact liquidation configs, and subgroups that share margin (`api-reference_get-maintenance-margin-metadata.md`). **Design:** a flat rate per market. Initial margin rate = 1 ÷ `max_leverage`, and maintenance rate = initial rate ÷ 2 (multiplier 2), so BTC at 20x max gives 5% initial and 2.5% maintenance. `leverage_estimates` are reported, but leverage limits do not scale with size.
+- Docs have both cross and isolated margin: `SubaccountType` is `cross | isolated | auto_rebalance`, and the exit-trigger endpoints exist in both cross and isolated variants (`margin-rest_portfolio_get-balance.md`, `margin-rest_exit-triggers_*`). **Design: isolated margin per (user, market)**, reported as `subaccount 0`, `subaccount_type "isolated"`, `is_portfolio false`. The user picks leverage from 1x up to the market max. Cost = notional ÷ leverage is moved from Perps available collateral into the position's margin.
+- Position equity = margin + unrealized PnL, with unrealized PnL = qty × (mark − entry), signed. Maintenance requirement = |qty| × mark × maintenance rate.
+- Liquidation price, with long and short both written in terms of |q|:
+  - long: (|q|·E − M) ÷ (|q|·(1 − r))
+  - short: (M + |q|·E) ÷ (|q|·(1 + r))
+- **Liquidation (design):** each tick, any position whose equity is below maintenance margin is closed in full at the liquidation mark. The liquidity account takes over the position.
+  - Remaining equity minus a liquidation fee goes back to available. The fee is the smaller of the remaining equity and ½ × maintenance margin.
+  - A shortfall is recorded against an insurance tally in `perp_meta`. Losses never draw on other collateral, because margin is isolated.
+  - Each liquidation writes a `perp_liquidations` row, a `perp_fills` row (`source=liquidation`), a liquidation trade print, ledger rows, and a `perp_liquidation` notification.
+- Reporting: `GET /v1/perps/risk` follows `margin-rest_risk_get-risk.md` literally, where `position_leverage` = notional ÷ maintenance margin. It also returns `effective_leverage` and `margin_ratio`. `GET /v1/perps/balance` follows `margin-rest_portfolio_get-balance.md` (`subaccount_balances[]` with position_value, account_equity, maintenance_margin, initial_margin, resting_orders_margin, available_balance, plus `settled_funds`) and adds `predictions_cash_dollars`.
+
+### 14.4 Funding
+
+- The schedule is a cron per asset class, evaluated in US Eastern Time (`api-reference_get-funding-schedule.md`). Live schedules: Crypto `0 */8 * * *`, Metals `0 10 * * *`, Energy `30 14 * * *`, Indices `0 16 * * *` **[live]**.
+- The estimate is a time-weighted average of the premium index over `[last_funding_time, now)`, finalized at `next_funding_time` (`margin-rest_funding_get-funding-rate-estimate.md`). The premium is the signed fraction of book vs index (`margin-rest_funding_get-premium-index.md`). Markets carry `funding_cap`, `funding_deadband`, `funding_limit_unit`, and `funding_invalid_premium_handling` (`dampen|exclude`).
+- Payment rows carry `funding_rate`, `mark_price`, `quantity` and `funding_amount`, which is positive when received and negative when paid (`margin-rest_funding_get-funding-history.md`). The bundle has a `margin_funding_payment` notification type (chunk `0b-vmmhwqitt_.js`).
+- **UNKNOWN**: the payment formula and the interest component. **Design:**
+  - The premium (book mid − mark) ÷ mark is sampled each tick.
+  - rate = clamp(average premium + 0.01% interest, ±0.75%) per period.
+  - payment = round(−qty × mark × rate), so with a positive rate longs pay and shorts receive. Funding is zero-sum, and the liquidity account takes part.
+  - Payments are applied to the isolated position margin and written to `perp_funding_payments`. Rates go to `perp_funding_rates`.
+  - Intervals are 8h (Crypto, Compute) or 24h, aligned to UTC rather than ET (a simplification). `start({ perps: { fundingIntervalMs } })` or `PERPS_FUNDING_INTERVAL_MS` shortens every interval, for tests.
+  - Missed periods during downtime are paid once on restart.
+  - Notifications are sent at most once per user per hour.
+
+### 14.5 Orders
+
+- Request fields follow `margin-rest_orders_create-order.md`:
+  - `side` is `bid|ask`; the clone also accepts `long|short|buy|sell`.
+  - `count`, `price` (fixed-point dollars), `time_in_force ∈ fill_or_kill|good_till_canceled|immediate_or_cancel`, `post_only`, `reduce_only`, and `client_order_id`.
+  - Reduce-only caps the count at the position size and is rejected unless the order is IOC or FOK.
+  - The response carries `order_id`, `fill_count`, `remaining_count`, `average_fill_price` and `average_fee_paid`.
+- Self-trade prevention per docs is `taker_at_cross|maker`. **Design:** always `taker_at_cross`, which stops matching at the user's own resting order.
+- **UNKNOWN**: market orders. The docs only have limit orders plus TIF. **Design:** `type: "market"` is an IOC limit at mark ± 5%.
+- Matching is price-time priority. Makers get their resting price. Each fill writes `perp_trades` and two `perp_fills` rows (with `entry_price` and `realized_pnl` as in `margin-rest_portfolio_get-fills.md`). Fills against an open opposite position close it first, then open the rest (flip).
+- A resting limit order holds margin for every contract: ⌈price ÷ leverage⌉ plus the taker-fee cap. That holding is released pro rata on fill or on cancel. Taker orders are dry-run against the book first, and rejected with `409 insufficient_margin` if margin and fees exceed available collateral.
+- Not built: amend, decrease, order groups, subaccounts, batch endpoints (`margin.md` says batch is not available on margin anyway), `market_version`, `expiration_time`.
+
+### 14.6 Price banding
+
+Docs (`margin_price-banding.md`):
+- Ticks are $0.0001.
+- A bid must be at least the lower of 80% of the best bid or 1,000 ticks below it.
+- An ask must be at most the higher of 120% of the best ask or 1,000 ticks above it.
+- A side with no resting orders has no band. Resting orders are not canceled when the band moves.
+
+The clone enforces exactly that rule. **Design addition:** every user order must also fall within [min(80% of mark, mark − 1,000 ticks), max(120% of mark, mark + 1,000 ticks)]. A violation returns `400 price_outside_band`, with the allowed range shown as underlying levels in `details`. The bundle has a `price_band_cancel` notification (chunk `0b-vmmhwqitt_.js`). **UNKNOWN** when that fires; the clone never cancels resting orders because of the band.
+
+### 14.7 Fees
+
+Fees are maker and taker rates expressed as a decimal fraction of notional; the docs' examples are 0.0005 maker and 0.0012 taker (`margin-rest_fees_get-fee-tiers.md`, `margin-rest_fees_get-fee-tier-rates.md`). Live `fee_multiplier` is 0 **[live]**. **UNKNOWN**: actual retail rates. **Design:** maker 0.02% and taker 0.06% for every market, fee = ⌈count × price × rate⌉ in centicents. The liquidity account pays nothing. `GET /v1/perps/fee_tiers` returns the maps.
+
+### 14.8 Exit triggers (take profit / stop loss)
+
+- Docs: a bracket (`stop_loss_price` and/or `take_profit_price`) or a trailing stop, set on a position. It fires reduce-only orders that close the position and is evaluated against the mark every tick.
+- Statuses are `pending_on_entry|active|filled|failed|canceled`. Reasons are `user_canceled|position_closed|order_rejected|position_flipped|…`. `triggered_leg` is `stop_loss|take_profit`. Sources: `margin-rest_exit-triggers_set-isolated-exit-trigger.md` and related files.
+- Clone: `PUT|DELETE /v1/perps/positions/:ticker/exit_trigger`, `GET /v1/perps/exit_triggers`. Brackets only; trailing stops and order-anchored triggers are not built.
+- **Design:** take profit and stop loss must sit on the profitable or protective side of the current mark.
+- When a leg fires, the clone sends a reduce-only market order (`source=exit_trigger`), sets the trigger to `filled` with its `triggered_leg`, and sends a `perp_exit_trigger` notification. Closing or flipping the position cancels the trigger with the matching reason.
+
+### 14.9 Transfers between Predictions cash and Perps collateral
+
+- Docs: `POST /portfolio/intra_exchange_instance_transfer` with `source` and `destination` in `event_contract|margined`, an `amount` in **centicents**, and an optional `client_transfer_id` (a duplicate returns 409). The docs say it is processed asynchronously and is "not yet available" in production (`margin-rest_portfolio_intra-account-transfer.md`, `margin.md`). The bundle tracks perps cash apart from predictions cash (`account_equity` checks in chunk `3gq1uugohtlk0.js`) and has a `margin_transfer_completed` notification (chunk `0b-vmmhwqitt_.js`).
+- Clone: `POST /v1/perps/transfers` accepts either `{direction: to_perps|to_predictions, amount_dollars}` or the docs shape. Transfers are whole cents and complete synchronously.
+- Prediction cash moves through `engine.credit(uid, ±cents, 'perps_transfer', …)`, so the existing ledger and `user_balance` WS events stay consistent.
+- Each transfer writes `perp_transfers` and `perp_ledger` rows and sends a notification. `GET /v1/perps/enabled` mirrors `/margin/enabled` (`margin-rest_exchange_get-enabled-status.md`); it is true for any signed-in user.
+
+### 14.10 Liquidity
+
+**Design:** the existing system liquidity account quotes 8 levels on each side around mark × (1 + simulated basis):
+- half-spread is 1.5 bp
+- levels are 2 bp apart
+- each level is about $1.5k of notional, growing with depth
+
+It re-quotes when the mark moves or its orders fill, at most once a second unless forced. Unfilled quotes are deleted on re-quote so the table stays small. The account has unlimited collateral, is excluded from liquidation, and takes part in funding.
+
+### 14.11 WebSocket
+
+- Docs: a separate path `/trade-api/ws/v2/margin` (`marginWsUrl` in chunk `1zneyt5_c85al.js`, `margin.md`). It carries the same channels as event contracts (`orderbook_delta`, `ticker`, `trade`, `fill`, `user_orders`, `order_group_updates`, `market_lifecycle_v2`). Timestamps are `*_ms` epoch milliseconds. Tickers are coalesced to at most 1 per second per market and carry `reference_price`, `settlement_mark_price`, `liquidation_mark_price` and `funding_rate{rate,next_funding_time_ms}` (`margin-ws_websockets_market-ticker.md`).
+- **Design:** the clone multiplexes Perps on the existing `/v1/ws` connection, with prefixed channels:
+  - public: `perp_ticker` (docs payload, at most 1/s per market, forced on trades and pins), `perp_orderbook` (a full `perp_orderbook_snapshot` on subscribe and on every change, instead of deltas), `perp_trade`
+  - private: `perp_orders`, `perp_positions`, `perp_account`
+- The UI recomputes unrealized PnL, ROI and position value locally from each `perp_ticker` mark.
+
+### 14.12 Persistence
+
+The engine owns these SQLite tables, created with `CREATE TABLE IF NOT EXISTS`: `perp_markets` (config and simulation state), `perp_price_history`, `perp_accounts`, `perp_orders`, `perp_trades`, `perp_fills`, `perp_positions`, `perp_funding_rates`, `perp_funding_payments`, `perp_liquidations`, `perp_exit_triggers`, `perp_transfers`, `perp_ledger`, and `perp_meta`. The only in-memory state is throttle timestamps, such as the last ticker emit and the last re-quote. Seeding is idempotent per ticker. `perps.e2e.test.js` restarts the server twice and checks that positions, collateral, the pinned simulation, history, triggers, liquidations, funding and transfers all survive.
 
 ---
 

@@ -80,7 +80,7 @@
 .perps-book, .perps-trades { font-size: 13px; font-variant-numeric: tabular-nums; }
 .perps-lvl { display: grid; grid-template-columns: 1fr auto; gap: 8px; width: 100%; padding: 3px 6px; border: 0; background: none; font: inherit; color: var(--text-x10); text-align: left; position: relative; border-radius: 4px; }
 .perps-lvl > span:not(:first-child) { text-align: right; }
-.perps-lvl.trade { grid-template-columns: 1fr auto auto; }
+.perps-lvl.trade { grid-template-columns: minmax(0, 1fr) 72px 96px; }
 .perps-lvl.head { font-size: 11px; padding-bottom: 4px; }
 button.perps-lvl { cursor: pointer; }
 button.perps-lvl::before { content: ""; position: absolute; inset: 0 0 0 auto; width: var(--perps-depth, 0%); border-radius: 4px; opacity: .9; }

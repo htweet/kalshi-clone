@@ -8,7 +8,7 @@ A functional binary event-contract exchange built only from `../CLONE_SPEC.md`. 
 npm install
 npm start            # http://localhost:3000, or the next free port if 3000 is taken (DB at data/parlance.db, auto-seeded)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 21 end-to-end browser tests (Playwright + node:test)
+npm run test:e2e     # 40 end-to-end browser tests (Playwright + node:test)
 ```
 
 Seeded admin account: `admin@parlance.local` / `parlance-admin`. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local` / `parlance-demo`). It can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page.
@@ -19,9 +19,16 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`. Requires Node ≥ 
 
 ## Pages
 
-Markets (`/browse`, grid or list), Live (`/live`), Social (`/social`, leaderboard, profiles), Calendar (`/calendar`), category and subcategory pages, market pages (chart with 1H/1D/1W change, order book, ticket, Activity, Ideas, Top holders, price alerts), Portfolio, Watchlist, Notifications, Account (social profile, two-factor login, deposit/trading/session limits, price alerts, appearance).
+- Header: MARKETS (`/browse`), INVEST (`/perps`), LIVE (`/live`), PRO (`/pro`), MORE (calendar, social, leaderboard, watchlist, responsible trading, theme). Dark theme by default.
+- Home: hero carousel, info cards, Upcoming strip, category sections, rail with Perps promo, hubs, Trending, Harbor 2026, Top movers.
+- Market pages: head-to-head bar, multi-line chart (1D/1W/1M/ALL), outcome table, Social / Activity / Order book / Rules / Top holders, related events, news, add-to-calendar (.ics) and price-history CSV. The ticket has BUY/SELL and Dollars / Contracts / Limit modes, plus 3.5% interest and price alerts.
+- Live / Calendar: rolling Above/Below windows on an invented PLX index, live events, dated sections, Determined card.
+- Perps (`/perps`): leveraged long/short perpetual futures with mark/index price, isolated margin, liquidation, funding, TP/SL, price bands, and transfers to and from cash.
+- Also: Social, Notifications, Portfolio (with a Perps tab), Watchlist, Account (profile, two-factor login, limits, alerts, appearance).
 
-Not built: the margin "Perps" product, spotlights, fractional contracts, KYC and real payments (spec §12).
+Not built: COMBO parlays, spotlights, fractional contracts, GIFs and live chat, KYC and real payments (spec §12).
+
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`, `ROLLING_WINDOW_SEC` (rolling market window, default 900).
 
 ## Architecture
 
@@ -31,7 +38,9 @@ Not built: the margin "Perps" product, spotlights, fractional contracts, KYC and
 | Matching engine: one book per market, YES@p ≡ NO@(100-p), price-time priority, taker fee, YES+NO netting, lifecycle + settlement | `server/engine.js` | §4.3, §4.4, §5.1 |
 | REST: `/trade-api/v2/*` public market data and `/v1/*` web API (session cookie + `x-csrf-token`), error envelopes, cursor pagination, token-bucket 429 | `server/app.js` | §5, §6 |
 | WebSocket `/v1/ws`: `ticker`, `orderbook` (snapshot + delta), `trade`, `market_lifecycle_v2`, `user_balance`, `user_orders`, `fill` | `server/ws.js` | §7 |
-| Social, notifications + price targets, account limits, two-factor (TOTP), calendar, categories | `server/features.js` | §13 |
+| Social, notifications + price targets, account limits, two-factor (TOTP), calendar, categories, daily interest | `server/features.js` | §13, §15 |
+| Perps margin engine: markets, orders, positions, liquidation, funding, TP/SL, transfers | `server/perps.js` | §14 |
+| Rolling Above/Below windows | `server/rolling.js` | §15.5 |
 | SPA: router, root store, query cache with polling, shared socket with dedup, 5 s subscription timeout, backoff and resubscribe | `public/js/*` | §2, §7.2 |
 
 All state is server-side in SQLite: balances, orders, positions, watchlist, recently viewed and UI settings (theme, chart range, tabs, sort, portfolio view). Only the theme for signed-out visitors and the CSRF token mirror use localStorage.
