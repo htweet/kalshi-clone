@@ -136,6 +136,8 @@ export const api = {
   quotes: () => request('GET', '/v1/communications/quotes'),
   deleteQuote: (id) => request('DELETE', `/v1/communications/quotes/${encodeURIComponent(id)}`),
   acceptQuote: (rfqId, qid, side) => request('PUT', `/v1/communications/rfqs/${encodeURIComponent(rfqId)}/quotes/${encodeURIComponent(qid)}/accept`, { accepted_side: side }),
+  history: (uid, o) => request('GET', u(uid, `/history${qs(o || {})}`)),
+  historyCsvUrl: (uid, query) => u(uid, `/history.csv${query ? `?${query}` : ''}`),
   confirmQuote: (qid) => request('PUT', `/v1/communications/quotes/${encodeURIComponent(qid)}/confirm`, {}),
   admin: (ticker, action, body) => request('POST', `/v1/admin/markets/${encodeURIComponent(ticker)}/${action}`, body || {}),
 };

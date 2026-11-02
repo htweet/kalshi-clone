@@ -337,6 +337,7 @@ test('lifecycle: admin pause/resume/resolve, MARKET_INACTIVE errors, automatic s
   // settlement timer is 5 s; the lifecycle tick finalizes and pays out.
   await pa.waitForSelector('[data-testid=ticket-closed]:has-text("YES")', { timeout: 15000 });
   await pa.goto(BASE + '/portfolio');
+  await pa.click('[data-tab=history]'); // Settlements moved into History (spec §17.9 tab set)
   await pa.click('[data-tab=settlements]');
   await pa.waitForSelector('[data-testid=settlements-table]:has-text("YES")', { timeout: 15000 });
   assert.equal(dbq('SELECT status FROM markets WHERE ticker=?', TICK)[0].status, 'finalized');
@@ -442,6 +443,7 @@ test('server restart: data and sessions persist; open page reconnects WS and res
   await bookHas(page, '3¢');
 
   await page.goto(BASE + '/portfolio');
+  await page.click('[data-tab=history]'); // Settlements / Transactions are History sub-views (spec §17.9)
   await page.click('[data-tab=settlements]');
   await page.waitForSelector('[data-testid=settlements-table]:has-text("YES")');
   await page.click('[data-tab=transactions]');

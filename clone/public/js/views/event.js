@@ -496,7 +496,7 @@ export async function render({ el, params, query, navigate }) {
     if (!session.user) { state.slip = { legs: [] }; return; }
     try { state.slip = (await api.comboSlip(session.uid)).slip; } catch { state.slip = { legs: [] }; }
   }
-  const legRow = (l, right) => `<span class="combo-leg-name"><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${l.side.toUpperCase()}</b> ${esc(l.outcome)}<span class="faint">${esc(l.event_title)}</span></span>${right}`;
+  const legRow = (l, right) => `<span class="combo-leg-name"><span><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${l.side.toUpperCase()}</b> ${esc(l.outcome)}</span><span class="faint">${esc(l.event_title)}</span></span>${right}`;
   function drawComboMini() {
     const box = $('#combo-mini');
     if (!box) return;

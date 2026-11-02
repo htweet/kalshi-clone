@@ -71,3 +71,20 @@ a.combo-btn { display: grid; place-items: center; text-decoration: none; }
   .combo-mkt .yes-btn, .combo-mkt .no-btn { width: 100%; }
   .combo-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+
+/* portfolio History (spec §17.9) */
+.hist-filters { display: flex; flex-direction: column; gap: 10px; padding: 8px 4px 12px; }
+.hist-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hist-chips .chip { border: 1px solid var(--line); background: transparent; color: var(--text-x20); border-radius: 999px; height: 30px; padding: 0 12px; font-weight: 600; font-size: 13px; }
+.hist-chips .chip.on { background: var(--text-x10); color: var(--surface-x10); border-color: var(--text-x10); }
+.hist-inputs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hist-inputs input { height: 32px; border-radius: var(--rounded-x10); border: 1px solid var(--line); background: var(--surface-x10); color: var(--text-x10); padding: 0 8px; min-width: 0; }
+.hist-inputs input[type=search] { flex: 1 1 180px; }
+.hist-inputs label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-x30); font-size: 13px; }
+.hist-badge { font-size: 12px; font-weight: 700; border-radius: var(--rounded-x10); padding: 2px 8px; background: var(--fill-x40); color: var(--text-x20); white-space: nowrap; }
+.hist-badge.trades { background: var(--brand-x20); color: var(--brand); }
+.hist-badge.settlements { background: var(--yes-x20); color: var(--yes); }
+.hist-badge.combos { background: var(--fill-x50); color: var(--text-x10); }
+.hist-desc { font-size: 12px; margin-top: 2px; }
+.amt-pos { color: var(--yes); }
+.amt-neg { color: var(--text-x10); }

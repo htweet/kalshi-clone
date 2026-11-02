@@ -101,9 +101,9 @@ class Engine extends EventEmitter {
 
   // ---- order placement -------------------------------------------------
   // `count` is in units (hundredths of a contract). Options: post_only (reject instead of crossing),
-  // exact_reserve (IOC only: reserve exactly the planned cost instead of the limit-price bound),
+  // exact_reserve (IOC only: reserve exactly the planned cost instead of the limit-price bound), match_order_id,
   // max_cost_cents (shrink the order until its reservation fits), allow_fractional (sell a held fractional position).
-  placeOrder(userId, { ticker, side, price, count, time_in_force = 'gtc', client_order_id, post_only = false, exact_reserve = false, max_cost_cents = null, allow_fractional = false, source = 'user' }) {
+  placeOrder(userId, { ticker, side, price, count, time_in_force = 'gtc', client_order_id, post_only = false, exact_reserve = false, max_cost_cents = null, allow_fractional = false, source = 'user', action = 'buy', order_type = null, match_order_id = null }) {
     if (!['yes', 'no'].includes(side)) throw E.badRequest('side must be yes or no');
     if (!['gtc', 'ioc'].includes(time_in_force)) throw E.badRequest('time_in_force must be gtc or ioc');
     if (!Number.isInteger(price) || price < 1 || price > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99');
@@ -120,7 +120,8 @@ class Engine extends EventEmitter {
       if (m.status !== 'active') throw E.conflict('market_inactive', 'market is not open for trading', `market status is ${m.status}`);
       if (count % UNITS !== 0 && !m.fractional_trading_enabled && !allow_fractional) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market', 'order a whole number of contracts');
       const opp = side === 'yes' ? 'no' : 'yes';
-      const makers = this.db.prepare(`SELECT * FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cents>=? AND user_id<>? ORDER BY price_cents DESC, seq ASC`).all(ticker, opp, 100 - price, userId);
+      // match_order_id: RFQ execution crosses only the confirming maker's order (spec §17.5).
+      const makers = this.db.prepare(`SELECT * FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cents>=? AND user_id<>? ${match_order_id ? 'AND id=?' : ''} ORDER BY price_cents DESC, seq ASC`).all(ticker, opp, 100 - price, userId, ...(match_order_id ? [match_order_id] : []));
       const feeCap = perContractFeeCap(price, m.fee_multiplier);
       const R = (n) => Math.ceil((n * (price + feeCap)) / UNITS); // reservation bound for n units at the limit
       // Plan the taker fills first so the reservation covers per-fill cent rounding exactly.
@@ -152,8 +153,8 @@ class Engine extends EventEmitter {
 
       const id = newId('o_');
       const ts = nowIso();
-      this.db.prepare('INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,initial_count,remaining_count,reserved_cents,status,time_in_force,client_order_id,created_at,updated_at,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, this.nextSeq(), userId, ticker, side, price, count, count, reserve, 'resting', time_in_force, client_order_id ?? null, ts, ts, source);
+      this.db.prepare('INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,initial_count,remaining_count,reserved_cents,status,time_in_force,client_order_id,created_at,updated_at,source,action,order_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, this.nextSeq(), userId, ticker, side, price, count, count, reserve, 'resting', time_in_force, client_order_id ?? null, ts, ts, source, action === 'sell' ? 'sell' : 'buy', order_type || (time_in_force === 'ioc' ? 'market' : 'limit'));
       this.db.prepare('UPDATE users SET balance_cents = balance_cents - ? WHERE id=?').run(reserve, userId);
 
       let carry = pl.suffix[0];

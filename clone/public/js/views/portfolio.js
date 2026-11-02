@@ -1,11 +1,16 @@
-// Portfolio (spec §4.6): balance, funds, positions, resting orders, fills, settlements, CSV export.
+// Portfolio (spec §4.6, §17.6, §17.9): balance, funds; tabs Positions (incl. open combos) | Resting | RFQs | Quotes |
+// History (unified timeline + the trade / settlement / transaction tables as sub-views), CSV exports.
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, money, qty, cents, toast, relTime, secsLeft } from '../lib.js';
 import { renderPerpsPortfolio } from './perps.js';
 
-const TABS = [['positions', 'Positions'], ['orders', 'Resting orders'], ['combos', 'Combos'], ['rfqs', 'RFQs'], ['quotes', 'Quotes'], ['fills', 'Trade history'], ['settlements', 'Settlements'], ['transactions', 'Transactions']];
+// Observed tab set ["position","resting","rfqs","quotes","history"]; data-tab values keep the earlier names.
+const TABS = [['positions', 'Positions'], ['orders', 'Resting'], ['rfqs', 'RFQs'], ['quotes', 'Quotes'], ['history', 'History']];
+const HVIEWS = [['timeline', 'Timeline'], ['fills', 'Trade history'], ['settlements', 'Settlements'], ['transactions', 'Transactions']];
+const HTYPES = [['all', 'All'], ['trades', 'Trades'], ['orders', 'Orders'], ['settlements', 'Settlements'], ['combos', 'Combos/RFQ'], ['cash', 'Cash']];
+const signed = (d) => (d == null ? '' : `<span class="${Number(d) > 0 ? 'amt-pos' : Number(d) < 0 ? 'amt-neg' : ''}">${Number(d) > 0 ? '+' : ''}${money(d)}</span>`);
 const QSTATUS = { open: 'Open', accepted: 'Accepted', confirmed: 'Confirmed', executed: 'Executed', expired: 'Expired', cancelled: 'Cancelled' };
 const sizeLabel = (x) => (x.contracts_fp != null ? `${qty(x.contracts_fp)} contracts` : `${money(x.target_cost_dollars)} target`);
 const legChips = (legs) => `<div class="leg-chips">${legs.map((l) => `<span class="leg-chip ${l.leg_status}" data-leg-status="${l.leg_status}"><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${l.side.toUpperCase()}</b> ${esc(l.outcome)}</span>`).join('')}</div>`;
@@ -14,9 +19,15 @@ export async function render({ el, navigate, query }) {
   if (query && query.get('perpsTab')) return renderPerpsPortfolio({ el, navigate, query }); // Perps product (PERPS_SPEC_SECTION.md)
   if (!session.user) { navigate('/sign-in?next=/portfolio', { replace: true }); return undefined; }
   document.title = 'Portfolio · Parlance';
+  // portfolio_view holds the tab, or a History sub-view (fills / settlements / transactions) for older values.
+  const isView = (v) => TABS.some(([k]) => k === v) || HVIEWS.some(([k]) => k === v && k !== 'timeline');
   const deep = query && query.get('tab');
-  let tab = TABS.some(([k]) => k === deep) ? deep : TABS.some(([k]) => k === session.props.portfolio_view) ? session.props.portfolio_view : 'positions';
-  if (deep && deep === tab && deep !== session.props.portfolio_view) session.setProp('portfolio_view', tab).catch(() => {});
+  const view0 = isView(deep) ? deep : isView(session.props.portfolio_view) ? session.props.portfolio_view : 'positions';
+  let tab = TABS.some(([k]) => k === view0) ? view0 : 'history';
+  let hview = tab === 'history' && view0 !== 'history' ? view0 : 'timeline';
+  if (deep && deep === view0 && deep !== session.props.portfolio_view) session.setProp('portfolio_view', deep).catch(() => {});
+  const hf0 = session.props.history_filters || {};
+  const hist = { type: HTYPES.some(([k]) => k === hf0.type) ? hf0.type : 'all', market: String(hf0.market || ''), from: hf0.from || '', to: hf0.to || '', cursor: '', ids: new Set() };
   let rfqScope = 'mine';
   const uid = session.uid;
 
@@ -32,7 +43,7 @@ export async function render({ el, navigate, query }) {
         <div class="form-error" id="f-error" role="alert"></div>
       </form>
     </div>
-    <div class="tabs" role="tablist">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}
+    <div class="tabs" role="tablist" id="pf-tabs">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}
       <a class="btn btn-ghost" style="margin-left:auto" href="/portfolio?perpsTab=positions" data-link data-testid="perps-portfolio-link">Perps</a><a class="btn btn-ghost" href="${api.csvUrl(uid)}" download data-testid="csv-link">Export CSV</a></div>
     <div class="card" style="padding:4px 12px" id="panel"></div>`;
 
@@ -47,12 +58,12 @@ export async function render({ el, navigate, query }) {
   async function drawPanel() {
     const p = $('#panel');
     if (tab === 'positions') {
-      const { positions } = await api.positions(uid);
-      const open = positions.filter((x) => x.side);
-      p.innerHTML = open.length ? `<table class="table" data-testid="positions-table"><thead><tr><th>Market</th><th>Side</th><th class="num">Contracts</th><th class="num">Avg price</th><th class="num">Cost</th><th class="num">Value</th><th class="num">Unrealized</th><th></th></tr></thead><tbody>
+      const [{ positions }, combos] = await Promise.all([api.positions(uid), api.myCombos(uid)]);
+      const open = positions.filter((x) => x.side && !x.is_combo);
+      p.innerHTML = (open.length ? `<table class="table" data-testid="positions-table"><thead><tr><th>Market</th><th>Side</th><th class="num">Contracts</th><th class="num">Avg price</th><th class="num">Cost</th><th class="num">Value</th><th class="num">Unrealized</th><th></th></tr></thead><tbody>
         ${open.map((x) => `<tr data-ticker="${esc(x.ticker)}"><td>${esc(x.market_title)}</td><td><strong style="color:var(--${x.side === 'yes' ? 'yes' : 'no'})">${x.side.toUpperCase()}</strong></td><td class="num">${qty(x.position_fp)}</td><td class="num">${cents(x.avg_price_dollars)}¢</td><td class="num">${money(x.total_cost_dollars)}</td><td class="num">${money(x.market_value_dollars)}</td><td class="num">${money(x.unrealized_pnl_dollars)}</td>
         <td>${x.market_status === 'active' ? `<button class="btn" data-close="${esc(x.ticker)}" data-side="${x.side === 'yes' ? 'no' : 'yes'}" data-count="${Number(x.position_fp)}">Close</button>` : `<span class="faint">${esc(x.market_status)}</span>`}</td></tr>`).join('')}</tbody></table>`
-        : '<div class="empty" data-testid="no-positions">No open positions. <a href="/browse" data-link>Find a market</a></div>';
+        : '<div class="empty" data-testid="no-positions">No open positions. <a href="/browse" data-link>Find a market</a></div>') + combosSection(combos);
       for (const b of p.querySelectorAll('[data-close]')) {
         b.onclick = async () => {
           // Closing = buying the opposite side; netting returns $1 per pair (spec §4.3 book semantics).
@@ -70,23 +81,86 @@ export async function render({ el, navigate, query }) {
       for (const b of p.querySelectorAll('[data-cancel]')) {
         b.onclick = async () => { b.disabled = true; try { await api.cancelOrder(uid, b.dataset.cancel); toast('Order canceled'); } catch (e) { toast(e.message, 'error'); } refresh(); };
       }
-    } else if (tab === 'combos') {
-      const r = await api.myCombos(uid);
-      p.innerHTML = `<div class="pf-sub"><strong>Open combos · <span data-testid="open-combo-count">${r.total_open_combos}</span></strong><a class="btn btn-ghost" href="/combos" data-link>Build a combo</a></div>
-        ${r.open_combos.length ? `<table class="table" data-testid="combos-table"><thead><tr><th>Combo</th><th>Side</th><th class="num">Contracts</th><th class="num">Cost</th><th>Status</th></tr></thead><tbody>
-        ${r.open_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.side.toUpperCase()}</td><td class="num">${qty(c.position_fp)}</td><td class="num">${money(c.cost_dollars)}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty" data-testid="no-combos">No open combos.</div>'}
-        ${r.settled_combos.length ? `<div class="pf-sub"><strong>Settled combos</strong></div><table class="table" data-testid="settled-combos"><thead><tr><th>Combo</th><th>Result</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
-        ${r.settled_combos.map((c) => `<tr><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.result.toUpperCase()}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
     } else if (tab === 'rfqs') {
       await drawRfqs(p);
     } else if (tab === 'quotes') {
       await drawQuotes(p);
-    } else if (tab === 'fills') {
+    } else {
+      await drawHistory(p);
+    }
+  }
+
+  // Open combos (openCombos / totalOpenCombos) live under Positions; settled combos follow.
+  function combosSection(r) {
+    return `<div class="pf-sub"><strong>Open combos · <span data-testid="open-combo-count">${r.total_open_combos}</span></strong><a class="btn btn-ghost" href="/combos" data-link>Build a combo</a></div>
+      ${r.open_combos.length ? `<table class="table" data-testid="combos-table"><thead><tr><th>Combo</th><th>Side</th><th class="num">Contracts</th><th class="num">Cost</th><th>Status</th></tr></thead><tbody>
+      ${r.open_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.side.toUpperCase()}</td><td class="num">${qty(c.position_fp)}</td><td class="num">${money(c.cost_dollars)}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty" data-testid="no-combos">No open combos.</div>'}
+      ${r.settled_combos.length ? `<div class="pf-sub"><strong>Settled combos</strong></div><table class="table" data-testid="settled-combos"><thead><tr><th>Combo</th><th>Result</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
+      ${r.settled_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.result.toUpperCase()}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
+  }
+
+  // ---------- History (spec §17.9) ----------
+  const histQs = () => new URLSearchParams(Object.entries({ type: hist.type, market: hist.market, from: hist.from, to: hist.to }).filter(([, v]) => v && v !== 'all')).toString();
+  const histRow = (r) => `<tr data-hrow="${esc(r.id)}" data-type="${esc(r.type)}" data-group="${esc(r.group)}"><td class="faint" title="${esc(r.time)}">${new Date(r.time).toLocaleString()}</td>
+    <td><span class="hist-badge ${esc(r.group)}">${esc(r.type_label)}</span></td>
+    <td>${r.market_ticker ? (r.link ? `<a href="${esc(r.link)}" data-link>${esc(r.market_title || r.market_ticker)}</a>` : esc(r.market_title || r.market_ticker)) : '<span class="faint">—</span>'}<div class="faint hist-desc">${esc(r.description)}</div></td>
+    <td>${r.side ? `<strong style="color:var(--${r.side})">${r.action ? r.action.toUpperCase() + ' ' : ''}${r.side.toUpperCase()}</strong>` : ''}</td>
+    <td class="num">${r.quantity_fp != null ? qty(r.quantity_fp) : ''}</td><td class="num">${r.price_dollars != null ? cents(r.price_dollars) + '¢' : ''}</td>
+    <td class="num" data-amount="${esc(r.amount_dollars ?? '')}">${signed(r.amount_dollars)}</td><td class="num">${r.fee_dollars ? signed(r.fee_dollars) : ''}</td><td><span class="status-chip ${esc(r.status)}">${esc(r.status || '')}</span></td></tr>`;
+  async function drawHistory(p) {
+    const seg = `<div class="pf-sub"><div class="seg" role="tablist" aria-label="History view">${HVIEWS.map(([k, l]) => `<button data-hview="${k}" ${k === 'timeline' ? '' : `data-tab="${k}"`} class="${k === hview ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+    if (hview === 'timeline') {
+      const r = await api.history(uid, { ...Object.fromEntries(new URLSearchParams(histQs())), limit: 25 });
+      hist.cursor = r.cursor; hist.ids = new Set(r.history.map((x) => x.id));
+      p.innerHTML = `${seg}<div class="hist-filters" data-testid="history-filters"><div class="hist-chips">${HTYPES.map(([k, l]) => `<button class="chip ${k === hist.type ? 'on' : ''}" data-htype="${k}" aria-pressed="${k === hist.type}">${l}</button>`).join('')}</div>
+        <div class="hist-inputs"><input type="search" id="h-market" placeholder="Search market" aria-label="Search market" value="${esc(hist.market)}"><label>From <input type="date" id="h-from" value="${esc(hist.from)}"></label><label>To <input type="date" id="h-to" value="${esc(hist.to)}"></label>
+        <a class="btn btn-ghost" id="h-csv" data-testid="history-csv" href="${api.historyCsvUrl(uid, histQs())}" download>Download CSV</a></div></div>
+        ${r.history.length ? `<table class="table" data-testid="history-table"><thead><tr><th>Time</th><th>Type</th><th>Market</th><th>Side</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th><th class="num">Fee</th><th>Status</th></tr></thead><tbody id="h-rows">${r.history.map(histRow).join('')}</tbody></table>` : '<div class="empty" data-testid="history-empty">No activity matches these filters.</div>'}
+        ${r.cursor ? '<button class="btn" id="h-more" data-testid="history-more" style="margin:12px auto;display:block">Load more</button>' : ''}`;
+      const save = () => session.setProp('history_filters', { type: hist.type, market: hist.market, from: hist.from, to: hist.to }).catch(() => {});
+      for (const b of p.querySelectorAll('[data-htype]')) b.onclick = () => { hist.type = b.dataset.htype; save(); drawPanel(); };
+      let mt = null;
+      p.querySelector('#h-market').oninput = (e) => { clearTimeout(mt); mt = setTimeout(() => { hist.market = e.target.value.trim(); save(); drawPanel().then(() => { const i = $('#h-market'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 350); };
+      p.querySelector('#h-from').onchange = (e) => { hist.from = e.target.value; save(); drawPanel(); };
+      p.querySelector('#h-to').onchange = (e) => { hist.to = e.target.value; save(); drawPanel(); };
+      const more = p.querySelector('#h-more');
+      if (more) {
+        more.onclick = async () => {
+          more.disabled = true;
+          const n = await api.history(uid, { ...Object.fromEntries(new URLSearchParams(histQs())), limit: 25, cursor: hist.cursor });
+          const fresh = n.history.filter((x) => !hist.ids.has(x.id));
+          fresh.forEach((x) => hist.ids.add(x.id));
+          p.querySelector('#h-rows').insertAdjacentHTML('beforeend', fresh.map(histRow).join(''));
+          hist.cursor = n.cursor;
+          if (n.cursor) more.disabled = false; else more.remove();
+        };
+      }
+    } else {
+      p.innerHTML = seg + '<div id="hview-body"></div>';
+      await drawLegacy(p.querySelector('#hview-body'), hview);
+    }
+    for (const b of p.querySelectorAll('[data-hview]')) {
+      b.onclick = () => { hview = b.dataset.hview; session.setProp('portfolio_view', hview === 'timeline' ? 'history' : hview).catch(() => {}); drawPanel(); };
+    }
+  }
+  // Live: new activity is prepended to the first page without losing loaded pages or filters.
+  async function liveHistory() {
+    const rows = $('#h-rows');
+    if (!rows) return drawPanel();
+    const r = await api.history(uid, { ...Object.fromEntries(new URLSearchParams(histQs())), limit: 25 });
+    const fresh = r.history.filter((x) => !hist.ids.has(x.id));
+    fresh.forEach((x) => hist.ids.add(x.id));
+    if (fresh.length) rows.insertAdjacentHTML('afterbegin', fresh.map(histRow).join(''));
+    return undefined;
+  }
+
+  async function drawLegacy(p, view) {
+    if (view === 'fills') {
       const { fills } = await api.fills(uid);
       p.innerHTML = fills.length ? `<table class="table" data-testid="fills-table"><thead><tr><th>Time</th><th>Market</th><th>Side</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">Fee</th><th>Role</th></tr></thead><tbody>
         ${fills.map((f) => `<tr><td>${new Date(f.created_time).toLocaleString()}</td><td>${esc(f.ticker)}</td><td>${f.side.toUpperCase()}</td><td class="num">${cents(f.price_dollars)}¢</td><td class="num">${qty(f.count_fp)}</td><td class="num">${money(f.fee_dollars)}</td><td>${f.is_taker ? 'Taker' : 'Maker'}</td></tr>`).join('')}</tbody></table>`
         : '<div class="empty">No trades yet.</div>';
-    } else if (tab === 'settlements') {
+    } else if (view === 'settlements') {
       const { settlements } = await api.settlements(uid);
       p.innerHTML = settlements.length ? `<table class="table" data-testid="settlements-table"><thead><tr><th>Settled</th><th>Market</th><th>Result</th><th class="num">Yes</th><th class="num">No</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
         ${settlements.map((s) => `<tr><td>${new Date(s.settled_time).toLocaleString()}</td><td>${esc(s.market_title)}</td><td>${s.market_result.toUpperCase()}</td><td class="num">${qty(s.yes_count_fp)}</td><td class="num">${qty(s.no_count_fp)}</td><td class="num">${money(s.cost_dollars)}</td><td class="num">${money(s.revenue_dollars)}</td></tr>`).join('')}</tbody></table>`
@@ -175,13 +249,18 @@ export async function render({ el, navigate, query }) {
     for (const b of p.querySelectorAll('[data-delete-quote]')) b.onclick = async () => { b.disabled = true; try { await api.deleteQuote(b.dataset.deleteQuote); toast('Quote deleted'); } catch (e) { toast(e.message, 'error'); } drawPanel(); };
   }
 
-  async function refresh() { await Promise.all([drawStats(), drawPanel()]); }
+  async function drawPanelLive() {
+    if (tab === 'history' && hview === 'timeline') return liveHistory();
+    if (el.querySelector('#panel input:focus')) return undefined; // don't wipe a quote or search being typed
+    return drawPanel();
+  }
+  async function refresh() { await Promise.all([drawStats(), drawPanelLive()]); }
 
-  for (const b of el.querySelectorAll('[data-tab]')) {
+  for (const b of el.querySelectorAll('#pf-tabs [data-tab]')) {
     b.onclick = () => {
       tab = b.dataset.tab;
-      for (const x of el.querySelectorAll('[data-tab]')) x.classList.toggle('on', x === b);
-      session.setProp('portfolio_view', tab).catch(() => {});
+      for (const x of el.querySelectorAll('#pf-tabs [data-tab]')) x.classList.toggle('on', x === b);
+      session.setProp('portfolio_view', tab === 'history' && hview !== 'timeline' ? hview : tab).catch(() => {});
       drawPanel();
     };
   }
@@ -207,10 +286,12 @@ export async function render({ el, navigate, query }) {
     socket.subscribe({ channels: ['user_balance'] }, () => refresh().catch(() => {})),
     // RFQ / quote events update the RFQs, Quotes and Combos tabs live (spec §17.6).
     socket.subscribe({ channels: ['communications'] }, () => {
-      if (!['rfqs', 'quotes', 'combos'].includes(tab)) return;
-      if (el.querySelector('#panel input:focus')) return; // don't wipe a quote being typed
-      clearTimeout(commsT); commsT = setTimeout(() => drawPanel().catch(() => {}), 120);
+      if (!['rfqs', 'quotes', 'history', 'positions'].includes(tab)) return;
+      clearTimeout(commsT); commsT = setTimeout(() => drawPanelLive().catch(() => {}), 120);
     }),
+    // New fills and settlements reach History live (settlements arrive as notifications + balance updates).
+    socket.subscribe({ channels: ['fill'] }, () => { if (tab === 'history') liveHistory().catch(() => {}); }),
+    socket.subscribe({ channels: ['notifications'] }, () => { if (tab === 'history') liveHistory().catch(() => {}); }),
   ];
   // Countdowns tick locally; an expired countdown triggers a refetch (the server sweep owns the status).
   const iv = setInterval(() => {

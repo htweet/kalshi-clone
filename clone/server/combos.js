@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS rfq_quotes (
 );
 CREATE INDEX IF NOT EXISTS idx_quotes_rfq ON rfq_quotes(rfq_id, status);
 CREATE INDEX IF NOT EXISTS idx_quotes_maker ON rfq_quotes(maker_id, created_ts);
+CREATE TABLE IF NOT EXISTS combo_creations (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, combo_ticker TEXT NOT NULL REFERENCES markets(ticker),
+  created_ts INTEGER NOT NULL, PRIMARY KEY (user_id, combo_ticker)
+);
 `;
 
 // Contracts a requester can buy at `price` cents for `cents` including the taker fee (spec §17.5 sizing).
@@ -173,6 +177,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     if (req.params.collection.toUpperCase() !== COMBO_SERIES) throw E.notFound();
     const legs = normalizeLegs(req.body && req.body.selected_markets);
     const { ticker, created } = createCombo(legs);
+    db.prepare('INSERT INTO combo_creations(user_id,combo_ticker,created_ts) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(req.auth.user.id, ticker, Date.now()); // for History
     const m = db.prepare('SELECT * FROM markets WHERE ticker=?').get(ticker);
     res.status(created ? 201 : 200).json({ event_ticker: ticker, market_ticker: ticker, created, market: marketVo(m, engine.quote(ticker)) });
   };
@@ -389,7 +394,8 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   }
 
   // Maker confirms → execution through the real engine: the maker's post-only order rests at its bid, then the
-  // requester's IOC order crosses it at the quoted price (fills, fees, ledger, positions, notifications as usual).
+  // requester's IOC order crosses exactly that order at the quoted price (fills, fees, ledger, positions,
+  // notifications as usual). Any unfilled maker remainder is canceled.
   function execute(qid) {
     const q = quoteRow(qid);
     const r = rfqRow(q.rfq_id);
@@ -400,7 +406,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     db.prepare("UPDATE rfq_quotes SET status='confirmed', confirmed_ts=?, updated_ts=? WHERE id=?").run(Date.now(), Date.now(), qid);
     let makerOrder;
     try {
-      makerOrder = engine.placeOrder(q.maker_id, { ticker: r.market_ticker, side: makerSide, price: makerPrice, count: units, post_only: true, source: 'rfq' });
+      makerOrder = engine.placeOrder(q.maker_id, { ticker: r.market_ticker, side: makerSide, price: makerPrice, count: units, post_only: true, source: 'rfq', order_type: 'rfq' });
     } catch (e) {
       if (e instanceof ApiError && e.code === 'insufficient_balance' && !isSystem(q.maker_id)) {
         db.prepare("UPDATE rfq_quotes SET status='accepted', confirmed_ts=NULL, updated_ts=? WHERE id=?").run(Date.now(), qid); // maker may top up and retry within the window
@@ -412,7 +418,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     }
     let takerOrder;
     try {
-      takerOrder = engine.placeOrder(r.user_id, { ticker: r.market_ticker, side: reqSide, price: reqPrice, count: units, time_in_force: 'ioc', exact_reserve: true, source: 'rfq' });
+      takerOrder = engine.placeOrder(r.user_id, { ticker: r.market_ticker, side: reqSide, price: reqPrice, count: units, time_in_force: 'ioc', exact_reserve: true, source: 'rfq', order_type: 'rfq', match_order_id: makerOrder.id });
     } catch (e) {
       try { engine.cancelOrder(q.maker_id, makerOrder.id); } catch { /* already gone */ }
       touchQuote(qid, 'cancelled', 'requester_insufficient_balance'); touchRfq(r.id, 'open');

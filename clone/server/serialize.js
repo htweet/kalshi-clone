@@ -85,7 +85,11 @@ function orderVo(o) {
     side: o.side,
     action: 'buy',
     type: o.time_in_force === 'ioc' ? 'market' : 'limit',
-    order_type: o.source === 'rfq' ? 'rfq' : o.time_in_force === 'ioc' ? 'market' : 'limit',
+    order_type: o.order_type || (o.time_in_force === 'ioc' ? 'market' : 'limit'),
+    // The user's intent: a sell of YES at p is stored and matched as a buy of NO at 100−p (spec §15.4).
+    user_action: o.action || 'buy',
+    user_side: o.action === 'sell' ? (o.side === 'yes' ? 'no' : 'yes') : o.side,
+    user_price_dollars: dollars(o.action === 'sell' ? 100 - o.price_cents : o.price_cents),
     price_dollars: dollars(o.price_cents),
     initial_count_fp: ufp(o.initial_count),
     remaining_count_fp: ufp(o.remaining_count),
