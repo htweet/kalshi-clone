@@ -37,7 +37,7 @@ function listen(server, port, fallback) {
   });
 }
 
-async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos } = {}) {
+async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -46,9 +46,10 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const engine = new Engine(db);
   const ta = db.prepare("SELECT value FROM meta WHERE key='trading_active'").get();
   if (ta) engine.tradingActive = ta.value === '1';
-  const app = createApp({ db, engine, rollingWindowSec, perps, combos, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
+  const app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
   const server = http.createServer(app);
   const hub = attachWs(server, { db, engine });
+  app.locals.wsHub = hub; // admin health page (server/admin.js)
   const ticker = setInterval(() => { try { engine.tick(); } catch (e) { console.error('tick', e); } }, tickMs);
   let bound;
   try {
@@ -67,7 +68,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
 module.exports = { start, DEFAULT_PORT };
 
 if (require.main === module) {
-  start().then(({ port }) => console.log(`Parlance Exchange listening on http://localhost:${port}`), (e) => {
+  start({ sports: process.env.SPORTS === '0' ? false : {} }).then(({ port }) => console.log(`Parlance Exchange listening on http://localhost:${port}`), (e) => {
     console.error(`Could not start Parlance Exchange: ${e.message}`);
     process.exit(1);
   });

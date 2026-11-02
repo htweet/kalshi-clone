@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { esc, catFromSlug, catSlug, catLabel, CATEGORIES, ICON } from '../lib.js';
 import { eventCard } from './components.js';
+import { revealSportsLink } from './sports.js'; // "Live scores" link on the Sports category (SPORTS_SPEC §19.6)
 
 const ORDERS = [['trending', 'Trending'], ['event-volume', 'Volume'], ['newest', 'New'], ['closing-soon', 'Closing soon']];
 const FREQS = [['', 'Frequency'], ['fifteen_min', '15 min'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['one_off', 'One-off']];
@@ -38,11 +39,12 @@ export async function render({ el, params, query, navigate }) {
         <div class="seg" role="group" aria-label="Layout"><button data-layout="grid" aria-label="Grid">${ICON.grid}</button><button data-layout="list" aria-label="List">${ICON.list}</button></div>
       </div></div>
     <div class="faint" id="result-count" style="margin:-4px 0 12px"></div>
-    ${category ? `<div class="chips" style="margin-bottom:16px" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>All ${esc(catLabel(category))}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}</div>` : ''}
+    ${category ? `<div class="chips" style="margin-bottom:16px" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>All ${esc(catLabel(category))}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}${category === 'Sports' ? '<a class="chip sb-hub-chip" href="/sports" data-link data-testid="sports-hub-link" hidden>Live scores ›</a>' : ''}</div>` : ''}
     <div class="grid" id="results">${'<div class="skeleton"></div>'.repeat(6)}</div>
     <div style="text-align:center;margin-top:16px"><button class="btn" id="more" hidden>Load more</button></div>`;
 
   const results = el.querySelector('#results');
+  revealSportsLink(el);
   const drawLayout = () => {
     results.classList.toggle('list', layout === 'list');
     for (const b of el.querySelectorAll('[data-layout]')) b.classList.toggle('on', b.dataset.layout === layout);

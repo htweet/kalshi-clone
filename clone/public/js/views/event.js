@@ -7,6 +7,8 @@ import { socket } from '../ws.js';
 import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON } from '../lib.js';
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
+import { newsItemsHtml } from './admin/site.js'; // CMS news items
+import { mountEventScoreboard } from './sports.js'; // live scoreboard for sports events (SPORTS_SPEC §19.6)
 
 const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60], all: [365 * 86400, 1440] };
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
@@ -78,6 +80,7 @@ export async function render({ el, params, query, navigate }) {
           <button class="btn btn-pill" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}" style="height:40px"></button>
         </div>
       </div>
+      ${ev.live_data ? '<div id="sports-board" class="sb-mount"></div>' : ''}
       ${h2h ? `<div class="h2h" data-testid="h2h"></div>` : ''}
       ${isCombo ? '<section class="card combo-legs" id="combo-legs" data-testid="combo-legs" aria-label="Combo legs"></section>' : ''}
       <section class="chart-box">
@@ -91,7 +94,7 @@ export async function render({ el, params, query, navigate }) {
       <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="bottom"></div>
       <div class="sec-head" style="margin-top:44px"><h2>People are also trading</h2></div><div id="also"></div>
-      ${ev.news ? `<div class="sec-head"><h2>News</h2></div><div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${new Date(Date.now() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}
+      ${ev.news || ev.news_items ? `<div class="sec-head"><h2>News</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${new Date(Date.now() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
     </div>
     <aside>
       ${comboEligible ? '<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" aria-pressed="false">◇ COMBO</button><div id="combo-mini"></div>' : ''}
@@ -564,6 +567,7 @@ export async function render({ el, params, query, navigate }) {
   // ---------- live updates ----------
   const tickers = ev.markets.map((m) => m.ticker);
   const unsubs = [];
+  unsubs.push(mountEventScoreboard($('#sports-board'), ev));
   let pending = null;
   let tradeT = null;
   unsubs.push(socket.subscribe({ channels: ['ticker'] }, (msg) => {

@@ -8,7 +8,7 @@ const { parseCookies, SESSION_COOKIE } = require('./app');
 const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
-const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade']);
+const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data']);
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications']);
 
 function attachWs(server, { db, engine }) {
@@ -47,7 +47,8 @@ function attachWs(server, { db, engine }) {
         }
         for (const ch of chans) {
           const sid = c.nextSid++;
-          const tickers = Array.isArray(p.market_tickers) && p.market_tickers.length ? new Set(p.market_tickers) : null;
+          const filt = Array.isArray(p.market_tickers) && p.market_tickers.length ? p.market_tickers : Array.isArray(p.milestone_ids) && p.milestone_ids.length ? p.milestone_ids : null; // live_data filters by milestone id
+          const tickers = filt ? new Set(filt) : null;
           c.subs.set(sid, { channel: ch, tickers, seq: 0 });
           send(c, { id, type: 'subscribed', msg: { sid, channel: ch } });
           if (ch === 'orderbook' && tickers) for (const t of tickers) snapshot(c, sid, t);
@@ -90,6 +91,7 @@ function attachWs(server, { db, engine }) {
   });
   engine.on('trade', (tr) => publish('trade', tr.market_ticker, 'trade', { trade_id: tr.trade_id, market_ticker: tr.market_ticker, yes_price_dollars: dollars(tr.yes_price), no_price_dollars: dollars(100 - tr.yes_price), count_fp: ufp(tr.count), taker_side: tr.taker_side, ts: tr.ts }));
   engine.on('lifecycle', (t, eventType, status) => publish('market_lifecycle_v2', t, 'market_lifecycle_v2', { market_ticker: t, event_type: eventType, status }));
+  engine.on('live_data', (id, msg) => publish('live_data', id, 'live_data', msg)); // sports scoreboards (server/sports.js)
   engine.on('user_balance', (uid, cents) => publish('user_balance', null, 'user_balance', { available_dollars: dollars(cents) }, uid));
   engine.on('user_order', (uid, o) => publish('user_orders', o.market_ticker, 'user_order', orderVo(o), uid));
   engine.on('fill', (uid, f) => publish('fill', f.market_ticker, 'fill', fillVo(f), uid));

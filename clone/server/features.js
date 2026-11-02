@@ -487,13 +487,15 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
   // ======================= interest (spec §15.4 "3.5% Interest") =======================
   // Design choice: once per UTC day, credit cash + open-position cost basis × APY / 365, rounded to the cent.
   db.exec('CREATE TABLE IF NOT EXISTS interest_accruals (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, base_cents INTEGER NOT NULL, amount_cents INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (user_id, day))');
-  const APY = 0.035;
+  // APY is editable in the admin settings (server/admin.js stores it in meta 'setting_interest_apy'); default 3.5%.
+  const apyNow = () => { const r = db.prepare("SELECT value FROM meta WHERE key='setting_interest_apy'").get(); const n = r ? Number(r.value) : NaN; return Number.isFinite(n) ? n : 0.035; };
   let lastDay = null;
   function accrueInterest() {
     const day = dayKey();
     // Accounts start earning the day after they are created (keeps a day's balance stable once credited).
     if (lastDay === day && !db.prepare("SELECT 1 FROM users u WHERE is_system=0 AND substr(created_at,1,10)<? AND NOT EXISTS (SELECT 1 FROM interest_accruals a WHERE a.user_id=u.id AND a.day=?) LIMIT 1").get(day, day)) return;
     lastDay = day;
+    const APY = apyNow();
     for (const u of db.prepare('SELECT id, balance_cents FROM users u WHERE is_system=0 AND substr(created_at,1,10)<? AND NOT EXISTS (SELECT 1 FROM interest_accruals a WHERE a.user_id=u.id AND a.day=?)').all(day, day)) {
       const pos = db.prepare('SELECT COALESCE(SUM(yes_cost_cents+no_cost_cents),0) c FROM positions WHERE user_id=?').get(u.id).c;
       const base = Math.max(0, u.balance_cents) + pos;
@@ -508,7 +510,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
   engine.on('tick', () => { try { accrueInterest(); } catch (e) { console.error('interest', e); } });
   v1.get('/users/:uid/interest', requireUser, (req, res) => {
     const rows = db.prepare('SELECT * FROM interest_accruals WHERE user_id=? ORDER BY day DESC LIMIT 30').all(req.auth.user.id);
-    res.json({ apy: String(APY), total_dollars: dollars(rows.reduce((a, r) => a + r.amount_cents, 0)), accruals: rows.map((r) => ({ day: r.day, base_dollars: dollars(r.base_cents), amount_dollars: dollars(r.amount_cents) })) });
+    res.json({ apy: String(apyNow()), total_dollars: dollars(rows.reduce((a, r) => a + r.amount_cents, 0)), accruals: rows.map((r) => ({ day: r.day, base_dollars: dollars(r.base_cents), amount_dollars: dollars(r.amount_cents) })) });
   });
 
   return { notify, checkDeposit, checkTrading, sessionMiddleware, loginGate, CATEGORIES };

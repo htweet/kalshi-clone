@@ -11,6 +11,10 @@ const INFO = [
   ['Open order books', 'Every price is set by traders', '/browse', '<path d="M2 13h12M4 10v3M8 6v7M12 3v10" stroke="currentColor" stroke-width="1.6" fill="none"/>'],
   ['Responsible trading', 'Limits and tools to trade smart', '/account/limits', '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" fill="none"/>'],
 ];
+// CMS-managed info cards / promo cards (server/admin.js) replace the defaults when configured.
+const INFO_ICON = { shield: INFO[0][3], bars: INFO[1][3], clock: INFO[2][3], star: '<path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" fill="none" stroke="currentColor" stroke-width="1.4"/>', info: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7v4M8 4.6v.2" stroke="currentColor" stroke-width="1.6"/>' };
+const infoCards = (home) => (home.info_cards ? home.info_cards.map((c) => [esc(c.title), esc(c.subtitle), esc(c.link), INFO_ICON[c.icon] || INFO_ICON.info]) : INFO);
+const promoCard = (p) => `<a class="card promo cms-promo" href="${esc(p.link)}" ${p.link.startsWith('/') ? 'data-link' : 'target="_blank" rel="noopener"'} data-testid="promo-card" style="--promo:${esc(p.color)}"><span>${p.overline ? `<span class="overline">${esc(p.overline)}</span>` : ''}<b>${esc(p.title)}</b>${p.subtitle ? `<span class="sub">${esc(p.subtitle)}</span>` : ''}</span><span class="faint" style="margin-left:auto">›</span></a>`;
 const fmtWhen = (iso) => {
   const d = new Date(iso);
   const sameDay = d.toDateString() === new Date().toDateString();
@@ -29,7 +33,7 @@ export async function render({ el, navigate }) {
   el.innerHTML = `<div class="home">
     <div style="min-width:0">
       <section class="card hero" id="hero" aria-roledescription="carousel"></section>
-      <div class="info-cards">${INFO.map(([t, s, href, icon]) => `<a class="card info-card" href="${href}" data-link><span class="ic"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">${icon}</svg></span><span><b>${t}</b><span>${s}</span></span></a>`).join('')}</div>
+      <div class="info-cards">${infoCards(home).map(([t, s, href, icon]) => `<a class="card info-card" href="${href}" data-link><span class="ic"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">${icon}</svg></span><span><b>${t}</b><span>${s}</span></span></a>`).join('')}</div>
       <div class="sec-head"><h2>Upcoming</h2><span class="spacer"></span><button class="icon-btn" id="up-prev" aria-label="Scroll left">‹</button><button class="icon-btn" id="up-next" aria-label="Scroll right">›</button></div>
       <div class="strip" id="upcoming" data-testid="upcoming">${home.upcoming.map((u) => `<a class="card up-card" href="${eventHref(u)}" data-link data-event="${esc(u.event_ticker)}">
           <div style="display:flex;justify-content:space-between">${evIcon(u)}<button class="star-btn ${watching.has(u.event_ticker) ? 'on' : ''}" data-star="${esc(u.event_ticker)}" aria-label="Watch" aria-pressed="${watching.has(u.event_ticker)}">★</button></div>
@@ -40,7 +44,7 @@ export async function render({ el, navigate }) {
         <div class="cards2">${s.events.slice(0, 2).map(eventCard).join('')}</div>`).join('')}
     </div>
     <aside class="rail">
-      <a class="card promo" href="/perps" data-link data-testid="perps-promo"><span><span class="overline">Perps</span><b>Trade with up to 10x leverage</b><span class="sub">Crypto, metals and rates, 24/7</span></span><span class="art" aria-hidden="true"></span><span class="faint">›</span></a>
+      ${home.promos ? home.promos.map(promoCard).join('') : '<a class="card promo" href="/perps" data-link data-testid="perps-promo"><span><span class="overline">Perps</span><b>Trade with up to 10x leverage</b><span class="sub">Crypto, metals and rates, 24/7</span></span><span class="art" aria-hidden="true"></span><span class="faint">›</span></a>'}
       ${home.hubs.map((h, i) => `<a class="card promo ${i ? 'hub2' : 'hub'}" href="/category/${catSlug(h.category)}" data-link><span><b>${esc(h.title)}</b><span class="sub">${money0(h.dollar_volume)} volume · ${h.events} events</span></span><span class="faint" style="margin-left:auto">›</span></a>`).join('')}
       <div class="card rail-box"><h3>Trending <a href="/browse?order_by=trending" data-link>›</a></h3>${rankList(home.trending)}</div>
       <div class="card rail-box"><h3>Harbor 2026 <a href="/category/elections" data-link>›</a></h3>${rankList(home.featured_list)}</div>

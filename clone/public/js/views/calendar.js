@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { socket } from '../ws.js';
 import { esc, CATEGORIES, catLabel, eventHref, money, cents } from '../lib.js';
 import { eventCard, evIcon } from './components.js';
+import { applySportsFilter, drawSportsNav } from './sports.js'; // sports leagues sidebar + ?league= / ?sport= filter
 
 const fmtDate = (d) => {
   const today = new Date().toISOString().slice(0, 10);
@@ -27,7 +28,7 @@ export async function render({ el, params, query, navigate }) {
   const liveOnly = !!params.live;
   document.title = liveOnly ? 'Live · Parlance' : 'Calendar · Parlance';
   const category = query.get('category') || '';
-  const data = await api.calendar({ category });
+  const data = applySportsFilter(await api.calendar({ category }), query);
   const f = data.filters;
   const liveSec = data.sections.find((s) => s.is_live);
   const dated = data.sections.filter((s) => !s.is_live);
@@ -35,8 +36,9 @@ export async function render({ el, params, query, navigate }) {
   el.innerHTML = `<div class="live-layout">
     <nav class="live-side" aria-label="Calendar categories" data-testid="cal-filters">
       <div class="overline">Featured</div>
-      <a href="/category/sports" data-link>Sports</a><a href="/category/elections" data-link>Harbor 2026</a><a href="/category/crypto" data-link>Crypto · 15 min</a>
+      <div id="sports-featured" class="sb-featured" data-testid="sports-featured"></div><a href="/category/elections" data-link>Harbor 2026</a><a href="/category/crypto" data-link>Crypto · 15 min</a>
       <a href="/calendar" data-link class="next" style="margin-top:10px">What's next</a>
+      <div id="sports-tree" class="sb-treebox" data-testid="sports-tree"></div>
       ${row('', f.all, !category)}${CATEGORIES.filter((c) => f.categories[c]).map((c) => row(c, f.categories[c], c === category)).join('')}
     </nav>
     <div style="min-width:0">
@@ -49,6 +51,7 @@ export async function render({ el, params, query, navigate }) {
     </div>
     <aside class="live-rail"><a class="combo-btn" href="/combos" data-link data-testid="combo-rail-btn" aria-label="Build a combo">◇ COMBO</a><div id="determined"></div></aside>
   </div>`;
+  drawSportsNav(el, query);
   for (const b of el.querySelectorAll('[data-cat]')) b.onclick = () => navigate(b.dataset.cat ? `${location.pathname}?category=${encodeURIComponent(b.dataset.cat)}` : location.pathname, { replace: true });
 
   // Rolling Above/Below card (observed "BTC 15 MIN" pattern; our underlying is the invented PLX index).

@@ -1,5 +1,6 @@
 // Shared UI pieces: market card (browse grid), outcome rows, rank list, chart, post card.
 import { esc, pct, multiplier, prob, eventHref, deltaCents, qty, cents, catColor, compact, avatar, relTime, ICON } from '../lib.js';
+import { scoreCols, liveSub, cardMarkets } from './scoreboard.js'; // live sports scores on cards (SPORTS_SPEC §19.6)
 export { prob };
 
 export function outcomeRows(ev, limit = 3) {
@@ -24,7 +25,7 @@ export function ocAvatar(m, cls = '') {
   return `<span class="oc-av ${cls}" style="background:${esc(c)};color:${esc(c)}" aria-hidden="true"><span style="color:#fff">${esc(String(m.yes_sub_title || '?')[0].toUpperCase())}</span></span>`;
 }
 export function evIcon(ev, cls = '') {
-  return `<span class="ev-icon ${cls}" style="background:${catColor(ev.category)}" aria-hidden="true">${esc(String(ev.series_title || ev.title || '?')[0])}</span>`;
+  return `<span class="ev-icon ${cls}" style="background:${esc(ev.icon_color || catColor(ev.category))}" aria-hidden="true">${esc(String(ev.series_title || ev.title || '?')[0])}</span>`;
 }
 // Name with a coloured underline whose length tracks the chance (observed card pattern, spec §15.3).
 const ocName = (m, label) => {
@@ -37,19 +38,19 @@ const ocName = (m, label) => {
 export function eventCard(ev) {
   const href = eventHref(ev);
   const binary = ev.markets.length === 1;
-  const ms = [...ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0)).slice(0, 2);
+  const ms = ev.live_data ? cardMarkets(ev) : [...ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0)).slice(0, 2);
   const status = STATUS_LABEL(ev);
   const rows = ms.map((m) => {
     const p = prob(m);
     const label = binary ? m.yes_sub_title : m.yes_sub_title;
     return `<div class="mrow outcome-row" data-ticker="${esc(m.ticker)}">
       ${ocAvatar(m, 'sm')}${ocName(m, label)}
-      <span class="mult">${multiplier(m)}</span>
+      <span class="mult">${multiplier(m)}</span>${scoreCols(ev, m)}
       <a class="odds pill" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link aria-label="${esc(label)} ${p == null ? 'no price' : p + ' percent'}">${p == null ? '—' : p + '%'}</a>
     </div>`;
   }).join('');
-  const sub = ev.is_live ? `<span class="live-dot">Live</span><span>${esc(ev.live_label || '')}</span>` : esc(status || (ev.close_time ? shortDay(ev.close_time) : ''));
-  return `<article class="card mcard ${ev.is_live ? 'live' : ''}" data-testid="event-card" data-event="${esc(ev.event_ticker)}">
+  const sub = ev.live_data ? liveSub(ev) : ev.is_live ? `<span class="live-dot">Live</span><span>${esc(ev.live_label || '')}</span>` : esc(status || (ev.close_time ? shortDay(ev.close_time) : ''));
+  return `<article class="card mcard ${ev.is_live ? 'live' : ''}${ev.live_data ? ` sb-card ${ev.live_data.status}` : ''}" data-testid="event-card" data-event="${esc(ev.event_ticker)}"${ev.live_data ? ` data-milestone="${esc(ev.live_data.milestone_id)}" data-status="${ev.live_data.status}"` : ''}>
     <div class="mcard-head">${evIcon(ev, 'sm')}<div style="min-width:0"><a class="mcard-title" href="${href}" data-link>${esc(ev.title)}</a><div class="mcard-sub">${sub}</div></div></div>
     <div class="mcard-rows">${rows}</div>
     <div class="mcard-foot"><span class="num">${money0(ev.dollar_volume ?? 0)} vol</span>${ev.markets.length > 2 ? `<span>· ${ev.markets.length} outcomes</span>` : ''}<span class="grow"></span><span class="ev-meta"><span>${esc(status || ev.category)}</span></span></div>
@@ -116,8 +117,8 @@ export function postCard(p, { showEvent = true } = {}) {
   return `<article class="post" data-post="${esc(p.id)}" data-testid="post">
     ${avatar(p.author.nickname)}
     <div>
-      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a><span class="faint">${relTime(p.created_time)}</span>
-        ${p.is_mine ? '<button class="btn btn-sm btn-ghost btn-danger" data-act="delete" style="margin-left:auto">Delete</button>' : ''}</div>
+      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a>${p.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified" data-testid="verified-badge">✓</span>' : ''}<span class="faint">${relTime(p.created_time)}</span>
+        ${p.is_mine ? '<button class="btn btn-sm btn-ghost btn-danger" data-act="delete" style="margin-left:auto">Delete</button>' : `<button class="post-more" data-post-menu="${esc(p.id)}" aria-label="More actions" data-testid="post-menu">⋯</button>`}</div>
       <div class="post-body" data-testid="post-body">${esc(p.body)}</div>
       ${showEvent && p.event ? `<a class="post-event" href="${esc(p.event.link)}" data-link>${esc(p.event.title)}</a><br>` : ''}
       <div class="post-actions">

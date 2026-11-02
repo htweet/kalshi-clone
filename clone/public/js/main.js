@@ -16,6 +16,11 @@ import * as notifications from './views/notifications.js';
 import * as pro from './views/pro.js';
 import * as perps from './views/perps.js';
 import * as combos from './views/combos.js';
+import * as sports from './views/sports.js';
+import { startLivePatcher } from './views/scoreboard.js';
+import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
+// Admin panel is loaded on demand (public/js/views/admin.js).
+const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
 
 const routes = [
   [/^\/$/, home],
@@ -23,6 +28,8 @@ const routes = [
   [/^\/live$/, calendar, () => ({ live: true })],
   [/^\/pro$/, pro],
   [/^\/combos$/, combos],
+  [/^\/sports$/, sports],
+  [/^\/sports\/([A-Za-z0-9]+)$/, sports, (m) => ({ league: m[1] })],
   [/^\/perps$/, perps, () => ({ mode: 'list' })],
   [/^\/perps\/categories\/([^/]+)$/, perps, (m) => ({ mode: 'list', assetClass: decodeURIComponent(m[1]) })],
   [/^\/perps\/([A-Za-z0-9]+)$/, perps, (m) => ({ mode: 'market', ticker: m[1].toUpperCase() })],
@@ -42,6 +49,8 @@ const routes = [
   [/^\/account\/([a-z-]+)$/, account, (m) => ({ section: m[1] })],
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
+  [/^\/admin(?:\/(.*))?$/, adminView, (m) => ({ path: m[1] || '' })],
+  [/^\/help\/([a-z0-9-]+)$/, helpView, (m) => ({ slug: m[1] })],
 ];
 
 let cleanup = null;
@@ -64,6 +73,8 @@ async function render() {
   }
   renderCategoryStrip(url);
   markNav(url);
+  const gated = match && featureGate(url.pathname); // admin feature switches (views/admin/site.js)
+  if (gated) { view.innerHTML = gated; return; }
   if (!match) {
     view.innerHTML = `<div class="empty" style="min-height:60vh;display:grid;place-content:center;gap:8px"><h1 class="typ-title-x10" style="margin:0">Page not found</h1><p class="muted" style="margin:0">That page doesn't exist.</p><div><a class="btn" href="/" data-link>Go home</a></div></div>`;
     document.title = 'Not found · Parlance';
@@ -85,10 +96,11 @@ function renderCategoryStrip(url) {
   // Short labels on the strip; a featured hub sits after Trending (spec §15.1).
   strip.innerHTML = [
     `<a href="/" data-link class="${current === 'trending' ? 'active' : ''}">Trending</a>`,
-    `<a href="/category/elections" data-link class="featured ${current === 'elections' ? 'active' : ''}" data-testid="featured-tab">Harbor 2026</a>`,
+    // Featured tab and category order / labels / visibility come from the CMS (defaults when unconfigured).
+    `<a href="${esc(site.nav.featured.href)}" data-link class="featured ${p === site.nav.featured.href || (current && site.nav.featured.href === `/category/${current}`) ? 'active' : ''}" data-testid="featured-tab"${site.nav.featured.color ? ` style="color:${esc(site.nav.featured.color)}"` : ''}>${esc(site.nav.featured.label)}</a>`,
     `<a href="/browse?order_by=newest" data-link class="${current === 'new' ? 'active' : ''}">New</a>`,
     '<span class="sep" aria-hidden="true"></span>',
-    ...CATEGORIES.map((c) => `<a href="/category/${catSlug(c)}" data-link class="${current === catSlug(c) ? 'active' : ''}">${esc(catLabel(c))}</a>`),
+    ...(site.nav.categories || CATEGORIES.map((name) => ({ name }))).filter((c) => !c.hidden).map(({ name: c, label }) => `<a href="/category/${catSlug(c)}" data-link class="${current === catSlug(c) ? 'active' : ''}">${esc(label || catLabel(c))}</a>`),
   ].join('');
 }
 
@@ -158,6 +170,7 @@ function renderAccount() {
       <a href="/portfolio" data-link>Portfolio</a><a href="/watchlist" data-link>Watchlist</a>
       ${session.nickname ? `<a href="/social/profile/${encodeURIComponent(session.nickname)}" data-link>My profile</a>` : '<a href="/account/profile" data-link>Create social profile</a>'}
       <a href="/notifications" data-link>Notifications</a><a href="/account" data-link>Account &amp; security</a>
+      ${session.user.is_admin || (session.user.admin_roles || []).length ? '<a href="/admin" data-link data-testid="admin-link">Admin</a>' : ''}
       <button id="theme-toggle" data-testid="theme-toggle">${dark ? 'Light mode' : 'Dark mode'}</button><hr>
       <button id="logout-btn">Log out</button>`);
     if (!m) return;
@@ -168,7 +181,7 @@ function renderAccount() {
 
 // MORE menu (spec §15.1): secondary destinations.
 document.getElementById('more-btn').addEventListener('click', (e) => {
-  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>Calendar</a><a href="/social" data-link>Social</a><a href="/social/leaderboard" data-link>Leaderboard</a>
+  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>Calendar</a><a href="/sports" data-link data-testid="more-sports">Sports scores</a><a href="/social" data-link>Social</a><a href="/social/leaderboard" data-link>Leaderboard</a>
     <a href="/watchlist" data-link>Watchlist</a><a href="/browse" data-link>Browse all markets</a><hr><a href="/account/limits" data-link>Responsible trading</a><button id="more-theme">Toggle light / dark</button>`);
   const t = document.getElementById('more-theme');
   if (t) t.onclick = () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; if (session.user) session.setProp('theme', next); else { applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } closeMenus(); };
@@ -195,6 +208,7 @@ queries.poll(['live_count'], api.liveCount, { interval: 30000, onData: (d) => { 
 
 const banner = document.getElementById('conn-banner');
 socket.onState((s) => { banner.hidden = s.connected; });
+startLivePatcher(view); // live sports scores on every page (views/scoreboard.js)
 
 // Notifications arrive live on the private channel.
 let unsubNotif = null;
@@ -213,4 +227,5 @@ session.subscribe(() => {
 applyTheme(localTheme());
 session.subscribe(renderAccount);
 renderAccount();
-session.load().then(() => { socket.connect(); render(); });
+Promise.all([session.load(), loadSite()]).then(() => { socket.connect(); render(); });
+window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

@@ -12,6 +12,8 @@ const { mountCombos, COMBO_SERIES } = require('./combos');
 const { mountHistory } = require('./history');
 const { mountOrders, parseExpiry } = require('./orders');
 const { mountPositions } = require('./positions');
+const { mountSports } = require('./sports');
+const { mountAdmin } = require('./admin');
 
 const SESSION_COOKIE = 'plx_session';
 const SESSION_DAYS = 30;
@@ -54,7 +56,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports }) {
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
@@ -65,6 +67,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   const marketsOf = (eventTicker) => db.prepare('SELECT * FROM markets WHERE event_ticker=? ORDER BY rowid').all(eventTicker).map((m) => marketVo(m, q(m.ticker)));
   const getEvent = (t) => db.prepare('SELECT * FROM events WHERE ticker=?').get(t);
   const getSeries = (t) => db.prepare('SELECT * FROM series WHERE ticker=?').get(t);
+  let sportsApi = null; // live sports scoreboards (server/sports.js), mounted below
   const eventFull = (e) => {
     const s = getSeries(e.series_ticker);
     const vo = eventVo(e, marketsOf(e.ticker));
@@ -72,9 +75,11 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     vo.series_slug = s.slug;
     vo.tags = JSON.parse(s.tags);
     vo.frequency = s.frequency;
+    admin.decorateEvent(vo); // CMS: icon colour + news items (server/admin.js)
     vo.dollar_volume = vo.markets.reduce((a, m) => a + Number(m.dollar_volume || 0), 0);
     vo.close_time = vo.markets.filter((m) => m.status !== 'finalized').map((m) => m.close_time).sort()[0] || vo.markets[0]?.close_time;
     vo.total_volume_fp = fp(vo.markets.reduce((a, m) => a + Number(m.volume_fp), 0));
+    if (sportsApi) sportsApi.decorate(vo); // live_data for events linked to a game (server/sports.js)
     return vo;
   };
 
@@ -117,6 +122,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
 
   const v2 = express.Router();
   const v1 = express.Router();
+  // Admin + CMS first: its v1 middleware (locks, bans, feature switches, CMS decorators) must run before later routes.
+  const admin = mountAdmin({ v1, app, db, engine, notify: (...a) => feat.notify(...a), eventFull, rate, rollingWindowSec });
   const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, startSession, publicUser });
   app.use('/v1', feat.sessionMiddleware);
   mountRolling({ v1, db, engine, windowSec: rollingWindowSec });
@@ -125,6 +132,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   mountHistory({ v1, db, requireUser });
   const ordersApi = mountOrders({ v1, db, engine, requireUser, notify: feat.notify });
   mountPositions({ v1, db, engine, requireUser });
+  // Simulated live sports (SPORTS_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
+  const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
+  if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));

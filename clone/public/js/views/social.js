@@ -35,7 +35,7 @@ export function wirePosts(root, { navigate, onDeleted } = {}) {
         delete btn.dataset.reload;
         const { comments } = await api.comments(pid);
         box.hidden = false;
-        box.innerHTML = `${comments.map((c) => `<div class="comment" data-comment="${esc(c.id)}"><a href="/social/profile/${encodeURIComponent(c.author.nickname)}" data-link><strong>@${esc(c.author.nickname)}</strong></a> <span class="faint">${relTime(c.created_time)}</span>${c.is_mine ? ' <button class="btn btn-sm btn-ghost btn-danger" data-act="del-comment">Delete</button>' : ''}<div>${esc(c.body)}</div></div>`).join('') || '<div class="faint">No replies yet.</div>'}
+        box.innerHTML = `${comments.map((c) => `<div class="comment" data-comment="${esc(c.id)}"><a href="/social/profile/${encodeURIComponent(c.author.nickname)}" data-link><strong>@${esc(c.author.nickname)}</strong></a>${c.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified">✓</span>' : ''} <span class="faint">${relTime(c.created_time)}</span>${c.is_mine ? ' <button class="btn btn-sm btn-ghost btn-danger" data-act="del-comment">Delete</button>' : ` <button class="btn btn-sm btn-ghost" data-report-comment="${esc(c.id)}">Report</button>`}<div>${esc(c.body)}</div></div>`).join('') || '<div class="faint">No replies yet.</div>'}
           ${session.user ? `<form class="inline-form" data-reply style="margin-top:8px"><label class="field"><span hidden>Reply</span><input name="body" placeholder="Write a reply" maxlength="300" data-testid="reply-input"></label><button class="btn btn-sm" type="submit">Reply</button></form>` : ''}`;
         const f = box.querySelector('[data-reply]');
         if (f) f.onsubmit = async (ev) => {
