@@ -49,8 +49,8 @@ function mountRolling({ v1, db, engine, windowSec = 900 }) {
         `Resolves YES if the PLX index at ${hhmm} UTC is above $${(target / 100).toFixed(2)}.`, now, now);
     db.prepare('INSERT INTO flash_windows(event_ticker,market_ticker,start_ts,end_ts,target_cents) VALUES(?,?,?,?,?)').run(et, mt, start, end, target);
     const id = lp();
-    if (id) {
-      try { engine.placeOrder(id, { ticker: mt, side: 'yes', price: 47, count: 400 }); engine.placeOrder(id, { ticker: mt, side: 'no', price: 47, count: 400 }); } catch { /* liquidity optional */ }
+    if (id) { // 400 contracts per side (40,000 units)
+      try { engine.placeOrder(id, { ticker: mt, side: 'yes', price: 47, count: 40000, source: 'liquidity' }); engine.placeOrder(id, { ticker: mt, side: 'no', price: 47, count: 40000, source: 'liquidity' }); } catch { /* liquidity optional */ }
     }
   }
 

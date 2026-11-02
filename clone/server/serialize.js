@@ -1,5 +1,6 @@
 'use strict';
-const { dollars, fp } = require('./util');
+const { dollars, ufp } = require('./util');
+// Quantity fields (`*_fp`) are fixed-point contract strings: stored units / 100 with 2 decimals (spec §16.1).
 
 function marketVo(m, q) {
   return {
@@ -22,20 +23,23 @@ function marketVo(m, q) {
     yes_ask_dollars: dollars(q.yes_ask),
     no_bid_dollars: dollars(q.no_bid),
     no_ask_dollars: dollars(q.no_ask),
-    yes_bid_size_fp: fp(q.yes_bid_size),
-    yes_ask_size_fp: fp(q.yes_ask_size),
+    yes_bid_size_fp: ufp(q.yes_bid_size),
+    yes_ask_size_fp: ufp(q.yes_ask_size),
     last_price_dollars: dollars(q.last_price),
     previous_price_dollars: dollars(q.previous_price),
     previous_hour_price_dollars: dollars(q.previous_hour_price),
     previous_day_price_dollars: dollars(q.previous_price),
     previous_week_price_dollars: dollars(q.previous_week_price),
-    volume_fp: fp(q.volume),
+    volume_fp: ufp(q.volume),
     dollar_volume: q.dollar_volume_cents == null ? null : Math.round(q.dollar_volume_cents / 100),
-    volume_24h_fp: fp(q.volume_24h),
-    open_interest_fp: fp(q.open_interest),
+    volume_24h_fp: ufp(q.volume_24h),
+    open_interest_fp: ufp(q.open_interest),
     notional_value_dollars: '1.0000',
     price_level_structure: 'linear_cent',
     price_ranges: [{ start: '0.0000', end: '1.0000', step: '0.0100' }],
+    fractional_trading_enabled: !!m.fractional_trading_enabled,
+    contract_decimals: m.fractional_trading_enabled ? 2 : 0,
+    ...(m.mve_collection_ticker ? { mve_collection_ticker: m.mve_collection_ticker, mve_selected_legs: JSON.parse(m.mve_selected_legs || '[]') } : {}),
     updated_time: m.updated_at,
     created_time: m.created_at,
   };
@@ -81,10 +85,11 @@ function orderVo(o) {
     side: o.side,
     action: 'buy',
     type: o.time_in_force === 'ioc' ? 'market' : 'limit',
+    order_type: o.source === 'rfq' ? 'rfq' : o.time_in_force === 'ioc' ? 'market' : 'limit',
     price_dollars: dollars(o.price_cents),
-    initial_count_fp: fp(o.initial_count),
-    remaining_count_fp: fp(o.remaining_count),
-    fill_count_fp: fp(o.filled_count),
+    initial_count_fp: ufp(o.initial_count),
+    remaining_count_fp: ufp(o.remaining_count),
+    fill_count_fp: ufp(o.filled_count),
     taker_fees_dollars: dollars(o.fees_cents),
     status: o.status,
     created_time: o.created_at,
@@ -101,7 +106,7 @@ function fillVo(f) {
     side: f.side,
     action: 'buy',
     price_dollars: dollars(f.price_cents),
-    count_fp: fp(f.count),
+    count_fp: ufp(f.count),
     is_taker: !!f.is_taker,
     fee_dollars: dollars(f.fee_cents),
     created_time: new Date(f.created_ts ?? f.ts).toISOString(),

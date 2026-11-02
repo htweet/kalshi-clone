@@ -4,7 +4,7 @@
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, multiplier, money, qty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON } from '../lib.js';
+import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON } from '../lib.js';
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 
@@ -12,6 +12,8 @@ const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60]
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
 const TABS = [['ideas', 'Social'], ['trades', 'Activity'], ['book', 'Order book'], ['rules', 'Rules'], ['holders', 'Top holders']];
 const MODES = [['dollars', 'Dollars'], ['market', 'Contracts'], ['limit', 'Limit order']];
+const RFQ_MODE = ['rfq', 'Request quote']; // shown when the rfq_enabled user property is on (spec §17.6)
+const COMBO_SERIES = 'PLXCOMBO';
 const feeCents = (c, p) => Math.ceil((FEE_RATE * c * p * (100 - p)) / 100);
 const SVG = {
   cal: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="4.5" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4" stroke="currentColor" stroke-width="1.6"/></svg>',
@@ -40,13 +42,19 @@ export async function render({ el, params, query, navigate }) {
     selected: (query && ev.markets.find((m) => m.ticker === query.get('market'))?.ticker) || ev.markets.find((m) => m.status === 'active')?.ticker || ev.markets[0].ticker,
     side: query && query.get('side') === 'no' ? 'no' : 'yes',
     action: 'buy',
-    mode: MODES.some(([k]) => k === props.ticket_mode) ? props.ticket_mode : 'dollars',
+    mode: MODES.some(([k]) => k === props.ticket_mode) || (props.ticket_mode === 'rfq' && props.rfq_enabled) ? props.ticket_mode : 'dollars',
     range: RANGES[props.chart_range] ? props.chart_range : '1w',
     bottomTab: TABS.some(([k]) => k === props.event_bottom_tab) ? props.event_bottom_tab : 'ideas',
     book: { yes: new Map(), no: new Map() },
     watching: false,
     held: { yes: 0, no: 0 },
+    hideFrac: !!props.orderbook_hide_fractional_shares,
+    comboMode: false,
+    slip: null, // combo slip (server-persisted, spec §17.3)
   };
+  const isCombo = ev.series_ticker === COMBO_SERIES;
+  const comboEligible = !isCombo && !ev.series_ticker.startsWith('PLXFLASH');
+  const modes = () => (session.props.rfq_enabled && !isCombo ? [...MODES, RFQ_MODE] : MODES);
   if (session.user) {
     try { state.watching = (await api.watchlist(session.uid)).events.some((e) => e.event_ticker === ev.event_ticker); } catch { /* ignore */ }
   }
@@ -59,7 +67,7 @@ export async function render({ el, params, query, navigate }) {
     <div style="min-width:0">
       <div class="ev-header">
         ${evIcon({ ...ev, series_title: series.title }, 'xl')}
-        <div style="flex:1;min-width:0"><div class="crumbs"><a href="/category/${catSlug(ev.category)}" data-link>${esc(catLabel(ev.category))}</a> &nbsp;/&nbsp; ${esc(series.title)}</div>
+        <div style="flex:1;min-width:0"><div class="crumbs"><a href="${isCombo ? '/combos' : `/category/${catSlug(ev.category)}`}" data-link>${esc(catLabel(ev.category))}</a> &nbsp;/&nbsp; ${esc(series.title)}</div>
           <h1 data-testid="event-title">${esc(ev.title)}</h1><div class="muted" style="font-size:17px">${esc(ev.sub_title)}</div>
           ${ev.is_live ? `<div class="live-dot" style="margin-top:8px">Live · ${esc(ev.live_label)}</div>` : ''}</div>
         <div class="ev-actions">
@@ -71,6 +79,7 @@ export async function render({ el, params, query, navigate }) {
         </div>
       </div>
       ${h2h ? `<div class="h2h" data-testid="h2h"></div>` : ''}
+      ${isCombo ? '<section class="card combo-legs" id="combo-legs" data-testid="combo-legs" aria-label="Combo legs"></section>' : ''}
       <section class="chart-box">
         <div class="chart-head"><div class="legend" id="legend"></div><span class="watermark">Parlance</span></div>
         <div style="display:flex;gap:14px;align-items:baseline;margin-top:6px"><span class="faint" id="chart-label"></span><span class="num" id="chart-prob" data-testid="chart-prob"></span><span class="change-chips" id="changes" data-testid="changes"></span></div>
@@ -85,6 +94,7 @@ export async function render({ el, params, query, navigate }) {
       ${ev.news ? `<div class="sec-head"><h2>News</h2></div><div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${new Date(Date.now() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}
     </div>
     <aside>
+      ${comboEligible ? '<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" aria-pressed="false">◇ COMBO</button><div id="combo-mini"></div>' : ''}
       <section class="card tkt ticket" id="ticket" aria-label="Trade ticket"></section>
       <div id="position"></div>
       <div id="alerts"></div>
@@ -141,7 +151,11 @@ export async function render({ el, params, query, navigate }) {
   function drawLegend() {
     $('#legend').innerHTML = ranked().slice(0, 3).map((m, i) => `<span><i style="background:${esc(seriesColor(m, i))}"></i>${esc(m.yes_sub_title)} <b>${prob(m) ?? '—'}%</b></span>`).join('');
   }
+  // In combo mode the Yes/No buttons add or remove combo legs instead of selecting the ticket.
+  const legOf = (m) => state.slip && state.slip.legs.find((l) => l.market_ticker === m.ticker);
+  const pickOn = (m, side) => (state.comboMode ? legOf(m)?.side === side : m.ticker === state.selected && state.side === side);
   function drawRows() {
+    el.querySelector('.mkt-table').classList.toggle('combo-picking', state.comboMode);
     $('#mkt-rows').innerHTML = ranked().map((m) => {
       const p = prob(m);
       const tradable = m.status === 'active';
@@ -151,12 +165,13 @@ export async function render({ el, params, query, navigate }) {
       return `<tr data-ticker="${esc(m.ticker)}" class="${m.ticker === state.selected ? 'selected' : ''}">
         <td><div style="display:flex;gap:16px;align-items:center">${ocAvatar(m)}<div><div style="font-size:18px">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${multiplier(m)}</div></div></div></td>
         <td style="text-align:center;white-space:nowrap"><span class="prob" data-testid="prob-${esc(m.ticker)}">${p == null ? '—' : p + '%'}</span>${d ? ` <span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</td>
-        <td style="text-align:right"><button class="yes-btn ${m.ticker === state.selected && state.side === 'yes' ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${yesAsk ? yesAsk + '¢' : '—'}</button></td>
-        <td><button class="no-btn ${m.ticker === state.selected && state.side === 'no' ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${noAsk ? noAsk + '¢' : '—'}</button></td></tr>`;
+        <td style="text-align:right"><button class="yes-btn ${pickOn(m, 'yes') ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${yesAsk ? yesAsk + '¢' : '—'}</button></td>
+        <td><button class="no-btn ${pickOn(m, 'no') ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${noAsk ? noAsk + '¢' : '—'}</button></td></tr>`;
     }).join('');
     for (const tr of el.querySelectorAll('#mkt-rows tr')) {
       tr.onclick = (e) => {
         const pick = e.target.closest('[data-pick]');
+        if (state.comboMode && pick) { toggleLeg(tr.dataset.ticker, pick.dataset.pick); return; }
         const changed = state.selected !== tr.dataset.ticker;
         state.selected = tr.dataset.ticker;
         if (pick) { state.side = pick.dataset.pick; state.action = 'buy'; }
@@ -231,12 +246,16 @@ export async function render({ el, params, query, navigate }) {
       return;
     }
     const selling = state.action === 'sell';
-    const mode = selling && state.mode === 'dollars' ? 'market' : state.mode;
+    const MODE_LIST = modes();
+    let mode = selling && (state.mode === 'dollars' || state.mode === 'rfq') ? 'market' : state.mode;
+    if (!MODE_LIST.some(([k]) => k === mode)) mode = 'dollars';
+    const frac = !!m.fractional_trading_enabled; // fractional contracts (spec §16.5)
+    const step = frac ? '0.01' : '1';
     const yesAsk = cents(m.yes_ask_dollars); const noAsk = cents(m.no_ask_dollars);
     const held = state.held[state.side];
     t.innerHTML = `<div class="tkt-head"><button data-action="buy" class="${!selling ? 'on' : ''}">BUY</button><button data-action="sell" class="${selling ? 'on' : ''}" data-testid="sell-tab">SELL</button>
-        <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(MODES.find(([k]) => k === mode)[1].toUpperCase())} ▾</button>
-        <div class="menu mode-menu" id="t-mode-menu" hidden>${MODES.map(([k, l]) => `<button data-otype="${k}" ${selling && k === 'dollars' ? 'disabled' : ''}>${l}</button>`).join('')}</div></div></div>
+        <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(MODE_LIST.find(([k]) => k === mode)[1].toUpperCase())} ▾</button>
+        <div class="menu mode-menu" id="t-mode-menu" hidden>${MODE_LIST.map(([k, l]) => `<button data-otype="${k}" ${selling && (k === 'dollars' || k === 'rfq') ? 'disabled' : ''}>${l}</button>`).join('')}</div></div></div>
       <div class="tkt-body">
         <div class="tkt-q">${esc(state.ev.title)}</div>
         <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
@@ -247,10 +266,10 @@ export async function render({ el, params, query, navigate }) {
         ${selling ? `<div class="tkt-row" data-testid="held"><span>You hold</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
         ${mode === 'dollars' ? '<label class="tkt-input">Dollars<input id="t-amount" type="number" min="1" step="1" placeholder="$0" inputmode="decimal" aria-label="Dollars"></label>' : ''}
         ${mode === 'limit' ? `<label class="tkt-input">Limit price (¢)<input id="t-price" type="number" min="1" max="99" step="1" value="${selling ? sellPrice() : ticketPrice}" inputmode="numeric"></label>` : ''}
-        ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="1" step="1" value="${selling ? Math.max(1, held) : 10}" inputmode="numeric"></label>` : ''}
+        ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="${step}" step="${step}" value="${selling ? held || 1 : 10}" inputmode="${frac ? 'decimal' : 'numeric'}" data-testid="t-count"></label>` : ''}
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
-        <button class="cta" id="t-submit" data-testid="submit-order">${session.user ? `${selling ? 'Sell' : 'Buy'} ${state.side === 'yes' ? 'Yes' : 'No'}` : 'Sign up to trade'}</button>
+        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? 'Sign up to trade' : mode === 'rfq' ? 'Request quote' : `${selling ? 'Sell' : 'Buy'} ${state.side === 'yes' ? 'Yes' : 'No'}`}</button>
       </div>`;
     for (const b of t.querySelectorAll('[data-side]')) b.onclick = () => { state.side = b.dataset.side; drawRows(); drawTicket(defaultPrice()); };
     for (const b of t.querySelectorAll('[data-action]')) b.onclick = async () => { state.action = b.dataset.action; if (state.action === 'sell') await refreshHeld(); drawTicket(); };
@@ -269,17 +288,25 @@ export async function render({ el, params, query, navigate }) {
       if (mode === 'dollars') {
         const amt = Number(t.querySelector('#t-amount').value || 0);
         const p = state.side === 'yes' ? yesAsk : noAsk;
-        const c = p ? Math.floor((amt * 100) / (p + Math.ceil((FEE_RATE * p * (100 - p)) / 100))) : 0;
+        const per = p ? p + Math.ceil((FEE_RATE * p * (100 - p)) / 100) : 0;
+        const c = p ? (frac ? Math.floor((amt * 10000) / per) / 100 : Math.floor((amt * 100) / per)) : 0; // floor to 0.01 where fractional
         sum.innerHTML = `<div class="tkt-row"><span>Odds</span><strong>${p ? (state.side === 'yes' ? p : 100 - p) : '—'}% chance</strong></div>
-          <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${c} contracts at ${p || '—'}¢</div>`;
-        t.querySelector('#t-submit').disabled = !!session.user && c < 1;
+          <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${qty(c)} contracts at ${p || '—'}¢</div>`;
+        t.querySelector('#t-submit').disabled = !!session.user && !(c > 0);
+        return;
+      }
+      const c = Number(t.querySelector('#t-count').value);
+      const sizeOk = validQty(c, frac || (selling && c === held));
+      if (mode === 'rfq') {
+        sum.innerHTML = sizeOk ? `<div class="faint" data-testid="rfq-hint">Makers reply with Yes and No prices for ${qty(c)} contracts. Accept one side in <a href="/portfolio?tab=rfqs" data-link>Portfolio → RFQs</a>.</div>`
+          : `<span class="faint">Enter ${frac ? 'at least 0.01 contracts (2 decimals)' : 'a whole number of contracts'}.</span>`;
+        t.querySelector('#t-submit').disabled = !!session.user && !sizeOk;
         return;
       }
       const p = mode === 'market' ? (selling ? sellPrice() : defaultPrice()) : Number(t.querySelector('#t-price').value);
-      const c = Number(t.querySelector('#t-count').value);
       if (mode === 'limit' && !selling) ticketPrice = p;
-      const ok = Number.isInteger(p) && p >= 1 && p <= 99 && Number.isInteger(c) && c >= 1 && (!selling || c <= held);
-      if (!ok) { sum.innerHTML = `<span class="faint">${selling && c > held ? `You hold ${qty(held)} contracts.` : 'Enter a price between 1¢ and 99¢ and a whole number of contracts.'}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
+      const ok = Number.isInteger(p) && p >= 1 && p <= 99 && sizeOk && (!selling || c <= held);
+      if (!ok) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${selling && c > held ? `You hold ${qty(held)} contracts.` : `Enter a price between 1¢ and 99¢ and ${frac ? 'at least 0.01 contracts (up to 2 decimals)' : 'a whole number of contracts'}.`}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
       sum.innerHTML = selling
         ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. proceeds' : 'Proceeds at limit'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 100)}</strong></div>`
         : `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 100)}</strong></div>
@@ -297,6 +324,11 @@ export async function render({ el, params, query, navigate }) {
       const label = btn.textContent;
       btn.disabled = true; btn.textContent = 'Submitting…';
       try {
+        if (mode === 'rfq') {
+          const r = await api.createRfq({ market_ticker: m.ticker, contracts_fp: Number(t.querySelector('#t-count').value).toFixed(2) });
+          toast(`RFQ sent for ${qty(r.rfq.contracts_fp)} contracts`);
+          return;
+        }
         const body = { ticker: m.ticker, side: state.side, action: state.action, type: mode };
         if (mode === 'dollars') body.amount_dollars = Number(t.querySelector('#t-amount').value || 0);
         else body.count = Number(t.querySelector('#t-count').value);
@@ -347,13 +379,20 @@ export async function render({ el, params, query, navigate }) {
       box.innerHTML = `<div class="card rules" style="padding:20px" data-testid="rules"><p>${esc(m.rules_primary)}</p><p>${esc(series.rules)}</p>
         <p class="faint">Settlement source: ${series.settlement_sources.map((s) => esc(s.name)).join(', ')} · Closes ${shortDate(m.close_time)} · Market ${esc(m.ticker)}</p></div>`;
     } else if (tab === 'book') {
-      const asks = [...state.book.no.entries()].map(([p, c]) => [100 - p, c]).sort((a, b) => a[0] - b[0]).slice(0, 8).reverse();
-      const bids = [...state.book.yes.entries()].sort((a, b) => b[0] - a[0]).slice(0, 8);
+      // "Hide fractional shares" (order-book setting, DB-persisted): sizes round down to whole contracts for display.
+      const shown = (entries) => (state.hideFrac ? entries.map(([p, c]) => [p, Math.floor(c + 1e-9)]).filter(([, c]) => c > 0) : entries);
+      const asks = shown([...state.book.no.entries()].map(([p, c]) => [100 - p, c])).sort((a, b) => a[0] - b[0]).slice(0, 8).reverse();
+      const bids = shown([...state.book.yes.entries()]).sort((a, b) => b[0] - a[0]).slice(0, 8);
       const max = Math.max(1, ...asks.map((a) => a[1]), ...bids.map((b) => b[1]));
       const row = (p, c, color) => `<div class="book-row"><span class="bar" style="width:${(c / max) * 100}%;background:${color}"></span><span>${p}¢</span><span style="text-align:right">${qty(c)}</span></div>`;
-      box.innerHTML = `<div class="card" style="padding:20px" data-testid="orderbook"><div class="faint" style="margin-bottom:10px">${esc(m.yes_sub_title)}</div><div class="book">
+      box.innerHTML = `<div class="card" style="padding:20px" data-testid="orderbook"><div class="book-head"><span class="faint">${esc(m.yes_sub_title)}</span><label class="book-setting"><input type="checkbox" id="hide-frac" data-testid="hide-fractional" ${state.hideFrac ? 'checked' : ''}> Hide fractional shares</label></div><div class="book">
         <div><h4 style="color:var(--no)">Offers to sell YES</h4>${asks.map(([p, c]) => row(p, c, 'var(--no)')).join('') || '<p class="faint">None</p>'}</div>
         <div><h4 style="color:var(--yes)">Bids to buy YES</h4>${bids.map(([p, c]) => row(p, c, 'var(--yes)')).join('') || '<p class="faint">None</p>'}</div></div></div>`;
+      box.querySelector('#hide-frac').onchange = (e) => {
+        state.hideFrac = e.target.checked;
+        if (session.user) session.setProp('orderbook_hide_fractional_shares', state.hideFrac).catch(() => {});
+        drawBottom();
+      };
     } else if (tab === 'trades') {
       try {
         const r = await api.socialTrades({ event_ticker: ev.event_ticker });
@@ -452,10 +491,62 @@ export async function render({ el, params, query, navigate }) {
     }
   }
 
+  // ---------- combos (spec §17.3): combo mode on outcome rows, legs of a combo market ----------
+  async function loadSlip() {
+    if (!session.user) { state.slip = { legs: [] }; return; }
+    try { state.slip = (await api.comboSlip(session.uid)).slip; } catch { state.slip = { legs: [] }; }
+  }
+  const legRow = (l, right) => `<span class="combo-leg-name"><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${l.side.toUpperCase()}</b> ${esc(l.outcome)}<span class="faint">${esc(l.event_title)}</span></span>${right}`;
+  function drawComboMini() {
+    const box = $('#combo-mini');
+    if (!box) return;
+    const btn = $('#combo-toggle');
+    btn.setAttribute('aria-pressed', String(state.comboMode));
+    btn.classList.toggle('on', state.comboMode);
+    if (!state.comboMode) { box.innerHTML = ''; return; }
+    const legs = state.slip ? state.slip.legs : [];
+    box.innerHTML = `<section class="card combo-mini" data-testid="combo-mini"><div class="combo-mini-head"><strong>Combo slip</strong><span class="faint" data-testid="combo-leg-count">${legs.length}/6 legs</span></div>
+      ${legs.map((l) => `<div class="combo-leg-row" data-leg="${esc(l.market_ticker)}">${legRow(l, `<span class="num">${l.prob}%</span>`)}</div>`).join('') || '<p class="faint">Tap Yes or No on an outcome to add it as a leg.</p>'}
+      ${legs.length ? `<div class="tkt-row"><span>Combined odds</span><strong data-testid="combo-odds">${state.slip.combined_prob}%</strong></div>` : ''}
+      <a class="cta combo-open" href="/combos" data-link data-testid="combo-open">${legs.length >= 2 ? 'Get a quote' : 'Open combo builder'}</a></section>`;
+  }
+  async function toggleLeg(ticker, side) {
+    if (!session.user) return navigate('/sign-in?next=' + encodeURIComponent(location.pathname));
+    const m = state.ev.markets.find((x) => x.ticker === ticker);
+    const legs = (state.slip?.legs || []).map((l) => ({ market_ticker: l.market_ticker, side: l.side, event_ticker: l.event_ticker }));
+    const i = legs.findIndex((l) => l.market_ticker === ticker);
+    let next;
+    if (i >= 0 && legs[i].side === side) next = legs.filter((_, j) => j !== i);
+    else {
+      next = legs.filter((l) => l.event_ticker !== m.event_ticker); // one leg per event
+      if (next.length >= 6) { toast('A combo can have at most 6 legs', 'error'); return; }
+      next.push({ market_ticker: ticker, side, event_ticker: m.event_ticker });
+    }
+    try { state.slip = (await api.saveComboSlip(session.uid, { legs: next.map((l) => ({ market_ticker: l.market_ticker, side: l.side })), amount_dollars: state.slip?.amount_dollars ?? null })).slip; } catch (e) { toast(e.message, 'error'); }
+    drawRows(); drawComboMini();
+  }
+  if (comboEligible) {
+    $('#combo-toggle').onclick = async () => {
+      state.comboMode = !state.comboMode;
+      if (state.comboMode && !state.slip) await loadSlip();
+      drawRows(); drawComboMini();
+    };
+  }
+  async function drawComboLegs() {
+    const box = $('#combo-legs');
+    if (!box) return;
+    try {
+      const { combo } = await api.combo(state.ev.markets[0].ticker);
+      const label = { pending: 'Pending', won: 'Won', lost: 'Lost' };
+      box.innerHTML = `<div class="combo-mini-head"><h3>Combo legs</h3><span class="faint">${combo.legs.length} legs · combined odds ${combo.combined_prob}%</span></div>
+        ${combo.legs.map((l) => `<a class="combo-leg-row" href="${esc(l.link)}" data-link data-testid="combo-leg" data-leg-status="${l.leg_status}">${legRow(l, `<span class="leg-status ${l.leg_status}">${label[l.leg_status]}</span>`)}</a>`).join('')}`;
+    } catch (e) { box.innerHTML = `<p class="faint">${esc(e.message)}</p>`; }
+  }
+
   async function refreshEvent() {
     const r = await api.event(eventTicker);
     state.ev = r.event;
-    drawRows(); drawTicket(); drawAdmin(); drawPosition(); drawHeadline();
+    drawRows(); drawTicket(); drawAdmin(); drawPosition(); drawHeadline(); drawComboLegs();
   }
 
   // ---------- live updates ----------
@@ -470,7 +561,8 @@ export async function render({ el, params, query, navigate }) {
     clearTimeout(pending);
     pending = setTimeout(() => { drawRows(); drawHeadline(); }, 100);
   }));
-  unsubs.push(socket.subscribe({ channels: ['market_lifecycle_v2'], market_tickers: tickers }, () => refreshEvent().catch(() => {})));
+  const legTickers = isCombo ? (ev.markets[0].mve_selected_legs || []).map((l) => l.market_ticker) : [];
+  unsubs.push(socket.subscribe({ channels: ['market_lifecycle_v2'], market_tickers: [...tickers, ...legTickers] }, () => refreshEvent().catch(() => {})));
   unsubs.push(socket.subscribe({ channels: ['trade'], market_tickers: tickers }, () => { if (state.bottomTab === 'trades') { clearTimeout(tradeT); tradeT = setTimeout(() => drawBottom(), 150); } }));
   const onNotif = (e) => { if (e.detail.type === 'price_target') drawAlerts(); };
   window.addEventListener('parlance:notification', onNotif);
@@ -478,7 +570,7 @@ export async function render({ el, params, query, navigate }) {
   if (session.user) unsubs.push(socket.subscribe({ channels: ['fill'] }, (msg) => { if (tickers.includes(msg.msg.ticker)) drawPosition(); }));
 
   await refreshHeld();
-  drawWatch(); drawRows(); drawHeadline(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated();
+  drawWatch(); drawRows(); drawHeadline(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated(); drawComboLegs();
   // Keep canonical URL (slug is decorative, spec §3).
   const canonical = eventHref({ ...ev, series_slug: series.slug });
   if (location.pathname !== canonical) history.replaceState({}, '', canonical);

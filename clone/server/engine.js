@@ -4,21 +4,27 @@
 // Every order is a *buy* of YES or NO; holding both sides nets to $1 per pair.
 const { EventEmitter } = require('node:events');
 const { tx } = require('./db');
-const { nowIso, newId, E } = require('./util');
+const { nowIso, newId, E, ApiError, ustr } = require('./util');
 
 const FEE_RATE_NUM = 7; // design choice for unknown U3: fee = ceil(0.07 * C * P * (1-P)) dollars
+const UNITS = 100;      // quantities are integer hundredths of a contract (spec §16.1)
 const MAX_COUNT = 100000;
+const MAX_UNITS = MAX_COUNT * UNITS;
 
-// Taker fee in cents for `count` contracts at `price` cents.
-function takerFeeCents(count, price, multiplier = 1) {
-  const raw = FEE_RATE_NUM * count * price * (100 - price) * multiplier; // in 1/10000 cents
-  return Math.ceil(raw / 10000);
+// Taker fee in cents for `units` hundredths of a contract at `price` cents: ceil(7·q·p·(100−p) / 1,000,000).
+// For whole contracts (q = 100·C) this is exactly ceil(0.07·C·P·(1−P)) dollars, as before.
+function takerFeeCents(units, price, multiplier = 1) {
+  const raw = FEE_RATE_NUM * units * price * (100 - price) * multiplier; // in 1/1,000,000 cents
+  return Math.ceil(raw / 1000000);
 }
 // Upper bound on per-contract fee for any execution price <= limit (P(1-P) peaks at 50).
 function perContractFeeCap(limit, multiplier = 1) {
   const p = Math.min(limit, 50);
   return Math.ceil((FEE_RATE_NUM * p * (100 - p) * multiplier) / 10000);
 }
+// Cash split for a fill of q units at YES-side price p: the pair costs exactly q cents; the taker side pays
+// ceil(p·q/100) and the maker side the remainder (spec §16.2).
+const takerPrincipal = (units, price) => Math.ceil((units * price) / UNITS);
 
 class Engine extends EventEmitter {
   constructor(db) {
@@ -75,8 +81,8 @@ class Engine extends EventEmitter {
       previous_price: prev ? prev.p : (last ? last.p : null),
       previous_hour_price: hourAgo ?? (last ? last.p : null),
       previous_week_price: weekAgo ?? (prev ? prev.p : (last ? last.p : null)),
-      volume: vol,
-      dollar_volume_cents: dvol,
+      volume: vol, // units
+      dollar_volume_cents: Math.round(dvol / UNITS),
       volume_24h: vol24,
       open_interest: oi,
     };
@@ -94,11 +100,15 @@ class Engine extends EventEmitter {
   }
 
   // ---- order placement -------------------------------------------------
-  placeOrder(userId, { ticker, side, price, count, time_in_force = 'gtc', client_order_id }) {
+  // `count` is in units (hundredths of a contract). Options: post_only (reject instead of crossing),
+  // exact_reserve (IOC only: reserve exactly the planned cost instead of the limit-price bound),
+  // max_cost_cents (shrink the order until its reservation fits), allow_fractional (sell a held fractional position).
+  placeOrder(userId, { ticker, side, price, count, time_in_force = 'gtc', client_order_id, post_only = false, exact_reserve = false, max_cost_cents = null, allow_fractional = false, source = 'user' }) {
     if (!['yes', 'no'].includes(side)) throw E.badRequest('side must be yes or no');
     if (!['gtc', 'ioc'].includes(time_in_force)) throw E.badRequest('time_in_force must be gtc or ioc');
     if (!Number.isInteger(price) || price < 1 || price > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99');
-    if (!Number.isInteger(count) || count < 1 || count > MAX_COUNT) throw E.badRequest(`count must be an integer between 1 and ${MAX_COUNT}`);
+    if (!Number.isInteger(count) || count < 1 || count > MAX_UNITS) throw E.badRequest(`count must be between 0.01 and ${MAX_COUNT} contracts`);
+    const exact = exact_reserve && time_in_force === 'ioc';
 
     const touched = new Set([userId]);
     const fills = [];
@@ -108,56 +118,81 @@ class Engine extends EventEmitter {
       const m = this.market(ticker);
       if (!this.tradingActive) throw E.conflict('trading_paused', 'trading is paused');
       if (m.status !== 'active') throw E.conflict('market_inactive', 'market is not open for trading', `market status is ${m.status}`);
+      if (count % UNITS !== 0 && !m.fractional_trading_enabled && !allow_fractional) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market', 'order a whole number of contracts');
+      const opp = side === 'yes' ? 'no' : 'yes';
+      const makers = this.db.prepare(`SELECT * FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cents>=? AND user_id<>? ORDER BY price_cents DESC, seq ASC`).all(ticker, opp, 100 - price, userId);
       const feeCap = perContractFeeCap(price, m.fee_multiplier);
-      const reserve = count * (price + feeCap);
+      const R = (n) => Math.ceil((n * (price + feeCap)) / UNITS); // reservation bound for n units at the limit
+      // Plan the taker fills first so the reservation covers per-fill cent rounding exactly.
+      const plan = (cnt) => {
+        const out = []; let rem = cnt; let r = cnt;
+        for (const mk of makers) {
+          if (rem === 0) break;
+          const q = Math.min(rem, mk.remaining_count);
+          const tp = 100 - mk.price_cents; // price improvement goes to the taker
+          const principal = takerPrincipal(q, tp);
+          const fee = takerFeeCents(q, tp, m.fee_multiplier);
+          out.push({ mk, q, tp, principal, fee, cost: principal + fee, delta: exact ? principal + fee : R(r) - R(r - q) });
+          rem -= q; r -= q;
+        }
+        // suffix[i] = buffer still needed before fill i so no later fill's refund goes negative.
+        const suffix = new Array(out.length + 1).fill(0);
+        for (let i = out.length - 1; i >= 0; i--) suffix[i] = Math.max(0, out[i].cost - out[i].delta + suffix[i + 1]);
+        const base = exact ? out.reduce((a, f) => a + f.cost, 0) : R(cnt);
+        return { fills: out, rem, suffix, required: base + suffix[0] };
+      };
+      let pl = plan(count);
+      if (max_cost_cents != null) {
+        const step = m.fractional_trading_enabled ? 1 : UNITS;
+        for (let i = 0; i < 1000 && pl.required > max_cost_cents && count > step; i++) { count -= step; pl = plan(count); }
+      }
+      if (post_only && pl.fills.length) throw E.conflict('post_only_cross', 'post-only order would cross the book');
+      const reserve = pl.required;
       if (this.balance(userId) < reserve) throw E.conflict('insufficient_balance', 'insufficient balance', `order requires $${(reserve / 100).toFixed(2)} including max fees`);
 
       const id = newId('o_');
       const ts = nowIso();
-      this.db.prepare('INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,initial_count,remaining_count,reserved_cents,status,time_in_force,client_order_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, this.nextSeq(), userId, ticker, side, price, count, count, reserve, 'resting', time_in_force, client_order_id ?? null, ts, ts);
+      this.db.prepare('INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,initial_count,remaining_count,reserved_cents,status,time_in_force,client_order_id,created_at,updated_at,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, this.nextSeq(), userId, ticker, side, price, count, count, reserve, 'resting', time_in_force, client_order_id ?? null, ts, ts, source);
       this.db.prepare('UPDATE users SET balance_cents = balance_cents - ? WHERE id=?').run(reserve, userId);
 
-      const opp = side === 'yes' ? 'no' : 'yes';
-      let remaining = count;
-      const makers = this.db.prepare(`SELECT * FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cents>=? AND user_id<>? ORDER BY price_cents DESC, seq ASC`).all(ticker, opp, 100 - price, userId);
-      for (const mk of makers) {
-        if (remaining === 0) break;
-        const qty = Math.min(remaining, mk.remaining_count);
+      let carry = pl.suffix[0];
+      pl.fills.forEach((f, i) => {
+        const { mk, q, tp, principal, fee } = f;
         const makerPrice = mk.price_cents;
-        const takerPrice = 100 - makerPrice; // price improvement goes to the taker
-        const fee = takerFeeCents(qty, takerPrice, m.fee_multiplier);
+        const makerCost = q - principal;
         const tradeId = newId('t_');
         const nowMs = Date.now();
-        const yesPrice = side === 'yes' ? takerPrice : makerPrice;
-        this.db.prepare('INSERT INTO trades(id,market_ticker,yes_price_cents,count,taker_side,created_ts) VALUES(?,?,?,?,?,?)').run(tradeId, ticker, yesPrice, qty, side, nowMs);
+        const yesPrice = side === 'yes' ? tp : makerPrice;
+        this.db.prepare('INSERT INTO trades(id,market_ticker,yes_price_cents,count,taker_side,created_ts) VALUES(?,?,?,?,?,?)').run(tradeId, ticker, yesPrice, q, side, nowMs);
 
-        // maker side
+        // maker side: release its reservation for q units (all of it when the order completes)
         const mkFeeCap = perContractFeeCap(makerPrice, m.fee_multiplier);
-        const mkReleased = qty * (makerPrice + mkFeeCap);
-        const mkRemaining = mk.remaining_count - qty;
+        const mkR = (n) => Math.ceil((n * (makerPrice + mkFeeCap)) / UNITS);
+        const mkRemaining = mk.remaining_count - q;
+        const mkReleased = mkRemaining === 0 ? mk.reserved_cents : Math.min(mk.reserved_cents, mkR(mk.remaining_count) - mkR(mkRemaining));
         this.db.prepare('UPDATE orders SET remaining_count=?, filled_count=filled_count+?, reserved_cents=reserved_cents-?, status=?, updated_at=? WHERE id=?')
-          .run(mkRemaining, qty, mkReleased, mkRemaining === 0 ? 'executed' : 'resting', nowIso(), mk.id);
-        this.credit(mk.user_id, mkReleased - qty * makerPrice, 'refund', mk.id, 'unused fee reserve');
-        this.ledgerOnly(mk.user_id, -qty * makerPrice, 'trade', tradeId, `bought ${qty} ${opp.toUpperCase()} @ ${makerPrice}¢`);
-        this.applyFill(mk.user_id, mk.id, tradeId, ticker, opp, makerPrice, qty, false, 0, nowMs, fills);
+          .run(mkRemaining, q, mkReleased, mkRemaining === 0 ? 'executed' : 'resting', nowIso(), mk.id);
+        this.credit(mk.user_id, mkReleased - makerCost, 'refund', mk.id, 'unused fee reserve');
+        this.ledgerOnly(mk.user_id, -makerCost, 'trade', tradeId, `bought ${ustr(q)} ${opp.toUpperCase()} @ ${makerPrice}¢`);
+        this.applyFill(mk.user_id, mk.id, tradeId, ticker, opp, makerPrice, q, makerCost, false, 0, nowMs, fills);
         touched.add(mk.user_id);
         makerOrders.add(mk.id);
 
         // taker side
-        const released = qty * (price + feeCap);
-        const refund = released - (qty * takerPrice + fee);
+        carry -= f.cost - f.delta;
+        const refund = carry - pl.suffix[i + 1];
+        carry = pl.suffix[i + 1];
         this.db.prepare('UPDATE orders SET remaining_count=remaining_count-?, filled_count=filled_count+?, reserved_cents=reserved_cents-?, fees_cents=fees_cents+?, updated_at=? WHERE id=?')
-          .run(qty, qty, released, fee, nowIso(), id);
+          .run(q, q, f.cost + refund, fee, nowIso(), id);
         this.credit(userId, refund, 'refund', id, 'price improvement / unused fee reserve');
-        this.ledgerOnly(userId, -qty * takerPrice, 'trade', tradeId, `bought ${qty} ${side.toUpperCase()} @ ${takerPrice}¢`);
+        this.ledgerOnly(userId, -principal, 'trade', tradeId, `bought ${ustr(q)} ${side.toUpperCase()} @ ${tp}¢`);
         this.ledgerOnly(userId, -fee, 'fee', tradeId, 'taker fee');
-        this.applyFill(userId, id, tradeId, ticker, side, takerPrice, qty, true, fee, nowMs, fills);
-        remaining -= qty;
-        this.emit('trade', { market_ticker: ticker, trade_id: tradeId, yes_price: yesPrice, count: qty, taker_side: side, ts: nowMs });
-      }
+        this.applyFill(userId, id, tradeId, ticker, side, tp, q, principal, true, fee, nowMs, fills);
+        this.emit('trade', { market_ticker: ticker, trade_id: tradeId, yes_price: yesPrice, count: q, taker_side: side, ts: nowMs });
+      });
 
-      if (remaining === 0) {
+      if (pl.rem === 0) {
         this.db.prepare("UPDATE orders SET status='executed' WHERE id=?").run(id);
       } else if (time_in_force === 'ioc') {
         this.releaseOrder(id, 'canceled');
@@ -181,7 +216,8 @@ class Engine extends EventEmitter {
     this.db.prepare('INSERT INTO ledger(id,user_id,kind,amount_cents,ref,memo,created_at) VALUES(?,?,?,?,?,?,?)').run(newId('l_'), userId, kind, cents, ref, memo, nowIso());
   }
 
-  applyFill(userId, orderId, tradeId, ticker, side, price, qty, isTaker, fee, ts, fills) {
+  // qty in units; cost = cents actually paid for this fill (taker: ceil share, maker: remainder).
+  applyFill(userId, orderId, tradeId, ticker, side, price, qty, cost, isTaker, fee, ts, fills) {
     const fid = newId('f_');
     this.db.prepare('INSERT INTO fills(id,trade_id,order_id,user_id,market_ticker,side,price_cents,count,is_taker,fee_cents,created_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
       .run(fid, tradeId, orderId, userId, ticker, side, price, qty, isTaker ? 1 : 0, fee, ts);
@@ -190,16 +226,16 @@ class Engine extends EventEmitter {
     this.db.prepare('INSERT INTO positions(user_id,market_ticker,updated_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(userId, ticker, now);
     const col = side === 'yes' ? 'yes' : 'no';
     this.db.prepare(`UPDATE positions SET ${col}_count=${col}_count+?, ${col}_cost_cents=${col}_cost_cents+?, fees_paid_cents=fees_paid_cents+?, realized_pnl_cents=realized_pnl_cents-?, updated_at=? WHERE user_id=? AND market_ticker=?`)
-      .run(qty, qty * price, fee, fee, now, userId, ticker);
-    // Netting: one YES + one NO always redeems for $1.
+      .run(qty, cost, fee, fee, now, userId, ticker);
+    // Netting: one YES + one NO always redeems for $1 (q units of pairs redeem for q cents).
     const p = this.db.prepare('SELECT * FROM positions WHERE user_id=? AND market_ticker=?').get(userId, ticker);
     const pairs = Math.min(p.yes_count, p.no_count);
     if (pairs > 0) {
       const yesCost = Math.round((p.yes_cost_cents * pairs) / p.yes_count);
       const noCost = Math.round((p.no_cost_cents * pairs) / p.no_count);
       this.db.prepare('UPDATE positions SET yes_count=yes_count-?, no_count=no_count-?, yes_cost_cents=yes_cost_cents-?, no_cost_cents=no_cost_cents-?, realized_pnl_cents=realized_pnl_cents+? WHERE user_id=? AND market_ticker=?')
-        .run(pairs, pairs, yesCost, noCost, pairs * 100 - yesCost - noCost, userId, ticker);
-      this.credit(userId, pairs * 100, 'netting', ticker, `${pairs} YES/NO pairs redeemed`);
+        .run(pairs, pairs, yesCost, noCost, pairs - yesCost - noCost, userId, ticker);
+      this.credit(userId, pairs, 'netting', ticker, `${ustr(pairs)} YES/NO pairs redeemed`);
     }
   }
 
@@ -299,7 +335,7 @@ class Engine extends EventEmitter {
     const paid = [];
     tx(this.db, () => {
       for (const p of this.db.prepare('SELECT * FROM positions WHERE market_ticker=? AND (yes_count>0 OR no_count>0)').all(ticker)) {
-        const payout = m.result === 'yes' ? p.yes_count * 100 : p.no_count * 100;
+        const payout = m.result === 'yes' ? p.yes_count : p.no_count; // q units pay q cents
         const cost = p.yes_cost_cents + p.no_cost_cents;
         this.db.prepare('INSERT INTO settlements(id,user_id,market_ticker,result,yes_count,no_count,payout_cents,cost_cents,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
           .run(newId('s_'), p.user_id, ticker, m.result, p.yes_count, p.no_count, payout, cost, nowIso());
@@ -331,4 +367,4 @@ class Engine extends EventEmitter {
   }
 }
 
-module.exports = { Engine, takerFeeCents, perContractFeeCap, MAX_COUNT };
+module.exports = { Engine, takerFeeCents, perContractFeeCap, takerPrincipal, MAX_COUNT, MAX_UNITS, UNITS };

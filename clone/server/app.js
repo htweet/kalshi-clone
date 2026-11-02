@@ -2,17 +2,18 @@
 const path = require('node:path');
 const express = require('express');
 const { tx } = require('./db');
-const { nowIso, newId, token, dollars, fp, usd, ApiError, E, hashPassword, verifyPassword, encCursor, decCursor } = require('./util');
+const { nowIso, newId, token, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, hashPassword, verifyPassword, encCursor, decCursor } = require('./util');
 const { marketVo, eventVo, seriesVo, orderVo, fillVo } = require('./serialize');
 const { mountFeatures, CATEGORIES } = require('./features');
 const { perContractFeeCap } = require('./engine');
 const { mountRolling } = require('./rolling');
 const { mountPerps } = require('./perps');
+const { mountCombos, COMBO_SERIES } = require('./combos');
 
 const SESSION_COOKIE = 'plx_session';
 const SESSION_DAYS = 30;
 const STATUS_FILTER = { unopened: ['initialized'], open: ['active'], paused: ['inactive'], closed: ['closed', 'determined'], settled: ['finalized'] };
-const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode']);
+const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode', 'orderbook_hide_fractional_shares', 'rfq_enabled']);
 
 function parseCookies(header) {
   const out = {};
@@ -50,7 +51,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos }) {
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
@@ -117,6 +118,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.use('/v1', feat.sessionMiddleware);
   mountRolling({ v1, db, engine, windowSec: rollingWindowSec });
   mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
+  mountCombos({ v1, db, engine, requireUser, notify: feat.notify, eventFull, checkTrading: feat.checkTrading, options: combos });
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));
@@ -146,7 +148,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     let where = '';
     if (req.query.ticker) { where = 'WHERE market_ticker=?'; args.push(req.query.ticker); }
     const rows = db.prepare(`SELECT * FROM trades ${where} ORDER BY created_ts DESC LIMIT ?`).all(...args, limit);
-    res.json({ cursor: '', trades: rows.map((t) => ({ trade_id: t.id, ticker: t.market_ticker, yes_price_dollars: dollars(t.yes_price_cents), no_price_dollars: dollars(100 - t.yes_price_cents), count_fp: fp(t.count), taker_side: t.taker_side, created_time: new Date(t.created_ts).toISOString() })) });
+    res.json({ cursor: '', trades: rows.map((t) => ({ trade_id: t.id, ticker: t.market_ticker, yes_price_dollars: dollars(t.yes_price_cents), no_price_dollars: dollars(100 - t.yes_price_cents), count_fp: ufp(t.count), taker_side: t.taker_side, created_time: new Date(t.created_ts).toISOString() })) });
   });
 
   v2.get('/markets/:ticker', (req, res) => {
@@ -162,7 +164,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     const lv = (map) => {
       let a = [...map.entries()].sort((x, y) => x[0] - y[0]);
       if (depth) a = a.slice(-depth);
-      return a.map(([p, c]) => [dollars(p), fp(c)]);
+      return a.map(([p, c]) => [dollars(p), ufp(c)]);
     };
     res.json({ orderbook_fp: { yes_dollars: lv(b.yes), no_dollars: lv(b.no) } });
   });
@@ -222,7 +224,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       const vol = bucket.reduce((a, b) => a + b.c, 0);
       const o = ps.length ? ps[0] : prev;
       const c = ps.length ? ps[ps.length - 1] : prev;
-      out.push({ end_period_ts: t, price: { open_dollars: dollars(o), high_dollars: dollars(ps.length ? Math.max(...ps) : prev), low_dollars: dollars(ps.length ? Math.min(...ps) : prev), close_dollars: dollars(c), mean_dollars: dollars(ps.length ? Math.round(ps.reduce((a, b) => a + b, 0) / ps.length) : prev), previous_dollars: dollars(prev) }, volume_fp: fp(vol) });
+      out.push({ end_period_ts: t, price: { open_dollars: dollars(o), high_dollars: dollars(ps.length ? Math.max(...ps) : prev), low_dollars: dollars(ps.length ? Math.min(...ps) : prev), close_dollars: dollars(c), mean_dollars: dollars(ps.length ? Math.round(ps.reduce((a, b) => a + b, 0) / ps.length) : prev), previous_dollars: dollars(prev) }, volume_fp: ufp(vol) });
       prev = c;
     }
     res.json({ ticker: m.ticker, candlesticks: out });
@@ -292,9 +294,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     for (const p of db.prepare('SELECT * FROM positions WHERE user_id=? AND (yes_count>0 OR no_count>0)').all(uid)) {
       const qq = q(p.market_ticker);
       const mark = qq.last_price ?? 50;
-      v += p.yes_count * mark + p.no_count * (100 - mark);
+      v += p.yes_count * mark + p.no_count * (100 - mark); // units × cents
     }
-    return v;
+    return Math.round(v / UNITS);
   }
 
   v1.get('/users/:uid/balance', requireUser, (req, res) => {
@@ -324,6 +326,16 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     res.status(201).json({ balance_dollars: dollars(engine.balance(req.auth.user.id)) });
   });
 
+  // Contract sizes (spec §16.4): `count` (number, ≤2 decimals) or `count_fp` (string); stored as units.
+  function parseCount(b) {
+    const raw = b.count_fp != null ? b.count_fp : b.count;
+    if (raw == null || raw === '') throw E.badRequest('count is required');
+    const u = toUnits(raw);
+    if (u == null) throw E.badRequest('count must be a number of contracts with at most 2 decimal places');
+    if (u < 1) throw E.badRequest('count must be at least 0.01 contracts');
+    if (b.count_fp != null && b.count != null && toUnits(b.count) !== u) throw E.badRequest('count and count_fp must match');
+    return u;
+  }
   v1.post('/users/:uid/orders', requireUser, (req, res) => {
     const b = { ...(req.body || {}) };
     const uid = req.auth.user.id;
@@ -333,23 +345,31 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     if (!['buy', 'sell'].includes(action)) throw E.badRequest('action must be buy or sell');
     if (!['yes', 'no'].includes(b.side)) throw E.badRequest('side must be yes or no');
     const ticker = String(b.ticker || '');
+    const mk = db.prepare('SELECT fractional_trading_enabled f FROM markets WHERE ticker=?').get(ticker);
+    if (!mk) throw E.notFound();
     let price = b.price;
     if (b.price_dollars != null) price = Math.round(Number(b.price_dollars) * 100);
+    let units = type === 'dollars' ? null : parseCount(b);
+    let allowFractional = false;
+    const wholeOnly = (u) => { if (u % UNITS !== 0 && !mk.f && !allowFractional) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market', 'order a whole number of contracts'); };
     // Selling YES at p is buying NO at 100-p; the bought contracts net against the held ones for $1 a pair (spec §15.4).
     let side = b.side;
     if (action === 'sell') {
       const pos = db.prepare('SELECT yes_count, no_count FROM positions WHERE user_id=? AND market_ticker=?').get(uid, ticker) || { yes_count: 0, no_count: 0 };
       const held = b.side === 'yes' ? pos.yes_count : pos.no_count;
       if (type === 'dollars') throw E.badRequest('sell orders take a contract count, not a dollar amount');
-      if (!Number.isInteger(b.count) || b.count < 1) throw E.badRequest('count must be a positive integer');
-      if (b.count > held) throw E.conflict('insufficient_position', 'you cannot sell more contracts than you hold', `you hold ${held} ${b.side.toUpperCase()}`);
+      if (units > held) throw E.conflict('insufficient_position', 'you cannot sell more contracts than you hold', `you hold ${ustr(held)} ${b.side.toUpperCase()}`);
+      allowFractional = units === held; // a held fractional position can always be closed in full
       side = b.side === 'yes' ? 'no' : 'yes';
       if (type === 'limit') { if (!Number.isInteger(price) || price < 1 || price > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99'); price = 100 - price; }
     }
+    if (units != null) wholeOnly(units);
     let tif = type === 'limit' ? 'gtc' : 'ioc';
     if (type === 'market') price = 99;
+    let maxCost = null;
     if (type === 'dollars') {
       // Spend up to amount_dollars at the current best ask (fee included), immediate-or-cancel.
+      // Fractional markets buy down to 0.01 contracts; whole-contract markets round down to whole contracts.
       const amt = Math.round(Number(b.amount_dollars) * 100);
       if (!Number.isFinite(amt) || amt < 1) throw E.badRequest('amount_dollars must be at least $0.01');
       const qq = engine.quote(ticker);
@@ -357,12 +377,14 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       if (ask == null) throw E.conflict('no_liquidity', 'there are no offers to buy from right now');
       const m = engine.market(ticker);
       const per = ask + perContractFeeCap(ask, m.fee_multiplier);
-      b.count = Math.floor(amt / per);
-      if (b.count < 1) throw E.badRequest(`amount is below the price of one contract (${ask}¢ plus fee)`);
+      units = Math.floor((amt * UNITS) / per);
+      if (!mk.f) units -= units % UNITS;
+      if (units < 1) throw E.badRequest(`amount is below the price of ${mk.f ? '0.01 contracts' : 'one contract'} (${ask}¢ plus fee)`);
       price = ask;
+      maxCost = amt;
     }
-    if (Number.isInteger(price) && Number.isInteger(b.count) && b.count > 0) feat.checkTrading(uid, b.count * price);
-    const order = engine.placeOrder(uid, { ticker, side, price, count: b.count, time_in_force: tif, client_order_id: b.client_order_id });
+    if (Number.isInteger(price) && units > 0) feat.checkTrading(uid, Math.ceil((units * price) / UNITS));
+    const order = engine.placeOrder(uid, { ticker, side, price, count: units, time_in_force: tif, client_order_id: b.client_order_id, max_cost_cents: maxCost, allow_fractional: allowFractional });
     res.status(201).json({ order: orderVo(order), status: order.status });
   });
   v1.delete('/users/:uid/orders/:oid', requireUser, (req, res) => res.json({ order: orderVo(engine.cancelOrder(req.auth.user.id, req.params.oid)) }));
@@ -374,15 +396,15 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   });
 
   v1.get('/users/:uid/positions', requireUser, (req, res) => {
-    const rows = db.prepare('SELECT p.*, m.title, m.yes_sub_title, m.status, m.event_ticker FROM positions p JOIN markets m ON m.ticker=p.market_ticker WHERE p.user_id=? ORDER BY p.updated_at DESC').all(req.auth.user.id);
+    const rows = db.prepare('SELECT p.*, m.title, m.yes_sub_title, m.status, m.event_ticker, m.mve_collection_ticker FROM positions p JOIN markets m ON m.ticker=p.market_ticker WHERE p.user_id=? ORDER BY p.updated_at DESC').all(req.auth.user.id);
     res.json({ positions: rows.map((p) => {
       const qq = q(p.market_ticker);
       const mark = qq.last_price ?? 50;
       const held = p.yes_count > 0 ? 'yes' : p.no_count > 0 ? 'no' : null;
-      const count = p.yes_count || p.no_count;
+      const count = p.yes_count || p.no_count; // units
       const cost = p.yes_cost_cents + p.no_cost_cents;
-      const value = p.yes_count * mark + p.no_count * (100 - mark);
-      return { ticker: p.market_ticker, event_ticker: p.event_ticker, market_title: p.title, outcome: p.yes_sub_title, market_status: p.status, side: held, position_fp: fp(count), total_cost_dollars: dollars(cost), avg_price_dollars: count ? dollars(Math.round(cost / count)) : null, market_value_dollars: dollars(value), unrealized_pnl_dollars: dollars(value - cost), realized_pnl_dollars: dollars(p.realized_pnl_cents), fees_paid_dollars: dollars(p.fees_paid_cents) };
+      const value = Math.round((p.yes_count * mark + p.no_count * (100 - mark)) / UNITS);
+      return { ticker: p.market_ticker, event_ticker: p.event_ticker, market_title: p.title, outcome: p.yes_sub_title, market_status: p.status, is_combo: !!p.mve_collection_ticker, side: held, position_fp: ufp(count), total_cost_dollars: dollars(cost), avg_price_dollars: count ? dollars(Math.round((cost * UNITS) / count)) : null, market_value_dollars: dollars(value), unrealized_pnl_dollars: dollars(value - cost), realized_pnl_dollars: dollars(p.realized_pnl_cents), fees_paid_dollars: dollars(p.fees_paid_cents) };
     }) });
   });
 
@@ -392,7 +414,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   });
   v1.get('/users/:uid/settlement_history', requireUser, (req, res) => {
     const rows = db.prepare('SELECT s.*, m.title FROM settlements s JOIN markets m ON m.ticker=s.market_ticker WHERE s.user_id=? ORDER BY s.created_at DESC').all(req.auth.user.id);
-    res.json({ settlements: rows.map((s) => ({ ticker: s.market_ticker, market_title: s.title, market_result: s.result, yes_count_fp: fp(s.yes_count), no_count_fp: fp(s.no_count), revenue_dollars: dollars(s.payout_cents), cost_dollars: dollars(s.cost_cents), settled_time: s.created_at })) });
+    res.json({ settlements: rows.map((s) => ({ ticker: s.market_ticker, market_title: s.title, market_result: s.result, yes_count_fp: ufp(s.yes_count), no_count_fp: ufp(s.no_count), revenue_dollars: dollars(s.payout_cents), cost_dollars: dollars(s.cost_cents), settled_time: s.created_at })) });
   });
   const ledgerRows = (uid) => db.prepare('SELECT * FROM ledger WHERE user_id=? ORDER BY created_at DESC, rowid DESC').all(uid);
   v1.get('/users/:uid/transactions', requireUser, (req, res) => res.json({ transactions: ledgerRows(req.auth.user.id).map((l) => ({ id: l.id, kind: l.kind, amount_dollars: dollars(l.amount_cents), ref: l.ref, memo: l.memo, created_time: l.created_at })) }));
@@ -432,7 +454,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
 
   // BFF home (spec §4.2 / HAR2#1 structure, own fields).
   function eventCards() {
-    return db.prepare('SELECT * FROM events ORDER BY rowid').all().map(eventFull);
+    // Combo (multivariate) events are reached through /combos and portfolios, not discovery lists (spec §17.2).
+    return db.prepare('SELECT * FROM events WHERE series_ticker<>? ORDER BY rowid').all(COMBO_SERIES).map(eventFull);
   }
   const lead = (ev) => ev.markets.reduce((a, m) => (Number(m.last_price_dollars || 0) > Number(a.last_price_dollars || 0) ? m : a), ev.markets[0]);
   const delta = (m) => Math.round((Number(m.last_price_dollars || 0) - Number(m.previous_price_dollars || 0)) * 100);

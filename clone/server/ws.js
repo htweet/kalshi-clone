@@ -5,11 +5,11 @@
 //         {type, sid, seq, msg} data messages.
 const { WebSocketServer } = require('ws');
 const { parseCookies, SESSION_COOKIE } = require('./app');
-const { dollars, fp } = require('./util');
+const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade']);
-const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account']);
+const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications']);
 
 function attachWs(server, { db, engine }) {
   const wss = new WebSocketServer({ noServer: true });
@@ -67,7 +67,7 @@ function attachWs(server, { db, engine }) {
   }
   function snapshot(c, sid, ticker) {
     const b = engine.book(ticker);
-    const lv = (m) => [...m.entries()].sort((a, z) => a[0] - z[0]).map(([p, n]) => [dollars(p), fp(n)]);
+    const lv = (m) => [...m.entries()].sort((a, z) => a[0] - z[0]).map(([p, n]) => [dollars(p), ufp(n)]);
     const sub = c.subs.get(sid);
     sub.seq += 1;
     send(c, { type: 'orderbook_snapshot', sid, seq: sub.seq, msg: { market_ticker: ticker, yes_dollars: lv(b.yes), no_dollars: lv(b.no) } });
@@ -84,16 +84,18 @@ function attachWs(server, { db, engine }) {
     }
   }
 
-  engine.on('ticker', (t, qq) => publish('ticker', t, 'ticker', { market_ticker: t, yes_bid_dollars: dollars(qq.yes_bid), yes_ask_dollars: dollars(qq.yes_ask), last_price_dollars: dollars(qq.last_price), previous_price_dollars: dollars(qq.previous_price), volume_fp: fp(qq.volume), open_interest_fp: fp(qq.open_interest), ts: Date.now() }));
+  engine.on('ticker', (t, qq) => publish('ticker', t, 'ticker', { market_ticker: t, yes_bid_dollars: dollars(qq.yes_bid), yes_ask_dollars: dollars(qq.yes_ask), last_price_dollars: dollars(qq.last_price), previous_price_dollars: dollars(qq.previous_price), volume_fp: ufp(qq.volume), open_interest_fp: ufp(qq.open_interest), ts: Date.now() }));
   engine.on('book_delta', (t, deltas) => {
-    for (const d of deltas) publish('orderbook', t, 'orderbook_delta', { market_ticker: t, side: d.side, price_dollars: dollars(d.price), delta_fp: fp(d.delta) });
+    for (const d of deltas) publish('orderbook', t, 'orderbook_delta', { market_ticker: t, side: d.side, price_dollars: dollars(d.price), delta_fp: ufp(d.delta) });
   });
-  engine.on('trade', (tr) => publish('trade', tr.market_ticker, 'trade', { trade_id: tr.trade_id, market_ticker: tr.market_ticker, yes_price_dollars: dollars(tr.yes_price), no_price_dollars: dollars(100 - tr.yes_price), count_fp: fp(tr.count), taker_side: tr.taker_side, ts: tr.ts }));
+  engine.on('trade', (tr) => publish('trade', tr.market_ticker, 'trade', { trade_id: tr.trade_id, market_ticker: tr.market_ticker, yes_price_dollars: dollars(tr.yes_price), no_price_dollars: dollars(100 - tr.yes_price), count_fp: ufp(tr.count), taker_side: tr.taker_side, ts: tr.ts }));
   engine.on('lifecycle', (t, eventType, status) => publish('market_lifecycle_v2', t, 'market_lifecycle_v2', { market_ticker: t, event_type: eventType, status }));
   engine.on('user_balance', (uid, cents) => publish('user_balance', null, 'user_balance', { available_dollars: dollars(cents) }, uid));
   engine.on('user_order', (uid, o) => publish('user_orders', o.market_ticker, 'user_order', orderVo(o), uid));
   engine.on('fill', (uid, f) => publish('fill', f.market_ticker, 'fill', fillVo(f), uid));
   engine.on('notification', (uid, n) => publish('notifications', null, 'notification', n, uid));
+  // RFQ / quote events (spec §17.5): uid null = every authenticated subscriber (rfq_created / rfq_deleted).
+  engine.on('communications', (uid, type, msg) => publish('communications', null, type, msg, uid));
   // Perps channels (PERPS_SPEC_SECTION.md): public ticker/book/trades, private orders/positions/collateral.
   engine.on('perp_ticker', (t, msg) => publish('perp_ticker', t, 'perp_ticker', msg));
   engine.on('perp_book', (t, msg) => publish('perp_orderbook', t, 'perp_orderbook_snapshot', msg));

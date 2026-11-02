@@ -15,12 +15,14 @@ import * as account from './views/account.js';
 import * as notifications from './views/notifications.js';
 import * as pro from './views/pro.js';
 import * as perps from './views/perps.js';
+import * as combos from './views/combos.js';
 
 const routes = [
   [/^\/$/, home],
   [/^\/browse$/, browse],
   [/^\/live$/, calendar, () => ({ live: true })],
   [/^\/pro$/, pro],
+  [/^\/combos$/, combos],
   [/^\/perps$/, perps, () => ({ mode: 'list' })],
   [/^\/perps\/categories\/([^/]+)$/, perps, (m) => ({ mode: 'list', assetClass: decodeURIComponent(m[1]) })],
   [/^\/perps\/([A-Za-z0-9]+)$/, perps, (m) => ({ mode: 'market', ticker: m[1].toUpperCase() })],
@@ -92,7 +94,7 @@ function renderCategoryStrip(url) {
 
 function markNav(url) {
   const p = url.pathname;
-  const key = p === '/live' || p === '/calendar' ? 'live' : p.startsWith('/perps') ? 'invest' : p === '/pro' ? 'pro' : (p === '/browse' || p.startsWith('/category') || p.startsWith('/markets')) ? 'markets' : '';
+  const key = p === '/live' || p === '/calendar' || p === '/combos' ? 'live' : p.startsWith('/perps') ? 'invest' : p === '/pro' ? 'pro' : (p === '/browse' || p.startsWith('/category') || p.startsWith('/markets')) ? 'markets' : '';
   for (const a of document.querySelectorAll('.primary-nav a')) a.classList.toggle('active', a.dataset.nav === key);
 }
 

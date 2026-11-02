@@ -47,7 +47,7 @@ export async function render({ el, params, query, navigate }) {
           <h2 class="cal-date">${esc(fmtDate(s.date))}<span class="faint">${s.events.length}</span></h2>
           <div class="grid">${s.events.map(eventCard).join('')}</div></section>`).join('')}
     </div>
-    <aside class="live-rail"><button class="combo-btn" disabled title="Combos are not available yet">◇ COMBO</button><div id="determined"></div></aside>
+    <aside class="live-rail"><a class="combo-btn" href="/combos" data-link data-testid="combo-rail-btn" aria-label="Build a combo">◇ COMBO</a><div id="determined"></div></aside>
   </div>`;
   for (const b of el.querySelectorAll('[data-cat]')) b.onclick = () => navigate(b.dataset.cat ? `${location.pathname}?category=${encodeURIComponent(b.dataset.cat)}` : location.pathname, { replace: true });
 

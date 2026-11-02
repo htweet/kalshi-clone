@@ -131,7 +131,7 @@ test('ticket: Dollars buy, SELL tab sells held contracts (netting to cash), mode
   assert.ok(expect >= 15 && expect <= 20, `contracts for $10: ${expect}`);
   await page.click('[data-testid=submit-order]');
   await page.waitForSelector(`.toast:has-text("Filled ${expect} YES")`);
-  assert.equal(pos().yes_count, expect);
+  assert.equal(pos().yes_count, expect * 100); // stored in units (hundredths of a contract, spec §16)
   await mode(page, 'market');
   assert.equal(JSON.parse(dbq("SELECT value FROM user_settings WHERE user_id=? AND key='ticket_mode'", uid())[0].value), 'market');
   await page.click('[data-testid=sell-tab]');
@@ -143,7 +143,7 @@ test('ticket: Dollars buy, SELL tab sells held contracts (netting to cash), mode
   await page.click('[data-testid=submit-order]');
   await page.waitForSelector('.toast:has-text("Sold 5 YES")');
   await page.waitForSelector(`[data-testid=held]:has-text("${expect - 5} YES")`);
-  assert.equal(pos().yes_count, expect - 5);
+  assert.equal(pos().yes_count, (expect - 5) * 100);
   assert.ok(dbq('SELECT balance_cents b FROM users WHERE id=?', uid())[0].b > before, 'selling returns cash');
   // Server also refuses overselling.
   const r = await page.evaluate(async ([u, t]) => {

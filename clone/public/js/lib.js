@@ -7,6 +7,10 @@ export const money = (dollarStr) => {
   return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 export const qty = (fpStr) => Number(fpStr || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+// Contract quantities: hundredths of a contract (spec §16). Valid when > 0 with at most 2 decimals.
+export const validQty = (n, fractional = true) => Number.isFinite(n) && n > 0 && Math.abs(Math.round(n * 100) - n * 100) < 1e-6 && (fractional || Number.isInteger(n));
+// Seconds left until an ISO time (countdowns for RFQ quotes).
+export const secsLeft = (iso) => Math.max(0, Math.ceil((Date.parse(iso) - Date.now()) / 1000));
 // Odds display (U2 design choice): YES probability = last trade, else mid of bid/ask.
 export function prob(m) {
   if (m.last_price_dollars != null) return cents(m.last_price_dollars);

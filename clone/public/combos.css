@@ -1,0 +1,73 @@
+/* Combos, RFQ / quotes and fractional-contract UI (spec §16.5, §17). Uses only the design tokens from app.css. */
+
+/* ◇ COMBO buttons (Live rail link + event-page toggle) */
+a.combo-btn { display: grid; place-items: center; text-decoration: none; }
+.combo-btn:hover { background: var(--brand-x20); }
+.combo-btn.on { background: var(--brand); color: var(--on-brand); }
+.ev-combo-btn { height: 46px; margin-bottom: 14px; }
+
+/* shared leg rows */
+.combo-mini, .combo-legs { padding: 18px 20px; margin-bottom: 16px; }
+.combo-mini-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.combo-mini-head h2, .combo-mini-head h3 { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 700; }
+.combo-leg-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--text-x10); text-decoration: none; }
+.combo-leg-row:last-of-type { border-bottom: 0; }
+.combo-leg-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.combo-leg-name .faint { font-size: 13px; }
+.leg-yes { color: var(--yes); font-weight: 750; }
+.leg-no { color: var(--no); font-weight: 750; }
+.leg-status { border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 700; background: var(--fill-x40); color: var(--text-x20); white-space: nowrap; }
+.leg-status.won { background: var(--yes-x20); color: var(--yes); }
+.leg-status.lost { background: var(--no-x20); color: var(--no); }
+.combo-open { display: grid; place-items: center; text-decoration: none; height: 48px; font-size: 17px; }
+.mkt-table.combo-picking .yes-btn, .mkt-table.combo-picking .no-btn { border-style: dashed; }
+
+/* order-book setting */
+.book-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.book-setting { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-x20); cursor: pointer; }
+
+/* /combos page */
+.combos-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 32px; align-items: start; }
+.combo-search { width: 100%; height: 44px; border-radius: var(--rounded-x20); border: 1px solid var(--line); background: var(--surface-x20); color: var(--text-x10); padding: 0 14px; margin-bottom: 14px; font-size: 15px; }
+.combo-ev { padding: 16px 18px; margin-bottom: 14px; }
+.combo-ev header { display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
+.combo-ev h3 { margin: 2px 0 0; font-size: 17px; }
+.combo-mkt { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+.combo-mkt-name { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
+.combo-mkt .yes-btn, .combo-mkt .no-btn { min-width: 0; width: 104px; height: 38px; font-size: 15px; }
+.combo-side { position: sticky; top: 16px; }
+.combo-slip { padding: 20px 22px; }
+.combo-slip .tkt-input { height: 54px; margin: 14px 0 6px; }
+.combo-slip .icon-btn.sm { width: 28px; height: 28px; font-size: 18px; }
+.combo-quote { margin-top: 14px; padding-top: 6px; border-top: 1px solid var(--line); }
+.combo-quote.done { color: var(--yes); padding-top: 14px; }
+
+/* portfolio: combos, RFQs, quotes */
+.pf-sub { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 4px 4px; }
+.leg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.leg-chip { font-size: 12px; border-radius: 999px; padding: 2px 8px; background: var(--fill-x30); color: var(--text-x20); }
+.leg-chip.won { background: var(--yes-x20); }
+.leg-chip.lost { background: var(--no-x20); }
+.rfq-quote { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; }
+.yes-pill { color: var(--yes); border-color: var(--yes); }
+.no-pill { color: var(--no); border-color: var(--no); }
+.status-chip { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: var(--fill-x40); color: var(--text-x20); white-space: nowrap; }
+.status-chip.open { background: var(--brand-x20); color: var(--brand); }
+.status-chip.accepted, .status-chip.confirmed { background: var(--fill-x50); color: var(--text-x10); }
+.status-chip.executed { background: var(--yes-x20); color: var(--yes); }
+.status-chip.expired, .status-chip.cancelled { color: var(--text-x30); }
+.quote-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.quote-form input { width: 76px; height: 30px; border-radius: var(--rounded-x10); border: 1px solid var(--line); background: var(--surface-x10); color: var(--text-x10); padding: 0 8px; }
+.quote-form .form-error { flex-basis: 100%; }
+.countdown { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 900px) {
+  .combos-layout { grid-template-columns: minmax(0, 1fr); }
+  .combo-side { position: static; order: -1; }
+}
+@media (max-width: 640px) {
+  .combo-mkt { grid-template-columns: minmax(0, 1fr) auto; }
+  .combo-mkt-name { grid-column: 1 / -1; }
+  .combo-mkt .yes-btn, .combo-mkt .no-btn { width: 100%; }
+  .combo-mkt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}

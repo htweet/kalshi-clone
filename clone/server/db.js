@@ -265,10 +265,36 @@ CREATE TABLE IF NOT EXISTS mfa_challenges (
 );
 `;
 
+// Idempotent upgrades for databases created by earlier builds (spec §16.6).
+const QTY_UNITS_KEY = 'qty_units_v1';
+function migrate(db) {
+  const cols = (t) => new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
+  const m = cols('markets');
+  if (!m.has('fractional_trading_enabled')) {
+    db.exec('ALTER TABLE markets ADD COLUMN fractional_trading_enabled INTEGER NOT NULL DEFAULT 1');
+    // Design choice (spec §16.3): Harbor State election markets stay whole-contract.
+    db.exec("UPDATE markets SET fractional_trading_enabled=0 WHERE event_ticker IN (SELECT ticker FROM events WHERE series_ticker='PLXSTATE')");
+  }
+  if (!m.has('mve_collection_ticker')) db.exec('ALTER TABLE markets ADD COLUMN mve_collection_ticker TEXT');
+  if (!m.has('mve_selected_legs')) db.exec('ALTER TABLE markets ADD COLUMN mve_selected_legs TEXT');
+  if (!cols('orders').has('source')) db.exec("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+  // One-time switch of every event-contract quantity from whole contracts to hundredths ("units").
+  if (!db.prepare('SELECT 1 FROM meta WHERE key=?').get(QTY_UNITS_KEY)) {
+    tx(db, () => {
+      db.exec(`UPDATE orders SET initial_count=initial_count*100, remaining_count=remaining_count*100, filled_count=filled_count*100;
+        UPDATE trades SET count=count*100; UPDATE fills SET count=count*100;
+        UPDATE positions SET yes_count=yes_count*100, no_count=no_count*100;
+        UPDATE settlements SET yes_count=yes_count*100, no_count=no_count*100;`);
+      db.prepare('INSERT INTO meta(key,value) VALUES(?,?)').run(QTY_UNITS_KEY, new Date().toISOString());
+    });
+  }
+}
+
 function open(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 
@@ -289,4 +315,4 @@ function tx(db, fn) {
   }
 }
 
-module.exports = { open, tx };
+module.exports = { open, tx, migrate, QTY_UNITS_KEY };

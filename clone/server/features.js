@@ -3,7 +3,7 @@
 // account limits, two-factor login, calendar feed, categories with subcategories, social trades.
 const crypto = require('node:crypto');
 const { tx } = require('./db');
-const { nowIso, newId, token, dollars, fp, E, ApiError, encCursor, decCursor } = require('./util');
+const { nowIso, newId, token, dollars, ufp, ustr, E, ApiError, encCursor, decCursor } = require('./util');
 
 // Category navigation (spec §13.3; names follow the observed top-level set, subcategories come from series tags).
 const CATEGORIES = ['Politics', 'Sports', 'Elections', 'Crypto', 'Climate and Weather', 'Economics', 'Entertainment', 'Companies', 'Financials', 'Science and Technology'];
@@ -60,7 +60,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
 
   engine.on('fill', (uid, f) => {
     if (isSystem(uid)) return;
-    notify(uid, { type: 'fill', title: `Order filled: ${f.count} ${f.side.toUpperCase()} @ ${f.price_cents}¢`, body: marketLabel(f.market_ticker), link: eventLink(f.market_ticker) });
+    notify(uid, { type: 'fill', title: `Order filled: ${ustr(f.count)} ${f.side.toUpperCase()} @ ${f.price_cents}¢`, body: marketLabel(f.market_ticker), link: eventLink(f.market_ticker) });
   });
   engine.on('settlement', (uid, s) => {
     if (isSystem(uid)) return;
@@ -138,7 +138,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
   }
   const usedToday = {
     deposit: (uid) => db.prepare("SELECT COALESCE(SUM(amount_cents),0) c FROM ledger WHERE user_id=? AND kind='deposit' AND created_at>=?").get(uid, new Date(dayStartMs()).toISOString()).c,
-    trading: (uid) => db.prepare('SELECT COALESCE(SUM(initial_count*price_cents),0) c FROM orders WHERE user_id=? AND created_at>=?').get(uid, new Date(dayStartMs()).toISOString()).c,
+    trading: (uid) => db.prepare('SELECT CAST((COALESCE(SUM(initial_count*price_cents),0)+99)/100 AS INTEGER) c FROM orders WHERE user_id=? AND created_at>=?').get(uid, new Date(dayStartMs()).toISOString()).c,
     session: (uid) => db.prepare('SELECT seconds FROM session_usage WHERE user_id=? AND day=?').get(uid, dayKey())?.seconds ?? 0,
   };
   function limitVo(uid, kind) {
@@ -257,7 +257,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
       posts: c('SELECT COUNT(*) c FROM posts WHERE user_id=?', p.user_id),
       is_following: viewer ? !!db.prepare('SELECT 1 FROM follows WHERE follower_id=? AND followee_id=?').get(viewer, p.user_id) : false,
       is_me: viewer === p.user_id,
-      metrics: { realized_pnl_dollars: dollars(pnl), volume_fp: fp(vol), trades: c('SELECT COUNT(*) c FROM fills WHERE user_id=?', p.user_id) },
+      metrics: { realized_pnl_dollars: dollars(pnl), volume_fp: ufp(vol), trades: c('SELECT COUNT(*) c FROM fills WHERE user_id=?', p.user_id) },
     };
   }
   v1.get('/users/:uid/social/profile', requireUser, (req, res) => {
@@ -288,7 +288,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
     if (!p) throw E.notFound();
     if (!p.share_trades) return res.json({ holdings: [], hidden: true });
     const rows = db.prepare('SELECT p.*, m.yes_sub_title, m.event_ticker, e.title et FROM positions p JOIN markets m ON m.ticker=p.market_ticker JOIN events e ON e.ticker=m.event_ticker WHERE p.user_id=? AND (p.yes_count>0 OR p.no_count>0) ORDER BY p.updated_at DESC').all(p.user_id);
-    res.json({ holdings: rows.map((r) => ({ market_ticker: r.market_ticker, event_ticker: r.event_ticker, event_title: r.et, outcome: r.yes_sub_title, side: r.yes_count > 0 ? 'yes' : 'no', position_fp: fp(r.yes_count || r.no_count), link: eventLink(r.market_ticker) })) });
+    res.json({ holdings: rows.map((r) => ({ market_ticker: r.market_ticker, event_ticker: r.event_ticker, event_title: r.et, outcome: r.yes_sub_title, side: r.yes_count > 0 ? 'yes' : 'no', position_fp: ufp(r.yes_count || r.no_count), link: eventLink(r.market_ticker) })) });
   });
 
   const postVo = (p, viewer) => {
@@ -419,7 +419,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
     const sql = metric === 'pnl'
       ? 'SELECT sp.nickname, COALESCE((SELECT SUM(realized_pnl_cents) FROM positions WHERE user_id=sp.user_id),0) v FROM social_profiles sp ORDER BY v DESC, sp.nickname LIMIT 25'
       : 'SELECT sp.nickname, COALESCE((SELECT SUM(count) FROM fills WHERE user_id=sp.user_id),0) v FROM social_profiles sp ORDER BY v DESC, sp.nickname LIMIT 25';
-    res.json({ metric, leaders: db.prepare(sql).all().map((r, i) => ({ rank: i + 1, nickname: r.nickname, value: metric === 'pnl' ? dollars(r.v) : fp(r.v) })) });
+    res.json({ metric, leaders: db.prepare(sql).all().map((r, i) => ({ rank: i + 1, nickname: r.nickname, value: metric === 'pnl' ? dollars(r.v) : ufp(r.v) })) });
   });
   // Recent trades with trader nicknames (spec §13.5: /v1/social/trades?series_ticker=…).
   v1.get('/social/trades', (req, res) => {
@@ -435,14 +435,14 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
       return f && f.share_trades ? f.nickname : '';
     };
     res.json({
-      trades: rows.slice(0, 50).map((t) => ({ trade_id: t.id, ticker: t.market_ticker, outcome: t.yes_sub_title, price_dollars: dollars(t.yes_price_cents), count_fp: fp(t.count), taker_side: t.taker_side, taker_nickname: nickFor(t.id, true), maker_nickname: nickFor(t.id, false), create_date: new Date(t.created_ts).toISOString() })),
+      trades: rows.slice(0, 50).map((t) => ({ trade_id: t.id, ticker: t.market_ticker, outcome: t.yes_sub_title, price_dollars: dollars(t.yes_price_cents), count_fp: ufp(t.count), taker_side: t.taker_side, taker_nickname: nickFor(t.id, true), maker_nickname: nickFor(t.id, false), create_date: new Date(t.created_ts).toISOString() })),
       cursor: rows.length > 50 ? encCursor({ o: off + 50 }) : '',
     });
   });
   v1.get('/social/top_holders', (req, res) => {
     const t = String(req.query.market_ticker || '');
     if (!db.prepare('SELECT 1 FROM markets WHERE ticker=?').get(t)) throw E.notFound();
-    const side = (col) => db.prepare(`SELECT sp.nickname, p.${col} n FROM positions p JOIN social_profiles sp ON sp.user_id=p.user_id WHERE p.market_ticker=? AND p.${col}>0 AND sp.share_trades=1 ORDER BY p.${col} DESC LIMIT 10`).all(t).map((r) => ({ nickname: r.nickname, position_fp: fp(r.n) }));
+    const side = (col) => db.prepare(`SELECT sp.nickname, p.${col} n FROM positions p JOIN social_profiles sp ON sp.user_id=p.user_id WHERE p.market_ticker=? AND p.${col}>0 AND sp.share_trades=1 ORDER BY p.${col} DESC LIMIT 10`).all(t).map((r) => ({ nickname: r.nickname, position_fp: ufp(r.n) }));
     res.json({ yes: side('yes_count'), no: side('no_count') });
   });
 
@@ -460,7 +460,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
   v1.get('/calendar', (req, res) => {
     const cat = req.query.category ? String(req.query.category) : null;
     if (cat && !CATEGORIES.some((c) => c.toLowerCase() === cat.toLowerCase())) throw E.badRequest('unknown category');
-    const evs = db.prepare('SELECT * FROM events ORDER BY rowid').all().map(eventFull)
+    const evs = db.prepare("SELECT * FROM events WHERE series_ticker<>'PLXCOMBO' ORDER BY rowid").all().map(eventFull)
       .filter((e) => e.markets.some((m) => ['active', 'initialized', 'inactive'].includes(m.status)));
     const counts = {};
     let all = { count: 0, live_count: 0 };

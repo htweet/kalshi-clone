@@ -1,6 +1,8 @@
 'use strict';
 // Seed data: entirely invented content (no third-party data or assets).
-const { open, tx } = require('./db');
+// Quantities are written in units (hundredths of a contract, spec §16). Fractional trading is enabled on every
+// seeded market except the Harbor State election series (PLXSTATE), which stays whole-contract (spec §16.3).
+const { open, tx, QTY_UNITS_KEY } = require('./db');
 const { nowIso, newId, hashPassword, slugify } = require('./util');
 
 // Deterministic PRNG so seeded charts are stable across runs.
@@ -91,6 +93,9 @@ const CATALOG = [
 
 function seed(db, { reset = false } = {}) {
   if (reset) {
+    for (const t of ['rfq_quotes', 'rfqs', 'combo_slips', 'combo_legs']) {
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t)) db.exec(`DELETE FROM ${t}`);
+    }
     db.exec(`DELETE FROM follows; DELETE FROM comments; DELETE FROM post_likes; DELETE FROM post_bookmarks; DELETE FROM posts; DELETE FROM social_profiles; DELETE FROM notifications; DELETE FROM price_targets; DELETE FROM user_limits; DELETE FROM session_usage; DELETE FROM mfa_challenges; DELETE FROM mfa; DELETE FROM recently_visited; DELETE FROM watchlist; DELETE FROM ledger; DELETE FROM settlements; DELETE FROM positions; DELETE FROM fills; DELETE FROM trades; DELETE FROM orders; DELETE FROM markets; DELETE FROM events; DELETE FROM series; DELETE FROM user_settings; DELETE FROM sessions; DELETE FROM users; DELETE FROM meta;`);
   }
   // Migrate databases seeded by the first version to the current category names (spec §13.3).
@@ -101,6 +106,8 @@ function seed(db, { reset = false } = {}) {
   // Series frequency drives the Browse "Frequency" filter (spec §15.3).
   for (const [t, f] of [['PLXRAIN', 'monthly'], ['PLXINDEX', 'weekly'], ['PLXRATE', 'monthly'], ['PLXCOIN', 'daily']]) db.prepare("UPDATE series SET frequency=? WHERE ticker=? AND frequency IN ('custom','one_off')").run(f, t);
   db.prepare("UPDATE series SET frequency='one_off' WHERE frequency='custom'").run();
+  // A reset wipes meta; the data seeded below is already in units, so the one-time migration must not run on it.
+  db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(QTY_UNITS_KEY, nowIso());
   if (db.prepare('SELECT COUNT(*) c FROM series').get().c > 0) return false;
   const r = rng(20261102);
   const now = Date.now();
@@ -128,10 +135,10 @@ function seed(db, { reset = false } = {}) {
           const openTime = ev.opensIn ? now + ev.opensIn : now - 14 * D;
           const closeTime = now + (ev.closesIn || (6 + (evIndex % 9) * 11) * D);
           const status = ev.opensIn ? 'initialized' : 'active';
-          db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at,fractional_trading_enabled) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
             .run(m.t, ev.e, ev.markets.length > 1 ? `${ev.title} — ${m.yes}` : ev.title, m.yes, m.no || `Not ${m.yes}`, m.color || '#5b5bd6', status,
               iso(openTime), iso(closeTime), iso(closeTime + H), 5,
-              `If "${m.yes}" is confirmed by the settlement source, this market resolves YES. Otherwise it resolves NO.`, nowIso(), nowIso());
+              `If "${m.yes}" is confirmed by the settlement source, this market resolves YES. Otherwise it resolves NO.`, nowIso(), nowIso(), s.s === 'PLXSTATE' ? 0 : 1);
           if (status !== 'active') continue;
           // Seven days of hourly trade history from a bounded random walk ending at the fair price.
           const path = [];
@@ -140,7 +147,7 @@ function seed(db, { reset = false } = {}) {
           path.forEach((price, i) => {
             const ts = now - (168 - i) * H + Math.floor(r() * 50 * 60 * 1000);
             db.prepare('INSERT INTO trades(id,market_ticker,yes_price_cents,count,taker_side,created_ts) VALUES(?,?,?,?,?,?)')
-              .run(newId('t_'), m.t, price, 5 + Math.floor(r() * 400), r() > 0.5 ? 'yes' : 'no', ts);
+              .run(newId('t_'), m.t, price, (5 + Math.floor(r() * 400)) * 100, r() > 0.5 ? 'yes' : 'no', ts);
           });
           // Resting liquidity on both sides of the book.
           for (let lvl = 1; lvl <= 4; lvl++) {
@@ -151,7 +158,7 @@ function seed(db, { reset = false } = {}) {
               const cnt = 50 * lvl + Math.floor(r() * 200);
               seq += 1;
               db.prepare("INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,initial_count,remaining_count,reserved_cents,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'resting',?,?)")
-                .run(newId('o_'), seq, lp, m.t, side, price, cnt, cnt, cnt * (price + 2), nowIso(), nowIso());
+                .run(newId('o_'), seq, lp, m.t, side, price, cnt * 100, cnt * 100, cnt * (price + 2), nowIso(), nowIso());
             }
           }
         }

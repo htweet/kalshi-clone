@@ -224,7 +224,8 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   await bookHas(pb, '45¢', false);
   await pa.waitForSelector('[data-testid=no-orders]'); // live via user_orders channel
   const fills = dbq("SELECT f.side, f.price_cents p, f.is_taker t, f.count c FROM fills f JOIN users u ON u.id=f.user_id WHERE f.market_ticker=? AND u.email IN (?,?) ORDER BY f.is_taker", COM, alice.email, bob.email);
-  assert.deepEqual(fills.map((f) => [f.side, f.p, f.t, f.c]), [['yes', 45, 0, 7], ['no', 55, 1, 7]]);
+  // Quantities are stored in units (hundredths of a contract, spec §16): 7 contracts = 700 units.
+  assert.deepEqual(fills.map((f) => [f.side, f.p, f.t, f.c]), [['yes', 45, 0, 700], ['no', 55, 1, 700]]);
 
   // A fresh resting order, then cancel it from the portfolio; reservation is returned.
   const before = dbq('SELECT balance_cents b FROM users WHERE email=?', alice.email)[0].b;

@@ -2,16 +2,22 @@
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, money, qty, cents, toast } from '../lib.js';
+import { esc, money, qty, cents, toast, relTime, secsLeft } from '../lib.js';
 import { renderPerpsPortfolio } from './perps.js';
 
-const TABS = [['positions', 'Positions'], ['orders', 'Resting orders'], ['fills', 'Trade history'], ['settlements', 'Settlements'], ['transactions', 'Transactions']];
+const TABS = [['positions', 'Positions'], ['orders', 'Resting orders'], ['combos', 'Combos'], ['rfqs', 'RFQs'], ['quotes', 'Quotes'], ['fills', 'Trade history'], ['settlements', 'Settlements'], ['transactions', 'Transactions']];
+const QSTATUS = { open: 'Open', accepted: 'Accepted', confirmed: 'Confirmed', executed: 'Executed', expired: 'Expired', cancelled: 'Cancelled' };
+const sizeLabel = (x) => (x.contracts_fp != null ? `${qty(x.contracts_fp)} contracts` : `${money(x.target_cost_dollars)} target`);
+const legChips = (legs) => `<div class="leg-chips">${legs.map((l) => `<span class="leg-chip ${l.leg_status}" data-leg-status="${l.leg_status}"><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${l.side.toUpperCase()}</b> ${esc(l.outcome)}</span>`).join('')}</div>`;
 
 export async function render({ el, navigate, query }) {
   if (query && query.get('perpsTab')) return renderPerpsPortfolio({ el, navigate, query }); // Perps product (PERPS_SPEC_SECTION.md)
   if (!session.user) { navigate('/sign-in?next=/portfolio', { replace: true }); return undefined; }
   document.title = 'Portfolio · Parlance';
-  let tab = session.props.portfolio_view || 'positions';
+  const deep = query && query.get('tab');
+  let tab = TABS.some(([k]) => k === deep) ? deep : TABS.some(([k]) => k === session.props.portfolio_view) ? session.props.portfolio_view : 'positions';
+  if (deep && deep === tab && deep !== session.props.portfolio_view) session.setProp('portfolio_view', tab).catch(() => {});
+  let rfqScope = 'mine';
   const uid = session.uid;
 
   el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Portfolio</h1></div>
@@ -64,6 +70,17 @@ export async function render({ el, navigate, query }) {
       for (const b of p.querySelectorAll('[data-cancel]')) {
         b.onclick = async () => { b.disabled = true; try { await api.cancelOrder(uid, b.dataset.cancel); toast('Order canceled'); } catch (e) { toast(e.message, 'error'); } refresh(); };
       }
+    } else if (tab === 'combos') {
+      const r = await api.myCombos(uid);
+      p.innerHTML = `<div class="pf-sub"><strong>Open combos · <span data-testid="open-combo-count">${r.total_open_combos}</span></strong><a class="btn btn-ghost" href="/combos" data-link>Build a combo</a></div>
+        ${r.open_combos.length ? `<table class="table" data-testid="combos-table"><thead><tr><th>Combo</th><th>Side</th><th class="num">Contracts</th><th class="num">Cost</th><th>Status</th></tr></thead><tbody>
+        ${r.open_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.side.toUpperCase()}</td><td class="num">${qty(c.position_fp)}</td><td class="num">${money(c.cost_dollars)}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty" data-testid="no-combos">No open combos.</div>'}
+        ${r.settled_combos.length ? `<div class="pf-sub"><strong>Settled combos</strong></div><table class="table" data-testid="settled-combos"><thead><tr><th>Combo</th><th>Result</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
+        ${r.settled_combos.map((c) => `<tr><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.result.toUpperCase()}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
+    } else if (tab === 'rfqs') {
+      await drawRfqs(p);
+    } else if (tab === 'quotes') {
+      await drawQuotes(p);
     } else if (tab === 'fills') {
       const { fills } = await api.fills(uid);
       p.innerHTML = fills.length ? `<table class="table" data-testid="fills-table"><thead><tr><th>Time</th><th>Market</th><th>Side</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">Fee</th><th>Role</th></tr></thead><tbody>
@@ -80,6 +97,82 @@ export async function render({ el, navigate, query }) {
         ${transactions.map((t) => `<tr><td>${new Date(t.created_time).toLocaleString()}</td><td>${esc(t.kind)}</td><td>${esc(t.memo)}</td><td class="num">${money(t.amount_dollars)}</td></tr>`).join('')}</tbody></table>`
         : '<div class="empty">No transactions yet.</div>';
     }
+  }
+
+  // ---------- RFQs (spec §17.6): yours vs other traders' ----------
+  const countdown = (iso, prefix = '') => `<span class="countdown" data-countdown="${esc(iso)}" data-prefix="${esc(prefix)}">${prefix}${secsLeft(iso)}s</span>`;
+  async function drawRfqs(p) {
+    const r = await api.rfqs(rfqScope);
+    const enabled = !!r.rfq_enabled;
+    const head = `<div class="pf-sub rfq-head"><div class="seg" role="tablist" aria-label="RFQ scope"><button data-rfq-scope="mine" class="${rfqScope === 'mine' ? 'on' : ''}">Yours</button><button data-rfq-scope="others" class="${rfqScope === 'others' ? 'on' : ''}" data-testid="rfq-others">Other RFQs</button></div>
+      <label class="book-setting"><input type="checkbox" data-testid="rfq-enabled" id="rfq-enabled" ${enabled ? 'checked' : ''}> Answer RFQs from other traders</label></div>`;
+    if (rfqScope === 'mine') {
+      p.innerHTML = head + (r.rfqs.length ? `<table class="table" data-testid="rfqs-table"><thead><tr><th>Market</th><th>Size</th><th>Status</th><th>Age</th><th>Quotes</th><th></th></tr></thead><tbody>
+        ${r.rfqs.map((x) => {
+          const open = x.quotes.filter((q) => q.status === 'open');
+          const pending = x.quotes.find((q) => ['accepted', 'confirmed'].includes(q.status));
+          const done = x.quotes.find((q) => q.status === 'executed');
+          const quotes = x.status === 'open' ? open.map((q) => `<div class="rfq-quote" data-quote="${esc(q.id)}">${q.buy_yes_price_dollars ? `<button class="btn btn-sm yes-pill" data-accept="${esc(q.id)}" data-rfq-id="${esc(x.id)}" data-side="no">Buy YES ${cents(q.buy_yes_price_dollars)}¢ · ${qty(q.no_contracts_fp)}</button>` : ''}
+              ${q.buy_no_price_dollars ? `<button class="btn btn-sm no-pill" data-accept="${esc(q.id)}" data-rfq-id="${esc(x.id)}" data-side="yes">Buy NO ${cents(q.buy_no_price_dollars)}¢ · ${qty(q.yes_contracts_fp)}</button>` : ''}
+              <span class="faint">${q.is_system_maker ? 'Parlance maker' : 'Trader'} · ${countdown(q.expires_time)}</span></div>`).join('') || '<span class="faint">Waiting for quotes…</span>'
+            : pending ? `<span data-testid="awaiting-confirm">Accepted · ${pending.status === 'confirmed' ? 'Confirming…' : `waiting for maker ${countdown(pending.confirm_deadline_time)}`}</span>`
+              : done ? `<span>Executed ${qty(done.executed_contracts_fp)} contracts</span>` : '<span class="faint">—</span>';
+          return `<tr data-rfq="${esc(x.id)}" data-status="${esc(x.status)}"><td><a href="${esc(x.link)}" data-link>${esc(x.market_title)}</a></td><td>${sizeLabel(x)}</td><td><span class="status-chip ${esc(x.status)}">${QSTATUS[x.status] || esc(x.status)}</span></td><td class="faint">${relTime(x.created_time)}</td><td>${quotes}</td>
+            <td>${['open', 'accepted'].includes(x.status) ? `<button class="btn btn-sm" data-cancel-rfq="${esc(x.id)}">Cancel</button>` : ''}</td></tr>`;
+        }).join('')}</tbody></table>` : '<div class="empty" data-testid="no-rfqs">No RFQs yet. Request a quote from a market ticket (Request quote) or the <a href="/combos" data-link>combo builder</a>.</div>');
+    } else if (!enabled) {
+      p.innerHTML = head + '<div class="empty" data-testid="rfq-disabled">Turn on “Answer RFQs from other traders” to see and quote other traders\' requests.</div>';
+    } else {
+      p.innerHTML = head + (r.rfqs.length ? `<table class="table" data-testid="other-rfqs-table"><thead><tr><th>Market</th><th>Size</th><th>Age</th><th>Your quote</th><th>Quote (¢)</th></tr></thead><tbody>
+        ${r.rfqs.map((x) => `<tr data-rfq="${esc(x.id)}" data-status="${esc(x.status)}"><td><a href="${esc(x.link)}" data-link>${esc(x.market_title)}</a></td><td>${sizeLabel(x)}</td><td class="faint">${relTime(x.created_time)}</td>
+          <td>${x.my_quote ? `<span class="status-chip ${esc(x.my_quote.status)}" data-testid="my-quote-status">${QSTATUS[x.my_quote.status]}</span> <span class="faint">Yes ${cents(x.my_quote.yes_bid_dollars)}¢ / No ${cents(x.my_quote.no_bid_dollars)}¢</span>` : '<span class="faint">—</span>'}</td>
+          <td>${x.status === 'open' ? `<form class="quote-form" data-quote-form="${esc(x.id)}"><input name="yes" type="number" min="0" max="99" step="1" placeholder="Yes bid" aria-label="Yes bid in cents"><input name="no" type="number" min="0" max="99" step="1" placeholder="No bid" aria-label="No bid in cents"><button class="btn btn-sm btn-primary" type="submit">Send quote</button><div class="form-error" role="alert"></div></form>` : '<span class="faint">Accepted by requester</span>'}</td></tr>`).join('')}</tbody></table>`
+        : '<div class="empty" data-testid="no-other-rfqs">No open RFQs from other traders right now.</div>');
+    }
+    for (const b of p.querySelectorAll('[data-rfq-scope]')) b.onclick = () => { rfqScope = b.dataset.rfqScope; drawPanel(); };
+    p.querySelector('#rfq-enabled').onchange = async (e) => { await session.setProp('rfq_enabled', e.target.checked).catch((x) => toast(x.message, 'error')); drawPanel(); };
+    for (const b of p.querySelectorAll('[data-accept]')) {
+      b.onclick = async () => {
+        b.disabled = true;
+        try { await api.acceptQuote(b.dataset.rfqId, b.dataset.accept, b.dataset.side); toast('Quote accepted · waiting for the maker to confirm'); } catch (e) { toast(e.message, 'error'); }
+        drawPanel();
+      };
+    }
+    for (const b of p.querySelectorAll('[data-cancel-rfq]')) b.onclick = async () => { b.disabled = true; try { await api.cancelRfq(b.dataset.cancelRfq); toast('RFQ cancelled'); } catch (e) { toast(e.message, 'error'); } drawPanel(); };
+    for (const f of p.querySelectorAll('[data-quote-form]')) {
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const err = f.querySelector('.form-error');
+        err.textContent = '';
+        const y = f.yes.value === '' ? 0 : Number(f.yes.value); const n = f.no.value === '' ? 0 : Number(f.no.value);
+        if (![y, n].every((v) => Number.isInteger(v) && v >= 0 && v <= 99)) { err.textContent = 'Bids are whole cents from 0 to 99.'; return; }
+        if (!y && !n) { err.textContent = 'Quote at least one side.'; return; }
+        if (y + n > 100) { err.textContent = 'Yes bid + No bid cannot exceed 100¢.'; return; }
+        try { await api.createQuote({ rfq_id: f.dataset.quoteForm, yes_bid: (y / 100).toFixed(2), no_bid: (n / 100).toFixed(2) }); toast('Quote sent'); drawPanel(); } catch (ex) { err.textContent = ex.message; }
+      };
+    }
+  }
+  // ---------- Quotes: ones you made and ones on your RFQs ----------
+  async function drawQuotes(p) {
+    const { quotes } = await api.quotes();
+    p.innerHTML = quotes.length ? `<table class="table" data-testid="quotes-table"><thead><tr><th>Role</th><th>Market</th><th class="num">Yes bid</th><th class="num">No bid</th><th>Size</th><th>Status</th><th></th></tr></thead><tbody>
+      ${quotes.map((q) => {
+        const mine = q.role === 'maker';
+        const action = mine && q.status === 'accepted' ? `<button class="btn btn-sm btn-primary" data-confirm="${esc(q.id)}">Confirm order · ${countdown(q.confirm_deadline_time)}</button>`
+          : mine && q.status === 'open' ? `<button class="btn btn-sm" data-delete-quote="${esc(q.id)}">Delete</button> <span class="faint">${countdown(q.expires_time)}</span>`
+            : q.status === 'executed' ? `<span class="faint">${qty(q.executed_contracts_fp)} contracts</span>` : '';
+        const size = q.rfq_contracts_fp != null ? `${qty(q.rfq_contracts_fp)} contracts` : `${money(q.rfq_target_cost_dollars)} target`;
+        return `<tr data-quote-row="${esc(q.id)}" data-status="${esc(q.status)}"><td>${mine ? 'You quoted' : 'On your RFQ'}</td><td><a href="${esc(q.link)}" data-link>${esc(q.market_title)}</a></td><td class="num">${cents(q.yes_bid_dollars)}¢</td><td class="num">${cents(q.no_bid_dollars)}¢</td><td>${size}</td>
+          <td><span class="status-chip ${esc(q.status)}">${QSTATUS[q.status]}</span>${q.accepted_side ? ` <span class="faint">(${q.accepted_side.toUpperCase()} side)</span>` : ''}</td><td>${action}</td></tr>`;
+      }).join('')}</tbody></table>` : '<div class="empty" data-testid="no-quotes">No quotes yet.</div>';
+    for (const b of p.querySelectorAll('[data-confirm]')) {
+      b.onclick = async () => {
+        b.disabled = true; b.textContent = 'Confirming…';
+        try { await api.confirmQuote(b.dataset.confirm); toast('Quote executed'); } catch (e) { toast(e.message, 'error'); }
+        drawPanel(); drawStats();
+      };
+    }
+    for (const b of p.querySelectorAll('[data-delete-quote]')) b.onclick = async () => { b.disabled = true; try { await api.deleteQuote(b.dataset.deleteQuote); toast('Quote deleted'); } catch (e) { toast(e.message, 'error'); } drawPanel(); };
   }
 
   async function refresh() { await Promise.all([drawStats(), drawPanel()]); }
@@ -108,9 +201,22 @@ export async function render({ el, navigate, query }) {
   el.querySelector('[data-act="withdraw"]').onclick = () => move('withdraw');
 
   await refresh();
+  let commsT = null;
   const unsubs = [
     socket.subscribe({ channels: ['user_orders'] }, () => refresh().catch(() => {})),
     socket.subscribe({ channels: ['user_balance'] }, () => refresh().catch(() => {})),
+    // RFQ / quote events update the RFQs, Quotes and Combos tabs live (spec §17.6).
+    socket.subscribe({ channels: ['communications'] }, () => {
+      if (!['rfqs', 'quotes', 'combos'].includes(tab)) return;
+      if (el.querySelector('#panel input:focus')) return; // don't wipe a quote being typed
+      clearTimeout(commsT); commsT = setTimeout(() => drawPanel().catch(() => {}), 120);
+    }),
   ];
-  return () => unsubs.forEach((u) => u());
+  // Countdowns tick locally; an expired countdown triggers a refetch (the server sweep owns the status).
+  const iv = setInterval(() => {
+    let due = false;
+    for (const c of el.querySelectorAll('[data-countdown]')) { const n = secsLeft(c.dataset.countdown); c.textContent = `${c.dataset.prefix || ''}${n}s`; if (n === 0) due = true; }
+    if (due) { clearTimeout(commsT); commsT = setTimeout(() => drawPanel().catch(() => {}), 900); }
+  }, 1000);
+  return () => { unsubs.forEach((u) => u()); clearInterval(iv); clearTimeout(commsT); };
 }
