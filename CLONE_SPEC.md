@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 3 (2026-11-02):** §14 specifies the Perps margin product, and §15 the live UI/UX from the user's screenshots and the current build's JS chunks, analysed with REA.
+>
 > **Revision 2 — which Kalshi version this describes.** Sections 1–12 were written from the **2026-02-22 archived frontend build** plus the live public API and docs. The live site blocked this environment, so the UI could not be loaded directly (§0.3). **Section 13 updates the spec to the live site as of 2026-11-02 11:18–11:20 UTC (Next.js build `v3-3LP8JYaUgMIitMhWMD`)**, using a browser HAR the user captured from their own logged-out session [HAR3]. Where §13 and earlier sections disagree, §13 is current.
 
 Date of study: 2026-11-02. Tooling: REA (reverse-engineer-anything) MCP and CLI, a headless Chromium driven over CDP, and the public Internet Archive.
@@ -22,7 +24,9 @@ Every requirement carries a bracketed evidence tag. Tags resolve as follows.
 | `DOC:<page>` | Public developer docs at `docs.kalshi.com` (`openapi.yaml` v3.35.0, `asyncapi.yaml`, and `*.md` pages) | `evidence/openapi.yaml`, `evidence/asyncapi.yaml` (other `.md` pages fetched live) |
 | `SHOT:home` | Screenshot of the archived homepage, snapshot `web.archive.org/web/20260222130800/https://kalshi.com/` | `evidence/wb_home.png` |
 | `CHK` | Capture of the live site refusing automated access | `evidence/checkpoint.net.json` |
-| `HAR3#n` | **Live site, 2026-11-02**, user-supplied DevTools HAR from a logged-out Chrome 155 session (market page, Browse, Calendar and Social prefetches). *n* is the entry ordinal in the original 286-entry capture. | `evidence/web_live_2026-11-02.har` (98 first-party entries; identifying headers and third-party trackers removed; sha256 `9e28ea83…d008`; each entry keeps `_original_index`) |
+| `SHOT3:<page>` | User-supplied screenshots of the live site on 2026-11-02 (logged out, dark theme, ~1700px wide): `home`, `home-scroll`, `event-multi` (`/markets/kxnextpressecperm/…`), `event-related`, `event-social`, `live` (`/calendar`), `browse` (`/browse`), `event-h2h` (`/markets/controls/senate-winner/controls-2026`), `event-series`. Described here; not redistributed (they contain third-party branding and photos). | session uploads |
+| `JS26:<chunk>:"<string>"` | Literal strings in the **current** build's JS chunks (`/_next/static/immutable/chunks/*.js`, build `v3-3LP8JYaUgMIitMhWMD`), fetched from the static CDN path, which is not behind the bot checkpoint | REA Evidence `ev_46583010dbc420327910cd6a4dfbcc1a0afb77b26bd38f151c3e667359fbd39c` (97-file inventory; the route view of the selected chunk returned no routes, so citations are string-level) |
+| `HAR3#n` | **Live site, 2026-11-02**, user-supplied DevTools HAR from a logged-out Chrome 155 session (market page, Browse, Calendar and Social prefetches). *n* is the entry ordinal in the original 286-entry capture. | `evidence/web_live_2026-11-02.har` (98 first-party entries; identifying headers and third-party trackers removed; sha256 `9e28ea83…d008`; each entry keeps `_original_index`; REA Evidence `ev_124ab23da6a5c10eab2448adc93cdab46d09a4d5dee60e0506d223c45acdf04a`, summary view `ev_dec18c6c…1509`, 98/98 records decoded) |
 
 HAR1 ordinals: 0 exchange/status · 1 exchange/schedule · 2 events?with_nested_markets · 3 series list · 4 search/tags_by_categories · 5 search/filters_by_sport · 6 markets?status=open · 7 events/{t} · 8 events/{t}/metadata · 9 series/{t} · 10 markets/{t} · 11 markets/{t}/orderbook · 12 markets/trades (got 429) · 13 candlesticks · 14 historical/cutoff · 15 milestones · 16 unknown market (404) · 17 portfolio/balance without auth (401) · 18 POST order without auth (401) · 19 `limit=abc` (400) · 20 `status=bogus` (400) · 21 `limit=100000` (400) · 22 cursor page 2.
 
@@ -490,6 +494,111 @@ Not implemented; the clone keeps the home hero carousel.
 | Social | "SOCIAL" nav item | `/ideas/feed`, trader nicknames on trades |
 | Market page data | `/v1/events/{e}` + WS | `/v1/bff/cards`, `/v1/cached/*` endpoints and 4–10 s polling loops |
 | Products | binary event contracts | plus margin **Perps** and fractional contracts |
+
+---
+
+## 15. UI/UX of the live site (SHOT3) and the redesign
+
+### 15.1 Shell (OBSERVED SHOT3:all)
+
+- **Theme:** dark by default. The page is near-black, cards are one step lighter with a 1px border and ~16px radius, and the text is white/grey.
+- **Typography:** page titles, market titles and section titles use a condensed bold display face. Body text uses a neutral sans. The current fonts are Kalshi Sans and Kalshi Condensed (§13.2). The clone uses Inter plus Barlow Condensed (both OFL).
+- **Header, left to right:**
+  - Green wordmark.
+  - Uppercase, letter-spaced nav: **MARKETS · INVEST · LIVE n · PRO · MORE ▾**. The live count is red and changes 140 → 151 across the screenshots, consistent with the 30 s poll (§13.5). The current section is highlighted (MARKETS is green on `/browse`, LIVE on `/calendar`).
+  - A wide pill search, "Trade on anything".
+  - An outlined "Log in" pill and a filled "Sign up" pill.
+- **Category strip:** Trending, **Midterms** (a featured hub in a highlight colour), Elections, Politics, Sports, Culture, Crypto, Commodities, Climate, Economics, Mentions, Finance, Tech & Science. These are short labels for the data categories in §13.3.
+- **Clone:** same structure.
+  - The wordmark "Parlance" uses its own violet; the featured hub "Harbor 2026" is coral.
+  - INVEST → `/perps` (§14); PRO → `/pro` (§15.7); MORE → Calendar, Social, Leaderboard, Watchlist, Responsible trading, and a light/dark toggle.
+
+### 15.2 Home (OBSERVED SHOT3:home, home-scroll)
+
+1. **Hero carousel** ("1 of 7", circular prev/next):
+   - Category overline with icon, then a large condensed question.
+   - Table **Market · Pays out · Odds**: outcome avatar, outcome name underlined in the outcome colour, payout multiplier (`1.33x`), and odds as an outlined pill (`73%`).
+   - `$144,681,295 vol` with a "Trade" link, then **News** with a one-paragraph summary.
+   - Right side: legend with the current % per outcome, a brand watermark, and a multi-line chart with a dotted grid, right-hand % axis and date axis.
+2. **Three info cards:** "Market integrity", "Markets over Monopolies", "Responsible trading", each with an icon and subtitle. The clone uses its own copy.
+3. **Upcoming:** a horizontal carousel with ‹ › buttons. Each card has an icon, a ☆ watch star, an uppercase time or date ("10:05 PM", "NOV 3"), a bold title and a tag pill ("KPIs", "US Elections").
+4. **Category sections** ("Politics ›"): two-column market cards. A card has an icon, title, date ("Jan 1 @ 1:00AM"), two outcome rows (avatar, underlined name, multiplier, odds pill) and dollar volume.
+5. **Right rail:**
+   - Perps promo ("PERPS · Earn up to 7% APY for a limited time").
+   - Hub cards with dollar volume ("Midterms Hub $1,318,352,167 volume", "Public Companies Hub · Trade on upcoming KPIs").
+   - Lists **Trending**, **2026 Primaries** and **Top movers**: title, leading outcome, % and a coloured ▲/▼ change.
+
+### 15.3 Browse (OBSERVED SHOT3:browse)
+
+- Title "Browse Markets". On the right are pill dropdowns **Trending ▾ · Frequency ▾ · All categories ▾ · …**.
+- Three-column cards. Each row has an outcome avatar, the name with a coloured underline, the multiplier and an outlined odds pill. The card's subtitle is the date ("Nov 3") or a red **LIVE** marker plus competition.
+- Live sports cards add score columns, and their border is tinted red.
+- **Clone:**
+  - Frequency filter (`fifteen_min | daily | weekly | monthly | one_off`, from series `frequency`; `GET /v1/search/series?frequency=`).
+  - The underline width is proportional to the chance (design choice; the screenshots show varying widths).
+  - The odds pill opens the market with that outcome selected.
+
+### 15.4 Event page (OBSERVED SHOT3:event-*)
+
+- **Header:**
+  - Large square image; breadcrumb in uppercase ("US ELECTIONS / 2026 MIDTERM PREDICTIONS"); condensed title; settlement one-liner.
+  - Action icons: add-to-calendar (with a badge), comments, share, download, and "Live chat" for live events.
+- **Two-outcome events:** a head-to-head row (avatar, name, a split bar in the two colours, name, avatar) with the date under the bar [SHOT3:event-h2h].
+- **Chart:**
+  - Legend, then lines with the outcome name and a big % at each line's end; a scrubber.
+  - `$… vol`, with **1D 1W 1M ALL** on the right.
+- **Outcome table:** header "Chance", a sort icon and a search icon. Each row has a photo, name, big condensed %, a ▲/▼ day change, and outlined **Yes 74¢** (green) and **No 27¢** (red) buttons.
+- **Related events:** tabs of related event groups ("Events · Balance of Power · Election Specials · Seat Counts") with search and "Show more" [SHOT3:event-series].
+- **Below the table:**
+  - "People are also trading": icon and title rows, then "Show more".
+  - "Breaking News": source, date, headline and summary.
+  - **Social | Activity** tabs. The composer says "What's on your mind?" and has GIF and "+ Add a position" buttons. A post shows the nickname, age and a position tag ("Yes · Ben Ferguson · Before Jan …"), its body with "Read more", and actions (like, reply, bookmark, share, ⋯) [SHOT3:event-social].
+- **Ticket:**
+  - **BUY | SELL** tabs and a **DOLLARS ▾** unit menu.
+  - The question, then the selected outcome (avatar and condensed name).
+  - A **YES 21¢ | NO 81¢** segmented toggle, with the selected side filled.
+  - A "**3.5% Interest**" link. It is backed by `interest_rate_amount` and `margin_interest_rate_amount` settings and an `openHelpCenterInterestApy` handler [JS26:0b-vmmhwqitt_:"openHelpCenterInterestApy", JS26:0bszqignr8pgk:"interest_rate_amount"].
+  - A "Dollars $0" input; "Odds 82% chance"; "Max payout" with the expiry date and a large amount ["Max payout" in JS26:0-un45q67vg9u, 16-dlj79axbgf].
+  - A full-width "Sign up to trade" button when logged out. A COMBO (parlay) button sits above the ticket.
+- **Clone:**
+  - All of the above except GIFs, live chat, photos and COMBO. Avatars are generated monograms, and news comes from the event's own update.
+  - Add-to-calendar downloads an **iCalendar** file (RFC 5545 `VEVENT` at close time); download gives a **CSV** of chart history (`time,market,outcome,yes_price_dollars,volume_contracts`).
+  - The ticket offers modes **Dollars** (`type:"dollars"`, `amount_dollars`), **Contracts** (market IOC) and **Limit order**. The chosen mode is persisted (`ticket_mode`).
+  - **SELL** sends `action:"sell"`. The server turns "sell YES at p" into "buy NO at 100−p", which nets against the held YES for $1 per pair. It refuses to sell more than you hold (409 `insufficient_position`).
+  - Interest: 3.5% APY on cash plus open-position cost, credited once per UTC day starting the day after sign-up (design choice; ledger kind `interest`, `GET /v1/users/{u}/interest`).
+
+### 15.5 Live / Calendar (OBSERVED SHOT3:live — the LIVE nav item lands on `/calendar`)
+
+- **Left rail:**
+  - FEATURED with sport icons (NFL, NCAA Football, NBA…), then "What's next".
+  - Collapsible categories with counts ("Tennis (257)", "Basketball (554)").
+- **Centre:** red condensed "**LIVE · 198**", then rolling **15-minute** cards:
+  - Asset icon and "BTC 15 MIN".
+  - "Target $77,769.29" and "↑ $155.07 Above".
+  - A sparkline against the dotted target line.
+  - "Above · 99%" and "Below · 1%" pills, plus volume.
+- **Right rail:** a COMBO button and a "**Determined** · Outcome: Up · Explore Crypto" card. The chunks' "15 min" crypto subcategory and `KX…15M` events match this [HAR3#10 `event_limits`].
+- **Clone (`server/rolling.js`):**
+  - An invented "PLX token" index with a persisted random walk.
+  - A new window event every `ROLLING_WINDOW_SEC` (default 900 s). Its target is the index at window open, and its market is "Above".
+  - Liquidity quotes both sides at 47¢.
+  - At close the window is determined (`yes` if close > target) and then settled by the normal lifecycle.
+  - Endpoints: `GET /v1/rolling/current` (window, target, distance, price path) and `GET /v1/rolling/determined`. The Live page shows the card and the latest Determined window; `/live` shows only the live section, while `/calendar` adds the dated sections.
+
+### 15.6 Pro (UNKNOWN content; the nav item is OBSERVED)
+
+The PRO destination was not captured. Design choice: `/pro` is a dense, sortable table of every open market (bid, ask, last, 24h change, volume), updated live over the `ticker` channel, with one-click links to the pre-selected ticket.
+
+### 15.7 Clone verification for §15
+
+`clone/tests/redesign.e2e.test.js` has 7 browser scenarios:
+- Shell, MORE menu, dark default; home sections; the Upcoming star persisting to the watchlist.
+- Frequency filter; Pro sort and its links into the ticket.
+- Head-to-head; `.ics` and CSV downloads and their formats; related events.
+- Dollars buy, SELL netting and the oversell refusal.
+- One interest accrual per day.
+- A rolling window from trade to settlement payout, and the Determined card.
+- No horizontal overflow at 390px, plus a restart.
 
 ---
 

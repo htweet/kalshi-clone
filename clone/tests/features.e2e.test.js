@@ -57,6 +57,7 @@ async function createProfile(page, nick) {
   await page.click('#profile-form button[type=submit]');
   await page.waitForSelector(`a:has-text("View profile")`);
 }
+async function mode(page, m) { await page.click('#t-mode-btn'); await page.click(`[data-otype=${m}]`); }
 async function deposit(page, amount) {
   await page.goto(BASE + '/portfolio');
   await page.fill('#f-amount', String(amount));
@@ -70,17 +71,23 @@ after(async () => { await browser?.close(); await srv?.close(); fs.rmSync(TMP, {
 test('layout: header nav, 360px card grid, Yes/No buttons preselect the ticket, change chips, new tabs', async () => {
   const page = await newPage();
   await page.goto(BASE + '/browse');
-  for (const label of ['Markets', 'Live', 'Social', 'Calendar']) assert.ok(await page.locator(`.primary-nav a:has-text("${label}")`).isVisible(), label);
+  for (const label of ['Markets', 'Invest', 'Live', 'Pro']) assert.ok(await page.locator(`.primary-nav a:has-text("${label}")`).isVisible(), label);
   await page.waitForSelector('#results [data-testid=event-card]');
   // 24-per-page grid with cards at least 360px wide (observed grid rule).
   const widths = await page.$$eval('#results [data-testid=event-card]', (els) => els.map((e) => e.getBoundingClientRect().width));
   assert.ok(widths.length >= 10 && widths.every((w) => w >= 360), `card widths ${widths}`);
   const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
   assert.match(font, /Inter/);
-  // No button on a card opens the event with NO preselected for that outcome.
+  // The odds pill on a card opens the event with that outcome and YES preselected; ?side=no preselects NO.
   const card = page.locator('#results [data-testid=event-card][data-event="PLXRATE-26DEC"]');
-  await card.locator('.yn.no').first().click();
+  await card.locator('.odds').first().click();
   await page.waitForURL(/\/markets\/plxrate\//);
+  await page.waitForSelector('.side-toggle button.on-yes');
+  assert.match(await page.textContent('#ticket h3'), /Cut/);
+  await page.goto(BASE + RATE_URL + '?side=no&market=PLXRATE-26DEC-HOLD');
+  await page.waitForSelector('.side-toggle button.on-no');
+  assert.match(await page.textContent('#ticket h3'), /Hold/);
+  await page.goto(BASE + RATE_URL + '?side=no&market=PLXRATE-26DEC-CUT');
   await page.waitForSelector('.side-toggle button.on-no');
   assert.match(await page.textContent('#ticket h3'), /Cut/);
   await page.waitForSelector('[data-testid=changes] span');
@@ -225,7 +232,7 @@ test('price alert + fill notifications fire live; Activity tab shows the trader 
   await page.waitForSelector('[data-alert]:has-text("above 59¢")');
   assert.equal(dbq('SELECT COUNT(*) c FROM price_targets WHERE user_id=? AND triggered_at IS NULL', uid(carol.email))[0].c, 1);
   // Market buy of 3 YES at the 59¢ ask moves the last price to 59 → alert + fill notifications.
-  await page.click('[data-otype=market]');
+  await mode(page, 'market');
   await page.fill('#t-count', '3');
   await page.click('[data-testid=submit-order]');
   await page.waitForSelector('.toast:has-text("Price alert")');
@@ -270,6 +277,7 @@ test('account limits: deposit and trading limits enforced; loosening waits 24h; 
   await page.click('[data-testid=limit-trading] button[type=submit]');
   await page.waitForSelector('[data-testid=limit-trading] [data-testid=limit-value]:has-text("$5.00")');
   await page.goto(BASE + RATE_URL);
+  await mode(page, 'limit');
   await page.fill('#t-price', '59');
   await page.fill('#t-count', '10');
   await page.click('[data-testid=submit-order]');

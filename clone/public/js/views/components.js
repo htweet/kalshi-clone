@@ -1,5 +1,6 @@
 // Shared UI pieces: market card (browse grid), outcome rows, rank list, chart, post card.
 import { esc, pct, multiplier, prob, eventHref, deltaCents, qty, cents, catColor, compact, avatar, relTime, ICON } from '../lib.js';
+export { prob };
 
 export function outcomeRows(ev, limit = 3) {
   const ms = [...ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0)).slice(0, limit);
@@ -13,40 +14,83 @@ export function outcomeRows(ev, limit = 3) {
 }
 
 const STATUS_LABEL = (ev) => (ev.markets.every((m) => m.status === 'initialized') ? 'Opens soon' : ev.markets.every((m) => ['closed', 'determined', 'finalized'].includes(m.status)) ? 'Closed' : '');
+const OC_COLORS = ['#3a7bff', '#ff4d5e', '#2fd18b', '#f59f00', '#be4bdb', '#15aabf'];
+const shortDay = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+export const money0 = (n) => '$' + Math.round(Number(n || 0)).toLocaleString('en-US');
 
-// Market card: icon + title, top outcomes with chance and Yes/No buttons, volume footer (spec §13.2 browse grid).
+// Outcome avatar: generated monogram ring in the outcome colour (own art; no photos or logos).
+export function ocAvatar(m, cls = '') {
+  const c = m.color_code && m.color_code !== '#5b5bd6' ? m.color_code : OC_COLORS[0];
+  return `<span class="oc-av ${cls}" style="background:${esc(c)};color:${esc(c)}" aria-hidden="true"><span style="color:#fff">${esc(String(m.yes_sub_title || '?')[0].toUpperCase())}</span></span>`;
+}
+export function evIcon(ev, cls = '') {
+  return `<span class="ev-icon ${cls}" style="background:${catColor(ev.category)}" aria-hidden="true">${esc(String(ev.series_title || ev.title || '?')[0])}</span>`;
+}
+// Name with a coloured underline whose length tracks the chance (observed card pattern, spec §15.3).
+const ocName = (m, label) => {
+  const p = prob(m) ?? 0;
+  const c = m.color_code && m.color_code !== '#5b5bd6' ? m.color_code : 'var(--brand)';
+  return `<span class="oc-name"><span>${esc(label)}</span><span class="oc-bar" style="width:${Math.max(6, p)}%;background:${esc(c)}"></span></span>`;
+};
+
+// Market card used by Browse, category pages and home sections.
 export function eventCard(ev) {
-  const vol = ev.total_volume_fp ?? ev.markets.reduce((a, m) => a + Number(m.volume_fp), 0);
   const href = eventHref(ev);
   const binary = ev.markets.length === 1;
-  const ms = [...ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0)).slice(0, binary ? 1 : 2);
+  const ms = [...ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0)).slice(0, 2);
   const status = STATUS_LABEL(ev);
   const rows = ms.map((m) => {
     const p = prob(m);
-    const open = m.status === 'active';
-    const d = deltaCents(m);
+    const label = binary ? m.yes_sub_title : m.yes_sub_title;
     return `<div class="mrow outcome-row" data-ticker="${esc(m.ticker)}">
-      <span class="mrow-name">${esc(binary ? (p == null ? '' : 'Chance') : m.yes_sub_title)}${binary && d ? ` <span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d > 0 ? '▲' : '▼'}${Math.abs(d)}</span>` : ''}</span>
-      <span class="mrow-pct pill">${p == null ? '—' : p + '%'}</span>
-      <span class="mrow-btns"><a class="yn yes" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link role="button" ${open ? '' : 'aria-disabled="true"'} style="display:inline-grid;place-items:center">Yes</a><a class="yn no" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link role="button" ${open ? '' : 'aria-disabled="true"'} style="display:inline-grid;place-items:center">No</a></span>
+      ${ocAvatar(m, 'sm')}${ocName(m, label)}
+      <span class="mult">${multiplier(m)}</span>
+      <a class="odds pill" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link aria-label="${esc(label)} ${p == null ? 'no price' : p + ' percent'}">${p == null ? '—' : p + '%'}</a>
     </div>`;
   }).join('');
-  return `<article class="card mcard" data-testid="event-card" data-event="${esc(ev.event_ticker)}">
-    <div class="mcard-head"><span class="mcard-icon" style="background:${catColor(ev.category)}" aria-hidden="true">${esc((ev.series_title || ev.title)[0])}</span>
-      <a class="mcard-title" href="${href}" data-link>${esc(ev.title)}</a></div>
+  const sub = ev.is_live ? `<span class="live-dot">Live</span><span>${esc(ev.live_label || '')}</span>` : esc(status || (ev.close_time ? shortDay(ev.close_time) : ''));
+  return `<article class="card mcard ${ev.is_live ? 'live' : ''}" data-testid="event-card" data-event="${esc(ev.event_ticker)}">
+    <div class="mcard-head">${evIcon(ev, 'sm')}<div style="min-width:0"><a class="mcard-title" href="${href}" data-link>${esc(ev.title)}</a><div class="mcard-sub">${sub}</div></div></div>
     <div class="mcard-rows">${rows}</div>
-    <div class="mcard-foot">${ev.is_live ? `<span class="live-dot">Live${ev.live_label ? ' · ' + esc(ev.live_label) : ''}</span>` : ''}<span class="num">${compact(vol)} vol</span>${ev.markets.length > 2 ? `<span>· ${ev.markets.length} outcomes</span>` : ''}<span class="grow"></span><span class="ev-meta"><span>${esc(status || ev.category)}</span></span></div>
+    <div class="mcard-foot"><span class="num">${money0(ev.dollar_volume ?? 0)} vol</span>${ev.markets.length > 2 ? `<span>· ${ev.markets.length} outcomes</span>` : ''}<span class="grow"></span><span class="ev-meta"><span>${esc(status || ev.category)}</span></span></div>
   </article>`;
 }
 
+// Multi-series chart with right-side % axis, date axis and end labels (spec §15.4).
+export function multiChart(series, { height = 260, endLabels = false, width = 700 } = {}) {
+  const pts = series.flatMap((s) => s.points);
+  if (!pts.length) return '<p class="faint">No trades yet.</p>';
+  const W = width; const H = height; const padR = 46; const padB = 26; const padT = 10;
+  const minX = Math.min(...pts.map((p) => p.t)); const maxX = Math.max(...pts.map((p) => p.t));
+  const vals = pts.map((p) => p.v);
+  let lo = Math.max(0, Math.floor((Math.min(...vals) - 8) / 10) * 10); let hi = Math.min(100, Math.ceil((Math.max(...vals) + 8) / 10) * 10);
+  if (hi - lo < 20) { lo = Math.max(0, lo - 10); hi = Math.min(100, hi + 10); }
+  const sx = (t) => ((t - minX) / Math.max(1, maxX - minX)) * (W - padR - 8);
+  const sy = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const ticks = [0, 1, 2, 3, 4].map((i) => lo + ((hi - lo) * i) / 4);
+  const grid = ticks.map((g) => `<line x1="0" x2="${W - padR}" y1="${sy(g)}" y2="${sy(g)}" stroke="var(--fill-x50)" stroke-dasharray="1 5"/><text x="${W - 4}" y="${sy(g) + 4}" text-anchor="end" font-size="12" fill="var(--text-x20)">${Math.round(g)}%</text>`).join('');
+  const days = [0, 1, 2, 3, 4].map((i) => minX + ((maxX - minX) * i) / 4).map((t, i) => `<text x="${Math.min(W - padR - 30, sx(t) + (i === 0 ? 2 : 0))}" y="${H - 6}" font-size="12" fill="var(--text-x20)" text-anchor="${i === 0 ? 'start' : 'middle'}">${new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>`).join('');
+  // End labels: name + big percentage, nudged apart vertically so they never overlap.
+  const labels = endLabels ? series.filter((s) => s.points.length).map((s) => { const l = s.points[s.points.length - 1]; return { s, x: sx(l.t), y: sy(l.v), v: l.v }; }).sort((a, b) => a.y - b.y) : [];
+  for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 52) labels[i].y = labels[i - 1].y + 52;
+  const labelSvg = labels.map((l) => `<text x="${Math.min(l.x - 8, W - padR - 150)}" y="${Math.max(padT + 18, l.y - 22)}" font-size="15" fill="${l.s.color}">${esc(l.s.name)}</text><text x="${Math.min(l.x - 8, W - padR - 150)}" y="${Math.max(padT + 44, l.y + 4)}" font-size="26" font-weight="700" font-family="Barlow Condensed, sans-serif" fill="${l.s.color}">${l.v}%</text>`).join('');
+  const lines = series.map((s) => {
+    const d = s.points.map((p, i) => `${i ? 'L' : 'M'}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(' ');
+    const last = s.points[s.points.length - 1];
+    if (!last) return '';
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="5" fill="${s.color}"/>`;
+  }).join('') + labelSvg;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" style="height:${height}px" role="img" aria-label="Price history">${grid}${days}${lines}</svg>`;
+}
+export const seriesColor = (m, i) => (m.color_code && m.color_code !== '#5b5bd6' ? m.color_code : OC_COLORS[i % OC_COLORS.length]);
+
 export function rankList(items) {
   if (!items.length) return '<p class="faint">Nothing here yet.</p>';
-  return items.map((r, i) => {
+  return items.map((r) => {
     const d = r.delta_cents ?? 0;
     return `<a class="rank-row" href="${eventHref(r)}" data-link>
-      <span class="faint">${i + 1}</span>
       <span><div class="t">${esc(r.title)}</div><div class="faint">${esc(r.sub_title)}</div></span>
-      <span class="num" style="text-align:right;font-weight:650">${pct(r.price_dollars)}<div class="${d >= 0 ? 'delta-up' : 'delta-down'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d)}</div></span>
+      <span class="num" style="text-align:right">${pct(r.price_dollars)}<div class="${d >= 0 ? 'delta-up' : 'delta-down'}">${d === 0 ? '––' : `${d > 0 ? '▲' : '▼'} ${Math.abs(d)}`}</div></span>
     </a>`;
   }).join('');
 }

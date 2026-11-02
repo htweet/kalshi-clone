@@ -52,6 +52,7 @@ const bookHas = (page, label, present = true) => page.waitForFunction(([l, want]
   const rows = [...document.querySelectorAll('[data-testid=orderbook] .book-row span:nth-child(2)')].map((e) => e.textContent);
   return rows.includes(l) === want;
 }, [label, present], { timeout: 10000 });
+async function mode(page, m) { await page.click('#t-mode-btn'); await page.click(`[data-otype=${m}]`); }
 const dbq = (sql, ...a) => { const d = new DatabaseSync(DB_FILE); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 
 before(async () => { await boot(); browser = await chromium.launch(); });
@@ -156,7 +157,7 @@ test('trading: market buy fills with exact cost + fee, position appears everywhe
   await page.waitForSelector('[data-testid=submit-order]');
   const ask = (await apiGet(page, `/trade-api/v2/markets/${RAV}`)).market.yes_ask_dollars;
   const askC = Math.round(Number(ask) * 100);
-  await page.click('[data-otype=market]');
+  await mode(page, 'market');
   await page.fill('#t-count', '10');
   await page.click('[data-testid=submit-order]');
   await page.waitForSelector('.toast:has-text("Filled 10 YES")');
@@ -171,7 +172,8 @@ test('trading: market buy fills with exact cost + fee, position appears everywhe
   assert.match(await page.textContent(`tr[data-ticker="${RAV}"]`), /YES\s*10/);
   // bad inputs: price 0 disables submit; huge size → insufficient balance from server
   await page.goto(BASE + EVENT_URL);
-  await page.waitForSelector('#t-price');
+  await page.waitForSelector('#t-mode-btn');
+  await mode(page, 'limit');
   await page.fill('#t-price', '0');
   assert.equal(await page.isDisabled('[data-testid=submit-order]'), true);
   await page.fill('#t-price', '50');
@@ -202,6 +204,7 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   // Alice rests the best YES bid (45¢; book is 41-44 bid / 46-49 ask) on Comets.
   await pa.goto(BASE + EVENT_URL);
   await pa.click(`tr[data-ticker="${COM}"] [data-pick=yes]`);
+  await mode(pa, 'limit');
   await pa.fill('#t-price', '45');
   await pa.fill('#t-count', '7');
   await pa.click('[data-testid=submit-order]');
@@ -213,6 +216,7 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   await pa.click('[data-tab=orders]');
   await pa.waitForSelector('[data-testid=orders-table]:has-text("45¢")');
   await pb.click(`tr[data-ticker="${COM}"] [data-pick=no]`);
+  await mode(pb, 'limit');
   await pb.fill('#t-price', '55');
   await pb.fill('#t-count', '7');
   await pb.click('[data-testid=submit-order]');
@@ -226,6 +230,7 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   const before = dbq('SELECT balance_cents b FROM users WHERE email=?', alice.email)[0].b;
   await pa.goto(BASE + EVENT_URL);
   await pa.click(`tr[data-ticker="${COM}"] [data-pick=yes]`);
+  await mode(pa, 'limit');
   await pa.fill('#t-price', '5');
   await pa.fill('#t-count', '20');
   await pa.click('[data-testid=submit-order]');
@@ -265,20 +270,20 @@ test('watchlist, recently viewed and settings persist in the DB across sessions'
   await page.waitForSelector('[data-testid=watch-btn][aria-pressed=true]');
   await page.click('[data-testid=account-menu]');
   await page.click('#theme-toggle');
-  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
   await page.click('[data-range=all]');
   await page.click('[data-tab=trades]');
   await page.waitForSelector('[data-testid=trades]');
   await page.waitForTimeout(300);
   const props = dbq("SELECT key, value FROM user_settings s JOIN users u ON u.id=s.user_id WHERE u.email=? ORDER BY key", alice.email);
   const map = Object.fromEntries(props.map((p) => [p.key, JSON.parse(p.value)]));
-  assert.equal(map.theme, 'dark'); assert.equal(map.chart_range, 'all'); assert.equal(map.event_bottom_tab, 'trades');
+  assert.equal(map.theme, 'light'); assert.equal(map.chart_range, 'all'); assert.equal(map.event_bottom_tab, 'trades');
   await page.context().close();
 
   // Brand-new browser context (no localStorage): settings come back from the server.
   const p2 = await newPage();
   await logIn(p2, alice.email);
-  await p2.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await p2.waitForFunction(() => document.documentElement.dataset.theme === 'light');
   await p2.goto(BASE + '/watchlist');
   await p2.waitForSelector('[data-testid=watchlist] [data-event="PLXCUP-26FINAL"]');
   assert.match(await p2.textContent('[data-testid=recent]'), /Northern Cup Final/);
@@ -291,7 +296,7 @@ test('watchlist, recently viewed and settings persist in the DB across sessions'
   await p2.waitForSelector('[data-testid=watchlist-empty]');
   await p2.click('[data-testid=account-menu]');
   await p2.click('#theme-toggle');
-  await p2.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  await p2.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await p2.context().close();
 });
 
@@ -302,7 +307,7 @@ test('lifecycle: admin pause/resume/resolve, MARKET_INACTIVE errors, automatic s
   await logIn(pa, alice.email);
   await pa.goto(BASE + URL);
   await pa.click(`tr[data-ticker="${TICK}"] [data-pick=yes]`);
-  await pa.click('[data-otype=market]');
+  await mode(pa, 'market');
   await pa.fill('#t-count', '4');
   await pa.click('[data-testid=submit-order]');
   await pa.waitForSelector('.toast:has-text("Filled 4 YES")');
@@ -428,6 +433,7 @@ test('server restart: data and sessions persist; open page reconnects WS and res
   await logIn(pb, bob.email);
   await pb.goto(BASE + EVENT_URL);
   await pb.click(`tr[data-ticker="${RAV}"] [data-pick=yes]`);
+  await mode(pb, 'limit');
   await pb.fill('#t-price', '3');
   await pb.fill('#t-count', '11');
   await pb.click('[data-testid=submit-order]');

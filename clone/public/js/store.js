@@ -86,8 +86,8 @@ class SessionStore extends Observable {
   }
 }
 
-export function localTheme() { try { return localStorage.getItem('parlance-theme') || 'light'; } catch { return 'light'; } }
-export function applyTheme(t) { document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light'; }
+export function localTheme() { try { return localStorage.getItem('parlance-theme') || 'dark'; } catch { return 'dark'; } }
+export function applyTheme(t) { document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; }
 
 // Minimal query cache: key -> {data, error, ts, promise}; staleTime & polling while visible.
 class QueryCache {

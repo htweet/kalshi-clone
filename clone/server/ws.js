@@ -8,8 +8,8 @@ const { parseCookies, SESSION_COOKIE } = require('./app');
 const { dollars, fp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
-const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2']);
-const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications']);
+const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade']);
+const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account']);
 
 function attachWs(server, { db, engine }) {
   const wss = new WebSocketServer({ noServer: true });
@@ -51,6 +51,7 @@ function attachWs(server, { db, engine }) {
           c.subs.set(sid, { channel: ch, tickers, seq: 0 });
           send(c, { id, type: 'subscribed', msg: { sid, channel: ch } });
           if (ch === 'orderbook' && tickers) for (const t of tickers) snapshot(c, sid, t);
+          if (ch === 'perp_orderbook' && tickers && engine.perps) for (const t of tickers) { const sb = c.subs.get(sid); sb.seq += 1; send(c, { type: 'perp_orderbook_snapshot', sid, seq: sb.seq, msg: engine.perps.bookMsg(t) }); }
         }
       } else if (m.cmd === 'unsubscribe') {
         for (const sid of (m.params && m.params.sids) || []) c.subs.delete(sid);
@@ -93,6 +94,13 @@ function attachWs(server, { db, engine }) {
   engine.on('user_order', (uid, o) => publish('user_orders', o.market_ticker, 'user_order', orderVo(o), uid));
   engine.on('fill', (uid, f) => publish('fill', f.market_ticker, 'fill', fillVo(f), uid));
   engine.on('notification', (uid, n) => publish('notifications', null, 'notification', n, uid));
+  // Perps channels (PERPS_SPEC_SECTION.md): public ticker/book/trades, private orders/positions/collateral.
+  engine.on('perp_ticker', (t, msg) => publish('perp_ticker', t, 'perp_ticker', msg));
+  engine.on('perp_book', (t, msg) => publish('perp_orderbook', t, 'perp_orderbook_snapshot', msg));
+  engine.on('perp_trade', (t, msg) => publish('perp_trade', t, 'perp_trade', msg));
+  engine.on('perp_order', (uid, o) => publish('perp_orders', o.ticker, 'perp_order', o, uid));
+  engine.on('perp_position', (uid, p) => publish('perp_positions', p.market_ticker, 'perp_position', p, uid));
+  engine.on('perp_account', (uid, b) => publish('perp_account', null, 'perp_account', b, uid));
 
   // Keep-alive pings (spec §7.1 control frames).
   const iv = setInterval(() => {

@@ -24,7 +24,7 @@ export const csrf = {
   clear: () => removeLocal(CSRF_KEY),
 };
 
-async function request(method, url, body, { raw = false, timeoutMs = 15000 } = {}) {
+export async function request(method, url, body, { raw = false, timeoutMs = 15000 } = {}) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const t = csrf.get();
@@ -83,6 +83,10 @@ export const api = {
   unwatch: (uid, ev) => request('DELETE', u(uid, `/watchlist/${encodeURIComponent(ev)}`)),
   visit: (uid, ev) => request('POST', u(uid, '/recently_visited'), { event_ticker: ev }),
   recent: (uid) => request('GET', u(uid, '/recently_visited')),
+  related: (t) => request('GET', `/v1/events/${encodeURIComponent(t)}/related`),
+  interest: (uid) => request('GET', u(uid, '/interest')),
+  rollingCurrent: () => request('GET', '/v1/rolling/current'),
+  rollingDetermined: () => request('GET', '/v1/rolling/determined'),
   logInMfa: (b) => request('POST', '/v1/log_in_mfa', b),
   calendar: (o) => request('GET', `/v1/calendar${qs(o || {})}`),
   socialTrades: (o) => request('GET', `/v1/social/trades${qs(o)}`),

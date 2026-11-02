@@ -1,14 +1,31 @@
-// Event detail (spec §4.3): market list, chart, live order book, trade ticket, rules, admin lifecycle.
+// Event detail (spec §4.3, §13.5, §15.4): header with actions (calendar file, social, share, CSV), head-to-head bar,
+// multi-line chart with ranges, outcome table, series events, Social / Activity / Order book / Rules / Top holders,
+// "People are also trading", news; ticket with BUY/SELL, Dollars / Contracts / Limit modes, interest, max payout.
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, multiplier, money, qty, shortDate, toast, eventHref, catColor, catSlug, compact, relTime, ICON } from '../lib.js';
-import { lineChart, postCard } from './components.js';
+import { esc, cents, prob, multiplier, money, qty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON } from '../lib.js';
+import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 
-const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], 'all': [60 * 86400, 1440] };
+const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60], all: [365 * 86400, 1440] };
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
-const TABS = [['rules', 'Rules'], ['book', 'Order book'], ['trades', 'Activity'], ['ideas', 'Ideas'], ['holders', 'Top holders']];
+const TABS = [['ideas', 'Social'], ['trades', 'Activity'], ['book', 'Order book'], ['rules', 'Rules'], ['holders', 'Top holders']];
+const MODES = [['dollars', 'Dollars'], ['market', 'Contracts'], ['limit', 'Limit order']];
+const feeCents = (c, p) => Math.ceil((FEE_RATE * c * p * (100 - p)) / 100);
+const SVG = {
+  cal: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="4.5" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4" stroke="currentColor" stroke-width="1.6"/></svg>',
+  chat: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3.5c4.1 0 7 2.6 7 5.8s-2.9 5.8-7 5.8c-.9 0-1.8-.1-2.6-.4L4 16l.9-3C3.7 12 3 10.7 3 9.3c0-3.2 2.9-5.8 7-5.8z" stroke="currentColor" stroke-width="1.6"/></svg>',
+  share: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 13V3M6 6.5L10 2.5l4 4M4 11v5h12v-5" stroke="currentColor" stroke-width="1.6"/></svg>',
+  dl: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3v10M6 9.5l4 4 4-4M4 16.5h12" stroke="currentColor" stroke-width="1.6"/></svg>',
+};
+function download(name, type, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const icsDate = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
 export async function render({ el, params, query, navigate }) {
   const eventTicker = params.event.toUpperCase();
@@ -22,42 +39,53 @@ export async function render({ el, params, query, navigate }) {
     ev,
     selected: (query && ev.markets.find((m) => m.ticker === query.get('market'))?.ticker) || ev.markets.find((m) => m.status === 'active')?.ticker || ev.markets[0].ticker,
     side: query && query.get('side') === 'no' ? 'no' : 'yes',
-    orderType: 'limit',
-    range: props.chart_range || '1w',
-    bottomTab: TABS.some(([k]) => k === props.event_bottom_tab) ? props.event_bottom_tab : 'rules',
+    action: 'buy',
+    mode: MODES.some(([k]) => k === props.ticket_mode) ? props.ticket_mode : 'dollars',
+    range: RANGES[props.chart_range] ? props.chart_range : '1w',
+    bottomTab: TABS.some(([k]) => k === props.event_bottom_tab) ? props.event_bottom_tab : 'ideas',
     book: { yes: new Map(), no: new Map() },
     watching: false,
+    held: { yes: 0, no: 0 },
   };
   if (session.user) {
     try { state.watching = (await api.watchlist(session.uid)).events.some((e) => e.event_ticker === ev.event_ticker); } catch { /* ignore */ }
   }
   const market = () => state.ev.markets.find((m) => m.ticker === state.selected);
+  const ranked = () => [...state.ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0));
+  const h2h = ev.markets.length === 2 && ev.mutually_exclusive;
+  const closeIso = () => state.ev.markets.map((m) => m.close_time).sort()[0];
 
   el.innerHTML = `<div class="ev-layout">
-    <div>
+    <div style="min-width:0">
       <div class="ev-header">
-        <span class="mcard-icon" style="width:56px;height:56px;font-size:22px;background:${catColor(ev.category)}" aria-hidden="true">${esc(series.title[0])}</span>
-        <div style="flex:1;min-width:0"><div class="crumbs"><a href="/category/${catSlug(ev.category)}" data-link>${esc(ev.category)}</a><span>·</span><span>${esc(series.title)}</span></div>
-          <h1 class="typ-title-x10" data-testid="event-title">${esc(ev.title)}</h1><div class="muted">${esc(ev.sub_title)}</div>
-          ${ev.is_live ? `<div class="live-dot" style="margin-top:6px">Live · ${esc(ev.live_label)}</div>` : ''}
-          <div class="ev-stats" id="ev-stats"></div></div>
-        <button class="btn" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}"></button>
+        ${evIcon({ ...ev, series_title: series.title }, 'xl')}
+        <div style="flex:1;min-width:0"><div class="crumbs"><a href="/category/${catSlug(ev.category)}" data-link>${esc(catLabel(ev.category))}</a> &nbsp;/&nbsp; ${esc(series.title)}</div>
+          <h1 data-testid="event-title">${esc(ev.title)}</h1><div class="muted" style="font-size:17px">${esc(ev.sub_title)}</div>
+          ${ev.is_live ? `<div class="live-dot" style="margin-top:8px">Live · ${esc(ev.live_label)}</div>` : ''}</div>
+        <div class="ev-actions">
+          <button class="icon-btn" id="ics-btn" data-testid="ics-btn" title="Add to calendar" aria-label="Add to calendar">${SVG.cal}</button>
+          <button class="icon-btn" id="chat-btn" title="Discussion" aria-label="Go to discussion">${SVG.chat}</button>
+          <button class="icon-btn" id="share-btn" title="Copy link" aria-label="Copy link">${SVG.share}</button>
+          <button class="icon-btn" id="csv-btn" data-testid="csv-btn" title="Download price history" aria-label="Download price history">${SVG.dl}</button>
+          <button class="btn btn-pill" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}" style="height:40px"></button>
+        </div>
       </div>
+      ${h2h ? `<div class="h2h" data-testid="h2h"></div>` : ''}
       <section class="chart-box">
-        <div class="chart-head"><div><div class="faint" id="chart-label"></div><span class="chart-prob" id="chart-prob" data-testid="chart-prob"></span> <span class="change-chips" id="changes" data-testid="changes"></span></div>
-          <div class="seg" role="tablist" aria-label="Chart range">${Object.keys(RANGES).map((r) => `<button data-range="${r}" class="${r === state.range ? 'on' : ''}">${r.toUpperCase()}</button>`).join('')}</div></div>
+        <div class="chart-head"><div class="legend" id="legend"></div><span class="watermark">Parlance</span></div>
+        <div style="display:flex;gap:14px;align-items:baseline;margin-top:6px"><span class="faint" id="chart-label"></span><span class="num" id="chart-prob" data-testid="chart-prob"></span><span class="change-chips" id="changes" data-testid="changes"></span></div>
         <div id="chart"></div>
+        <div class="range-row"><span class="num" id="ev-vol"></span><div class="seg" role="tablist" aria-label="Chart range">${Object.keys(RANGES).map((r) => `<button data-range="${r}" class="${r === state.range ? 'on' : ''}">${r.toUpperCase()}</button>`).join('')}</div></div>
       </section>
-      <section class="card" style="padding:4px 12px">
-        <table class="mkt-table" aria-label="Outcomes"><thead><tr><th>Outcome</th><th>Chance</th><th></th><th></th></tr></thead><tbody id="mkt-rows"></tbody></table>
-      </section>
-      <div class="tabs" role="tablist">
-        ${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}
-      </div>
+      <table class="mkt-table" aria-label="Outcomes"><thead><tr><th style="text-align:left"></th><th>Chance</th><th></th><th></th></tr></thead><tbody id="mkt-rows"></tbody></table>
+      <div id="series-events"></div>
+      <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="bottom"></div>
+      <div class="sec-head" style="margin-top:44px"><h2>People are also trading</h2></div><div id="also"></div>
+      ${ev.news ? `<div class="sec-head"><h2>News</h2></div><div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${new Date(Date.now() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}
     </div>
     <aside>
-      <section class="card ticket" id="ticket" aria-label="Trade ticket"></section>
+      <section class="card tkt ticket" id="ticket" aria-label="Trade ticket"></section>
       <div id="position"></div>
       <div id="alerts"></div>
       <div id="admin"></div>
@@ -66,6 +94,7 @@ export async function render({ el, params, query, navigate }) {
 
   const $ = (s) => el.querySelector(s);
 
+  // ---------- header actions ----------
   function drawWatch() {
     const b = $('#watch-btn');
     b.innerHTML = state.watching ? `${ICON.star} Watching` : '☆ Watch';
@@ -80,17 +109,49 @@ export async function render({ el, params, query, navigate }) {
       toast(state.watching ? 'Added to watchlist' : 'Removed from watchlist');
     } catch (e) { toast(e.message, 'error'); }
   };
+  // File formats (spec §9, §15.4): iCalendar reminder for the close time, CSV of the chart's price history.
+  $('#ics-btn').onclick = () => {
+    const close = closeIso();
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Parlance Exchange//Markets//EN', 'BEGIN:VEVENT', `UID:${ev.event_ticker}@parlance.local`, `DTSTAMP:${icsDate(new Date().toISOString())}`,
+      `DTSTART:${icsDate(close)}`, `DTEND:${icsDate(new Date(Date.parse(close) + 1800000).toISOString())}`, `SUMMARY:${ev.title.replace(/[,;]/g, ' ')} closes`, `URL:${location.origin}${eventHref({ ...ev, series_slug: series.slug })}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    download(`${ev.event_ticker.toLowerCase()}.ics`, 'text/calendar', ics + '\r\n');
+  };
+  $('#csv-btn').onclick = async () => {
+    const [span, period] = RANGES[state.range];
+    const now = Math.floor(Date.now() / 1000);
+    const rows = ['time,market,outcome,yes_price_dollars,volume_contracts'];
+    for (const m of state.ev.markets) {
+      const c = await api.candles(ev.series_ticker, m.ticker, { start_ts: now - span, end_ts: now, period_interval: period });
+      for (const k of c.candlesticks) rows.push([new Date(k.end_period_ts * 1000).toISOString(), m.ticker, `"${m.yes_sub_title.replace(/"/g, '""')}"`, k.price.close_dollars, k.volume_fp].join(','));
+    }
+    download(`${ev.event_ticker.toLowerCase()}-prices.csv`, 'text/csv', rows.join('\n') + '\n');
+  };
+  $('#share-btn').onclick = async () => {
+    try { await navigator.clipboard.writeText(location.href); toast('Link copied'); } catch { toast(location.href); }
+  };
+  $('#chat-btn').onclick = () => { selectTab('ideas'); $('.big-tabs').scrollIntoView({ behavior: 'smooth' }); };
 
+  // ---------- head-to-head, legend, rows ----------
+  function drawH2H() {
+    if (!h2h) return;
+    const [a, b] = state.ev.markets;
+    const pa = prob(a) ?? 50; const pb = prob(b) ?? 50;
+    $('[data-testid=h2h]').innerHTML = `${ocAvatar(a, 'lg')}<b>${esc(a.yes_sub_title)}</b><div class="bar" aria-label="${esc(a.yes_sub_title)} ${pa}% vs ${esc(b.yes_sub_title)} ${pb}%"><span style="flex:${pa};background:${esc(seriesColor(a, 0))}"></span><span style="flex:${pb};background:${esc(seriesColor(b, 1))}"></span></div><b>${esc(b.yes_sub_title)}</b>${ocAvatar(b, 'lg')}<span class="date">${new Date(closeIso()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>`;
+  }
+  function drawLegend() {
+    $('#legend').innerHTML = ranked().slice(0, 3).map((m, i) => `<span><i style="background:${esc(seriesColor(m, i))}"></i>${esc(m.yes_sub_title)} <b>${prob(m) ?? '—'}%</b></span>`).join('');
+  }
   function drawRows() {
-    $('#mkt-rows').innerHTML = state.ev.markets.map((m) => {
+    $('#mkt-rows').innerHTML = ranked().map((m) => {
       const p = prob(m);
       const tradable = m.status === 'active';
+      const d = p != null && m.previous_day_price_dollars != null ? p - cents(m.previous_day_price_dollars) : 0;
       const yesAsk = cents(m.yes_ask_dollars); const noAsk = cents(m.no_ask_dollars);
       const statusNote = tradable ? '' : `<div class="faint">${m.status === 'finalized' || m.status === 'determined' ? 'Resolved ' + esc(m.result.toUpperCase()) : esc(m.status)}</div>`;
       return `<tr data-ticker="${esc(m.ticker)}" class="${m.ticker === state.selected ? 'selected' : ''}">
-        <td><span class="outcome-dot" style="display:inline-block;background:${esc(m.color_code)};margin-right:8px"></span>${esc(m.yes_sub_title)}${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${multiplier(m)}</div></td>
-        <td class="num prob" data-testid="prob-${esc(m.ticker)}">${p == null ? '—' : p + '%'}</td>
-        <td><button class="yes-btn ${m.ticker === state.selected && state.side === 'yes' ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${yesAsk ? yesAsk + '¢' : '—'}</button></td>
+        <td><div style="display:flex;gap:16px;align-items:center">${ocAvatar(m)}<div><div style="font-size:18px">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${multiplier(m)}</div></div></div></td>
+        <td style="text-align:center;white-space:nowrap"><span class="prob" data-testid="prob-${esc(m.ticker)}">${p == null ? '—' : p + '%'}</span>${d ? ` <span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</td>
+        <td style="text-align:right"><button class="yes-btn ${m.ticker === state.selected && state.side === 'yes' ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${yesAsk ? yesAsk + '¢' : '—'}</button></td>
         <td><button class="no-btn ${m.ticker === state.selected && state.side === 'no' ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${noAsk ? noAsk + '¢' : '—'}</button></td></tr>`;
     }).join('');
     for (const tr of el.querySelectorAll('#mkt-rows tr')) {
@@ -98,16 +159,18 @@ export async function render({ el, params, query, navigate }) {
         const pick = e.target.closest('[data-pick]');
         const changed = state.selected !== tr.dataset.ticker;
         state.selected = tr.dataset.ticker;
-        if (pick) state.side = pick.dataset.pick;
+        if (pick) { state.side = pick.dataset.pick; state.action = 'buy'; }
         drawRows(); drawTicket(pick ? defaultPrice() : null);
-        if (changed) { subscribeBook(); drawChart(); drawBottom(); drawPosition(); drawAlerts(); }
+        if (changed) { subscribeBook(); drawHeadline(); drawBottom(); drawPosition(); drawAlerts(); }
       };
     }
+    drawLegend(); drawH2H();
   }
 
   function drawHeadline() {
     const m = market();
     const p = prob(m);
+    $('#chart-label').textContent = m.yes_sub_title;
     $('#chart-prob').textContent = p == null ? '' : `${p}% chance`;
     const chip = (label, prev) => {
       if (p == null || prev == null) return '';
@@ -115,21 +178,19 @@ export async function render({ el, params, query, navigate }) {
       return `<span>${label} <span class="${d >= 0 ? 'delta-up' : 'delta-down'}">${d >= 0 ? '▲' : '▼'}${Math.abs(d)}</span></span>`;
     };
     $('#changes').innerHTML = chip('1H', m.previous_hour_price_dollars) + chip('1D', m.previous_day_price_dollars) + chip('1W', m.previous_week_price_dollars);
-    const vol = state.ev.markets.reduce((a, x) => a + Number(x.volume_fp || 0), 0);
-    const close = Math.min(...state.ev.markets.map((x) => Date.parse(x.close_time)));
-    $('#ev-stats').innerHTML = `<span><strong>${compact(vol)}</strong> contracts traded</span><span>Closes <strong>${shortDate(new Date(close).toISOString())}</strong></span><span>${state.ev.markets.length} outcome${state.ev.markets.length > 1 ? 's' : ''}</span>`;
+    $('#ev-vol').textContent = `${money0(state.ev.markets.reduce((a, x) => a + Number(x.dollar_volume || 0), 0))} vol`;
   }
 
   async function drawChart() {
-    const m = market();
-    $('#chart-label').textContent = m.yes_sub_title;
-    drawHeadline();
     const [span, period] = RANGES[state.range];
     const now = Math.floor(Date.now() / 1000);
+    const ms = ranked().slice(0, 3);
     try {
-      const c = await api.candles(ev.series_ticker, m.ticker, { start_ts: now - span, end_ts: now, period_interval: period });
-      if (market() !== m) return;
-      $('#chart').innerHTML = lineChart(c.candlesticks.map((k) => ({ t: k.end_period_ts, v: cents(k.price.close_dollars) })), m.color_code);
+      const series2 = await Promise.all(ms.map(async (m, i) => {
+        const c = await api.candles(ev.series_ticker, m.ticker, { start_ts: now - span, end_ts: now, period_interval: period });
+        return { name: m.yes_sub_title, color: seriesColor(m, i), points: c.candlesticks.map((k) => ({ t: k.end_period_ts, v: cents(k.price.close_dollars) })) };
+      }));
+      $('#chart').innerHTML = multiChart(series2, { height: 300, endLabels: ms.length > 1 });
     } catch (e) { $('#chart').innerHTML = `<p class="faint">Chart unavailable: ${esc(e.message)}</p>`; }
   }
   for (const b of el.querySelectorAll('[data-range]')) {
@@ -141,66 +202,119 @@ export async function render({ el, params, query, navigate }) {
     };
   }
 
-  // ----- trade ticket state machine: idle → editing → submitting → confirmed | error -----
+  // ---------- ticket: idle → editing → submitting → confirmed | error ----------
   const defaultPrice = () => {
     const m = market();
     return state.side === 'yes' ? cents(m.yes_ask_dollars) || prob(m) || 50 : cents(m.no_ask_dollars) || (100 - (prob(m) || 50));
   };
+  // When selling, the price shown is what the held side sells for (its bid).
+  const sellPrice = () => {
+    const m = market();
+    return state.side === 'yes' ? cents(m.yes_bid_dollars) || 1 : cents(m.no_bid_dollars) || 1;
+  };
   let ticketPrice = null;
+  async function refreshHeld() {
+    if (!session.user) { state.held = { yes: 0, no: 0 }; return; }
+    try {
+      const { positions } = await api.positions(session.uid);
+      const p = positions.find((x) => x.ticker === state.selected);
+      state.held = { yes: p && p.side === 'yes' ? Number(p.position_fp) : 0, no: p && p.side === 'no' ? Number(p.position_fp) : 0 };
+    } catch { /* ignore */ }
+  }
   function drawTicket(price) {
     const m = market();
     if (price != null) ticketPrice = price;
     if (ticketPrice == null) ticketPrice = defaultPrice();
     const t = $('#ticket');
     if (m.status !== 'active') {
-      t.innerHTML = `<h3>${esc(m.yes_sub_title)}</h3><p class="muted" data-testid="ticket-closed">Trading is ${m.status === 'initialized' ? 'not open yet. Opens ' + shortDate(m.open_time) : 'closed for this market'}.${m.result ? ` Result: <strong>${esc(m.result.toUpperCase())}</strong>` : ''}</p>`;
+      t.innerHTML = `<div class="tkt-body"><div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div><p class="muted" data-testid="ticket-closed">Trading is ${m.status === 'initialized' ? 'not open yet. Opens ' + shortDate(m.open_time) : 'closed for this market'}.${m.result ? ` Result: <strong>${esc(m.result.toUpperCase())}</strong>` : ''}</p></div>`;
       return;
     }
-    t.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><span class="outcome-dot" style="background:${esc(m.color_code)};width:12px;height:12px"></span><h3>${esc(m.yes_sub_title)}</h3></div><div class="faint">Closes ${shortDate(m.close_time)}</div>
-      <div class="side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">Buy Yes ${cents(m.yes_ask_dollars) ? cents(m.yes_ask_dollars) + '¢' : ''}</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">Buy No ${cents(m.no_ask_dollars) ? cents(m.no_ask_dollars) + '¢' : ''}</button></div>
-      <div class="seg" style="width:100%"><button data-otype="limit" class="${state.orderType === 'limit' ? 'on' : ''}" style="flex:1">Limit</button><button data-otype="market" class="${state.orderType === 'market' ? 'on' : ''}" style="flex:1">Market</button></div>
-      ${state.orderType === 'limit' ? `<label class="field">Limit price (¢)<input id="t-price" type="number" min="1" max="99" step="1" value="${ticketPrice}" inputmode="numeric"></label>` : ''}
-      <label class="field">Contracts<input id="t-count" type="number" min="1" step="1" value="10" inputmode="numeric"></label>
-      <div class="summary" id="t-summary"></div>
-      <div class="form-error" id="t-error" role="alert"></div>
-      <button class="btn btn-primary" style="width:100%;height:44px" id="t-submit" data-testid="submit-order">${session.user ? 'Place order' : 'Log in to trade'}</button>`;
+    const selling = state.action === 'sell';
+    const mode = selling && state.mode === 'dollars' ? 'market' : state.mode;
+    const yesAsk = cents(m.yes_ask_dollars); const noAsk = cents(m.no_ask_dollars);
+    const held = state.held[state.side];
+    t.innerHTML = `<div class="tkt-head"><button data-action="buy" class="${!selling ? 'on' : ''}">BUY</button><button data-action="sell" class="${selling ? 'on' : ''}" data-testid="sell-tab">SELL</button>
+        <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(MODES.find(([k]) => k === mode)[1].toUpperCase())} ▾</button>
+        <div class="menu mode-menu" id="t-mode-menu" hidden>${MODES.map(([k, l]) => `<button data-otype="${k}" ${selling && k === 'dollars' ? 'disabled' : ''}>${l}</button>`).join('')}</div></div></div>
+      <div class="tkt-body">
+        <div class="tkt-q">${esc(state.ev.title)}</div>
+        <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div class="yn-toggle side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">YES ${(selling ? cents(m.yes_bid_dollars) : yesAsk) || '—'}¢</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">NO ${(selling ? cents(m.no_bid_dollars) : noAsk) || '—'}¢</button></div>
+          <button class="interest-link" id="interest-btn" type="button">3.5% Interest</button>
+        </div>
+        ${selling ? `<div class="tkt-row" data-testid="held"><span>You hold</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
+        ${mode === 'dollars' ? '<label class="tkt-input">Dollars<input id="t-amount" type="number" min="1" step="1" placeholder="$0" inputmode="decimal" aria-label="Dollars"></label>' : ''}
+        ${mode === 'limit' ? `<label class="tkt-input">Limit price (¢)<input id="t-price" type="number" min="1" max="99" step="1" value="${selling ? sellPrice() : ticketPrice}" inputmode="numeric"></label>` : ''}
+        ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="1" step="1" value="${selling ? Math.max(1, held) : 10}" inputmode="numeric"></label>` : ''}
+        <div id="t-summary"></div>
+        <div class="form-error" id="t-error" role="alert"></div>
+        <button class="cta" id="t-submit" data-testid="submit-order">${session.user ? `${selling ? 'Sell' : 'Buy'} ${state.side === 'yes' ? 'Yes' : 'No'}` : 'Sign up to trade'}</button>
+      </div>`;
     for (const b of t.querySelectorAll('[data-side]')) b.onclick = () => { state.side = b.dataset.side; drawRows(); drawTicket(defaultPrice()); };
-    for (const b of t.querySelectorAll('[data-otype]')) b.onclick = () => { state.orderType = b.dataset.otype; drawTicket(); };
+    for (const b of t.querySelectorAll('[data-action]')) b.onclick = async () => { state.action = b.dataset.action; if (state.action === 'sell') await refreshHeld(); drawTicket(); };
+    const menu = t.querySelector('#t-mode-menu');
+    t.querySelector('#t-mode-btn').onclick = () => { menu.hidden = !menu.hidden; };
+    for (const b of t.querySelectorAll('[data-otype]')) {
+      b.onclick = () => { state.mode = b.dataset.otype; menu.hidden = true; if (session.user) session.setProp('ticket_mode', state.mode).catch(() => {}); drawTicket(); };
+    }
+    t.querySelector('#interest-btn').onclick = async () => {
+      if (!session.user) { toast('Cash and open positions earn 3.5% APY, credited daily.'); return; }
+      try { const r = await api.interest(session.uid); toast(`3.5% APY on cash and positions, credited daily. Earned so far: ${money(r.total_dollars)}`); } catch (e) { toast(e.message, 'error'); }
+    };
     const recalc = () => {
-      const p = state.orderType === 'market' ? defaultPrice() : Number(t.querySelector('#t-price').value);
+      const sum = t.querySelector('#t-summary');
+      const closeLabel = `<span>Max payout<div class="faint">${shortDate(m.close_time)}</div></span>`;
+      if (mode === 'dollars') {
+        const amt = Number(t.querySelector('#t-amount').value || 0);
+        const p = state.side === 'yes' ? yesAsk : noAsk;
+        const c = p ? Math.floor((amt * 100) / (p + Math.ceil((FEE_RATE * p * (100 - p)) / 100))) : 0;
+        sum.innerHTML = `<div class="tkt-row"><span>Odds</span><strong>${p ? (state.side === 'yes' ? p : 100 - p) : '—'}% chance</strong></div>
+          <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${c} contracts at ${p || '—'}¢</div>`;
+        t.querySelector('#t-submit').disabled = !!session.user && c < 1;
+        return;
+      }
+      const p = mode === 'market' ? (selling ? sellPrice() : defaultPrice()) : Number(t.querySelector('#t-price').value);
       const c = Number(t.querySelector('#t-count').value);
-      if (state.orderType === 'limit') ticketPrice = p;
-      const ok = Number.isInteger(p) && p >= 1 && p <= 99 && Number.isInteger(c) && c >= 1;
-      const cost = ok ? (p * c) / 100 : 0;
-      const fee = ok ? Math.ceil(FEE_RATE * c * p * (100 - p) / 100) / 100 : 0;
-      t.querySelector('#t-summary').innerHTML = ok ? `<span>${state.orderType === 'market' ? 'Est. cost' : 'Max cost'}</span><span class="num" data-testid="t-cost">${money(cost)}</span>
-        <span>Est. fee (if taken)</span><span class="num">${money(fee)}</span>
-        <span>Payout if ${state.side.toUpperCase()}</span><span class="num" data-testid="t-payout">${money(c)}</span>` : '<span class="faint">Enter a price between 1¢ and 99¢ and a whole number of contracts.</span>';
-      t.querySelector('#t-submit').disabled = !ok && !!session.user;
+      if (mode === 'limit' && !selling) ticketPrice = p;
+      const ok = Number.isInteger(p) && p >= 1 && p <= 99 && Number.isInteger(c) && c >= 1 && (!selling || c <= held);
+      if (!ok) { sum.innerHTML = `<span class="faint">${selling && c > held ? `You hold ${qty(held)} contracts.` : 'Enter a price between 1¢ and 99¢ and a whole number of contracts.'}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
+      sum.innerHTML = selling
+        ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. proceeds' : 'Proceeds at limit'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 100)}</strong></div>`
+        : `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 100)}</strong></div>
+           <div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num">${money(feeCents(c, p) / 100)}</strong></div>
+           <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div>`;
+      t.querySelector('#t-submit').disabled = false;
     };
     t.querySelectorAll('input').forEach((i) => { i.oninput = recalc; });
     recalc();
     t.querySelector('#t-submit').onclick = async () => {
-      if (!session.user) return navigate('/sign-in?next=' + encodeURIComponent(location.pathname));
+      if (!session.user) return navigate('/sign-up?next=' + encodeURIComponent(location.pathname));
       const btn = t.querySelector('#t-submit');
       const errEl = t.querySelector('#t-error');
       errEl.textContent = '';
+      const label = btn.textContent;
       btn.disabled = true; btn.textContent = 'Submitting…';
       try {
-        const body = { ticker: m.ticker, side: state.side, count: Number(t.querySelector('#t-count').value), type: state.orderType };
-        if (state.orderType === 'limit') body.price = Number(t.querySelector('#t-price').value);
+        const body = { ticker: m.ticker, side: state.side, action: state.action, type: mode };
+        if (mode === 'dollars') body.amount_dollars = Number(t.querySelector('#t-amount').value || 0);
+        else body.count = Number(t.querySelector('#t-count').value);
+        if (mode === 'limit') body.price = Number(t.querySelector('#t-price').value);
         const r = await api.submitOrder(session.uid, body);
         const o = r.order;
-        toast(o.status === 'executed' ? `Filled ${qty(o.fill_count_fp)} ${o.side.toUpperCase()}` : o.status === 'resting' ? `Order resting · ${qty(o.fill_count_fp)} filled, ${qty(o.remaining_count_fp)} open` : `Order ${o.status} · ${qty(o.fill_count_fp)} filled`);
+        if (selling) toast(`Sold ${qty(o.fill_count_fp)} ${state.side.toUpperCase()}${o.status === 'resting' ? `, ${qty(o.remaining_count_fp)} listed` : ''}`);
+        else toast(o.status === 'executed' ? `Filled ${qty(o.fill_count_fp)} ${o.side.toUpperCase()}` : o.status === 'resting' ? `Order resting · ${qty(o.fill_count_fp)} filled, ${qty(o.remaining_count_fp)} open` : `Order ${o.status} · ${qty(o.fill_count_fp)} filled`);
         queries.invalidate(['home']);
         drawPosition();
+        if (selling) { await refreshHeld(); drawTicket(); return; }
       } catch (e) {
         errEl.textContent = e.unauthorized ? 'Your session expired. Please log in again.' : e.message;
-      } finally { btn.disabled = false; btn.textContent = 'Place order'; }
+      } finally { if (btn.isConnected) { btn.disabled = false; btn.textContent = label; } }
     };
   }
 
-  // ----- order book: REST snapshot then WS orderbook_snapshot / orderbook_delta -----
+  // ---------- order book ----------
   let unsubBook = null;
   function subscribeBook() {
     if (unsubBook) unsubBook();
@@ -209,7 +323,7 @@ export async function render({ el, params, query, navigate }) {
     api.orderbook(ticker).then((ob) => {
       if (state.selected !== ticker) return;
       state.book = { yes: new Map(ob.orderbook_fp.yes_dollars.map(([p, c]) => [cents(p), Number(c)])), no: new Map(ob.orderbook_fp.no_dollars.map(([p, c]) => [cents(p), Number(c)])) };
-      drawBottom();
+      if (state.bottomTab === 'book') drawBottom();
     }).catch(() => {});
     unsubBook = socket.subscribe({ channels: ['orderbook'], market_tickers: [ticker] }, (msg) => {
       if (msg.msg.market_ticker !== state.selected) return;
@@ -228,47 +342,67 @@ export async function render({ el, params, query, navigate }) {
   async function drawBottom() {
     const box = $('#bottom');
     const m = market();
-    if (state.bottomTab === 'rules') {
-      box.innerHTML = `<div class="card rules" style="padding:16px" data-testid="rules"><p>${esc(m.rules_primary)}</p><p>${esc(series.rules)}</p>
+    const tab = state.bottomTab;
+    if (tab === 'rules') {
+      box.innerHTML = `<div class="card rules" style="padding:20px" data-testid="rules"><p>${esc(m.rules_primary)}</p><p>${esc(series.rules)}</p>
         <p class="faint">Settlement source: ${series.settlement_sources.map((s) => esc(s.name)).join(', ')} · Closes ${shortDate(m.close_time)} · Market ${esc(m.ticker)}</p></div>`;
-    } else if (state.bottomTab === 'book') {
-      // YES asks are NO bids mirrored (100 - p).
+    } else if (tab === 'book') {
       const asks = [...state.book.no.entries()].map(([p, c]) => [100 - p, c]).sort((a, b) => a[0] - b[0]).slice(0, 8).reverse();
       const bids = [...state.book.yes.entries()].sort((a, b) => b[0] - a[0]).slice(0, 8);
       const max = Math.max(1, ...asks.map((a) => a[1]), ...bids.map((b) => b[1]));
       const row = (p, c, color) => `<div class="book-row"><span class="bar" style="width:${(c / max) * 100}%;background:${color}"></span><span>${p}¢</span><span style="text-align:right">${qty(c)}</span></div>`;
-      box.innerHTML = `<div class="card" style="padding:16px" data-testid="orderbook"><div class="book">
+      box.innerHTML = `<div class="card" style="padding:20px" data-testid="orderbook"><div class="faint" style="margin-bottom:10px">${esc(m.yes_sub_title)}</div><div class="book">
         <div><h4 style="color:var(--no)">Offers to sell YES</h4>${asks.map(([p, c]) => row(p, c, 'var(--no)')).join('') || '<p class="faint">None</p>'}</div>
         <div><h4 style="color:var(--yes)">Bids to buy YES</h4>${bids.map(([p, c]) => row(p, c, 'var(--yes)')).join('') || '<p class="faint">None</p>'}</div></div></div>`;
-    } else if (state.bottomTab === 'trades') {
+    } else if (tab === 'trades') {
       try {
         const r = await api.socialTrades({ event_ticker: ev.event_ticker });
         if (state.bottomTab !== 'trades') return;
-        box.innerHTML = `<div class="card" style="padding:4px 16px"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
+        box.innerHTML = `<div class="card" style="padding:4px 18px"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
           ${r.trades.slice(0, 25).map((t) => { const px = t.taker_side === 'yes' ? cents(t.price_dollars) : 100 - cents(t.price_dollars); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : '<span class="faint">Anonymous</span>'}</td><td>${esc(t.outcome)}</td><td><strong style="color:var(--${t.taker_side})">${t.taker_side.toUpperCase()}</strong></td><td class="num">${px}¢</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
       } catch (e) { box.innerHTML = `<p class="faint">${esc(e.tooManyRequests ? 'Too many requests, try again shortly.' : e.message)}</p>`; }
-    } else if (state.bottomTab === 'ideas') {
+    } else if (tab === 'ideas') {
       const r = await api.posts({ event_ticker: ev.event_ticker });
       if (state.bottomTab !== 'ideas') return;
-      box.innerHTML = `${composer(ev.event_ticker)}<div class="card" style="margin-top:8px" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || '<div class="empty" data-testid="no-ideas">No ideas yet. Be the first to share your view.</div>'}</div>`;
+      box.innerHTML = `${composer(ev.event_ticker)}<div class="card" style="margin-top:10px" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || '<div class="empty" data-testid="no-ideas">No posts yet. Be the first to share your view.</div>'}</div>`;
       wirePosts(box.querySelector('#ev-posts'), { navigate });
       wireComposer(box, (post) => { const list = box.querySelector('#ev-posts'); list.querySelector('[data-testid=no-ideas]')?.remove(); list.insertAdjacentHTML('afterbegin', postCard(post, { showEvent: false })); });
     } else {
       const r = await api.topHolders(m.ticker);
       if (state.bottomTab !== 'holders') return;
       const col = (title, rows, side) => `<div><h4 style="color:var(--${side})">${title}</h4>${rows.map((h, i) => `<a class="rank-row" href="/social/profile/${encodeURIComponent(h.nickname)}" data-link style="grid-template-columns:18px 1fr auto"><span class="faint">${i + 1}</span><span class="t">@${esc(h.nickname)}</span><span class="num">${qty(h.position_fp)}</span></a>`).join('') || '<p class="faint">No public holders yet.</p>'}</div>`;
-      box.innerHTML = `<div class="card" style="padding:16px" data-testid="holders"><div class="faint" style="margin-bottom:8px">${esc(m.yes_sub_title)}</div><div class="book">${col('Yes holders', r.yes, 'yes')}${col('No holders', r.no, 'no')}</div></div>`;
+      box.innerHTML = `<div class="card" style="padding:20px" data-testid="holders"><div class="faint" style="margin-bottom:8px">${esc(m.yes_sub_title)}</div><div class="book">${col('Yes holders', r.yes, 'yes')}${col('No holders', r.no, 'no')}</div></div>`;
     }
   }
-  for (const b of el.querySelectorAll('[data-tab]')) {
-    b.onclick = () => {
-      state.bottomTab = b.dataset.tab;
-      for (const x of el.querySelectorAll('[data-tab]')) x.classList.toggle('on', x === b);
-      if (session.user) session.setProp('event_bottom_tab', state.bottomTab).catch(() => {});
-      drawBottom();
-    };
+  function selectTab(tab) {
+    state.bottomTab = tab;
+    for (const x of el.querySelectorAll('[data-tab]')) x.classList.toggle('on', x.dataset.tab === tab);
+    if (session.user) session.setProp('event_bottom_tab', tab).catch(() => {});
+    drawBottom();
+  }
+  for (const b of el.querySelectorAll('[data-tab]')) b.onclick = () => selectTab(b.dataset.tab);
+
+  // ---------- related ----------
+  async function drawRelated() {
+    try {
+      const r = await api.related(ev.event_ticker);
+      if (r.series_events.length) {
+        $('#series-events').innerHTML = `<div class="sec-head"><h2>More in ${esc(series.title)}</h2></div>${r.series_events.map((x) => {
+          const top = [...x.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0))[0];
+          return `<a class="list-row" href="${eventHref(x)}" data-link style="justify-content:space-between;border-bottom:1px solid var(--line)"><span>${esc(x.title)}</span><span class="muted">${esc(top.yes_sub_title)} ${prob(top) ?? '—'}%</span></a>`;
+        }).join('')}`;
+      }
+      const also = r.people_also_trading;
+      const drawAlso = (n) => {
+        $('#also').innerHTML = also.slice(0, n).map((x) => `<a class="list-row" href="${eventHref(x)}" data-link data-testid="also-row">${evIcon(x, 'sm')}<span>${esc(x.title)}</span></a>`).join('') + (also.length > n ? '<button class="btn btn-pill" id="also-more" style="height:44px;color:var(--brand)">Show more</button>' : '');
+        const more = $('#also-more');
+        if (more) more.onclick = () => drawAlso(also.length);
+      };
+      drawAlso(3);
+    } catch { /* optional */ }
   }
 
+  // ---------- side cards ----------
   async function drawPosition() {
     const box = $('#position');
     if (!session.user) { box.innerHTML = ''; return; }
@@ -321,11 +455,10 @@ export async function render({ el, params, query, navigate }) {
   async function refreshEvent() {
     const r = await api.event(eventTicker);
     state.ev = r.event;
-    drawRows(); drawTicket(); drawAdmin(); drawPosition();
-    drawHeadline();
+    drawRows(); drawTicket(); drawAdmin(); drawPosition(); drawHeadline();
   }
 
-  // Live updates: tickers for every market of the event, lifecycle, my fills.
+  // ---------- live updates ----------
   const tickers = ev.markets.map((m) => m.ticker);
   const unsubs = [];
   let pending = null;
@@ -344,9 +477,10 @@ export async function render({ el, params, query, navigate }) {
   unsubs.push(() => window.removeEventListener('parlance:notification', onNotif));
   if (session.user) unsubs.push(socket.subscribe({ channels: ['fill'] }, (msg) => { if (tickers.includes(msg.msg.ticker)) drawPosition(); }));
 
-  drawWatch(); drawRows(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin();
+  await refreshHeld();
+  drawWatch(); drawRows(); drawHeadline(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated();
   // Keep canonical URL (slug is decorative, spec §3).
   const canonical = eventHref({ ...ev, series_slug: series.slug });
   if (location.pathname !== canonical) history.replaceState({}, '', canonical);
-  return () => { if (unsubBook) unsubBook(); for (const u of unsubs) u(); clearTimeout(pending); };
+  return () => { if (unsubBook) unsubBook(); for (const u of unsubs) u(); clearTimeout(pending); clearTimeout(tradeT); };
 }

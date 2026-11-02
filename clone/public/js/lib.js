@@ -47,6 +47,9 @@ export function toast(msg, kind = '') {
 }
 
 export const CATEGORIES = ['Politics', 'Sports', 'Elections', 'Crypto', 'Climate and Weather', 'Economics', 'Entertainment', 'Companies', 'Financials', 'Science and Technology'];
+// Short display labels used in navigation (spec §15.1); data keeps the full names.
+const CAT_LABELS = { 'Climate and Weather': 'Climate', Entertainment: 'Culture', Financials: 'Finance', 'Science and Technology': 'Tech & Science' };
+export const catLabel = (c) => CAT_LABELS[c] || c;
 export const catSlug = (c) => c.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 export const catFromSlug = (s) => CATEGORIES.find((c) => catSlug(c) === s) || null;
 

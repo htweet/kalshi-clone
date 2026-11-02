@@ -37,7 +37,7 @@ function listen(server, port, fallback) {
   });
 }
 
-async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000 } = {}) {
+async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -46,7 +46,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const engine = new Engine(db);
   const ta = db.prepare("SELECT value FROM meta WHERE key='trading_active'").get();
   if (ta) engine.tradingActive = ta.value === '1';
-  const app = createApp({ db, engine, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
+  const app = createApp({ db, engine, rollingWindowSec, perps, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
   const server = http.createServer(app);
   const hub = attachWs(server, { db, engine });
   const ticker = setInterval(() => { try { engine.tick(); } catch (e) { console.error('tick', e); } }, tickMs);

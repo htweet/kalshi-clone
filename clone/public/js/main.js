@@ -2,7 +2,7 @@
 import { session, queries, applyTheme, localTheme } from './store.js';
 import { socket } from './ws.js';
 import { api } from './api.js';
-import { esc, money, CATEGORIES, catSlug, avatar, relTime, ICON, toast } from './lib.js';
+import { esc, money, CATEGORIES, catSlug, catLabel, avatar, relTime, ICON, toast } from './lib.js';
 import * as home from './views/home.js';
 import * as browse from './views/browse.js';
 import * as eventView from './views/event.js';
@@ -13,11 +13,17 @@ import * as calendar from './views/calendar.js';
 import * as social from './views/social.js';
 import * as account from './views/account.js';
 import * as notifications from './views/notifications.js';
+import * as pro from './views/pro.js';
+import * as perps from './views/perps.js';
 
 const routes = [
   [/^\/$/, home],
   [/^\/browse$/, browse],
-  [/^\/live$/, browse, () => ({ live: true })],
+  [/^\/live$/, calendar, () => ({ live: true })],
+  [/^\/pro$/, pro],
+  [/^\/perps$/, perps, () => ({ mode: 'list' })],
+  [/^\/perps\/categories\/([^/]+)$/, perps, (m) => ({ mode: 'list', assetClass: decodeURIComponent(m[1]) })],
+  [/^\/perps\/([A-Za-z0-9]+)$/, perps, (m) => ({ mode: 'market', ticker: m[1].toUpperCase() })],
   [/^\/search$/, browse],
   [/^\/category\/([^/]+)$/, browse, (m) => ({ category: m[1] })],
   [/^\/category\/([^/]+)\/([^/]+)$/, browse, (m) => ({ category: m[1], tag: decodeURIComponent(m[2]) })],
@@ -27,6 +33,7 @@ const routes = [
   [/^\/social\/leaderboard$/, social, () => ({ tab: 'leaderboard' })],
   [/^\/social\/profile\/([^/]+)$/, social, (m) => ({ tab: 'profile', nickname: decodeURIComponent(m[1]) })],
   [/^\/portfolio$/, portfolio],
+  [/^\/portfolio\/perps$/, perps, () => ({ mode: 'portfolio' })],
   [/^\/watchlist$/, watchlist],
   [/^\/notifications$/, notifications],
   [/^\/account$/, account, () => ({ section: 'profile' })],
@@ -73,18 +80,19 @@ function renderCategoryStrip(url) {
   const strip = document.getElementById('category-strip');
   const p = url.pathname;
   const current = p.startsWith('/category/') ? p.split('/')[2] : p === '/' ? 'trending' : p === '/browse' && url.searchParams.get('order_by') === 'newest' ? 'new' : p === '/browse' ? 'all' : null;
+  // Short labels on the strip; a featured hub sits after Trending (spec §15.1).
   strip.innerHTML = [
     `<a href="/" data-link class="${current === 'trending' ? 'active' : ''}">Trending</a>`,
+    `<a href="/category/elections" data-link class="featured ${current === 'elections' ? 'active' : ''}" data-testid="featured-tab">Harbor 2026</a>`,
     `<a href="/browse?order_by=newest" data-link class="${current === 'new' ? 'active' : ''}">New</a>`,
-    `<a href="/browse" data-link class="${current === 'all' ? 'active' : ''}">All</a>`,
     '<span class="sep" aria-hidden="true"></span>',
-    ...CATEGORIES.map((c) => `<a href="/category/${catSlug(c)}" data-link class="${current === catSlug(c) ? 'active' : ''}">${esc(c)}</a>`),
+    ...CATEGORIES.map((c) => `<a href="/category/${catSlug(c)}" data-link class="${current === catSlug(c) ? 'active' : ''}">${esc(catLabel(c))}</a>`),
   ].join('');
 }
 
 function markNav(url) {
   const p = url.pathname;
-  const key = p === '/live' ? 'live' : p.startsWith('/social') ? 'social' : p === '/calendar' ? 'calendar' : (p === '/browse' || p.startsWith('/category') || p.startsWith('/markets') || p === '/') ? 'markets' : '';
+  const key = p === '/live' || p === '/calendar' ? 'live' : p.startsWith('/perps') ? 'invest' : p === '/pro' ? 'pro' : (p === '/browse' || p.startsWith('/category') || p.startsWith('/markets')) ? 'markets' : '';
   for (const a of document.querySelectorAll('.primary-nav a')) a.classList.toggle('active', a.dataset.nav === key);
 }
 
@@ -125,7 +133,7 @@ function renderAccount() {
   const el = document.getElementById('account-area');
   if (!session.loaded) { el.innerHTML = ''; return; }
   if (!session.user) {
-    el.innerHTML = `<a class="btn btn-ghost" href="/sign-in" data-link>Log in</a><a class="btn btn-primary" href="/sign-up" data-link>Sign up</a>`;
+    el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>Log in</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>Sign up</a>`;
     return;
   }
   const nick = session.nickname || session.user.display_name;
@@ -155,6 +163,14 @@ function renderAccount() {
     m.querySelector('#logout-btn').onclick = async () => { closeMenus(); await session.logout(); navigate('/'); };
   };
 }
+
+// MORE menu (spec §15.1): secondary destinations.
+document.getElementById('more-btn').addEventListener('click', (e) => {
+  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>Calendar</a><a href="/social" data-link>Social</a><a href="/social/leaderboard" data-link>Leaderboard</a>
+    <a href="/watchlist" data-link>Watchlist</a><a href="/browse" data-link>Browse all markets</a><hr><a href="/account/limits" data-link>Responsible trading</a><button id="more-theme">Toggle light / dark</button>`);
+  const t = document.getElementById('more-theme');
+  if (t) t.onclick = () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; if (session.user) session.setProp('theme', next); else { applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } closeMenus(); };
+});
 
 // Global link interception for client-side routing.
 document.addEventListener('click', (e) => {

@@ -30,6 +30,7 @@ function marketVo(m, q) {
     previous_day_price_dollars: dollars(q.previous_price),
     previous_week_price_dollars: dollars(q.previous_week_price),
     volume_fp: fp(q.volume),
+    dollar_volume: q.dollar_volume_cents == null ? null : Math.round(q.dollar_volume_cents / 100),
     volume_24h_fp: fp(q.volume_24h),
     open_interest_fp: fp(q.open_interest),
     notional_value_dollars: '1.0000',

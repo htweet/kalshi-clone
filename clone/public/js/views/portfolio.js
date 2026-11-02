@@ -3,10 +3,12 @@ import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, money, qty, cents, toast } from '../lib.js';
+import { renderPerpsPortfolio } from './perps.js';
 
 const TABS = [['positions', 'Positions'], ['orders', 'Resting orders'], ['fills', 'Trade history'], ['settlements', 'Settlements'], ['transactions', 'Transactions']];
 
-export async function render({ el, navigate }) {
+export async function render({ el, navigate, query }) {
+  if (query && query.get('perpsTab')) return renderPerpsPortfolio({ el, navigate, query }); // Perps product (PERPS_SPEC_SECTION.md)
   if (!session.user) { navigate('/sign-in?next=/portfolio', { replace: true }); return undefined; }
   document.title = 'Portfolio · Parlance';
   let tab = session.props.portfolio_view || 'positions';
@@ -25,7 +27,7 @@ export async function render({ el, navigate }) {
       </form>
     </div>
     <div class="tabs" role="tablist">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}
-      <a class="btn btn-ghost" style="margin-left:auto" href="${api.csvUrl(uid)}" download data-testid="csv-link">Export CSV</a></div>
+      <a class="btn btn-ghost" style="margin-left:auto" href="/portfolio?perpsTab=positions" data-link data-testid="perps-portfolio-link">Perps</a><a class="btn btn-ghost" href="${api.csvUrl(uid)}" download data-testid="csv-link">Export CSV</a></div>
     <div class="card" style="padding:4px 12px" id="panel"></div>`;
 
   const $ = (s) => el.querySelector(s);

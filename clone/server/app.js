@@ -5,11 +5,14 @@ const { tx } = require('./db');
 const { nowIso, newId, token, dollars, fp, usd, ApiError, E, hashPassword, verifyPassword, encCursor, decCursor } = require('./util');
 const { marketVo, eventVo, seriesVo, orderVo, fillVo } = require('./serialize');
 const { mountFeatures, CATEGORIES } = require('./features');
+const { perContractFeeCap } = require('./engine');
+const { mountRolling } = require('./rolling');
+const { mountPerps } = require('./perps');
 
 const SESSION_COOKIE = 'plx_session';
 const SESSION_DAYS = 30;
 const STATUS_FILTER = { unopened: ['initialized'], open: ['active'], paused: ['inactive'], closed: ['closed', 'determined'], settled: ['finalized'] };
-const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed']);
+const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode']);
 
 function parseCookies(header) {
   const out = {};
@@ -47,7 +50,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps }) {
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
@@ -64,6 +67,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
     vo.series_title = s.title;
     vo.series_slug = s.slug;
     vo.tags = JSON.parse(s.tags);
+    vo.frequency = s.frequency;
+    vo.dollar_volume = vo.markets.reduce((a, m) => a + Number(m.dollar_volume || 0), 0);
+    vo.close_time = vo.markets.filter((m) => m.status !== 'finalized').map((m) => m.close_time).sort()[0] || vo.markets[0]?.close_time;
     vo.total_volume_fp = fp(vo.markets.reduce((a, m) => a + Number(m.volume_fp), 0));
     return vo;
   };
@@ -109,6 +115,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
   const v1 = express.Router();
   const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, startSession, publicUser });
   app.use('/v1', feat.sessionMiddleware);
+  mountRolling({ v1, db, engine, windowSec: rollingWindowSec });
+  mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));
@@ -317,14 +325,44 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
   });
 
   v1.post('/users/:uid/orders', requireUser, (req, res) => {
-    const b = req.body || {};
+    const b = { ...(req.body || {}) };
+    const uid = req.auth.user.id;
     const type = b.type || 'limit';
-    if (!['limit', 'market'].includes(type)) throw E.badRequest('type must be limit or market');
+    if (!['limit', 'market', 'dollars'].includes(type)) throw E.badRequest('type must be limit, market or dollars');
+    const action = b.action || 'buy';
+    if (!['buy', 'sell'].includes(action)) throw E.badRequest('action must be buy or sell');
+    if (!['yes', 'no'].includes(b.side)) throw E.badRequest('side must be yes or no');
+    const ticker = String(b.ticker || '');
     let price = b.price;
     if (b.price_dollars != null) price = Math.round(Number(b.price_dollars) * 100);
+    // Selling YES at p is buying NO at 100-p; the bought contracts net against the held ones for $1 a pair (spec §15.4).
+    let side = b.side;
+    if (action === 'sell') {
+      const pos = db.prepare('SELECT yes_count, no_count FROM positions WHERE user_id=? AND market_ticker=?').get(uid, ticker) || { yes_count: 0, no_count: 0 };
+      const held = b.side === 'yes' ? pos.yes_count : pos.no_count;
+      if (type === 'dollars') throw E.badRequest('sell orders take a contract count, not a dollar amount');
+      if (!Number.isInteger(b.count) || b.count < 1) throw E.badRequest('count must be a positive integer');
+      if (b.count > held) throw E.conflict('insufficient_position', 'you cannot sell more contracts than you hold', `you hold ${held} ${b.side.toUpperCase()}`);
+      side = b.side === 'yes' ? 'no' : 'yes';
+      if (type === 'limit') { if (!Number.isInteger(price) || price < 1 || price > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99'); price = 100 - price; }
+    }
+    let tif = type === 'limit' ? 'gtc' : 'ioc';
     if (type === 'market') price = 99;
-    if (Number.isInteger(price) && Number.isInteger(b.count) && b.count > 0) feat.checkTrading(req.auth.user.id, b.count * price);
-    const order = engine.placeOrder(req.auth.user.id, { ticker: String(b.ticker || ''), side: b.side, price, count: b.count, time_in_force: type === 'market' ? 'ioc' : 'gtc', client_order_id: b.client_order_id });
+    if (type === 'dollars') {
+      // Spend up to amount_dollars at the current best ask (fee included), immediate-or-cancel.
+      const amt = Math.round(Number(b.amount_dollars) * 100);
+      if (!Number.isFinite(amt) || amt < 1) throw E.badRequest('amount_dollars must be at least $0.01');
+      const qq = engine.quote(ticker);
+      const ask = side === 'yes' ? qq.yes_ask : qq.no_ask;
+      if (ask == null) throw E.conflict('no_liquidity', 'there are no offers to buy from right now');
+      const m = engine.market(ticker);
+      const per = ask + perContractFeeCap(ask, m.fee_multiplier);
+      b.count = Math.floor(amt / per);
+      if (b.count < 1) throw E.badRequest(`amount is below the price of one contract (${ask}¢ plus fee)`);
+      price = ask;
+    }
+    if (Number.isInteger(price) && Number.isInteger(b.count) && b.count > 0) feat.checkTrading(uid, b.count * price);
+    const order = engine.placeOrder(uid, { ticker, side, price, count: b.count, time_in_force: tif, client_order_id: b.client_order_id });
     res.status(201).json({ order: orderVo(order), status: order.status });
   });
   v1.delete('/users/:uid/orders/:oid', requireUser, (req, res) => res.json({ order: orderVo(engine.cancelOrder(req.auth.user.id, req.params.oid)) }));
@@ -413,8 +451,25 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
         top_movers: movers.slice(0, 3).map(brief),
         new: [...open].reverse().slice(0, 3).map((e) => brief({ event: e, market: lead(e) })),
         top_categories: CATEGORIES,
+        // Redesigned home (spec §15.2): upcoming strip, hubs, per-category sections, featured list.
+        upcoming: [...open].filter((e) => !e.series_ticker.startsWith('PLXFLASH')).sort((a, b) => Date.parse(a.close_time) - Date.parse(b.close_time)).slice(0, 8)
+          .map((e) => ({ event_ticker: e.event_ticker, series_ticker: e.series_ticker, series_slug: e.series_slug, title: e.title, category: e.category, tag: e.tags[0] || e.category, close_time: e.close_time })),
+        hubs: [['Elections', 'Harbor Elections Hub'], ['Companies', 'Public Companies Hub']].map(([cat, title]) => ({ category: cat, title, dollar_volume: evs.filter((e) => e.category === cat).reduce((a, e) => a + e.dollar_volume, 0), events: evs.filter((e) => e.category === cat).length })),
+        sections: CATEGORIES.map((c) => ({ category: c, events: byVol.filter((r) => r.event.category === c).slice(0, 4).map((r) => r.event) })).filter((s) => s.events.length),
+        featured_list: byVol.filter((r) => r.event.category === 'Elections').slice(0, 3).map(brief),
       },
     });
+  });
+
+  // Related events for the event page (spec §15.4: series tabs, "People are also trading").
+  v1.get('/events/:ticker/related', (req, res) => {
+    const e = getEvent(req.params.ticker);
+    if (!e) throw E.notFound();
+    const all = eventCards().filter((x) => x.event_ticker !== e.ticker && x.markets.some((m) => m.status === 'active'));
+    const series = all.filter((x) => x.series_ticker === e.series_ticker && !x.series_ticker.startsWith('PLXFLASH'));
+    const also = all.filter((x) => x.category === e.category && x.series_ticker !== e.series_ticker).sort((a, b) => b.dollar_volume - a.dollar_volume);
+    const rest = all.filter((x) => x.category !== e.category && !x.series_ticker.startsWith('PLXFLASH')).sort((a, b) => b.dollar_volume - a.dollar_volume);
+    res.json({ series_events: series, people_also_trading: [...also, ...rest].slice(0, 6).map((x) => ({ event_ticker: x.event_ticker, series_ticker: x.series_ticker, series_slug: x.series_slug, title: x.title, category: x.category })) });
   });
 
   v1.get('/live_data/count', (req, res) => res.json({ count: db.prepare("SELECT COUNT(DISTINCT e.ticker) c FROM events e JOIN markets m ON m.event_ticker=e.ticker WHERE e.is_live=1 AND m.status='active'").get().c }));
@@ -432,6 +487,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 } }) {
     if (cat && !CATEGORIES.some((c) => c.toLowerCase() === cat.toLowerCase())) throw E.badRequest('unknown category');
     let evs = eventCards();
     if (cat) evs = evs.filter((e) => e.category.toLowerCase() === cat.toLowerCase());
+    if (req.query.frequency) { const fq = String(req.query.frequency); evs = evs.filter((e) => e.frequency === fq); }
     if (req.query.tag) { const tg = String(req.query.tag).toLowerCase(); evs = evs.filter((e) => e.tags.some((x) => x.toLowerCase() === tg)); }
     if (status !== 'all') {
       const st = STATUS_FILTER[status];

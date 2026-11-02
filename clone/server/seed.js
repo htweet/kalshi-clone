@@ -98,6 +98,9 @@ function seed(db, { reset = false } = {}) {
     db.prepare('UPDATE series SET category=? WHERE category=?').run(to, from);
     db.prepare('UPDATE events SET category=? WHERE category=?').run(to, from);
   }
+  // Series frequency drives the Browse "Frequency" filter (spec §15.3).
+  for (const [t, f] of [['PLXRAIN', 'monthly'], ['PLXINDEX', 'weekly'], ['PLXRATE', 'monthly'], ['PLXCOIN', 'daily']]) db.prepare("UPDATE series SET frequency=? WHERE ticker=? AND frequency IN ('custom','one_off')").run(f, t);
+  db.prepare("UPDATE series SET frequency='one_off' WHERE frequency='custom'").run();
   if (db.prepare('SELECT COUNT(*) c FROM series').get().c > 0) return false;
   const r = rng(20261102);
   const now = Date.now();
@@ -180,6 +183,8 @@ function seed(db, { reset = false } = {}) {
     db.prepare('INSERT INTO follows(follower_id,followee_id,created_at) VALUES(?,?,?)').run(people[2], people[0], nowIso());
     db.prepare('INSERT INTO follows(follower_id,followee_id,created_at) VALUES(?,?,?)').run(people[0], people[1], nowIso());
 
+    for (const [t, f] of [['PLXRAIN', 'monthly'], ['PLXINDEX', 'weekly'], ['PLXRATE', 'monthly'], ['PLXCOIN', 'daily']]) db.prepare('UPDATE series SET frequency=? WHERE ticker=?').run(f, t);
+    db.prepare("UPDATE series SET frequency='one_off' WHERE frequency='custom'").run();
     // Liquidity reservations come out of the liquidity account's available cash.
     const held = db.prepare("SELECT COALESCE(SUM(reserved_cents),0) c FROM orders WHERE user_id=? AND status='resting'").get(lp).c;
     db.prepare('UPDATE users SET balance_cents = balance_cents - ? WHERE id=?').run(held, lp);

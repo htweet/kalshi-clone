@@ -2,10 +2,11 @@
 // sort + status filters, cursor "load more". Layout and sort are persisted per user.
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
-import { esc, catFromSlug, catSlug, CATEGORIES, ICON } from '../lib.js';
+import { esc, catFromSlug, catSlug, catLabel, CATEGORIES, ICON } from '../lib.js';
 import { eventCard } from './components.js';
 
 const ORDERS = [['trending', 'Trending'], ['event-volume', 'Volume'], ['newest', 'New'], ['closing-soon', 'Closing soon']];
+const FREQS = [['', 'Frequency'], ['fifteen_min', '15 min'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['one_off', 'One-off']];
 const STATUSES = [['open', 'Open'], ['unopened', 'Upcoming'], ['closed', 'Closed'], ['settled', 'Settled'], ['all', 'All']];
 const PAGE = 24;
 
@@ -17,8 +18,9 @@ export async function render({ el, params, query, navigate }) {
   const live = !!params.live || query.get('live') === '1';
   const orderBy = query.get('order_by') || session.props.browse_order_by || 'trending';
   const status = query.get('status') || 'open';
+  const frequency = query.get('frequency') || '';
   let layout = session.props.browse_layout || 'grid';
-  const title = q ? `Results for “${q}”` : live ? 'Live' : tag || category || 'All markets';
+  const title = q ? `Results for “${q}”` : live ? 'Live' : tag || (category && catLabel(category)) || 'Browse Markets';
   document.title = `${title} · Parlance`;
   if (q) document.getElementById('search-input').value = q;
 
@@ -27,16 +29,16 @@ export async function render({ el, params, query, navigate }) {
     try { subs = (await queries.fetch(['categories'], api.categories, { staleTime: 300000 })).categories.find((c) => c.name === category)?.subcategories || []; } catch { /* optional */ }
   }
 
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">${live ? '<span class="live-dot" style="font-size:inherit;text-transform:none;letter-spacing:0;color:inherit">Live</span>' : esc(title)}</h1>
-      <span class="faint" id="result-count"></span></div>
-    ${category ? `<div class="chips" style="margin-bottom:12px" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>All ${esc(category)}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}</div>` : ''}
-    <div class="toolbar">
-      <select class="select" id="order-by" aria-label="Sort by">${ORDERS.map(([v, l]) => `<option value="${v}" ${v === orderBy ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <select class="select" id="status" aria-label="Status">${STATUSES.map(([v, l]) => `<option value="${v}" ${v === status ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      ${!category ? `<select class="select" id="category" aria-label="Category"><option value="">All categories</option>${CATEGORIES.map((c) => `<option ${c === category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}
-      <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Layout"><button data-layout="grid" aria-label="Grid">${ICON.grid}</button><button data-layout="list" aria-label="List">${ICON.list}</button></div>
-    </div>
+  el.innerHTML = `<div class="page-head" style="padding-top:0"><h1 class="page-title">${esc(title)}</h1>
+      <div class="toolbar" style="margin:0">
+        <select class="pill-select" id="order-by" aria-label="Sort by">${ORDERS.map(([v, l]) => `<option value="${v}" ${v === orderBy ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <select class="pill-select" id="frequency" aria-label="Frequency">${FREQS.map(([v, l]) => `<option value="${v}" ${v === frequency ? 'selected' : ''}>${v ? l : 'Frequency'}</option>`).join('')}</select>
+        ${!category ? `<select class="pill-select" id="category" aria-label="Category"><option value="">All categories</option>${CATEGORIES.map((c) => `<option value="${esc(c)}" ${c === category ? 'selected' : ''}>${esc(catLabel(c))}</option>`).join('')}</select>` : ''}
+        <select class="pill-select" id="status" aria-label="Status">${STATUSES.map(([v, l]) => `<option value="${v}" ${v === status ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <div class="seg" role="group" aria-label="Layout"><button data-layout="grid" aria-label="Grid">${ICON.grid}</button><button data-layout="list" aria-label="List">${ICON.list}</button></div>
+      </div></div>
+    <div class="faint" id="result-count" style="margin:-4px 0 12px"></div>
+    ${category ? `<div class="chips" style="margin-bottom:16px" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>All ${esc(catLabel(category))}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}</div>` : ''}
     <div class="grid" id="results">${'<div class="skeleton"></div>'.repeat(6)}</div>
     <div style="text-align:center;margin-top:16px"><button class="btn" id="more" hidden>Load more</button></div>`;
 
@@ -48,7 +50,7 @@ export async function render({ el, params, query, navigate }) {
   drawLayout();
   let cursor = '';
   async function load(append) {
-    const r = await api.search({ query: q, category, tag, order_by: orderBy, status, cursor: append ? cursor : '', page_size: PAGE });
+    const r = await api.search({ query: q, category, tag, frequency, order_by: orderBy, status, cursor: append ? cursor : '', page_size: PAGE });
     let page = r.current_page;
     if (live) page = page.filter((e) => e.is_live);
     cursor = r.next_cursor;
@@ -70,6 +72,7 @@ export async function render({ el, params, query, navigate }) {
     go({ order_by: e.target.value });
   };
   el.querySelector('#status').onchange = (e) => go({ status: e.target.value });
+  el.querySelector('#frequency').onchange = (e) => go({ frequency: e.target.value });
   const cs = el.querySelector('#category');
   if (cs) cs.onchange = (e) => go({ category: e.target.value });
   el.querySelector('#more').onclick = () => load(true);
