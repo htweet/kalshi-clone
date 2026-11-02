@@ -141,7 +141,7 @@ test('request quote → countdown → Accept → Confirming… → executed thro
   assert.ok(dbq("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND type='rfq_executed'", uid())[0].c >= 1);
   // Portfolio → Positions lists the open combo with its legs.
   await page.goto(BASE + '/portfolio?tab=positions');
-  await page.waitForSelector(`[data-testid=combos-table] tr[data-combo="${comboTicker}"]`);
+  await page.waitForSelector(`[data-testid=positions-table] tr[data-combo="${comboTicker}"]`);
   assert.equal(await page.textContent('[data-testid=open-combo-count]'), '1');
   assert.equal(await page.locator(`tr[data-combo="${comboTicker}"] [data-leg-status=pending]`).count(), 2);
   assert.deepEqual(page.errors, []);

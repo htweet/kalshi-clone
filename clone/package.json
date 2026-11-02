@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node --no-warnings server/index.js",
     "seed": "node --no-warnings server/seed.js --reset",
-    "test:e2e": "node --no-warnings --test --test-concurrency=1 tests/e2e.test.js tests/features.e2e.test.js tests/redesign.e2e.test.js tests/perps.e2e.test.js"
+    "test:e2e": "node --no-warnings --test --test-concurrency=1 tests/e2e.test.js tests/features.e2e.test.js tests/redesign.e2e.test.js tests/perps.e2e.test.js tests/fractional.e2e.test.js tests/combos.e2e.test.js tests/rfq.e2e.test.js tests/orders.e2e.test.js tests/positions.e2e.test.js tests/history.e2e.test.js"
   },
   "engines": { "node": ">=22.5" },
   "dependencies": {

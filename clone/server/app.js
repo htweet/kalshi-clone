@@ -11,11 +11,12 @@ const { mountPerps } = require('./perps');
 const { mountCombos, COMBO_SERIES } = require('./combos');
 const { mountHistory } = require('./history');
 const { mountOrders, parseExpiry } = require('./orders');
+const { mountPositions } = require('./positions');
 
 const SESSION_COOKIE = 'plx_session';
 const SESSION_DAYS = 30;
 const STATUS_FILTER = { unopened: ['initialized'], open: ['active'], paused: ['inactive'], closed: ['closed', 'determined'], settled: ['finalized'] };
-const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode', 'orderbook_hide_fractional_shares', 'rfq_enabled', 'history_filters']);
+const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode', 'orderbook_hide_fractional_shares', 'rfq_enabled', 'history_filters', 'positions_sort', 'positions_filter']);
 
 function parseCookies(header) {
   const out = {};
@@ -123,6 +124,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   mountCombos({ v1, db, engine, requireUser, notify: feat.notify, eventFull, checkTrading: feat.checkTrading, options: combos });
   mountHistory({ v1, db, requireUser });
   const ordersApi = mountOrders({ v1, db, engine, requireUser, notify: feat.notify });
+  mountPositions({ v1, db, engine, requireUser });
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));

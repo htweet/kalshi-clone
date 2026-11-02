@@ -5,11 +5,14 @@ import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, money, qty, cents, toast, relTime, secsLeft, validQty } from '../lib.js';
 import { renderPerpsPortfolio } from './perps.js';
+import { ocAvatar } from './components.js';
 
 // Observed tab set ["position","resting","rfqs","quotes","history"]; data-tab values keep the earlier names.
 const TABS = [['positions', 'Positions'], ['orders', 'Resting'], ['rfqs', 'RFQs'], ['quotes', 'Quotes'], ['history', 'History']];
 const HVIEWS = [['timeline', 'Timeline'], ['fills', 'Trade history'], ['settlements', 'Settlements'], ['transactions', 'Transactions']];
 const HTYPES = [['all', 'All'], ['trades', 'Trades'], ['orders', 'Orders'], ['settlements', 'Settlements'], ['combos', 'Combos/RFQ'], ['cash', 'Cash']];
+const PSORTS = [['value', 'Value'], ['pnl', 'P&L'], ['closing', 'Closing soon']];
+const PFILTERS = [['all', 'All'], ['open', 'Open'], ['closing', 'Closing soon'], ['combos', 'Combos']];
 const signed = (d) => (d == null ? '' : `<span class="${Number(d) > 0 ? 'amt-pos' : Number(d) < 0 ? 'amt-neg' : ''}">${Number(d) > 0 ? '+' : ''}${money(d)}</span>`);
 const QSTATUS = { open: 'Open', accepted: 'Accepted', confirmed: 'Confirmed', executed: 'Executed', expired: 'Expired', cancelled: 'Cancelled' };
 const sizeLabel = (x) => (x.contracts_fp != null ? `${qty(x.contracts_fp)} contracts` : `${money(x.target_cost_dollars)} target`);
@@ -28,6 +31,8 @@ export async function render({ el, navigate, query }) {
   if (deep && deep === view0 && deep !== session.props.portfolio_view) session.setProp('portfolio_view', deep).catch(() => {});
   const hf0 = session.props.history_filters || {};
   const hist = { type: HTYPES.some(([k]) => k === hf0.type) ? hf0.type : 'all', market: String(hf0.market || ''), from: hf0.from || '', to: hf0.to || '', cursor: '', ids: new Set() };
+  let posSort = PSORTS.some(([k]) => k === session.props.positions_sort) ? session.props.positions_sort : 'value';
+  let posFilter = PFILTERS.some(([k]) => k === session.props.positions_filter) ? session.props.positions_filter : 'all';
   let rfqScope = query && query.get('scope') === 'others' ? 'others' : 'mine'; // deep link /portfolio?tab=rfqs&scope=others
   const uid = session.uid;
 
@@ -58,21 +63,7 @@ export async function render({ el, navigate, query }) {
   async function drawPanel() {
     const p = $('#panel');
     if (tab === 'positions') {
-      const [{ positions }, combos] = await Promise.all([api.positions(uid), api.myCombos(uid)]);
-      const open = positions.filter((x) => x.side && !x.is_combo);
-      p.innerHTML = (open.length ? `<table class="table" data-testid="positions-table"><thead><tr><th>Market</th><th>Side</th><th class="num">Contracts</th><th class="num">Avg price</th><th class="num">Cost</th><th class="num">Value</th><th class="num">Unrealized</th><th></th></tr></thead><tbody>
-        ${open.map((x) => `<tr data-ticker="${esc(x.ticker)}"><td>${esc(x.market_title)}</td><td><strong style="color:var(--${x.side === 'yes' ? 'yes' : 'no'})">${x.side.toUpperCase()}</strong></td><td class="num">${qty(x.position_fp)}</td><td class="num">${cents(x.avg_price_dollars)}¢</td><td class="num">${money(x.total_cost_dollars)}</td><td class="num">${money(x.market_value_dollars)}</td><td class="num">${money(x.unrealized_pnl_dollars)}</td>
-        <td>${x.market_status === 'active' ? `<button class="btn" data-close="${esc(x.ticker)}" data-side="${x.side === 'yes' ? 'no' : 'yes'}" data-count="${Number(x.position_fp)}">Close</button>` : `<span class="faint">${esc(x.market_status)}</span>`}</td></tr>`).join('')}</tbody></table>`
-        : '<div class="empty" data-testid="no-positions">No open positions. <a href="/browse" data-link>Find a market</a></div>') + combosSection(combos);
-      for (const b of p.querySelectorAll('[data-close]')) {
-        b.onclick = async () => {
-          // Closing = buying the opposite side; netting returns $1 per pair (spec §4.3 book semantics).
-          b.disabled = true;
-          try { const r = await api.submitOrder(uid, { ticker: b.dataset.close, side: b.dataset.side, count: Number(b.dataset.count), type: 'market' }); toast(`Closed ${qty(r.order.fill_count_fp)} contracts`); }
-          catch (e) { toast(e.message, 'error'); }
-          refresh();
-        };
-      }
+      await drawPositions(p);
     } else if (tab === 'orders') {
       await drawResting(p);
     } else if (tab === 'rfqs') {
@@ -84,13 +75,86 @@ export async function render({ el, navigate, query }) {
     }
   }
 
-  // Open combos (openCombos / totalOpenCombos) live under Positions; settled combos follow.
-  function combosSection(r) {
-    return `<div class="pf-sub"><strong>Open combos · <span data-testid="open-combo-count">${r.total_open_combos}</span></strong><a class="btn btn-ghost" href="/combos" data-link>Build a combo</a></div>
-      ${r.open_combos.length ? `<table class="table" data-testid="combos-table"><thead><tr><th>Combo</th><th>Side</th><th class="num">Contracts</th><th class="num">Cost</th><th>Status</th></tr></thead><tbody>
-      ${r.open_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.side.toUpperCase()}</td><td class="num">${qty(c.position_fp)}</td><td class="num">${money(c.cost_dollars)}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty" data-testid="no-combos">No open combos.</div>'}
-      ${r.settled_combos.length ? `<div class="pf-sub"><strong>Settled combos</strong></div><table class="table" data-testid="settled-combos"><thead><tr><th>Combo</th><th>Result</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
-      ${r.settled_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.result.toUpperCase()}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
+  // ---------- Positions (spec §17.11): summary, grouped holdings, sort/filter, Sell sheet ----------
+  async function drawPositions(p) {
+    const [r, combos] = await Promise.all([api.portfolioPositions(uid, { sort: posSort, filter: posFilter }), api.myCombos(uid)]);
+    const S = r.summary;
+    const stat = (label, v, id, sign) => `<div><span class="label">${label}</span><strong data-testid="${id}">${sign ? signed(v) || money(0) : money(v)}</strong></div>`;
+    const state = (x) => (x.state === 'open' ? `<span class="faint">Closes ${new Date(x.close_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : x.state === 'settling' ? `<span class="status-chip accepted">Settling · ${esc(String(x.result).toUpperCase())}</span>` : `<span class="status-chip">${esc(x.market_status)}</span>`);
+    const row = (x) => `<tr data-ticker="${esc(x.ticker)}" ${x.is_combo ? `data-combo="${esc(x.ticker)}"` : ''} data-state="${esc(x.state)}">
+      <td><a class="pos-outcome" href="${esc(x.link)}" data-link>${ocAvatar({ yes_sub_title: x.is_combo ? '◇' : x.outcome, color_code: x.color_code }, 'sm')}<span>${esc(x.is_combo ? x.market_title : x.outcome)}</span></a>${x.legs ? legChips(x.legs) : ''}</td>
+      <td><strong style="color:var(--${x.side})">${x.side.toUpperCase()}</strong></td><td class="num" data-testid="p-qty">${qty(x.position_fp)}</td>
+      <td class="num">${cents(x.avg_price_dollars)}¢</td><td class="num" data-testid="p-cost">${money(x.cost_basis_dollars)}</td><td class="num" data-testid="p-mark">${cents(x.mark_price_dollars)}¢</td>
+      <td class="num" data-testid="p-value">${money(x.market_value_dollars)}</td><td class="num" data-testid="p-upnl">${signed(x.unrealized_pnl_dollars) || money(0)}${x.unrealized_pnl_pct != null ? ` <span class="faint">${x.unrealized_pnl_pct}%</span>` : ''}</td>
+      <td class="num" data-testid="p-rpnl">${signed(x.realized_pnl_dollars) || money(0)}</td><td class="num" data-testid="p-payout">${money(x.payout_if_win_dollars)}</td>
+      <td class="num" data-testid="p-sell">${x.state === 'open' ? money(x.sell_value_dollars) : '—'}</td><td class="num" data-testid="p-orders">${x.resting_orders || ''}</td><td>${state(x)}</td>
+      <td class="row-actions">${x.market_status === 'active' ? `<button class="btn btn-sm" data-sell="${esc(x.ticker)}">Sell</button><a class="btn btn-sm btn-ghost" data-link data-buy-more href="${esc(x.link)}?market=${encodeURIComponent(x.ticker)}&side=${x.side}">Buy more</a><button class="btn btn-sm" data-close="${esc(x.ticker)}" data-side="${x.side === 'yes' ? 'no' : 'yes'}" data-count="${Number(x.position_fp)}">Close</button>` : ''}</td></tr>`;
+    const empty = posFilter === 'all' ? '<div class="empty" data-testid="no-positions">No open positions. <a href="/browse" data-link>Find a market</a></div>' : '<div class="empty" data-testid="no-positions-filtered">No positions match this filter.</div>';
+    p.innerHTML = `<div class="pos-summary" data-testid="pos-summary">${stat('Total value', S.total_value_dollars, 'pos-total')}${stat('Cash', S.cash_dollars, 'pos-cash')}${stat('Positions', S.positions_value_dollars, 'pos-value')}${stat('Today', S.today_change_dollars, 'pos-today', true)}${stat('All-time P&L', S.all_time_pnl_dollars, 'pos-pnl', true)}</div>
+      <div class="pf-sub"><div class="hist-chips">${PFILTERS.map(([k, l]) => `<button class="chip ${k === posFilter ? 'on' : ''}" data-pfilter="${k}" aria-pressed="${k === posFilter}">${l}</button>`).join('')}</div>
+        <span class="faint">Open combos · <span data-testid="open-combo-count">${combos.total_open_combos}</span></span>
+        <label class="book-setting">Sort <select id="pos-sort" data-testid="pos-sort">${PSORTS.map(([k, l]) => `<option value="${k}" ${k === posSort ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      ${r.events.length ? `<table class="table positions-table" data-testid="positions-table"><thead><tr><th>Outcome</th><th>Side</th><th class="num">Contracts</th><th class="num">Avg</th><th class="num">Cost incl. fees</th><th class="num">Mark</th><th class="num">Value</th><th class="num">Unrealized</th><th class="num">Realized</th><th class="num">Payout if right</th><th class="num">Sell now</th><th class="num">Orders</th><th>Status</th><th></th></tr></thead><tbody>
+        ${r.events.map((g) => `<tr class="group-row" data-event-group="${esc(g.event_ticker)}"><td colspan="14"><a href="${esc(g.link)}" data-link>${esc(g.title)}</a></td></tr>${g.positions.map(row).join('')}`).join('')}</tbody></table>` : empty}
+      ${combos.settled_combos.length ? `<div class="pf-sub"><strong>Settled combos</strong></div><table class="table" data-testid="settled-combos"><thead><tr><th>Combo</th><th>Result</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
+      ${combos.settled_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.result.toUpperCase()}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
+    for (const b of p.querySelectorAll('[data-pfilter]')) b.onclick = () => { posFilter = b.dataset.pfilter; session.setProp('positions_filter', posFilter).catch(() => {}); drawPanel(); };
+    p.querySelector('#pos-sort').onchange = (e) => { posSort = e.target.value; session.setProp('positions_sort', posSort).catch(() => {}); drawPanel(); };
+    for (const b of p.querySelectorAll('[data-close]')) {
+      b.onclick = async () => {
+        // Closing = buying the opposite side; netting returns $1 per pair (spec §4.3 book semantics).
+        b.disabled = true;
+        try { const res = await api.submitOrder(uid, { ticker: b.dataset.close, side: b.dataset.side, count: Number(b.dataset.count), type: 'market' }); toast(`Closed ${qty(res.order.fill_count_fp)} contracts`); }
+        catch (e) { toast(e.message, 'error'); }
+        refresh();
+      };
+    }
+    const byT = new Map(r.events.flatMap((g) => g.positions).map((x) => [x.ticker, x]));
+    for (const b of p.querySelectorAll('[data-sell]')) b.onclick = () => openSellSheet(byT.get(b.dataset.sell));
+  }
+  // Sell sheet: partial or Max, market (walks the book; server estimate) or limit; goes through the normal sell path.
+  let sheetOpen = false;
+  function openSellSheet(x) {
+    const step = x.fractional_trading_enabled ? '0.01' : '1';
+    const held = Number(x.position_fp);
+    const S = x.side.toUpperCase();
+    const wrap = document.createElement('div');
+    wrap.className = 'sheet-backdrop';
+    wrap.innerHTML = `<section class="card sheet" role="dialog" aria-label="Sell position" data-testid="sell-sheet"><div class="combo-mini-head"><h3>Sell ${S} · ${esc(x.is_combo ? x.market_title : x.outcome)}</h3><button class="icon-btn" data-sheet-close aria-label="Close">×</button></div>
+      <div class="tkt-row"><span>You hold</span><strong>${qty(x.position_fp)} ${S}</strong></div>
+      <label class="tkt-input">Contracts<input id="s-count" type="number" min="${step}" step="${step}" value="${held}" inputmode="decimal"></label><button class="btn btn-sm" data-testid="sell-max" type="button">Max</button>
+      <label class="tkt-input tkt-select">Order<select id="s-type"><option value="market">Market</option><option value="limit">Limit</option></select></label>
+      <label class="tkt-input" id="s-price-wrap" hidden>Limit price (¢)<input id="s-price" type="number" min="1" max="99" step="1" value="${Math.max(1, cents(x.mark_price_dollars))}"></label>
+      <div data-testid="sell-estimate" class="faint"></div><div class="form-error" id="s-error" role="alert"></div>
+      <button class="cta" data-testid="sell-submit">Sell ${S}</button></section>`;
+    el.appendChild(wrap); sheetOpen = true;
+    const $s = (q) => wrap.querySelector(q);
+    const close = () => { wrap.remove(); sheetOpen = false; };
+    $s('[data-sheet-close]').onclick = close;
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    let seq = 0;
+    const estimate = async () => {
+      const c = Number($s('#s-count').value); const type = $s('#s-type').value; const px = Number($s('#s-price').value);
+      $s('#s-price-wrap').hidden = type !== 'limit';
+      const ok = c > 0 && c <= held && (/^\d+(\.\d{1,2})?$/.test($s('#s-count').value)) && (x.fractional_trading_enabled || Number.isInteger(c) || c === held);
+      $s('[data-testid=sell-submit]').disabled = !ok || (type === 'limit' && !(Number.isInteger(px) && px >= 1 && px <= 99));
+      if (!ok) { $s('[data-testid=sell-estimate]').textContent = `Enter up to ${qty(x.position_fp)} contracts${x.fractional_trading_enabled ? ' (2 decimals)' : ''}.`; return; }
+      if (type === 'limit') { $s('[data-testid=sell-estimate]').textContent = `Proceeds if filled at ${px}¢: ${money((c * px) / 100)} before fees`; return; }
+      const my = ++seq;
+      try { const q = await api.sellQuote(uid, x.ticker, c.toFixed(2)); if (my === seq) $s('[data-testid=sell-estimate]').innerHTML = `Est. proceeds <strong data-testid="sell-proceeds">${money(q.proceeds_dollars)}</strong> · fee ${money(q.fee_dollars)}${q.complete ? '' : ` · only ${qty(q.fillable_fp)} can fill now`}`; } catch (e) { $s('[data-testid=sell-estimate]').textContent = e.message; }
+    };
+    $s('#s-count').oninput = estimate; $s('#s-price').oninput = estimate; $s('#s-type').onchange = estimate;
+    $s('[data-testid=sell-max]').onclick = () => { $s('#s-count').value = String(held); estimate(); };
+    $s('[data-testid=sell-submit]').onclick = async () => {
+      const btn = $s('[data-testid=sell-submit]'); btn.disabled = true; $s('#s-error').textContent = '';
+      const type = $s('#s-type').value;
+      try {
+        const res = await api.submitOrder(uid, { ticker: x.ticker, side: x.side, action: 'sell', type, count: Number($s('#s-count').value), ...(type === 'limit' ? { price: Number($s('#s-price').value) } : {}) });
+        toast(`Sold ${qty(res.order.fill_count_fp)} ${S}${res.order.status === 'resting' ? `, ${qty(res.order.remaining_count_fp)} listed` : ''}`);
+        close(); refresh();
+      } catch (e) { $s('#s-error').textContent = e.message; btn.disabled = false; }
+    };
+    estimate();
   }
 
   // ---------- History (spec §17.9) ----------
@@ -209,7 +273,7 @@ export async function render({ el, navigate, query }) {
       b.onclick = () => {
         const o = byId.get(b.dataset.edit);
         const step = o.fractional_trading_enabled ? '0.01' : '1';
-        const r = formRow(o, `<form class="quote-form edit-form" data-edit-form="${esc(o.order_id)}"><label>Price (¢) <input name="price" type="number" min="1" max="99" step="1" value="${cents(o.user_price_dollars)}"></label>
+        const r = formRow(o, `<form novalidate class="quote-form edit-form" data-edit-form="${esc(o.order_id)}"><label>Price (¢) <input name="price" type="number" min="1" max="99" step="1" value="${cents(o.user_price_dollars)}"></label>
           <label>Total contracts <input name="count" type="number" min="${step}" step="${step}" value="${Number(o.initial_count_fp)}"></label>
           <label>Expires <select name="exp"><option value="keep">${o.expiration_time ? 'Keep' : 'Never (GTC)'}</option><option value="never">Never</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label><input name="at" type="datetime-local" hidden aria-label="Expiry time">
           <button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-ghost" type="button" data-close-edit>Close</button><span class="faint">Changing the price or adding size moves the order to the back of the queue.</span></form>`);
@@ -233,7 +297,7 @@ export async function render({ el, navigate, query }) {
       b.onclick = () => {
         const o = byId.get(b.dataset.decrease);
         const step = o.fractional_trading_enabled ? '0.01' : '1';
-        const r = formRow(o, `<form class="quote-form" data-decrease-form="${esc(o.order_id)}"><label>Reduce remaining to <input name="to" type="number" min="0" step="${step}" value="${Math.max(0, Number(o.remaining_count_fp) - 1)}"></label><button class="btn btn-sm btn-primary" type="submit">Decrease</button><button class="btn btn-sm btn-ghost" type="button" data-close-edit>Close</button><span class="faint">Decreasing keeps your place in the queue.</span></form>`);
+        const r = formRow(o, `<form novalidate class="quote-form" data-decrease-form="${esc(o.order_id)}"><label>Reduce remaining to <input name="to" type="number" min="0" step="${step}" value="${Math.max(0, Number(o.remaining_count_fp) - 1)}"></label><button class="btn btn-sm btn-primary" type="submit">Decrease</button><button class="btn btn-sm btn-ghost" type="button" data-close-edit>Close</button><span class="faint">Decreasing keeps your place in the queue.</span></form>`);
         const f = r.querySelector('form'); const err = r.querySelector('.form-error');
         r.querySelector('[data-close-edit]').onclick = closeForms;
         f.onsubmit = async (e) => {
@@ -247,7 +311,7 @@ export async function render({ el, navigate, query }) {
   }
 
   // ---------- RFQs (spec §17.6): yours vs other traders' ----------
-  const fmtLeft = (n) => (n < 120 ? `${n}s` : n < 7200 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${Math.floor(n / 3600)}h ${Math.floor((n % 3600) / 60)}m`);
+  const fmtLeft = (n) => (n < 120 ? `${n}s` : n < 3600 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${Math.floor(n / 3600)}h ${Math.floor((n % 3600) / 60)}m`);
   const countdown = (iso, prefix = '') => `<span class="countdown" data-countdown="${esc(iso)}" data-prefix="${esc(prefix)}">${prefix}${fmtLeft(secsLeft(iso))}</span>`;
   async function drawRfqs(p) {
     const r = await api.rfqs(rfqScope);
@@ -274,7 +338,7 @@ export async function render({ el, navigate, query }) {
       p.innerHTML = head + (r.rfqs.length ? `<table class="table" data-testid="other-rfqs-table"><thead><tr><th>Market</th><th>Size</th><th>Age</th><th>Your quote</th><th>Quote (¢)</th></tr></thead><tbody>
         ${r.rfqs.map((x) => `<tr data-rfq="${esc(x.id)}" data-status="${esc(x.status)}"><td><a href="${esc(x.link)}" data-link>${esc(x.market_title)}</a></td><td>${sizeLabel(x)}</td><td class="faint">${relTime(x.created_time)}</td>
           <td>${x.my_quote ? `<span class="status-chip ${esc(x.my_quote.status)}" data-testid="my-quote-status">${QSTATUS[x.my_quote.status]}</span> <span class="faint">Yes ${cents(x.my_quote.yes_bid_dollars)}¢ / No ${cents(x.my_quote.no_bid_dollars)}¢</span>` : '<span class="faint">—</span>'}</td>
-          <td>${x.status === 'open' ? `<form class="quote-form" data-quote-form="${esc(x.id)}"><input name="yes" type="number" min="0" max="99" step="1" placeholder="Yes bid" aria-label="Yes bid in cents"><input name="no" type="number" min="0" max="99" step="1" placeholder="No bid" aria-label="No bid in cents"><button class="btn btn-sm btn-primary" type="submit">Send quote</button><div class="form-error" role="alert"></div></form>` : '<span class="faint">Accepted by requester</span>'}</td></tr>`).join('')}</tbody></table>`
+          <td>${x.status === 'open' ? `<form novalidate class="quote-form" data-quote-form="${esc(x.id)}"><input name="yes" type="number" min="0" max="99" step="1" placeholder="Yes bid" aria-label="Yes bid in cents"><input name="no" type="number" min="0" max="99" step="1" placeholder="No bid" aria-label="No bid in cents"><button class="btn btn-sm btn-primary" type="submit">Send quote</button><div class="form-error" role="alert"></div></form>` : '<span class="faint">Accepted by requester</span>'}</td></tr>`).join('')}</tbody></table>`
         : '<div class="empty" data-testid="no-other-rfqs">No open RFQs from other traders right now.</div>');
     }
     for (const b of p.querySelectorAll('[data-rfq-scope]')) b.onclick = () => { rfqScope = b.dataset.rfqScope; drawPanel(); };
@@ -325,6 +389,7 @@ export async function render({ el, navigate, query }) {
 
   async function drawPanelLive() {
     if (tab === 'history' && hview === 'timeline') return liveHistory();
+    if (sheetOpen) return undefined;
     if (el.querySelector('#panel input:focus')) return undefined; // don't wipe a quote or search being typed
     return drawPanel();
   }
@@ -355,6 +420,7 @@ export async function render({ el, navigate, query }) {
 
   await refresh();
   let commsT = null;
+  let tickT = null;
   const unsubs = [
     socket.subscribe({ channels: ['user_orders'] }, () => refresh().catch(() => {})),
     socket.subscribe({ channels: ['user_balance'] }, () => refresh().catch(() => {})),
@@ -365,6 +431,8 @@ export async function render({ el, navigate, query }) {
     }),
     // New fills and settlements reach History live (settlements arrive as notifications + balance updates).
     socket.subscribe({ channels: ['fill'] }, () => { if (tab === 'history') liveHistory().catch(() => {}); }),
+    // Positions re-mark live on price moves (debounced).
+    socket.subscribe({ channels: ['ticker'] }, () => { if (tab !== 'positions') return; clearTimeout(tickT); tickT = setTimeout(() => drawPanelLive().catch(() => {}), 400); }),
     socket.subscribe({ channels: ['notifications'] }, () => { if (tab === 'history') liveHistory().catch(() => {}); }),
   ];
   // Countdowns tick locally; an expired countdown triggers a refetch (the server sweep owns the status).
@@ -373,5 +441,5 @@ export async function render({ el, navigate, query }) {
     for (const c of el.querySelectorAll('[data-countdown]')) { const n = secsLeft(c.dataset.countdown); c.textContent = `${c.dataset.prefix || ''}${fmtLeft(n)}`; if (n === 0) due = true; }
     if (due) { clearTimeout(commsT); commsT = setTimeout(() => drawPanel().catch(() => {}), 900); }
   }, 1000);
-  return () => { unsubs.forEach((u) => u()); clearInterval(iv); clearTimeout(commsT); };
+  return () => { unsubs.forEach((u) => u()); clearInterval(iv); clearTimeout(commsT); clearTimeout(tickT); };
 }
