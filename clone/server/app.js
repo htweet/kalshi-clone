@@ -10,6 +10,7 @@ const { mountRolling } = require('./rolling');
 const { mountPerps } = require('./perps');
 const { mountCombos, COMBO_SERIES } = require('./combos');
 const { mountHistory } = require('./history');
+const { mountOrders, parseExpiry } = require('./orders');
 
 const SESSION_COOKIE = 'plx_session';
 const SESSION_DAYS = 30;
@@ -121,6 +122,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
   mountCombos({ v1, db, engine, requireUser, notify: feat.notify, eventFull, checkTrading: feat.checkTrading, options: combos });
   mountHistory({ v1, db, requireUser });
+  const ordersApi = mountOrders({ v1, db, engine, requireUser, notify: feat.notify });
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));
@@ -367,6 +369,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     }
     if (units != null) wholeOnly(units);
     let tif = type === 'limit' ? 'gtc' : 'ioc';
+    // Good-til-time (spec §17.10): limit orders may carry expiration_time; IOC types may not.
+    const expiration = parseExpiry(b.expiration_time);
+    if (expiration != null && type !== 'limit') throw E.badRequest('expiration_time is only valid on limit orders');
     if (type === 'market') price = 99;
     let maxCost = null;
     if (type === 'dollars') {
@@ -386,7 +391,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       maxCost = amt;
     }
     if (Number.isInteger(price) && units > 0) feat.checkTrading(uid, Math.ceil((units * price) / UNITS));
-    const order = engine.placeOrder(uid, { ticker, side, price, count: units, time_in_force: tif, client_order_id: b.client_order_id, max_cost_cents: maxCost, allow_fractional: allowFractional, action, order_type: type });
+    const order = engine.placeOrder(uid, { ticker, side, price, count: units, time_in_force: tif, client_order_id: b.client_order_id, max_cost_cents: maxCost, allow_fractional: allowFractional, action, order_type: type, expiration_ts: expiration ?? null });
     res.status(201).json({ order: orderVo(order), status: order.status });
   });
   v1.delete('/users/:uid/orders/:oid', requireUser, (req, res) => res.json({ order: orderVo(engine.cancelOrder(req.auth.user.id, req.params.oid)) }));
@@ -394,7 +399,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     const st = req.query.status;
     if (st && !['resting', 'executed', 'canceled'].includes(st)) throw E.badRequest('invalid status filter');
     const rows = db.prepare(`SELECT o.*, m.title mt FROM orders o JOIN markets m ON m.ticker=o.market_ticker WHERE o.user_id=? ${st ? 'AND o.status=?' : ''} ORDER BY o.seq DESC LIMIT 500`).all(...[req.auth.user.id, ...(st ? [st] : [])]);
-    res.json({ orders: rows.map((o) => ({ ...orderVo(o), market_title: o.mt })) });
+    res.json({ orders: rows.map((o) => ordersApi.richVo(o)) });
   });
 
   v1.get('/users/:uid/positions', requireUser, (req, res) => {

@@ -266,6 +266,8 @@ export async function render({ el, params, query, navigate }) {
         ${selling ? `<div class="tkt-row" data-testid="held"><span>You hold</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
         ${mode === 'dollars' ? '<label class="tkt-input">Dollars<input id="t-amount" type="number" min="1" step="1" placeholder="$0" inputmode="decimal" aria-label="Dollars"></label>' : ''}
         ${mode === 'limit' ? `<label class="tkt-input">Limit price (¢)<input id="t-price" type="number" min="1" max="99" step="1" value="${selling ? sellPrice() : ticketPrice}" inputmode="numeric"></label>` : ''}
+        ${mode === 'limit' ? `<label class="tkt-input tkt-select">Expires<select id="t-expiry" data-testid="t-expiry" aria-label="Order expiry"><option value="never">Never (GTC)</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label>
+          <input id="t-expiry-at" class="tkt-expiry-at" type="datetime-local" hidden aria-label="Expiry time">` : ''}
         ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="${step}" step="${step}" value="${selling ? held || 1 : 10}" inputmode="${frac ? 'decimal' : 'numeric'}" data-testid="t-count"></label>` : ''}
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
@@ -305,6 +307,11 @@ export async function render({ el, params, query, navigate }) {
       }
       const p = mode === 'market' ? (selling ? sellPrice() : defaultPrice()) : Number(t.querySelector('#t-price').value);
       if (mode === 'limit' && !selling) ticketPrice = p;
+      const exp = t.querySelector('#t-expiry');
+      if (exp) {
+        t.querySelector('#t-expiry-at').hidden = exp.value !== 'custom';
+        if (exp.value === 'custom' && !(Date.parse(t.querySelector('#t-expiry-at').value) > Date.now())) { sum.innerHTML = '<span class="faint" data-testid="t-invalid">Pick an expiry time in the future.</span>'; t.querySelector('#t-submit').disabled = !!session.user; return; }
+      }
       const ok = Number.isInteger(p) && p >= 1 && p <= 99 && sizeOk && (!selling || c <= held);
       if (!ok) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${selling && c > held ? `You hold ${qty(held)} contracts.` : `Enter a price between 1¢ and 99¢ and ${frac ? 'at least 0.01 contracts (up to 2 decimals)' : 'a whole number of contracts'}.`}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
       sum.innerHTML = selling
@@ -315,6 +322,7 @@ export async function render({ el, params, query, navigate }) {
       t.querySelector('#t-submit').disabled = false;
     };
     t.querySelectorAll('input').forEach((i) => { i.oninput = recalc; });
+    t.querySelector('#t-expiry')?.addEventListener('change', recalc);
     recalc();
     t.querySelector('#t-submit').onclick = async () => {
       if (!session.user) return navigate('/sign-up?next=' + encodeURIComponent(location.pathname));
@@ -333,6 +341,10 @@ export async function render({ el, params, query, navigate }) {
         if (mode === 'dollars') body.amount_dollars = Number(t.querySelector('#t-amount').value || 0);
         else body.count = Number(t.querySelector('#t-count').value);
         if (mode === 'limit') body.price = Number(t.querySelector('#t-price').value);
+        // Good-til-time limit orders (spec §17.10): end of the local day or a custom time; Never = GTC.
+        const exp = t.querySelector('#t-expiry')?.value;
+        if (mode === 'limit' && exp === 'eod') { const d = new Date(); d.setHours(23, 59, 59, 999); body.expiration_time = d.toISOString(); }
+        if (mode === 'limit' && exp === 'custom') body.expiration_time = new Date(Date.parse(t.querySelector('#t-expiry-at').value)).toISOString();
         const r = await api.submitOrder(session.uid, body);
         const o = r.order;
         if (selling) toast(`Sold ${qty(o.fill_count_fp)} ${state.side.toUpperCase()}${o.status === 'resting' ? `, ${qty(o.remaining_count_fp)} listed` : ''}`);

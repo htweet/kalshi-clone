@@ -103,12 +103,16 @@ class Engine extends EventEmitter {
   // `count` is in units (hundredths of a contract). Options: post_only (reject instead of crossing),
   // exact_reserve (IOC only: reserve exactly the planned cost instead of the limit-price bound), match_order_id,
   // max_cost_cents (shrink the order until its reservation fits), allow_fractional (sell a held fractional position).
-  placeOrder(userId, { ticker, side, price, count, time_in_force = 'gtc', client_order_id, post_only = false, exact_reserve = false, max_cost_cents = null, allow_fractional = false, source = 'user', action = 'buy', order_type = null, match_order_id = null }) {
+  placeOrder(userId, { ticker, side, price, count, time_in_force = 'gtc', client_order_id, post_only = false, exact_reserve = false, max_cost_cents = null, allow_fractional = false, source = 'user', action = 'buy', order_type = null, match_order_id = null, expiration_ts = null, reuse_order_id = null }) {
     if (!['yes', 'no'].includes(side)) throw E.badRequest('side must be yes or no');
     if (!['gtc', 'ioc'].includes(time_in_force)) throw E.badRequest('time_in_force must be gtc or ioc');
     if (!Number.isInteger(price) || price < 1 || price > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99');
     if (!Number.isInteger(count) || count < 1 || count > MAX_UNITS) throw E.badRequest(`count must be between 0.01 and ${MAX_COUNT} contracts`);
     const exact = exact_reserve && time_in_force === 'ioc';
+    if (expiration_ts != null) {
+      if (time_in_force !== 'gtc') throw E.badRequest('an expiration time cannot be combined with immediate-or-cancel');
+      if (!Number.isFinite(expiration_ts) || expiration_ts <= Date.now()) throw E.badRequest('expiration_time must be in the future');
+    }
 
     const touched = new Set([userId]);
     const fills = [];
@@ -151,10 +155,16 @@ class Engine extends EventEmitter {
       const reserve = pl.required;
       if (this.balance(userId) < reserve) throw E.conflict('insufficient_balance', 'insufficient balance', `order requires $${(reserve / 100).toFixed(2)} including max fees`);
 
-      const id = newId('o_');
+      const id = reuse_order_id || newId('o_');
       const ts = nowIso();
-      this.db.prepare('INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,initial_count,remaining_count,reserved_cents,status,time_in_force,client_order_id,created_at,updated_at,source,action,order_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, this.nextSeq(), userId, ticker, side, price, count, count, reserve, 'resting', time_in_force, client_order_id ?? null, ts, ts, source, action === 'sell' ? 'sell' : 'buy', order_type || (time_in_force === 'ioc' ? 'market' : 'limit'));
+      if (reuse_order_id) {
+        // Amend that forfeits priority (spec §17.10): same order id, new price/size, back of the queue (new seq).
+        this.db.prepare("UPDATE orders SET seq=?, price_cents=?, initial_count=filled_count+?, remaining_count=?, reserved_cents=?, status='resting', expiration_ts=?, updated_at=? WHERE id=?")
+          .run(this.nextSeq(), price, count, count, reserve, expiration_ts, ts, id);
+      } else {
+        this.db.prepare('INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,initial_count,remaining_count,reserved_cents,status,time_in_force,client_order_id,created_at,updated_at,source,action,order_type,expiration_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .run(id, this.nextSeq(), userId, ticker, side, price, count, count, reserve, 'resting', time_in_force, client_order_id ?? null, ts, ts, source, action === 'sell' ? 'sell' : 'buy', order_type || (time_in_force === 'ioc' ? 'market' : 'limit'), expiration_ts);
+      }
       this.db.prepare('UPDATE users SET balance_cents = balance_cents - ? WHERE id=?').run(reserve, userId);
 
       let carry = pl.suffix[0];
@@ -241,22 +251,85 @@ class Engine extends EventEmitter {
   }
 
   // Cancel / expire: return remaining reservation to the user.
-  releaseOrder(orderId, status = 'canceled') {
+  releaseOrder(orderId, status = 'canceled', reason = null) {
     const o = this.db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
     if (!o || o.status !== 'resting') return o;
-    this.db.prepare('UPDATE orders SET status=?, reserved_cents=0, updated_at=? WHERE id=?').run(status, nowIso(), orderId);
-    this.credit(o.user_id, o.reserved_cents, 'refund', orderId, 'order canceled');
+    this.db.prepare('UPDATE orders SET status=?, reserved_cents=0, cancel_reason=COALESCE(?,cancel_reason), updated_at=? WHERE id=?').run(status, reason, nowIso(), orderId);
+    this.credit(o.user_id, o.reserved_cents, 'refund', orderId, reason === 'expired' ? 'order expired' : 'order canceled');
     return this.db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
   }
 
-  cancelOrder(userId, orderId) {
+  // ---- resting-order management (spec §17.10) ----------------------------
+  ownResting(userId, orderId) {
+    const o = this.db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
+    if (!o || o.user_id !== userId) throw E.notFound();
+    if (o.status !== 'resting') throw E.conflict('order_not_resting', 'order is not resting', `order status is ${o.status}`);
+    const m = this.market(o.market_ticker);
+    if (m.status !== 'active') throw E.conflict('market_inactive', 'market is not open for trading', `market status is ${m.status}`);
+    return { o, m };
+  }
+  reserveFor(o, units, m) { return Math.ceil((units * (o.price_cents + perContractFeeCap(o.price_cents, m.fee_multiplier))) / UNITS); }
+  // Reduce the remaining size in place: keeps time priority; the freed reservation is refunded exactly.
+  decreaseOrder(userId, orderId, newRemaining, { expiration_ts } = {}) {
+    const { o, m } = this.ownResting(userId, orderId);
+    if (!Number.isInteger(newRemaining) || newRemaining < 0 || newRemaining > o.remaining_count) throw E.badRequest('the new remaining size must be between 0 and the current remaining size');
+    if (newRemaining === 0) return this.cancelOrder(userId, orderId, 'decreased_to_zero');
+    if (newRemaining % UNITS && !m.fractional_trading_enabled) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market');
+    const before = this.book(o.market_ticker);
+    const res = tx(this.db, () => {
+      const keep = this.reserveFor(o, newRemaining, m);
+      const release = Math.max(0, o.reserved_cents - keep);
+      this.db.prepare('UPDATE orders SET remaining_count=?, initial_count=filled_count+?, reserved_cents=reserved_cents-?, expiration_ts=?, updated_at=? WHERE id=?')
+        .run(newRemaining, newRemaining, release, expiration_ts === undefined ? o.expiration_ts : expiration_ts, nowIso(), orderId);
+      this.credit(userId, release, 'refund', orderId, 'order decreased');
+      return this.db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
+    });
+    this.afterBookChange(o.market_ticker, before, new Set([userId]), []);
+    this.emit('user_order', userId, res);
+    return res;
+  }
+  // Amend price / total size / expiry. A price change or a size increase forfeits queue position (new seq) and the
+  // order is re-entered (it may fill immediately); a pure decrease or expiry change keeps it
+  // (api-reference_orders_amend-order-v2.md).
+  amendOrder(userId, orderId, { price, total, expiration_ts }) {
+    const { o } = this.ownResting(userId, orderId);
+    const newPrice = price == null ? o.price_cents : price;
+    const newRem = (total == null ? o.filled_count + o.remaining_count : total) - o.filled_count;
+    const exp = expiration_ts === undefined ? o.expiration_ts : expiration_ts;
+    if (!Number.isInteger(newPrice) || newPrice < 1 || newPrice > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99');
+    if (!Number.isInteger(newRem) || newRem < 1) throw E.badRequest('count must exceed the filled count by at least 0.01 contracts');
+    if (exp != null && exp <= Date.now()) throw E.badRequest('expiration_time must be in the future');
+    if (newPrice === o.price_cents && newRem <= o.remaining_count) return this.decreaseOrder(userId, orderId, newRem, { expiration_ts: exp });
+    return tx(this.db, () => {
+      this.db.prepare('UPDATE orders SET reserved_cents=0 WHERE id=?').run(orderId);
+      this.credit(userId, o.reserved_cents, 'refund', orderId, 'order amended');
+      return this.placeOrder(userId, { ticker: o.market_ticker, side: o.side, price: newPrice, count: newRem, time_in_force: 'gtc', reuse_order_id: o.id, expiration_ts: exp, action: o.action, order_type: o.order_type, source: o.source });
+    });
+  }
+  // Contracts ahead of this order at its price level (price-time priority).
+  queuePosition(o) {
+    if (o.status !== 'resting') return 0;
+    return this.db.prepare("SELECT COALESCE(SUM(remaining_count),0) n FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cents=? AND seq<?").get(o.market_ticker, o.side, o.price_cents, o.seq).n;
+  }
+  expireOrders() {
+    for (const r of this.db.prepare("SELECT id FROM orders WHERE status='resting' AND expiration_ts IS NOT NULL AND expiration_ts<=?").all(Date.now())) {
+      const o = this.db.prepare('SELECT * FROM orders WHERE id=?').get(r.id);
+      const before = this.book(o.market_ticker);
+      const res = tx(this.db, () => this.releaseOrder(o.id, 'canceled', 'expired'));
+      this.afterBookChange(o.market_ticker, before, new Set([o.user_id]), []);
+      this.emit('user_order', o.user_id, res);
+      this.emit('order_expired', o.user_id, res);
+    }
+  }
+
+  cancelOrder(userId, orderId, reason = 'canceled_by_user') {
     const o = this.db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
     if (!o || o.user_id !== userId) throw E.notFound();
     const m = this.market(o.market_ticker);
     if (m.status !== 'active' && m.status !== 'inactive') throw E.conflict('market_inactive', 'market is not open for trading', `market status is ${m.status}`);
     if (o.status !== 'resting') throw E.conflict('order_not_resting', 'order is not resting', `order status is ${o.status}`);
     const before = this.book(o.market_ticker);
-    const res = tx(this.db, () => this.releaseOrder(orderId, 'canceled'));
+    const res = tx(this.db, () => this.releaseOrder(orderId, 'canceled', reason));
     this.afterBookChange(o.market_ticker, before, new Set([userId]), []);
     this.emit('user_order', userId, res);
     return res;
@@ -364,6 +437,7 @@ class Engine extends EventEmitter {
     for (const m of this.db.prepare("SELECT ticker, determined_at, settlement_timer_seconds t FROM markets WHERE status='determined'").all()) {
       if (Date.parse(m.determined_at) + m.t * 1000 <= Date.now()) this.finalize(m.ticker);
     }
+    this.expireOrders(); // good-til-time orders (persisted expiration_ts → restart-safe)
     this.emit('tick');
   }
 }

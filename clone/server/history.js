@@ -23,7 +23,7 @@ const UNION = `
     o.price_cents price, o.initial_count qty, o.filled_count filled, NULL amount, o.fees_cents fee, o.status status, NULL role, NULL extra, '' memo
     FROM orders o WHERE o.user_id=:uid
   UNION ALL
-  SELECT 'cancel:'||o.id, ${ms('o.updated_at')}, 3, 'cancel', o.market_ticker, o.side, o.action, o.order_type, o.price_cents, o.remaining_count, o.filled_count, NULL, NULL, 'canceled', NULL, NULL, ''
+  SELECT 'cancel:'||o.id, ${ms('o.updated_at')}, 3, 'cancel', o.market_ticker, o.side, o.action, o.order_type, o.price_cents, o.remaining_count, o.filled_count, NULL, NULL, CASE WHEN o.cancel_reason='expired' THEN 'expired' ELSE 'canceled' END, NULL, NULL, COALESCE(o.cancel_reason,'')
     FROM orders o WHERE o.user_id=:uid AND o.status='canceled'
   UNION ALL
   SELECT 'fill:'||f.id, f.created_ts, 1, 'fill', f.market_ticker, f.side, COALESCE(o.action,'buy'), o.order_type, f.price_cents, f.count, NULL,
@@ -96,7 +96,7 @@ function mountHistory({ v1, db, requireUser }) {
     let desc;
     switch (r.kind) {
       case 'order': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} · ${ustr(r.filled)} of ${ustr(r.qty)} filled`; break;
-      case 'cancel': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} canceled · ${ustr(r.qty)} unfilled`; break;
+      case 'cancel': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} ${r.memo === 'expired' ? 'expired' : 'canceled'} · ${ustr(r.qty)} unfilled`; break;
       case 'fill': desc = sell ? `Sold ${S} (bought ${r.side.toUpperCase()} @ ${r.price}¢; pairs net to cash) · ${r.role}` : `Bought ${S} · ${r.role}`; break;
       case 'settlement': desc = `Market settled ${String(r.status).toUpperCase()} · cost $${(r.extra / 100).toFixed(2)}`; break;
       case 'combo': desc = 'Combo built'; break;

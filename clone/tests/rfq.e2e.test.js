@@ -74,7 +74,7 @@ after(async () => { await browser?.close(); await srv?.close(); fs.rmSync(TMP, {
 
 test('opt-in: RFQs on single markets need rfq_enabled; B sees A\'s RFQ appear live in "Other RFQs"', async () => {
   pa = await newPage(); pb = await newPage();
-  await signUp(pa, A, 200);
+  await signUp(pa, A, 300);
   await signUp(pb, B, 100);
   // Without the opt-in A cannot request on a single market, and B sees the disabled notice.
   let r = await call(pa, 'POST', '/v1/communications/rfqs', { market_ticker: CUT, contracts_fp: '5' });
@@ -166,7 +166,7 @@ test('an accepted quote that the maker does not confirm lapses; the RFQ reopens;
   let r = await call(pa, 'POST', '/v1/communications/rfqs', { market_ticker: TRAM, contracts_fp: '2' });
   assert.equal(r.s, 201);
   const id = r.b.id;
-  await pb.goto(BASE + '/portfolio?tab=rfqs');
+  await pb.goto(BASE + '/portfolio?tab=rfqs&scope=others');
   await pb.waitForSelector(`[data-testid=other-rfqs-table] tr[data-rfq="${id}"]`);
   const form = `[data-quote-form="${id}"]`;
   await pb.fill(`${form} input[name=yes]`, '50');
@@ -197,7 +197,7 @@ test('an accepted quote that the maker does not confirm lapses; the RFQ reopens;
   await pb.waitForSelector(`tr[data-quote-row="${q3}"][data-status=cancelled]`);
   assert.equal(dbq('SELECT closed_reason FROM rfq_quotes WHERE id=?', q3)[0].closed_reason, 'deleted_by_maker');
   // A cancels the RFQ; it disappears live from B's Other RFQs.
-  await pb.goto(BASE + '/portfolio?tab=rfqs');
+  await pb.goto(BASE + '/portfolio?tab=rfqs&scope=others');
   await pb.waitForSelector(`[data-testid=other-rfqs-table] tr[data-rfq="${id}"]`);
   await pa.goto(BASE + '/portfolio?tab=rfqs');
   await pa.click(`tr[data-rfq="${id}"] [data-cancel-rfq]`);
@@ -210,9 +210,9 @@ test('an accepted quote that the maker does not confirm lapses; the RFQ reopens;
 });
 
 test('balance checks: a maker without funds gets a clear error on confirm and the quote stays accepted', async () => {
-  let r = await call(pa, 'POST', '/v1/communications/rfqs', { market_ticker: TRAM, contracts_fp: '400' });
+  let r = await call(pa, 'POST', '/v1/communications/rfqs', { market_ticker: TRAM, contracts_fp: '300' });
   const id = r.b.id;
-  r = await call(pb, 'POST', '/v1/communications/quotes', { rfq_id: id, yes_bid: '0', no_bid: '0.90' });
+  r = await call(pb, 'POST', '/v1/communications/quotes', { rfq_id: id, yes_bid: '0', no_bid: '0.37' }); // 300 × 37¢ > B's cash; below the book (best YES bid 62¢) so post-only rests
   const qid = r.b.id;
   r = await call(pa, 'PUT', `/v1/communications/rfqs/${id}/quotes/${qid}/accept`, { accepted_side: 'yes' });
   assert.equal(r.s, 400, 'declined side cannot be accepted');

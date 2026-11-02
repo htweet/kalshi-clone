@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, money, qty, cents, toast, relTime, secsLeft } from '../lib.js';
+import { esc, money, qty, cents, toast, relTime, secsLeft, validQty } from '../lib.js';
 import { renderPerpsPortfolio } from './perps.js';
 
 // Observed tab set ["position","resting","rfqs","quotes","history"]; data-tab values keep the earlier names.
@@ -28,7 +28,7 @@ export async function render({ el, navigate, query }) {
   if (deep && deep === view0 && deep !== session.props.portfolio_view) session.setProp('portfolio_view', deep).catch(() => {});
   const hf0 = session.props.history_filters || {};
   const hist = { type: HTYPES.some(([k]) => k === hf0.type) ? hf0.type : 'all', market: String(hf0.market || ''), from: hf0.from || '', to: hf0.to || '', cursor: '', ids: new Set() };
-  let rfqScope = 'mine';
+  let rfqScope = query && query.get('scope') === 'others' ? 'others' : 'mine'; // deep link /portfolio?tab=rfqs&scope=others
   const uid = session.uid;
 
   el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Portfolio</h1></div>
@@ -74,13 +74,7 @@ export async function render({ el, navigate, query }) {
         };
       }
     } else if (tab === 'orders') {
-      const { orders } = await api.orders(uid, 'resting');
-      p.innerHTML = orders.length ? `<table class="table" data-testid="orders-table"><thead><tr><th>Market</th><th>Side</th><th class="num">Limit</th><th class="num">Filled</th><th class="num">Open</th><th>Placed</th><th></th></tr></thead><tbody>
-        ${orders.map((o) => `<tr data-order="${esc(o.order_id)}"><td>${esc(o.market_title)}</td><td>${o.side.toUpperCase()}</td><td class="num">${cents(o.price_dollars)}¢</td><td class="num">${qty(o.fill_count_fp)}</td><td class="num">${qty(o.remaining_count_fp)}</td><td>${new Date(o.created_time).toLocaleString()}</td><td><button class="btn" data-cancel="${esc(o.order_id)}">Cancel</button></td></tr>`).join('')}</tbody></table>`
-        : '<div class="empty" data-testid="no-orders">No resting orders.</div>';
-      for (const b of p.querySelectorAll('[data-cancel]')) {
-        b.onclick = async () => { b.disabled = true; try { await api.cancelOrder(uid, b.dataset.cancel); toast('Order canceled'); } catch (e) { toast(e.message, 'error'); } refresh(); };
-      }
+      await drawResting(p);
     } else if (tab === 'rfqs') {
       await drawRfqs(p);
     } else if (tab === 'quotes') {
@@ -173,8 +167,88 @@ export async function render({ el, navigate, query }) {
     }
   }
 
+  // ---------- Resting (spec §17.10): grouped by event / market, amend, decrease, cancel, cancel all ----------
+  const fp2 = (x) => Number(x || 0).toFixed(2);
+  const endOfDay = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.toISOString(); };
+  async function drawResting(p) {
+    const { orders } = await api.orders(uid, 'resting');
+    if (!orders.length) { p.innerHTML = '<div class="empty" data-testid="no-orders">No resting orders.</div>'; return; }
+    const held = orders.reduce((a, o) => a + Number(o.reserved_dollars || 0), 0);
+    const byEvent = new Map();
+    for (const o of orders) {
+      if (!byEvent.has(o.event_ticker)) byEvent.set(o.event_ticker, { title: o.event_title, link: o.link, markets: new Map() });
+      const ev = byEvent.get(o.event_ticker);
+      if (!ev.markets.has(o.ticker)) ev.markets.set(o.ticker, { outcome: o.outcome, orders: [] });
+      ev.markets.get(o.ticker).orders.push(o);
+    }
+    const row = (o) => `<tr data-order="${esc(o.order_id)}" data-ticker="${esc(o.ticker)}"><td>${esc(o.outcome)}</td>
+      <td><strong style="color:var(--${o.user_side})">${o.user_action.toUpperCase()} ${o.user_side.toUpperCase()}</strong></td>
+      <td class="num" data-testid="o-price">${cents(o.user_price_dollars)}¢</td><td class="num" data-testid="o-filled">${fp2(o.fill_count_fp)} / ${fp2(o.initial_count_fp)}</td>
+      <td class="num" data-testid="o-remaining">${fp2(o.remaining_count_fp)}</td><td class="num">${money(o.reserved_dollars)}</td><td class="num" data-testid="o-queue">${fp2(o.queue_position_fp)}</td>
+      <td class="faint">${relTime(o.created_time)}</td><td data-testid="o-expiry">${o.expiration_time ? countdown(o.expiration_time) : '<span class="faint">GTC</span>'}</td><td><span class="status-chip open">${esc(o.status)}</span></td>
+      <td class="row-actions"><button class="btn btn-sm" data-edit="${esc(o.order_id)}">Edit</button><button class="btn btn-sm" data-decrease="${esc(o.order_id)}">Decrease</button><button class="btn btn-sm" data-cancel="${esc(o.order_id)}">Cancel</button></td></tr>`;
+    p.innerHTML = `<div class="pf-sub"><strong><span data-testid="resting-count">${orders.length}</span> resting · ${money(held)} held</strong><button class="btn" data-testid="cancel-all">Cancel all</button></div>
+      <table class="table resting-table" data-testid="orders-table"><thead><tr><th>Outcome</th><th>Side</th><th class="num">Limit</th><th class="num">Filled / total</th><th class="num">Remaining</th><th class="num">Reserved</th><th class="num">Queue</th><th>Placed</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>
+      ${[...byEvent.entries()].map(([et, ev]) => `<tr class="group-row" data-event-group="${esc(et)}"><td colspan="11"><a href="${esc(ev.link)}" data-link>${esc(ev.title)}</a></td></tr>
+        ${[...ev.markets.entries()].map(([t, mk]) => `<tr class="group-row sub" data-market-group="${esc(t)}"><td colspan="11"><span>${esc(mk.outcome)} · ${mk.orders.length} order${mk.orders.length > 1 ? 's' : ''}</span> <button class="btn btn-sm btn-ghost" data-cancel-market="${esc(t)}">Cancel market</button></td></tr>${mk.orders.map(row).join('')}`).join('')}`).join('')}</tbody></table>`;
+    const byId = new Map(orders.map((o) => [o.order_id, o]));
+    const closeForms = () => p.querySelectorAll('.edit-row').forEach((r) => r.remove());
+    for (const b of p.querySelectorAll('[data-cancel]')) {
+      b.onclick = async () => { b.disabled = true; try { await api.cancelOrder(uid, b.dataset.cancel); toast('Order canceled'); } catch (e) { toast(e.message, 'error'); } refresh(); };
+    }
+    for (const b of p.querySelectorAll('[data-cancel-market]')) {
+      b.onclick = async () => { b.disabled = true; try { const r = await api.cancelAllOrders(uid, { market_ticker: b.dataset.cancelMarket }); toast(`Canceled ${r.canceled_count} order${r.canceled_count === 1 ? '' : 's'}`); } catch (e) { toast(e.message, 'error'); } refresh(); };
+    }
+    p.querySelector('[data-testid=cancel-all]').onclick = async () => {
+      if (!window.confirm(`Cancel all ${orders.length} resting orders?`)) return;
+      try { const r = await api.cancelAllOrders(uid); toast(`Canceled ${r.canceled_count} orders`); } catch (e) { toast(e.message, 'error'); }
+      refresh();
+    };
+    const formRow = (o, html) => { closeForms(); p.querySelector(`tr[data-order="${CSS.escape(o.order_id)}"]`).insertAdjacentHTML('afterend', `<tr class="edit-row" data-edit-row="${esc(o.order_id)}"><td colspan="11">${html}<div class="form-error" role="alert"></div></td></tr>`); return p.querySelector('.edit-row'); };
+    for (const b of p.querySelectorAll('[data-edit]')) {
+      b.onclick = () => {
+        const o = byId.get(b.dataset.edit);
+        const step = o.fractional_trading_enabled ? '0.01' : '1';
+        const r = formRow(o, `<form class="quote-form edit-form" data-edit-form="${esc(o.order_id)}"><label>Price (¢) <input name="price" type="number" min="1" max="99" step="1" value="${cents(o.user_price_dollars)}"></label>
+          <label>Total contracts <input name="count" type="number" min="${step}" step="${step}" value="${Number(o.initial_count_fp)}"></label>
+          <label>Expires <select name="exp"><option value="keep">${o.expiration_time ? 'Keep' : 'Never (GTC)'}</option><option value="never">Never</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label><input name="at" type="datetime-local" hidden aria-label="Expiry time">
+          <button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-ghost" type="button" data-close-edit>Close</button><span class="faint">Changing the price or adding size moves the order to the back of the queue.</span></form>`);
+        const f = r.querySelector('form'); const err = r.querySelector('.form-error');
+        f.exp.onchange = () => { f.at.hidden = f.exp.value !== 'custom'; };
+        r.querySelector('[data-close-edit]').onclick = closeForms;
+        f.onsubmit = async (e) => {
+          e.preventDefault(); err.textContent = '';
+          const price = Number(f.price.value); const count = Number(f.count.value);
+          if (!Number.isInteger(price) || price < 1 || price > 99) { err.textContent = 'Enter a price between 1¢ and 99¢.'; return; }
+          if (!validQty(count, o.fractional_trading_enabled) || count <= Number(o.fill_count_fp)) { err.textContent = `Total must be more than the ${fp2(o.fill_count_fp)} already filled${o.fractional_trading_enabled ? ' (up to 2 decimals)' : ' and a whole number'}.`; return; }
+          const body = { price, count_fp: count.toFixed(2) };
+          if (f.exp.value === 'never') body.expiration_time = null;
+          if (f.exp.value === 'eod') body.expiration_time = endOfDay();
+          if (f.exp.value === 'custom') { const t = Date.parse(f.at.value); if (!(t > Date.now())) { err.textContent = 'Pick an expiry time in the future.'; return; } body.expiration_time = new Date(t).toISOString(); }
+          try { const res = await api.amendOrder(uid, o.order_id, body); toast(`Order amended · ${res.queue_priority_kept ? 'queue position kept' : 'moved to the back of the queue'}`); refresh(); } catch (ex) { err.textContent = ex.message; }
+        };
+      };
+    }
+    for (const b of p.querySelectorAll('[data-decrease]')) {
+      b.onclick = () => {
+        const o = byId.get(b.dataset.decrease);
+        const step = o.fractional_trading_enabled ? '0.01' : '1';
+        const r = formRow(o, `<form class="quote-form" data-decrease-form="${esc(o.order_id)}"><label>Reduce remaining to <input name="to" type="number" min="0" step="${step}" value="${Math.max(0, Number(o.remaining_count_fp) - 1)}"></label><button class="btn btn-sm btn-primary" type="submit">Decrease</button><button class="btn btn-sm btn-ghost" type="button" data-close-edit>Close</button><span class="faint">Decreasing keeps your place in the queue.</span></form>`);
+        const f = r.querySelector('form'); const err = r.querySelector('.form-error');
+        r.querySelector('[data-close-edit]').onclick = closeForms;
+        f.onsubmit = async (e) => {
+          e.preventDefault(); err.textContent = '';
+          const to = Number(f.to.value);
+          if (!(f.to.value !== '' && to >= 0 && to < Number(o.remaining_count_fp) && (to === 0 || validQty(to, o.fractional_trading_enabled)))) { err.textContent = `Enter a size below ${fp2(o.remaining_count_fp)}${o.fractional_trading_enabled ? '' : ' (whole contracts)'}.`; return; }
+          try { await api.decreaseOrder(uid, o.order_id, { reduce_to: to.toFixed(2) }); toast(to ? 'Order decreased · queue position kept' : 'Order canceled'); refresh(); } catch (ex) { err.textContent = ex.message; }
+        };
+      };
+    }
+  }
+
   // ---------- RFQs (spec §17.6): yours vs other traders' ----------
-  const countdown = (iso, prefix = '') => `<span class="countdown" data-countdown="${esc(iso)}" data-prefix="${esc(prefix)}">${prefix}${secsLeft(iso)}s</span>`;
+  const fmtLeft = (n) => (n < 120 ? `${n}s` : n < 7200 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${Math.floor(n / 3600)}h ${Math.floor((n % 3600) / 60)}m`);
+  const countdown = (iso, prefix = '') => `<span class="countdown" data-countdown="${esc(iso)}" data-prefix="${esc(prefix)}">${prefix}${fmtLeft(secsLeft(iso))}</span>`;
   async function drawRfqs(p) {
     const r = await api.rfqs(rfqScope);
     const enabled = !!r.rfq_enabled;
@@ -296,7 +370,7 @@ export async function render({ el, navigate, query }) {
   // Countdowns tick locally; an expired countdown triggers a refetch (the server sweep owns the status).
   const iv = setInterval(() => {
     let due = false;
-    for (const c of el.querySelectorAll('[data-countdown]')) { const n = secsLeft(c.dataset.countdown); c.textContent = `${c.dataset.prefix || ''}${n}s`; if (n === 0) due = true; }
+    for (const c of el.querySelectorAll('[data-countdown]')) { const n = secsLeft(c.dataset.countdown); c.textContent = `${c.dataset.prefix || ''}${fmtLeft(n)}`; if (n === 0) due = true; }
     if (due) { clearTimeout(commsT); commsT = setTimeout(() => drawPanel().catch(() => {}), 900); }
   }, 1000);
   return () => { unsubs.forEach((u) => u()); clearInterval(iv); clearTimeout(commsT); };

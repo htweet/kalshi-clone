@@ -88,3 +88,13 @@ a.combo-btn { display: grid; place-items: center; text-decoration: none; }
 .hist-desc { font-size: 12px; margin-top: 2px; }
 .amt-pos { color: var(--yes); }
 .amt-neg { color: var(--text-x10); }
+
+/* Resting orders (spec §17.10) */
+.resting-table .group-row td { background: var(--fill-x30); font-weight: 650; }
+.resting-table .group-row.sub td { background: transparent; color: var(--text-x20); font-weight: 600; }
+.resting-table .group-row.sub .btn { margin-left: 8px; }
+.row-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
+.edit-form label, .quote-form label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--text-x20); }
+.edit-form select, .quote-form input[type=datetime-local] { height: 30px; border-radius: var(--rounded-x10); border: 1px solid var(--line); background: var(--surface-x10); color: var(--text-x10); padding: 0 6px; }
+.tkt-select select { flex: 1; text-align: right; border: 0; background: none; font-size: 17px; font-weight: 650; color: var(--text-x10); outline: none; min-width: 0; }
+.tkt-expiry-at { width: 100%; height: 44px; border-radius: var(--rounded-x20); border: 1px solid var(--line); background: var(--surface-x10); color: var(--text-x10); padding: 0 12px; margin-bottom: 6px; }

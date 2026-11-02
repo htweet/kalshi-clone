@@ -281,6 +281,8 @@ function migrate(db) {
   if (!oc.has('source')) db.exec("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
   // What the user asked for (History, spec §17.9): sells are stored as buys of the other side.
   if (!oc.has('action')) db.exec("ALTER TABLE orders ADD COLUMN action TEXT NOT NULL DEFAULT 'buy'");
+  if (!oc.has('expiration_ts')) db.exec('ALTER TABLE orders ADD COLUMN expiration_ts INTEGER'); // good-til-time (unix ms), NULL = GTC
+  if (!oc.has('cancel_reason')) db.exec('ALTER TABLE orders ADD COLUMN cancel_reason TEXT');
   if (!oc.has('order_type')) { db.exec("ALTER TABLE orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'limit'"); db.exec("UPDATE orders SET order_type='market' WHERE time_in_force='ioc'"); }
   // One-time switch of every event-contract quantity from whole contracts to hundredths ("units").
   if (!db.prepare('SELECT 1 FROM meta WHERE key=?').get(QTY_UNITS_KEY)) {
