@@ -5,6 +5,6 @@
 - `clone/`: **Parlance Exchange**, a functional equivalent built only from the spec. It has its own name, styling and invented data. See `clone/README.md`.
 
 ```bash
-cd clone && npm install && npm start      # http://localhost:3000
-npm run test:e2e                          # 12 end-to-end browser tests
+cd clone && npm install && npm start      # prints the URL (3000, or next free port)
+npm run test:e2e                          # 13 end-to-end browser tests
 ```

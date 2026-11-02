@@ -6,12 +6,14 @@ A functional binary event-contract exchange built only from `../CLONE_SPEC.md`. 
 
 ```bash
 npm install
-npm start            # http://127.0.0.1:3000  (DB at data/parlance.db, auto-seeded)
+npm start            # http://localhost:3000, or the next free port if 3000 is taken (DB at data/parlance.db, auto-seeded)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 12 end-to-end browser tests (Playwright + node:test)
+npm run test:e2e     # 13 end-to-end browser tests (Playwright + node:test)
 ```
 
 Seeded admin account: `admin@parlance.local` / `parlance-admin`. It can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page.
+
+Port: with `PORT` unset the server tries 3000-3019 and prints the URL it actually bound. With `PORT=8080 npm start` (PowerShell: `$env:PORT=8080; npm start`) it uses exactly that port and exits with a clear message if the port is busy.
 
 Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`. Requires Node ≥ 22.5 (`node:sqlite`).
 

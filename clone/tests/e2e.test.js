@@ -439,3 +439,38 @@ test('server restart: data and sessions persist; open page reconnects WS and res
   assert.deepEqual(page.errors, []);
   await page.context().close(); await pb.context().close();
 });
+
+test('port in use: auto-selects the next free port (CLI + browser); explicit PORT fails with a clear message', async () => {
+  const net = require('node:net');
+  const { spawn } = require('node:child_process');
+  const occupy = (p) => new Promise((res, rej) => { const s = net.createServer().once('error', rej).listen(p, '127.0.0.1', () => res(s)); });
+  const base = PORT + 200;
+  const blockers = [await occupy(base), await occupy(base + 1)];
+  const run = (env) => new Promise((resolve) => {
+    const child = spawn(process.execPath, ['--no-warnings', path.join(__dirname, '..', 'server', 'index.js')], { env: { ...process.env, ...env, DB_FILE: path.join(TMP, 'port.db') } });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; if (/listening on/.test(out)) resolve({ child, out }); });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('exit', (code) => resolve({ child, out, code }));
+  });
+  try {
+    // 1) Explicit busy PORT → exit 1 with guidance, no stack trace.
+    const bad = await run({ PORT: String(base) });
+    assert.equal(bad.code, 1);
+    assert.match(bad.out, new RegExp(`Port ${base} is already in use`));
+    assert.doesNotMatch(bad.out, /at Server\.|node:internal/);
+
+    // 2) Library default port busy (and the next one) → binds base+2 and the app works in a browser.
+    delete process.env.PORT;
+    const s = await start({ defaultPort: base, dbFile: path.join(TMP, 'port2.db') });
+    try {
+      assert.equal(s.port, base + 2);
+      const page = await newPage();
+      await page.goto(`http://127.0.0.1:${s.port}/`);
+      await page.waitForSelector('[data-testid=hero-title]');
+      await page.waitForFunction(() => /^\d+$/.test(document.getElementById('live-count').textContent));
+      assert.deepEqual(page.errors, []);
+      await page.context().close();
+    } finally { await s.close(); }
+  } finally { for (const b of blockers) b.close(); }
+});
