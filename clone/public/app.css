@@ -85,8 +85,9 @@
   --brand-x20: #0b2a1c;
   --on-brand: #0d0e11;
   --featured: #ff7a59;
-  --yes: #2fd18b;
-  --yes-x20: #10291e;
+  --yes: #22c3b5; /* teal: distinct from the green brand, 8.8:1 on the dark surface */
+  --on-yes: #0d0e11;
+  --yes-x20: #0a2b2a;
   --no: #ff5a6a;
   --no-x20: #33141a;
   --live: #ff4d5e;
@@ -111,8 +112,9 @@
   --brand-x20: #e2f3ea;
   --on-brand: #ffffff;
   --featured: #e8590c;
-  --yes: #0a875c;
-  --yes-x20: #e4f4ec;
+  --yes: #0b7285; /* teal: distinct from the green brand, 5.6:1 on white and under white text */
+  --on-yes: #ffffff;
+  --yes-x20: #e2f2f5;
   --no: #d72a43;
   --no-x20: #fbe8eb;
   --shadow-pop: 0 8px 28px rgba(15, 17, 22, .14), 0 1px 3px rgba(15, 17, 22, .08);
@@ -362,7 +364,7 @@ form.stat .btn { height: var(--control-sm); padding: 0 var(--space-3); font-size
 .yn { height: var(--control-sm); min-width: 56px; padding: 0 var(--space-2); border: 0; border-radius: var(--rounded-x10); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
 .yn.yes { background: var(--yes-x20); color: var(--yes); }
 .yn.no { background: var(--no-x20); color: var(--no); }
-.yn.yes:hover, .yn.yes.on { background: var(--yes); color: #fff; }
+.yn.yes:hover, .yn.yes.on { background: var(--yes); color: var(--on-yes); }
 .yn.no:hover, .yn.no.on { background: var(--no); color: #fff; }
 .yn[disabled] { opacity: .45; cursor: not-allowed; }
 .mcard-foot { display: flex; align-items: center; gap: var(--space-2); margin-top: auto; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-x20); font-variant-numeric: tabular-nums; }
@@ -493,7 +495,7 @@ svg.chart { width: 100%; height: 240px; display: block; overflow: visible; }
 .yes-btn, .no-btn { height: var(--control-lg); min-width: 152px; padding: 0 var(--space-3); border-radius: var(--rounded-pill); background: transparent; font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; transition: background-color .12s, color .12s; }
 .yes-btn { border: 1px solid color-mix(in srgb, var(--yes) 45%, var(--line)); color: var(--yes); }
 .no-btn { border: 1px solid color-mix(in srgb, var(--no) 45%, var(--line)); color: var(--no); }
-.yes-btn.on, .yes-btn:hover:not([disabled]) { background: var(--yes); color: var(--on-brand); }
+.yes-btn.on, .yes-btn:hover:not([disabled]) { background: var(--yes); color: var(--on-yes); }
 .no-btn.on, .no-btn:hover:not([disabled]) { background: var(--no); color: #fff; }
 .book { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); font-size: var(--fs-sm); line-height: var(--lh-sm); }
 .book h4 { margin: 0 0 var(--space-1h); font-size: var(--fs-xs); line-height: var(--lh-xs); text-transform: uppercase; letter-spacing: var(--ls-caps); }
@@ -524,11 +526,11 @@ svg.chart { width: 100%; height: 240px; display: block; overflow: visible; }
 .tkt-out h3 { font: inherit; margin: 0; }
 .side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin: var(--space-3) 0; }
 .side-toggle button { height: var(--control-md); border: 0; border-radius: var(--rounded-x20); background: var(--fill-x30); color: var(--text-x20); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
-.side-toggle button.on-yes { background: var(--yes); color: #fff; }
+.side-toggle button.on-yes { background: var(--yes); color: var(--on-yes); }
 .side-toggle button.on-no { background: var(--no); color: #fff; }
 .yn-toggle { display: inline-flex; gap: var(--space-1); padding: var(--space-1); border-radius: var(--rounded-pill); background: var(--fill-x40); }
 .yn-toggle button { height: var(--control-md); min-width: 112px; border: 0; border-radius: var(--rounded-pill); background: none; color: var(--text-x10); font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-bold); letter-spacing: var(--ls-caps); font-variant-numeric: tabular-nums; }
-.yn-toggle button.on-yes { background: var(--yes); color: var(--on-brand); }
+.yn-toggle button.on-yes { background: var(--yes); color: var(--on-yes); }
 .yn-toggle button.on-no { background: var(--no); color: #fff; }
 .tkt-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin: var(--space-3) 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--text-x20); }
 .tkt-row strong { color: var(--text-x10); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }

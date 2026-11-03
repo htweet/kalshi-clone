@@ -335,3 +335,24 @@ test('brand colour: Nigerian green in both themes (wordmark, primary button, out
     assert.doesNotMatch(fs.readFileSync(path.join(PUBLIC, f), 'utf8'), /#8f7fff|#5a48f0|#4b3fe0|#221d4a|#ecebfd/i, `${f}: no purple brand values`);
   }
 });
+
+test('YES colour: teal in both themes, distinct from the green brand, readable text on YES fills', async () => {
+  const lum = (rgb) => { const c = rgb.match(/\d+/g).slice(0, 3).map((v) => Number(v) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const want = { dark: { yes: '#22c3b5', fill: 'rgb(34, 195, 181)' }, light: { yes: '#0b7285', fill: 'rgb(11, 114, 133)' } };
+  for (const theme of ['dark', 'light']) {
+    const page = await page0(VIEWPORTS.desk, theme);
+    await go(page, EVENT_URL, '#ticket .side-toggle button.on-yes');
+    const c = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      const b = getComputedStyle(document.querySelector('#ticket .side-toggle button.on-yes'));
+      return { yes: root.getPropertyValue('--yes').trim(), brand: root.getPropertyValue('--brand').trim(), bg: b.backgroundColor, fg: b.color };
+    });
+    assert.equal(c.yes, want[theme].yes, `${theme}: --yes token`);
+    assert.notEqual(c.yes, c.brand, `${theme}: YES differs from the brand`);
+    assert.equal(c.bg, want[theme].fill, `${theme}: YES toggle fill`);
+    assert.ok(ratio(c.bg, c.fg) >= 4.5, `${theme}: text on the YES fill has at least 4.5:1 contrast (${ratio(c.bg, c.fg).toFixed(2)})`);
+    await clean(page, `yes ${theme}`);
+    await page.context().close();
+  }
+});

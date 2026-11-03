@@ -398,7 +398,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §26 payments, sandbox only: observed funds routes (cards, bank link, crypto, deposits/withdrawals, withdrawal_times, metadata, credit_history), card tokenizer (no PAN stored), ACH pending → settled / returns, crypto confirmations, signed webhooks with replay protection, double-entry journal + audit, reconciliation queue, limits, AML hooks, holds, withdrawal 2FA, non-withdrawable credits, Admin › Payments | yes (sandbox) | tests `payments`; UI is a Parlance design (screens not observed) |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 197 Playwright scenarios across 24 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 198 Playwright scenarios across 24 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -3232,6 +3232,7 @@ Values the screenshots do not give (sizes, weights, spacing, control heights) ar
 - Header nav 13px semibold uppercase with 0.06em tracking; category strip 14px medium.
 - Market-card titles 16px semibold; other sizes as listed in §27.2.
 - Brand colour: Nigerian green. Light theme `#008751` (the flag green, 4.6:1 on white); dark theme `#13a866`, the same hue lifted to 6.3:1 on the dark surface. Avatar, category and outcome palettes are data colours and unchanged. Enforced by the brand-colour scenario in `tests/visual-system.e2e.test.js`.
+- YES colour: teal, so it never reads as the brand. Dark `#22c3b5` (8.8:1 on the surface), light `#0b7285` (5.6:1 on white and under white text); text on YES fills uses `--on-yes`. NO stays red. Enforced by the YES-colour scenario.
 
 ---
 
