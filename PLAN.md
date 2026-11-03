@@ -221,8 +221,8 @@ The project is complete only when **all** of the following hold:
 |---|---|
 | 0 Stabilise | ✅ done; CI green on `main` (tests, lint, audit, gitleaks, CodeQL, ZAP). Owner action: enable branch protection on `main` requiring the CI checks |
 | 1 Security foundation | ✅ done (spec §21–23; 140 E2E tests). Residual risks tracked in §21.11/§22 and §10 below |
-| 2 Social completion | in progress (branch `phase-2-3`): post extras, stickers, follows, badges, notification prefs, G3, G8, G10 |
-| 3 Identity & compliance | in progress (branch `phase-2-3`): onboarding per §13.14, PII protection, phone codes, OAuth, passkeys, KYC sandbox, geo, fraud, export/closure, RS2/3/6/9/10 |
+| 2 Social completion | paused by the user (partial work kept on `phase-2-3-stopped-wip`, not merged); scope now includes §11 A6 notifications, A11 |
+| 3 Identity & compliance | paused by the user (partial work kept on `phase-2-3-stopped-wip`, not merged); scope now includes §11 A1–A6, A12 |
 | 4 Payments (sandbox) | pending |
 | 5 Markets & content | pending |
 | 6 Perps completion | pending |
@@ -246,3 +246,28 @@ The project is complete only when **all** of the following hold:
 | RS9 | Admin module answers `account_locked` before password check (account-existence signal) | 3 |
 | RS10 | Background polling keeps sessions from idling out; count only user-initiated activity | 3 |
 | RS11 | ZAP baseline first runs in CI (needs Docker); triage its findings | 0/CI |
+
+## 11. Scope added from the 2026-11-03 logged-in screenshots and captures (spec §13.15–§13.19)
+
+Every item below is part of "100% complete" (§8) and is assigned to a phase.
+
+| ID | Item (evidence) | Phase |
+|---|---|---|
+| A1 | Document verification: intro "Let's get you verified", cross-device **QR handoff** (locally generated single-use, short-lived, session-bound URL), phone capture of ID front/back + selfie, desktop "Stay on this page / Uploading your documents… / Exit identity verification", encrypted uploads, same-device fallback (§13.15) | 3 |
+| A2 | Lock passkeys, sign-in methods and API keys until KYC is approved, plus step-up; same 403 envelope (§13.19) | 3 |
+| A3 | Account area frame `/account/*` with the right-hand card nav (Account & security · Your activity · Documents · Settings); ☰ menu (Leaderboard, Rewards, Account & security, Your activity, Invest, Liquidity Rewards, Documents, API Docs, Settings, Trust ▾, Research ▾, Support ▾, Enter promo code, Log out); trophy icon; category-index icon (§13.16) | 3 |
+| A4 | Your activity: chips All/Deposit/Withdrawal/Order/Trade/Settlement/Credit, CSV download, empty state (backed by History) (§13.16) | 3 |
+| A5 | Documents (`/account/taxes`): yearly P&L with/without fees, transactions download, simulated tax-form statements per year, "not tax advice" (§13.16) | 3 |
+| A6 | Settings, in observed order: display mode (Payout and odds / Shares and prices) with live preview card; Connected apps (OAuth grants list/revoke); full **notification matrix** (General, Predictions, Sports, Social incl. Inner Circle and Group chats, Promotional) × In-app/Email/Push; marketing-text opt-in with SMS disclosure and recorded consent (timestamp, text version); security-notifications toggle; Theme System/Light/Dark + Accessible colors (red-green safe palette); Trade mechanics (Flip sell, Auto-sell prompt after buy, Skip order review, Collateral return, RFQ opt-in with terms, Advanced shard settings); Market preview price type (Last traded / Current buy) (§13.16) | 2 (notifications), 3 (frame, display, theme, consent), 5 (trade mechanics) |
+| A7 | **Order review step** before placing (skippable via setting) and **auto-sell prompt** after a fill (§13.16) | 5 |
+| A8 | **Flip sell** (selling more than held buys the other side) (§13.16) | 5 |
+| A9 | **Collateral return** for hedged positions: release collateral early on mutually exclusive events (`collateral_return_type: MECNET`) (§13.13, §13.16) | 5 |
+| A10 | **Exchange shards** and balance transfers between shards (`exchange_shard`, "Advanced shard settings") (§13.16) | 9 (with multi-instance architecture) |
+| A11 | Social: **Inner Circle** (request/accept close-friends circle), **Group chats**, Position alerts, Likes/comments/follows notifications, Leaderboard push (§13.16) | 2 |
+| A12 | **Rewards**: new-user checklist (4 steps), referrals (code, offer, eligibility progress, lifetime cap, pending/completed/expired), promotions with progress (e.g. Perps new-user trade incentive), **promo-code entry** (§13.19) | 8 (referrals), 3 (checklist, promo codes) |
+| A13 | **Liquidity Incentive Program** (`/incentives`): programs per event with start/end, competition level, reward pool, Active/Upcoming tabs, monthly and lifetime rewards, region gating, terms; reward accrual per the public incentives docs (§13.17) | 5 |
+| A14 | Perps access: **waitlist / beta gate** (join, share, application, unlock), personalised ticker ranking, credit long/short leverage estimates, daily volatility, liquidation mark price, sparkline API, index feeds (§13.19) | 6 |
+| A15 | Hub data widgets (Senate map, Fed funds outlook) and event-level forecast history (§13.19) | 5 |
+| A16 | **Developer portal** structure: Welcome · Quick Start · Concepts · Predictions APIs · Perps APIs · Changelog; search; Developer Agreement; REST + WebSocket + **FIX** for both products (§13.18) | 7 |
+| A17 | **FIX gateway** (simulated FIX 4.4/5.0SP2 subset): logon/session with API-key auth, order entry, order groups, market data, RFQ, **drop copy**; documented per the public FIX pages | 7 |
+| A18 | Site footer (Product / Company / Help columns, social links) and help-centre pages (Trust, Research, Support, Fee schedule, FAQ) (§13.16) | 8 |

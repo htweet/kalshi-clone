@@ -32,6 +32,8 @@ Every requirement carries a bracketed evidence tag. Tags resolve as follows.
 | `CHK` | Capture of the live site refusing automated access | `evidence/checkpoint.net.json` |
 | `SHOT3:<page>` | User-supplied screenshots of the live site on 2026-11-02 (logged out, dark theme, ~1700px wide): `home`, `home-scroll`, `event-multi` (`/markets/kxnextpressecperm/…`), `event-related`, `event-social`, `live` (`/calendar`), `browse` (`/browse`), `event-h2h` (`/markets/controls/senate-winner/controls-2026`), `event-series`. Described here; not redistributed (they contain third-party branding and photos). | session uploads |
 | `JS26:<chunk>:"<string>"` | Literal strings in the **current** build's JS chunks (`/_next/static/immutable/chunks/*.js`, build `v3-3LP8JYaUgMIitMhWMD`), fetched from the static CDN path, which is not behind the bot checkpoint | REA Evidence `ev_46583010dbc420327910cd6a4dfbcc1a0afb77b26bd38f151c3e667359fbd39c` (97-file inventory; the route view of the selected chunk returned no routes, so citations are string-level) |
+| `HAR5#n` | **Logged-in** user-supplied HAR, 2026-11-03 12:21–12:22 UTC (Perps, categories, Browse, Incentives, Account › Taxes/Profile, Leaderboard, sign-up resume). | `evidence/web_loggedin2_2026-11-03.har` (95 first-party entries, sha256 `56e9d5f5…`); `{user_id}` substituted; private responses reduced to key shapes; page/RSC bodies removed; token/tracking header values removed |
+| `SHOT5:<page>` | User-supplied logged-in screenshots, 2026-11-03: `kyc-intro`, `kyc-qr`, `menu`, `activity`, `lip` (Liquidity Incentive Program), `documents`, `api-docs`, `settings-1…7` (`/account/settings`). Described structurally only; **not stored** (the QR code encodes a live verification session). | session uploads |
 | `SHOT4:<step>` | User-supplied screenshots of the logged-in **identity-verification onboarding**, 2026-11-03: `phone-code`, `name`, `birthday`, `address`, `verifying`. Described structurally only; **not stored** (they contain personal data). | session uploads |
 | `HAR4#n` | **Logged-in** user-supplied DevTools HAR, 2026-11-03 10:43 UTC, 13 first-party requests on market pages (no portfolio/account calls). *n* = original entry ordinal. | `evidence/web_loggedin_2026-11-03.har` (sha256 `d2fd690b…`); account user id replaced with `{user_id}`; CSRF/WAF/tracking header **values** removed (names kept in `_present_security_headers`); telemetry POST body removed; Datadog entries dropped |
 | `HAR3#n` | **Live site, 2026-11-02**, user-supplied DevTools HAR from a logged-out Chrome 155 session (market page, Browse, Calendar and Social prefetches). *n* is the entry ordinal in the original 286-entry capture. | `evidence/web_live_2026-11-02.har` (98 first-party entries; identifying headers and third-party trackers removed; sha256 `9e28ea83…d008`; each entry keeps `_original_index`; REA Evidence `ev_124ab23da6a5c10eab2448adc93cdab46d09a4d5dee60e0506d223c45acdf04a`, summary view `ev_dec18c6c…1509`, 98/98 records decoded) |
@@ -543,6 +545,105 @@ This is the multi-step flow a signed-in user goes through before trading. It con
   - Rule: "use the same address as on your state ID or driver's license, not a business or PO box".
 - **Verification [SHOT4:verifying].** A centred spinner around the wordmark with "Verifying info…" while the identity check runs. The outcome screens (pass, manual review, fail) were not captured and are UNKNOWN.
 - **Clone mapping.** Phase 3 (P3.1, P3.2, P3.5) in `PLAN.md`. The identity provider is a sandbox adapter, and no real identity checks are run.
+
+### 13.15 Document verification (OBSERVED SHOT5:kyc-intro, kyc-qr)
+
+This step follows §13.14, on the third progress-bar segment.
+- **Intro screen:**
+  - "Let's get you verified", "It will only take 2 minutes".
+  - "What you will need:" with line-art icons for "Government Issued ID" and "Smartphone".
+  - A "Get started" button, and a "powered by <third-party verification vendor>" footer.
+- **"Continue on your phone":** "Here's how you do it: Scan the QR code below with your phone's camera" above a QR code. This is a cross-device handoff: document and selfie capture happen on the phone, inside the vendor's flow.
+- **Desktop waiting screen [SHOT5:kyc-wait]:** "Stay on this page" / "Check back here to complete verification". An animated ID-and-face scanning illustration. Status text "Uploading your documents…". The vendor footer. An ✕ close button top-right, and a pill button "**Exit identity verification**".
+- **Clone:** our own sandbox "Parlance Verify". The QR code is generated locally and encodes a single-use, short-lived, session-bound handoff URL. The phone captures the ID front, back and a selfie. Uploads are encrypted at rest and never publicly addressable. A same-device upload fallback is included for accessibility.
+
+### 13.16 Account area (OBSERVED SHOT5:menu, activity, documents, settings-*)
+
+- **Header (signed in):**
+  - A trophy icon (leaderboard) and a ☰ menu.
+  - A list icon at the start of the category strip opens a category index.
+- **☰ menu:**
+  - Two round icon buttons: **Leaderboard** and **Rewards**.
+  - Items: Account & security, Your activity, Invest, Liquidity Rewards, Documents, API Docs, Settings.
+  - Collapsible groups: **Trust ▾**, **Research ▾**, **Kalshi support ▾**.
+  - Then "Enter promo code" and "Log out".
+- **`/account/*` layout:** content on the left. A right-hand card nav with icons: **Account & security · Your activity · Documents · Settings**.
+- **Your activity:**
+  - A condensed title with a ⤓ download icon.
+  - Filter chips: **All · Deposit · Withdrawal · Order · Trade · Settlement · Credit**.
+  - Empty state: an ⃠ icon with "No activity with these filters".
+- **Documents:**
+  - An explanatory paragraph: realized P&L per year, including fees and credits/rebates, updated monthly, not tax advice. A link to a help-centre taxes page.
+  - A table: **Year · PnL with fees · PnL without fees · Transactions ⤓**.
+  - An explanation of yearly tax forms (interest, credits/rewards, digital-asset reporting by the crypto partner).
+  - Per-year form chips, e.g. "2024: 1099-INT · 1099-MISC".
+  - **Clone:** simulated statements, clearly marked "not tax advice".
+- **Settings, in page order:**
+  1. **"Browse and manage markets by"**: ◉ Payout and odds / ○ Shares and prices, with a live market-card preview (multiplier and % pill vs share prices).
+  2. **Connected apps**: "Manage applications you have authorized to access your Kalshi account" (OAuth grants list).
+  3. **Notifications ⓘ**: collapsible groups, each type with channel pills **In-app · Email · Push** (filled = on). Only some channels are offered per type.
+     - **General:** Transfers (Email, Push); Referral rewards; Referral activity; Market rewards.
+     - **Predictions:** Price movement; Market settlement (Email, Push); Order auto-cancellation ⌄; Taker-side trade confirmation ⌄; Maker-side trade confirmation ⌄.
+     - **Sports:** Major events ⌄.
+     - **Social:** Post alerts, Trade alerts, Position alerts, Likes comments & follows, **Inner Circle requests**, **Inner Circle accepted**, **Group chats** (all In-app, Push); Leaderboard (Push only).
+     - **Promotional:** Breaking events, New markets, Politics (In-app, Email, Push); Crypto, Commodities (In-app, Push).
+  4. **Marketing text messages**: an opt-in status line, an **SMS marketing disclosure**, a consent checkbox, and "Opt in to marketing texts" / "No thanks". The disclosure covers: consent to automated marketing, security, verification and two-factor texts; consent not a condition of purchase; message frequency and rates; STOP/HELP.
+  5. **Security notifications**: a toggle, "Notifications for all sensitive actions on your account".
+  6. **Theme**: ◉ System (match device) / Light / Dark. **Accessible colors** toggle, "Best for red-green color blindness".
+  7. **Trade mechanics**, all toggles:
+     - **Flip sell**: sell more shares than you own to buy the other side.
+     - **Auto-sell prompt after buy**: after a fill, offer an automatic sell target.
+     - **Skip order review**: place immediately unless a warning or required step needs acknowledgement. This implies an **order review step** by default.
+     - **Collateral return**: cash back early for hedged positions; ties to `collateral_return_type:"MECNET"` [HAR4].
+     - **Create and respond to "Request for quotes"**: the RFQ opt-in, with a link to the terms.
+     - **Advanced shard settings ›**: balance management and **exchange shard transfers**; ties to `exchange_shard` [HAR3/HAR4].
+  8. **Market preview price type**: ◉ Last traded price / ○ Current buy price (best Yes/No prices on home and portfolio).
+- **Footer:** wordmark and social icons. Columns **PRODUCT** (Pro, Invest, Markets…), **COMPANY** (About, Research, Blog…), **HELP** (Help Center, FAQ, Fee schedule…).
+
+### 13.17 Liquidity Incentive Program (OBSERVED SHOT5:lip; DOC `api-reference/incentive-programs/get-incentives`)
+
+- **Left nav** "PREDICTIONS": All plus categories.
+- **Header:** title with a dotted "Terms" link.
+- **Region banner:** e.g. "Incentive programs are not available in your region".
+- **Stats:** the current month's rewards ("Nov 2026 $0") and "Lifetime rewards $0" with a ⟲ history icon.
+- **Tabs:** **ACTIVE · UPCOMING**, with "Search title or ticker".
+- **Table:** **Market** (event title · subtitle, "N markets ⌄" expander) · **Start** · **End** (with time zone) · **Competition** (Low/High) · **Reward ↓** (dollar pool, sortable).
+- **UNKNOWN:** how rewards accrue (presumably resting liquidity near the mid). Check the public incentives docs before building.
+
+### 13.18 Developer documentation portal (OBSERVED SHOT5:api-docs; DOC `llms.txt`)
+
+- **Header:** wordmark + "API Docs", a search box (Ctrl K) and a theme toggle.
+- **Tabs:** **Welcome · Quick Start · Concepts · Predictions APIs · Perps APIs · Changelog**.
+- **Hero:** "Welcome to … API Documentation", covering the Exchange API for real-time market data and trade execution, with a **Developer Agreement** link.
+- **"The APIs" cards:** **Predictions APIs** (event contracts: REST, WebSocket and **FIX**) and **Perps APIs** (perpetual futures: REST, WebSocket and FIX). Then a "Get started" grid.
+- **FIX documentation** covers connectivity, authentication and sessions, order entry, order groups, market data, RFQ and drop copy.
+
+### 13.19 Logged-in account, rewards and Perps data (OBSERVED HAR5)
+
+- **Routes [HAR5 RSC trees and titles]:**
+  - `/incentives` ("Liquidity Incentive Program")
+  - `/account/taxes` (the Documents page)
+  - `/account/profile`
+  - `/social/leaderboard`
+  - `/perps` (client components `PerpsListClient`, `PerpsRouteShown`) and `/perps/{ticker}` (e.g. `kxbtcperp`, `kxgoldperp`, `kxustech100perp`)
+  - `/category/{commodities|economics|financials|mentions|science}`
+  - `/sign-up` (onboarding resume)
+- **Security-sensitive account endpoints are locked mid-verification.** `GET /v1/users/{user_id}/passkeys`, `/sign_in_methods` and `/api_keys` return **403** `{"error":{"code":"permission_denied","message":"You do not have permission to perform this action","details":"Please make sure you are logged in with the correct account. Contact support if you believe this is an error.","support_action":"support_chat"}}`. The account had not finished identity verification (§13.15).
+  - INFERRED: these features require completed verification and/or a fresh step-up.
+  - Clone design choice: lock them until KYC is approved, and require step-up.
+- **Rewards:**
+  - `GET /v1/rewards/new_user_checklist` → `{variant, steps:[{step,status}]×4, revamp_enabled}`.
+  - `GET /v1/rewards/referrals/summary` → `{referrer:{referral_code, blocked, address_book_eligible, predictions:{eligible, eligibility_status, total_earned_cents/_dollars, total_credited_referrals, pending, pending_count, completed_count, expired_count, lifetime_cap{amount_cents, number_of_referrals}, current_offer{reward_type, referrer, referee}, referrals[], eligibility_progress{amount_traded_cents, threshold_cents…}}}}`.
+  - `GET /v1/users/{user_id}/promotions/perps_new_user_trade_incentive/progress` → `{active, amount_traded_cents, in_progress_tier_key, has_traded_perps}`.
+- **Perps access:**
+  - `GET /v1/users/{user_id}/margin_waitlist` → `{has_joined, x_share_completed, fcm_application_completed, beta_unlocked, can_start_onboarding}`. This is a waitlist and beta gate; the user shares on X and completes an FCM (futures commission merchant) application.
+  - `POST /v1/personalization/rank_margin_tickers` → `{market_ids[8]}`: a personalised Perps ordering.
+- **Perps market detail:** `GET /v1/margin/markets/{ticker}` adds `credit_long/short_leverage_estimates`, `long/short_leverage_estimates` by notional, `daily_volatility_bps`, `liquidation_mark_price{price, ts_ms}`, `fractional_trading_enabled`, `bid`/`ask`, `contract_size`. Index feeds come from a CDN (`/NDX`, `/NDX-Hour`, `-Day`, `-Last`). There is a sparkline API at `/api-app/perps/sparkline/{ticker}`.
+- **Incentives:** `GET /v1/incentive_programs/?page_size&status&type` → `{incentive_programs:[…]}` (empty in this region; matches the region banner in §13.17).
+- **Other:**
+  - `/api-app/midterms/senate-map` and `/api-app/fed-funds/outlook`: data widgets for featured hubs.
+  - `GET /v1/series/{s}/events/{e}/forecast_history`: event-level forecast series.
+  - `GET /v1/live_data/batch?milestone_ids=` → `{live_datas:[{type, details}]}` (§19).
 
 ## 14. Perpetual futures ("Perps")
 
