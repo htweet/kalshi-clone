@@ -23,8 +23,8 @@ export async function render({ el, params, query }) {
   el.innerHTML = `<div class="sports-hub" data-testid="sports-hub" data-league="${esc(league)}" data-sport="${esc(sport)}">
     <div class="sb-hub-head"><div><div class="overline">Live scores</div><h1 class="page-title" data-testid="hub-title">${lg ? sportIcon(lg.sport, 28) + ' ' : ''}${esc(title)}</h1></div>
       <a class="btn btn-pill" href="/live" data-link>Live markets</a></div>
-    <nav class="sb-tabs" data-testid="league-tabs" aria-label="Leagues"><a href="/sports" data-link class="${!league && !sport ? 'on' : ''}">${sportIcon('all', 16)}All</a>${nav.leagues.map((l) => `<a href="/sports/${l.id.toLowerCase()}" data-link data-league="${esc(l.id)}" class="${l.id === league ? 'on' : ''}">${sportIcon(l.sport, 16)}${esc(l.short_name)}${l.live_count ? `<span class="sb-tab-live" data-testid="tab-live-count">${l.live_count}</span>` : ''}</a>`).join('')}</nav>
-    ${league ? '' : `<div class="chips sb-chips" data-testid="sport-chips"><a class="chip ${!sport ? 'on' : ''}" href="/sports" data-link>All sports</a>${nav.sports.map((s) => `<a class="chip ${s.sport === sport ? 'on' : ''}" href="/sports?sport=${s.sport}" data-link data-sport="${s.sport}">${sportIcon(s.sport, 14)}${esc(s.label)} <span class="n">${s.count}</span></a>`).join('')}</div>`}
+    <nav class="sb-tabs" data-testid="league-tabs" aria-label="Leagues"><a href="/sports" data-link class="${!league && !sport ? 'on' : ''}">${sportIcon('all', 16)}All</a>${nav.leagues.map((l) => `<a href="/sports/${esc(l.id.toLowerCase())}" data-link data-league="${esc(l.id)}" class="${l.id === league ? 'on' : ''}">${sportIcon(l.sport, 16)}${esc(l.short_name)}${l.live_count ? `<span class="sb-tab-live" data-testid="tab-live-count">${esc(l.live_count)}</span>` : ''}</a>`).join('')}</nav>
+    ${league ? '' : `<div class="chips sb-chips" data-testid="sport-chips"><a class="chip ${!sport ? 'on' : ''}" href="/sports" data-link>All sports</a>${nav.sports.map((s) => `<a class="chip ${s.sport === sport ? 'on' : ''}" href="/sports?sport=${esc(s.sport)}" data-link data-sport="${esc(s.sport)}">${sportIcon(s.sport, 14)}${esc(s.label)} <span class="n">${esc(s.count)}</span></a>`).join('')}</div>`}
     <div id="hub-body"></div></div>`;
   const body = el.querySelector('#hub-body');
   let gen = 0;
@@ -33,8 +33,8 @@ export async function render({ el, params, query }) {
     let feed;
     try { feed = await get(`/v1/live_data/feed${qs({ league, sport })}`); } catch (e) { if (my === gen) body.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
     if (my !== gen || !body.isConnected) return;
-    const sec = (key, name, items, empty) => `<section class="sb-section" data-testid="hub-${key}"><h2 class="sb-h">${name} <span class="n">${items.length}</span></h2>
-      ${items.length ? `<div class="grid sb-grid">${items.map(gameCard).join('')}</div>` : `<div class="card empty faint">${empty}</div>`}</section>`;
+    const sec = (key, name, items, empty) => `<section class="sb-section" data-testid="hub-${esc(key)}"><h2 class="sb-h">${esc(name)} <span class="n">${items.length}</span></h2>
+      ${items.length ? `<div class="grid sb-grid">${items.map(gameCard).join('')}</div>` : `<div class="card empty faint">${esc(empty)}</div>`}</section>`;
     body.innerHTML = sec('live', 'Live now', feed.live, 'No games are live right now.') + sec('upcoming', 'Upcoming', feed.upcoming, 'Nothing scheduled.') + sec('results', 'Results', feed.results, 'No results yet.');
   }
   await draw();
@@ -114,13 +114,13 @@ export async function drawSportsNav(root, query) {
   try { r = await get('/v1/sports/leagues'); } catch { if (fb) fb.innerHTML = '<a href="/category/sports" data-link>Sports</a>'; return; } // sports engine off
   if (!root.isConnected) return;
   const base = location.pathname;
-  const n = (x) => (x.live_count ? `<span class="n"><span class="sb-live-n">${x.live_count} live</span></span>` : `<span class="n">${x.count}</span>`);
-  if (fb) fb.innerHTML = r.featured.map((l) => `<a href="${base}?league=${l.id}" data-link data-league="${esc(l.id)}" class="sb-feat ${l.id === league ? 'on' : ''}" data-testid="featured-league"><span class="sb-feat-name">${sportIcon(l.sport)}${esc(l.short_name)}</span>${n(l)}</a>`).join('');
+  const n = (x) => (x.live_count ? `<span class="n"><span class="sb-live-n">${esc(x.live_count)} live</span></span>` : `<span class="n">${esc(x.count)}</span>`);
+  if (fb) fb.innerHTML = r.featured.map((l) => `<a href="${esc(base)}?league=${esc(l.id)}" data-link data-league="${esc(l.id)}" class="sb-feat ${l.id === league ? 'on' : ''}" data-testid="featured-league"><span class="sb-feat-name">${sportIcon(l.sport)}${esc(l.short_name)}</span>${n(l)}</a>`).join('');
   if (tb) {
-    tb.innerHTML = `<div class="overline sb-tree-head">Sports</div>${r.sports.map((s) => `<details class="sb-tree" data-sport="${s.sport}" data-testid="sport-group" ${s.sport === sport || s.leagues.some((l) => l.id === league) ? 'open' : ''}>
-      <summary><span class="sb-feat-name">${sportIcon(s.sport)}<span data-testid="sport-count">${esc(s.label)} (${s.count})</span></span>${s.live_count ? `<span class="sb-live-n">${s.live_count} live</span>` : ''}</summary>
-      <a href="${base}?sport=${s.sport}" data-link class="${s.sport === sport && !league ? 'on' : ''}">All ${esc(s.label)}</a>
-      ${s.leagues.map((l) => `<a href="${base}?league=${l.id}" data-link data-league="${esc(l.id)}" class="${l.id === league ? 'on' : ''}"><span>${esc(l.name)}</span>${n(l)}</a>`).join('')}</details>`).join('')}
-      ${league || sport ? `<a href="${base}" data-link class="sb-clear" data-testid="sports-clear">Clear sports filter</a>` : ''}<a href="/sports" data-link class="sb-hub-link">All scores ›</a>`;
+    tb.innerHTML = `<div class="overline sb-tree-head">Sports</div>${r.sports.map((s) => `<details class="sb-tree" data-sport="${esc(s.sport)}" data-testid="sport-group" ${s.sport === sport || s.leagues.some((l) => l.id === league) ? 'open' : ''}>
+      <summary><span class="sb-feat-name">${sportIcon(s.sport)}<span data-testid="sport-count">${esc(s.label)} (${esc(s.count)})</span></span>${s.live_count ? `<span class="sb-live-n">${esc(s.live_count)} live</span>` : ''}</summary>
+      <a href="${esc(base)}?sport=${esc(s.sport)}" data-link class="${s.sport === sport && !league ? 'on' : ''}">All ${esc(s.label)}</a>
+      ${s.leagues.map((l) => `<a href="${esc(base)}?league=${esc(l.id)}" data-link data-league="${esc(l.id)}" class="${l.id === league ? 'on' : ''}"><span>${esc(l.name)}</span>${n(l)}</a>`).join('')}</details>`).join('')}
+      ${league || sport ? `<a href="${esc(base)}" data-link class="sb-clear" data-testid="sports-clear">Clear sports filter</a>` : ''}<a href="/sports" data-link class="sb-hub-link">All scores ›</a>`;
   }
 }

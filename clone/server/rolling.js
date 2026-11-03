@@ -9,8 +9,15 @@ const iso = (ms) => new Date(ms).toISOString();
 const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').slice(2, 15); // yyMMddTHHmmss
 
 function mountRolling({ v1, db, engine, windowSec = 900 }) {
-  const W = Math.max(5, Number(windowSec) || 900) * 1000;
-  const label = W % 60000 === 0 ? `${W / 60000} min` : `${W / 1000} sec`;
+  // Window length is editable at runtime (Admin › Settings, gap G7): windows already open keep their stored end time; the
+  // next window opens on the new grid.
+  let W; let label;
+  function setWindowSec(sec) {
+    W = Math.max(5, Number(sec) || 900) * 1000;
+    label = W % 60000 === 0 ? `${W / 60000} min` : `${W / 1000} sec`;
+    return W / 1000;
+  }
+  setWindowSec(windowSec);
   db.exec('CREATE TABLE IF NOT EXISTS flash_prices (ts INTEGER PRIMARY KEY, price_cents INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS flash_windows (event_ticker TEXT PRIMARY KEY, market_ticker TEXT NOT NULL, start_ts INTEGER NOT NULL, end_ts INTEGER NOT NULL, target_cents INTEGER NOT NULL, close_cents INTEGER, result TEXT)');
   if (!db.prepare('SELECT 1 FROM series WHERE ticker=?').get(SERIES)) {
@@ -89,7 +96,7 @@ function mountRolling({ v1, db, engine, windowSec = 900 }) {
   v1.get('/rolling/determined', (req, res) => {
     res.json({ windows: db.prepare('SELECT * FROM flash_windows WHERE result IS NOT NULL ORDER BY end_ts DESC LIMIT 5').all().map(windowVo) });
   });
-  return { tick };
+  return { tick, setWindowSec, windowSec: () => W / 1000 };
 }
 
 module.exports = { mountRolling, SERIES };

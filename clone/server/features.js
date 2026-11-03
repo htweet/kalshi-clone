@@ -3,7 +3,7 @@
 // account limits, two-factor login, calendar feed, categories with subcategories, social trades.
 const crypto = require('node:crypto');
 const { tx } = require('./db');
-const { nowIso, newId, token, dollars, ufp, ustr, E, ApiError, encCursor, decCursor } = require('./util');
+const { nowIso, newId, dollars, ufp, ustr, E, ApiError, encCursor, decCursor } = require('./util');
 
 // Category navigation (spec §13.3; names follow the observed top-level set, subcategories come from series tags).
 const CATEGORIES = ['Politics', 'Sports', 'Elections', 'Crypto', 'Climate and Weather', 'Economics', 'Entertainment', 'Companies', 'Financials', 'Science and Technology'];
@@ -39,7 +39,7 @@ const verifyTotp = (secret, code) => /^\d{6}$/.test(String(code || '')) && [-1, 
 const dayKey = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10); // design choice: UTC day
 const dayStartMs = (ms = Date.now()) => Date.parse(dayKey(ms) + 'T00:00:00Z');
 
-function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, startSession, publicUser }) {
+function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   // ======================= notifications =======================
   const notifVo = (n) => ({ id: n.id, type: n.type, title: n.title, body: n.body, link: n.link, read: !!n.read_at, created_time: new Date(n.created_ts).toISOString() });
   function notify(userId, { type, title, body = '', link = '' }) {
@@ -192,56 +192,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
     next();
   }
 
-  // ======================= two-factor login (TOTP) =======================
-  const mfaRow = (uid) => db.prepare('SELECT * FROM mfa WHERE user_id=?').get(uid);
-  v1.get('/users/:uid/mfa', requireUser, (req, res) => res.json({ enabled: !!mfaRow(req.auth.user.id)?.enabled }));
-  v1.post('/users/:uid/mfa/setup', requireUser, (req, res) => {
-    const uid = req.auth.user.id;
-    if (mfaRow(uid)?.enabled) throw E.conflict('mfa_already_enabled', 'two-factor login is already on');
-    const secret = b32encode(crypto.randomBytes(20));
-    db.prepare('INSERT INTO mfa(user_id,secret,enabled,created_at) VALUES(?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET secret=excluded.secret, enabled=0, created_at=excluded.created_at').run(uid, secret, nowIso());
-    res.json({ secret, otpauth_url: `otpauth://totp/Parlance:${encodeURIComponent(req.auth.user.email)}?secret=${secret}&issuer=Parlance&digits=6&period=30` });
-  });
-  v1.post('/users/:uid/mfa/enable', requireUser, (req, res) => {
-    const r = mfaRow(req.auth.user.id);
-    if (!r) throw E.conflict('mfa_not_set_up', 'start two-factor setup first');
-    if (!verifyTotp(r.secret, req.body && req.body.code)) throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid');
-    db.prepare('UPDATE mfa SET enabled=1 WHERE user_id=?').run(req.auth.user.id);
-    notify(req.auth.user.id, { type: 'security', title: 'Two-factor login turned on', link: '/account' });
-    res.json({ enabled: true });
-  });
-  v1.post('/users/:uid/mfa/disable', requireUser, (req, res) => {
-    const r = mfaRow(req.auth.user.id);
-    if (!r || !r.enabled) throw E.conflict('mfa_not_enabled', 'two-factor login is off');
-    if (!verifyTotp(r.secret, req.body && req.body.code)) throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid');
-    db.prepare('DELETE FROM mfa WHERE user_id=?').run(req.auth.user.id);
-    notify(req.auth.user.id, { type: 'security', title: 'Two-factor login turned off', link: '/account' });
-    res.json({ enabled: false });
-  });
-  // Called by /log_in after the password check. Returns a response body or null (no MFA → normal session).
-  function loginGate(user) {
-    const r = mfaRow(user.id);
-    if (!r || !r.enabled) return null;
-    const t = token(24);
-    db.prepare('DELETE FROM mfa_challenges WHERE user_id=? OR expires_at<?').run(user.id, nowIso());
-    db.prepare('INSERT INTO mfa_challenges(token,user_id,expires_at) VALUES(?,?,?)').run(t, user.id, new Date(Date.now() + 5 * 60000).toISOString());
-    return { mfa_required: true, mfa_token: t };
-  }
-  v1.post('/log_in_mfa', (req, res) => {
-    const b = req.body || {};
-    const ch = db.prepare('SELECT * FROM mfa_challenges WHERE token=?').get(String(b.mfa_token || ''));
-    if (!ch || Date.parse(ch.expires_at) < Date.now()) throw new ApiError(401, 'mfa_challenge_expired', 'your sign-in attempt expired, please log in again');
-    if (ch.attempts >= 5) { db.prepare('DELETE FROM mfa_challenges WHERE token=?').run(ch.token); throw new ApiError(401, 'mfa_challenge_expired', 'too many attempts, please log in again'); }
-    const r = mfaRow(ch.user_id);
-    if (!r || !verifyTotp(r.secret, b.code)) {
-      db.prepare('UPDATE mfa_challenges SET attempts=attempts+1 WHERE token=?').run(ch.token);
-      throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid');
-    }
-    db.prepare('DELETE FROM mfa_challenges WHERE token=?').run(ch.token);
-    const u = db.prepare('SELECT * FROM users WHERE id=?').get(ch.user_id);
-    const csrf = startSession(res, u);
-    res.json({ user: publicUser(u), csrf_token: csrf });
-  });
+  // Two-factor login (TOTP) routes and the login gate moved to server/auth.js (SEC_IDENTITY_SPEC §22); totp() stays here.
 
   // ======================= social =======================
   const profile = (uid) => db.prepare('SELECT * FROM social_profiles WHERE user_id=?').get(uid);
@@ -513,7 +464,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, start
     res.json({ apy: String(apyNow()), total_dollars: dollars(rows.reduce((a, r) => a + r.amount_cents, 0)), accruals: rows.map((r) => ({ day: r.day, base_dollars: dollars(r.base_cents), amount_dollars: dollars(r.amount_cents) })) });
   });
 
-  return { notify, checkDeposit, checkTrading, sessionMiddleware, loginGate, CATEGORIES };
+  return { notify, checkDeposit, checkTrading, sessionMiddleware, CATEGORIES };
 }
 
-module.exports = { mountFeatures, totp, b32encode, CATEGORIES };
+module.exports = { mountFeatures, totp, verifyTotp, b32encode, CATEGORIES };

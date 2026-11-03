@@ -1,4 +1,5 @@
 // Catalog CMS: series / events / markets with a draft → published workflow, preview, CSV bulk import.
+import { vars } from '../../dynstyle.js';
 import { esc, get, post, put, del, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, subTabs, statusBadge, badge, fmtTime, fmtQty, download, csvLine } from './ui.js';
 import { eventCard } from '../components.js';
 import { CATEGORIES, eventHref } from '../../lib.js';
@@ -60,10 +61,10 @@ function openForm({ title, fields, submit, onSubmit, testid }) {
   return d;
 }
 const actions = (row, kind) => `<span class="adm-actions">
-  <button class="btn btn-sm" data-edit="${esc(row.ticker)}" data-kind="${kind}">Edit</button>
+  <button class="btn btn-sm" data-edit="${esc(row.ticker)}" data-kind="${esc(kind)}">Edit</button>
   ${kind === 'events' ? `<a class="btn btn-sm" href="/admin/preview/${encodeURIComponent(row.ticker)}" data-link data-preview="${esc(row.ticker)}">Preview</a>` : ''}
   ${kind === 'events' ? `<button class="btn btn-sm" data-add-market="${esc(row.ticker)}">+ Market</button>` : ''}
-  ${row.state === 'draft' ? `<button class="btn btn-sm btn-primary" data-publish="${esc(row.ticker)}" data-kind="${kind}">Publish</button><button class="btn btn-sm btn-ghost btn-danger" data-discard="${esc(row.ticker)}" data-kind="${kind}">Discard</button>` : ''}
+  ${row.state === 'draft' ? `<button class="btn btn-sm btn-primary" data-publish="${esc(row.ticker)}" data-kind="${esc(kind)}">Publish</button><button class="btn btn-sm btn-ghost btn-danger" data-discard="${esc(row.ticker)}" data-kind="${esc(kind)}">Discard</button>` : ''}
 </span>`;
 
 export async function render({ el, parts, perms, navigate }) {
@@ -89,12 +90,12 @@ export async function render({ el, parts, perms, navigate }) {
       ...(canWrite ? [{ key: '_a', label: '', sort: false, render: (r) => actions(r, 'series') }] : [])],
     events: [
       { key: 'state', label: 'State', render: (r) => statusBadge(r.state) }, { key: 'ticker', label: 'Ticker', render: (r) => `<code>${esc(r.ticker)}</code>` },
-      { key: 'title', label: 'Title', render: (r) => `${r.icon_color ? `<i class="adm-swatch" style="background:${esc(r.icon_color)}"></i>` : ''}${esc(r.title)}${r.featured ? ' ' + badge('featured', 'brand') : ''}${r.is_live ? ' ' + badge('live', 'bad') : ''}` },
+      { key: 'title', label: 'Title', render: (r) => `${r.icon_color ? `<i class="adm-swatch v-bg"${vars({ '--bg': r.icon_color })}></i>` : ''}${esc(r.title)}${r.featured ? ' ' + badge('featured', 'brand') : ''}${r.is_live ? ' ' + badge('live', 'bad') : ''}` },
       { key: 'series_ticker', label: 'Series' }, { key: 'category', label: 'Category' }, { key: 'markets', label: 'Markets', num: true },
       ...(canWrite ? [{ key: '_a', label: '', sort: false, render: (r) => actions(r, 'events') }] : [{ key: '_p', label: '', sort: false, render: (r) => `<a class="btn btn-sm" href="/admin/preview/${encodeURIComponent(r.ticker)}" data-link>Preview</a>` }])],
     markets: [
       { key: 'state', label: 'State', render: (r) => statusBadge(r.state === 'draft' ? 'draft' : r.status) }, { key: 'ticker', label: 'Ticker', render: (r) => `<code>${esc(r.ticker)}</code>` },
-      { key: 'yes_sub_title', label: 'Outcome', render: (r) => `<i class="adm-swatch" style="background:${esc(r.color)}"></i>${esc(r.yes_sub_title)}` }, { key: 'event_ticker', label: 'Event' },
+      { key: 'yes_sub_title', label: 'Outcome', render: (r) => `<i class="adm-swatch v-bg"${vars({ '--bg': r.color })}></i>${esc(r.yes_sub_title)}` }, { key: 'event_ticker', label: 'Event' },
       { key: 'close_time', label: 'Closes', render: (r) => esc(fmtTime(r.close_time)) }, { key: 'volume_fp', label: 'Volume', num: true, render: (r) => (r.volume_fp == null ? '—' : fmtQty(r.volume_fp)) },
       ...(canWrite ? [{ key: '_a', label: '', sort: false, render: (r) => actions(r, 'markets') }] : [])],
   };
@@ -152,7 +153,7 @@ async function renderPreview(el, ticker) {
   el.innerHTML = section(`Preview: ${ev.title}`, r.state === 'draft' ? 'Draft — not visible to the public. This is how the card will look once published.' : 'Published event.',
     `<a class="btn" href="/admin/catalog/events" data-link>Back to events</a>${r.state === 'published' ? ` <a class="btn btn-primary" href="${esc(eventHref(ev))}" data-link>Open public page</a>` : ''}`) +
     `<div class="adm-preview" data-testid="catalog-preview" data-state="${esc(r.state)}">${r.state === 'draft' ? '<div class="adm-banner warn">DRAFT PREVIEW</div>' : ''}<div class="adm-preview-card">${eventCard(ev)}</div>
-    <div class="card adm-card"><h3>Markets</h3><table class="table"><thead><tr><th>Outcome</th><th>Opens</th><th>Closes</th><th>Rules</th></tr></thead><tbody>${ev.markets.map((m) => `<tr><td><i class="adm-swatch" style="background:${esc(m.color_code)}"></i>${esc(m.yes_sub_title)}</td><td>${esc(fmtTime(m.open_time))}</td><td>${esc(fmtTime(m.close_time))}</td><td class="muted">${esc(m.rules_primary)}</td></tr>`).join('') || '<tr><td colspan="4" class="faint">No markets yet — add one before publishing.</td></tr>'}</tbody></table>
+    <div class="card adm-card"><h3>Markets</h3><table class="table"><thead><tr><th>Outcome</th><th>Opens</th><th>Closes</th><th>Rules</th></tr></thead><tbody>${ev.markets.map((m) => `<tr><td><i class="adm-swatch v-bg"${vars({ '--bg': m.color_code })}></i>${esc(m.yes_sub_title)}</td><td>${esc(fmtTime(m.open_time))}</td><td>${esc(fmtTime(m.close_time))}</td><td class="muted">${esc(m.rules_primary)}</td></tr>`).join('') || '<tr><td colspan="4" class="faint">No markets yet — add one before publishing.</td></tr>'}</tbody></table>
     ${ev.news ? `<p><b>News:</b> ${esc(ev.news)}</p>` : ''}</div></div>`;
 }
 
@@ -171,9 +172,9 @@ function renderImport(body, canWrite) {
     const out = body.querySelector('[data-result]');
     try {
       const r = await post('/catalog/import', { csv: ta.value });
-      out.innerHTML = `<div class="adm-import-result" data-testid="import-result"><p><b data-testid="import-created">${r.created.length}</b> draft market(s) created from ${r.rows} row(s); <b data-testid="import-errors">${r.errors.length}</b> row(s) rejected.</p>
+      out.innerHTML = `<div class="adm-import-result" data-testid="import-result"><p><b data-testid="import-created">${r.created.length}</b> draft market(s) created from ${esc(r.rows)} row(s); <b data-testid="import-errors">${r.errors.length}</b> row(s) rejected.</p>
         ${r.created.length ? `<p class="faint">Created: ${r.created.map((t) => `<code>${esc(t)}</code>`).join(' ')}</p>` : ''}
-        ${r.errors.length ? `<table class="table" data-testid="import-error-table"><thead><tr><th class="num">Row</th><th>Market ticker</th><th>Problems</th></tr></thead><tbody>${r.errors.map((x) => `<tr><td class="num">${x.row}</td><td><code>${esc(x.market_ticker)}</code></td><td>${x.errors.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table>
+        ${r.errors.length ? `<table class="table" data-testid="import-error-table"><thead><tr><th class="num">Row</th><th>Market ticker</th><th>Problems</th></tr></thead><tbody>${r.errors.map((x) => `<tr><td class="num">${esc(x.row)}</td><td><code>${esc(x.market_ticker)}</code></td><td>${x.errors.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table>
         <button class="btn btn-sm" data-errcsv data-testid="import-error-csv">Download error report</button>` : ''}</div>`;
       out.querySelector('[data-errcsv]')?.addEventListener('click', () => download('import-errors.csv', [csvLine(['row', 'market_ticker', 'errors']), ...r.errors.map((x) => csvLine([x.row, x.market_ticker, x.errors.join('; ')]))].join('\n') + '\n'));
       toast(`${r.created.length} created, ${r.errors.length} rejected`);

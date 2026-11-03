@@ -1,6 +1,7 @@
 // Shared WebSocket client (spec §7.2): one connection, de-duplicated subscriptions,
 // 5 s subscription-response timeout, exponential backoff with jitter, resubscribe on open.
 import { csrf, FE_SESSION_KEY } from './api.js';
+import { clientToken, refreshClientToken } from './security.js';
 
 const SUB_TIMEOUT_MS = 5000;
 const BACKOFF_BASE = 500;
@@ -28,6 +29,8 @@ export class Socket {
     const u = new URL('/v1/ws', location.href);
     u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     u.searchParams.set('csrfToken', csrf.get() || '');
+    const ct = clientToken.get(); // signed client token (PLAN P1.10; S2 AwsWafTokenForWebSocket)
+    if (ct) u.searchParams.set('ct', ct);
     let fe = null;
     try { fe = localStorage.getItem(FE_SESSION_KEY); if (!fe) { fe = crypto.randomUUID(); localStorage.setItem(FE_SESSION_KEY, fe); } } catch { /* ignore */ }
     if (fe) u.searchParams.set('frontend_session', fe);
@@ -36,6 +39,12 @@ export class Socket {
 
   connect() {
     this.intentionalClose = false;
+    // The upgrade needs a valid client token: make sure one is fresh, then open.
+    const gen = (this.connectGen = (this.connectGen || 0) + 1);
+    refreshClientToken().then(() => { if (gen === this.connectGen && !this.intentionalClose) this.open(); });
+  }
+
+  open() {
     const conn = new WebSocket(this.url());
     this.conn = conn;
     conn.onopen = () => {
@@ -51,6 +60,7 @@ export class Socket {
       for (const t of this.timers.values()) clearTimeout(t);
       this.timers.clear();
       this.emitState({ connected: false, code: ev.code });
+      if (ev.code === 4401) window.dispatchEvent(new Event('parlance:session-ended')); // session revoked or expired (SEC_IDENTITY_SPEC §22.2)
       if (this.intentionalClose) return;
       const delay = Math.min(BACKOFF_MAX, BACKOFF_BASE * 2 ** this.backoffExponent) + Math.floor(Math.random() * 500);
       this.backoffExponent += 1;

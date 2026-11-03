@@ -1,5 +1,6 @@
 // Transport layer (spec §2): one method per endpoint, cookie session + x-csrf-token header.
 import { getLocalWithExpiry, setLocalWithExpiry, removeLocal } from './lib.js';
+import { refreshClientToken, isClientTokenError } from './security.js';
 
 export const CSRF_KEY = 'csrfToken';
 export const FE_SESSION_KEY = 'fe-session-id';
@@ -17,6 +18,8 @@ export class ApiError extends Error {
     this.tooManyRequests = status === 429;
     this.retryAfter = e.retry_after_sec ?? null; // chat rate limit / slow mode countdown
     this.mutedUntil = e.muted_until ?? null; // chat mute
+    this.details = e.details ?? null;
+    this.methods = e.methods ?? null; // step_up_required: ['password'] | ['totp'] | both (SEC_IDENTITY_SPEC §22.6)
   }
 }
 
@@ -26,11 +29,19 @@ export const csrf = {
   clear: () => removeLocal(CSRF_KEY),
 };
 
-export async function request(method, url, body, { raw = false, timeoutMs = 15000 } = {}) {
+// Idempotency-Key (PLAN P1.9): one fresh key per user action on money-moving calls; retries of that action reuse it,
+// so a repeated or replayed submit never places a second order / deposit / withdrawal / transfer.
+export const newIdempotencyKey = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`);
+const idem = () => ({ idempotencyKey: newIdempotencyKey() });
+
+export async function request(method, url, body, { raw = false, timeoutMs = 15000, stepUpDone = false, idempotencyKey = null } = {}, retried = false) {
   const headers = { Accept: 'application/json' };
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const t = csrf.get();
   if (t) headers['x-csrf-token'] = t;
+  // Signed client token on writes (PLAN P1.10, see security.js); the HttpOnly cookie copy covers a missing header.
+  if (method !== 'GET' && method !== 'HEAD') { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   let res;
@@ -41,8 +52,18 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
     err.timeout = e.name === 'AbortError';
     throw err;
   } finally { clearTimeout(timer); }
+  // A rotated session (MFA on, password change, privilege change) comes with a new CSRF token (SEC_IDENTITY_SPEC §22.2).
+  const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated);
   if (raw) return res;
   const data = await res.json().catch(() => ({}));
+  if (!res.ok && !retried && isClientTokenError(res.status, data)) { await refreshClientToken(true); return request(method, url, body, { raw, timeoutMs, stepUpDone, idempotencyKey }, true); }
+  // Sensitive action: confirm with password / two-factor code in a modal, then retry once (§22.6).
+  if (!res.ok && data?.error?.code === 'step_up_required' && !stepUpDone) {
+    const { stepUp } = await import('./views/stepup.js');
+    await stepUp(new ApiError(res.status, data));
+    return request(method, url, body, { raw, timeoutMs, stepUpDone: true, idempotencyKey }, retried);
+  }
+  if (res.status === 401 && data?.error?.code === 'token_authentication_failure') window.dispatchEvent(new Event('parlance:session-ended'));
   if (!res.ok) throw new ApiError(res.status, data);
   return data;
 }
@@ -57,6 +78,20 @@ export const api = {
   session: () => request('GET', '/v1/session'),
   signUp: (b) => request('POST', '/v1/users', b),
   logIn: (b) => request('POST', '/v1/log_in', b),
+  // Identity, sessions and step-up (SEC_IDENTITY_SPEC §22)
+  loginCsrf: () => request('GET', '/v1/auth/csrf'),
+  completePasswordChange: (b) => request('POST', '/v1/auth/complete_password_change', b),
+  setupStatus: (token) => request('GET', `/v1/auth/setup${qs({ token })}`),
+  setupAdmin: (b) => request('POST', '/v1/auth/setup_admin', b),
+  stepUp: (b) => request('POST', '/v1/step_up', b, { stepUpDone: true }),
+  security: (uid) => request('GET', u(uid, '/security')),
+  sessions: (uid) => request('GET', u(uid, '/sessions')),
+  revokeSession: (uid, sid) => request('DELETE', u(uid, `/sessions/${encodeURIComponent(sid)}`)),
+  revokeAllSessions: (uid) => request('DELETE', u(uid, '/sessions')),
+  securityEvents: (uid) => request('GET', u(uid, '/security_events')),
+  changePassword: (uid, b) => request('PUT', u(uid, '/password'), b),
+  changeEmail: (uid, email) => request('PUT', u(uid, '/email'), { email }),
+  setWithdrawalMfa: (uid, enabled) => request('PUT', u(uid, '/withdrawal_mfa'), { enabled }),
   logOut: () => request('POST', '/v1/log_out', {}),
   home: () => request('GET', '/v1/bff/home'),
   liveCount: () => request('GET', '/v1/live_data/count'),
@@ -70,9 +105,9 @@ export const api = {
   balance: (uid) => request('GET', u(uid, '/balance')),
   properties: (uid) => request('GET', u(uid, '/properties')),
   setProperties: (uid, properties) => request('PUT', u(uid, '/properties'), { properties }),
-  deposit: (uid, amount) => request('POST', u(uid, '/deposits'), { amount_dollars: amount }),
-  withdraw: (uid, amount) => request('POST', u(uid, '/withdrawals'), { amount_dollars: amount }),
-  submitOrder: (uid, b) => request('POST', u(uid, '/orders'), b),
+  deposit: (uid, amount) => request('POST', u(uid, '/deposits'), { amount_dollars: amount }, idem()),
+  withdraw: (uid, amount) => request('POST', u(uid, '/withdrawals'), { amount_dollars: amount }, idem()),
+  submitOrder: (uid, b) => request('POST', u(uid, '/orders'), b, idem()),
   cancelOrder: (uid, oid) => request('DELETE', u(uid, `/orders/${encodeURIComponent(oid)}`)),
   orders: (uid, status) => request('GET', u(uid, `/orders${qs({ status })}`)),
   positions: (uid) => request('GET', u(uid, '/positions')),
@@ -137,7 +172,7 @@ export const api = {
   createQuote: (b) => request('POST', '/v1/communications/quotes', b),
   quotes: () => request('GET', '/v1/communications/quotes'),
   deleteQuote: (id) => request('DELETE', `/v1/communications/quotes/${encodeURIComponent(id)}`),
-  acceptQuote: (rfqId, qid, side) => request('PUT', `/v1/communications/rfqs/${encodeURIComponent(rfqId)}/quotes/${encodeURIComponent(qid)}/accept`, { accepted_side: side }),
+  acceptQuote: (rfqId, qid, side) => request('PUT', `/v1/communications/rfqs/${encodeURIComponent(rfqId)}/quotes/${encodeURIComponent(qid)}/accept`, { accepted_side: side }, idem()),
   amendOrder: (uid, oid, b) => request('POST', u(uid, `/orders/${encodeURIComponent(oid)}/amend`), b),
   decreaseOrder: (uid, oid, b) => request('POST', u(uid, `/orders/${encodeURIComponent(oid)}/decrease`), b),
   cancelAllOrders: (uid, o) => request('DELETE', u(uid, `/orders${qs(o || {})}`)),
@@ -145,7 +180,7 @@ export const api = {
   sellQuote: (uid, ticker, count) => request('GET', u(uid, `/positions/${encodeURIComponent(ticker)}/sell_quote${qs({ count })}`)),
   history: (uid, o) => request('GET', u(uid, `/history${qs(o || {})}`)),
   historyCsvUrl: (uid, query) => u(uid, `/history.csv${query ? `?${query}` : ''}`),
-  confirmQuote: (qid) => request('PUT', `/v1/communications/quotes/${encodeURIComponent(qid)}/confirm`, {}),
+  confirmQuote: (qid) => request('PUT', `/v1/communications/quotes/${encodeURIComponent(qid)}/confirm`, {}, idem()),
   admin: (ticker, action, body) => request('POST', `/v1/admin/markets/${encodeURIComponent(ticker)}/${action}`, body || {}),
   // Event live chat (CHAT_SPEC.md §20)
   chat: (t, o) => request('GET', `/v1/events/${encodeURIComponent(t)}/chat${qs(o || {})}`),

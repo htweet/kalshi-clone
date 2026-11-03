@@ -1,6 +1,8 @@
 // Admin UI toolkit: API calls with field errors, dense tables (search / sort / paginate), forms with inline
 // validation, confirm + reason dialogs, SVG bar charts. Styles live in /admin.css.
+import { vars } from '../../dynstyle.js';
 import { csrf } from '../../api.js';
+import { refreshClientToken } from '../../security.js';
 import { esc, toast } from '../../lib.js';
 
 export { esc, toast };
@@ -12,12 +14,20 @@ export class AdminError extends Error {
     this.status = status; this.code = e.code; this.fields = e.fields || null; this.details = e.details;
   }
 }
-export async function call(method, path, body) {
+export async function call(method, path, body, stepUpDone = false) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const t = csrf.get(); if (t) headers['x-csrf-token'] = t;
+  if (method !== 'GET') { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; } // PLAN P1.10
   const res = await fetch(`/v1/admin${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
+  const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated); // own role change rotates the session (SEC_IDENTITY_SPEC §22.2)
   const data = await res.json().catch(() => ({}));
+  // Role changes / forced resets need a recent password or code: confirm in the step-up modal, then retry once (§22.6).
+  if (!res.ok && data?.error?.code === 'step_up_required' && !stepUpDone) {
+    const { stepUp } = await import('../stepup.js');
+    await stepUp({ methods: data.error.methods, action: data.error.action });
+    return call(method, path, body, true);
+  }
   if (!res.ok) throw new AdminError(res.status, data);
   return data;
 }
@@ -32,7 +42,7 @@ export const fmtQty = (fp) => Number(fp || 0).toLocaleString('en-US', { maximumF
 // <input type=datetime-local> <-> ISO
 export const toLocalInput = (iso) => { if (!iso) return ''; const d = new Date(iso); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 export const fromLocalInput = (v) => (v ? new Date(v).toISOString() : '');
-export const badge = (text, kind = '') => `<span class="adm-badge ${kind}">${esc(text)}</span>`;
+export const badge = (text, kind = '') => `<span class="adm-badge ${esc(kind)}">${esc(text)}</span>`;
 export const STATUS_KIND = { draft: 'warn', published: 'ok', active: 'ok', initialized: '', inactive: 'warn', closed: '', determined: 'warn', finalized: 'ok', halted: 'bad', open: 'warn', actioned: 'ok', dismissed: '' };
 export const statusBadge = (s) => badge(s, STATUS_KIND[s] || '');
 
@@ -57,7 +67,7 @@ export function dataTable(host, { cols, rows = [], search = true, pageSize = 25,
     const pages = Math.max(1, Math.ceil(list.length / pageSize));
     st.page = Math.min(st.page, pages - 1);
     const slice = list.slice(st.page * pageSize, (st.page + 1) * pageSize);
-    tbody.innerHTML = slice.length ? slice.map((r) => `<tr ${rowAttrs(r)}>${cols.map((c) => `<td class="${c.num ? 'num' : ''}">${c.render ? c.render(r) : esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')
+    tbody.innerHTML = slice.length ? slice.map((r) => `<tr ${rowAttrs(r) /* eslint-disable-line parlance/no-unescaped-html -- rowAttrs and column render() are caller-supplied markup builders (checked where defined); plain cells are esc()'d */}>${cols.map((c) => `<td class="${c.num ? 'num' : ''}">${c.render ? c.render(r) : esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')
       : `<tr><td colspan="${cols.length}" class="faint adm-empty">${esc(empty)}</td></tr>`;
     host.querySelector('[data-count]').textContent = `${list.length} row${list.length === 1 ? '' : 's'}`;
     host.querySelector('[data-page]').textContent = `${st.page + 1} / ${pages}`;
@@ -81,7 +91,7 @@ export function formHtml(fields, { submit = 'Save', id = '', extra = '', testid 
     const req = x.required ? 'required' : '';
     const common = `name="${esc(x.name)}" id="f-${esc(id)}-${esc(x.name)}" ${req} ${x.placeholder ? `placeholder="${esc(x.placeholder)}"` : ''} aria-describedby="e-${esc(id)}-${esc(x.name)}"`;
     let input;
-    if (x.type === 'textarea') input = `<textarea ${common} rows="${x.rows || 3}" maxlength="${x.max || 20000}">${esc(v)}</textarea>`;
+    if (x.type === 'textarea') input = `<textarea ${common} rows="${esc(x.rows || 3)}" maxlength="${esc(x.max || 20000)}">${esc(v)}</textarea>`;
     else if (x.type === 'select') input = `<select ${common}>${x.options.map((o) => { const [val, lab] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(lab)}</option>`; }).join('')}</select>`;
     else if (x.type === 'checkbox') return `<label class="adm-check ${x.span ? 'span2' : ''}"><input type="checkbox" ${common} ${v ? 'checked' : ''}> <span>${esc(x.label)}</span></label>`;
     else if (x.type === 'datetime') input = `<input type="datetime-local" ${common} value="${esc(toLocalInput(v))}">`;
@@ -90,7 +100,7 @@ export function formHtml(fields, { submit = 'Save', id = '', extra = '', testid 
     return `<label class="field ${x.span ? 'span2' : ''}" for="f-${esc(id)}-${esc(x.name)}"><span>${esc(x.label)}${x.required ? ' *' : ''}</span>${input}${x.hint ? `<small class="faint">${esc(x.hint)}</small>` : ''}<small class="adm-err" id="e-${esc(id)}-${esc(x.name)}" role="alert"></small></label>`;
   };
   return `<form class="adm-form" data-form="${esc(id)}" ${testid ? `data-testid="${esc(testid)}"` : ''} novalidate><div class="adm-form-grid">${fields.map(f).join('')}</div>
-    <div class="adm-form-actions"><button class="btn btn-primary" type="submit">${esc(submit)}</button>${extra}<small class="adm-err" data-form-error role="alert"></small></div></form>`;
+    <div class="adm-form-actions"><button class="btn btn-primary" type="submit">${esc(submit)}</button>${extra /* eslint-disable-line parlance/no-unescaped-html -- extra buttons markup passed by admin views */}<small class="adm-err" data-form-error role="alert"></small></div></form>`;
 }
 // Read values (datetime → ISO, checkbox → bool) and attach submit with client + server field validation.
 export function wireForm(form, fields, onSubmit) {
@@ -141,6 +151,7 @@ export function dialog(html, { onOpen, wide = false, testid = 'adm-dialog' } = {
   const d = document.createElement('dialog');
   d.className = `adm-dialog ${wide ? 'wide' : ''}`;
   d.dataset.testid = testid;
+  // eslint-disable-next-line parlance/no-unescaped-html -- dialog(html) takes markup; every caller builds it from templates this rule checks
   d.innerHTML = html;
   document.body.appendChild(d);
   d.addEventListener('close', () => d.remove());
@@ -153,7 +164,7 @@ export function dialog(html, { onOpen, wide = false, testid = 'adm-dialog' } = {
 export function confirmAction({ title, body = '', confirm = 'Confirm', danger = false, reason = false, reasonLabel = 'Reason (required, recorded in the audit log)', extraHtml = '' }) {
   return new Promise((resolve) => {
     let done = false;
-    const d = dialog(`<form method="dialog" class="adm-confirm" data-testid="confirm-dialog"><h3>${esc(title)}</h3>${body ? `<p class="muted">${body}</p>` : ''}${extraHtml}
+    const d = dialog(`<form method="dialog" class="adm-confirm" data-testid="confirm-dialog"><h3>${esc(title)}</h3>${body ? `<p class="muted">${body /* eslint-disable-line parlance/no-unescaped-html -- body/extraHtml are markup from admin views, built with esc() */}</p>` : ''}${extraHtml}
       ${reason ? `<label class="field"><span>${esc(reasonLabel)}</span><textarea name="reason" rows="2" data-testid="confirm-reason"></textarea><small class="adm-err" role="alert" data-reason-err></small></label>` : ''}
       <div class="adm-form-actions"><button class="btn" value="cancel" type="button" data-cancel>Cancel</button><button class="btn ${danger ? 'btn-danger-solid' : 'btn-primary'}" type="submit" data-testid="confirm-ok">${esc(confirm)}</button></div></form>`);
     const f = d.querySelector('form');
@@ -188,10 +199,10 @@ export function barChart(points, { height = 180, format = (v) => String(v), colo
   const r = Math.min(4, bw / 2);
   const bars = points.map((p, i) => {
     const x = padL + i * slot + 1; const y = sy(p.value); const h = Math.max(0, H - padB - y);
-    const shape = h > r ? `<path d="M${x},${H - padB} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${H - padB} Z" fill="${color}"/>` : h > 0 ? `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${color}"/>` : '';
+    const shape = h > r ? `<path d="M${x},${H - padB} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${H - padB} Z" fill="${esc(color)}"/>` : h > 0 ? `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${esc(color)}"/>` : '';
     return `<g data-tip="${esc(`${p.label}: ${p.display ?? format(p.value)}`)}">${shape}<rect x="${padL + i * slot}" y="${padT}" width="${slot}" height="${H - padT - padB}" fill="transparent"/></g>`;
   }).join('');
-  return `<div class="adm-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}" preserveAspectRatio="none" style="height:${H}px">${grid}${xl}${bars}</svg><div class="adm-tip" hidden></div></div>`;
+  return `<div class="adm-chart"><svg viewBox="0 0 ${esc(W)} ${esc(H)}" role="img" aria-label="${esc(label)}" preserveAspectRatio="none" class="v-h"${vars({ '--h': `${H}px` })}>${grid}${xl}${bars}</svg><div class="adm-tip" hidden></div></div>`;
 }
 function niceMax(v) { const e = 10 ** Math.floor(Math.log10(v)); const m = v / e; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e; }
 export function wireCharts(root) {
@@ -218,8 +229,8 @@ export function download(name, text, type = 'text/csv') {
 export const csvLine = (arr) => arr.map((v) => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''))).join(',');
 
 export function section(title, sub = '', actions = '') {
-  return `<div class="adm-head"><div><h2>${esc(title)}</h2>${sub ? `<p class="muted">${sub}</p>` : ''}</div><div class="adm-head-actions">${actions}</div></div>`;
+  return `<div class="adm-head"><div><h2>${esc(title)}</h2>${sub ? `<p class="muted">${sub}</p>` : ''}</div><div class="adm-head-actions">${actions}</div></div>`; // eslint-disable-line parlance/no-unescaped-html -- sub/actions are markup from admin views (escaped parts, static buttons)
 }
 export function subTabs(tabs, current, base) {
-  return `<nav class="adm-subtabs" aria-label="Sections">${tabs.map(([k, l]) => `<a href="${base}/${k}" data-link class="${k === current ? 'on' : ''}" data-subtab="${k}">${esc(l)}</a>`).join('')}</nav>`;
+  return `<nav class="adm-subtabs" aria-label="Sections">${tabs.map(([k, l]) => `<a href="${esc(base)}/${esc(k)}" data-link class="${k === current ? 'on' : ''}" data-subtab="${esc(k)}">${esc(l)}</a>`).join('')}</nav>`;
 }

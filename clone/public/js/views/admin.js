@@ -18,13 +18,23 @@ export const SECTIONS = [
   ['roles', 'Roles', 'roles.write', './admin/users.js'],
   ['audit', 'Audit log', 'audit.read', './admin/system.js'],
   ['settings', 'Settings & health', 'settings.write', './admin/system.js'],
+  ['security', 'Security', 'audit.read', './admin/security.js'],
+  ['identity', 'Sign-in & audit integrity', 'audit.read', './admin/identity.js'], // SEC_IDENTITY_SPEC §22
 ];
+// Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
+const LOADERS = {
+  './admin/catalog.js': () => import('./admin/catalog.js'), './admin/resolution.js': () => import('./admin/resolution.js'),
+  './admin/content.js': () => import('./admin/content.js'), './admin/ops.js': () => import('./admin/ops.js'), './admin/users.js': () => import('./admin/users.js'),
+  './admin/community.js': () => import('./admin/community.js'), './admin/chat.js': () => import('./admin/chat.js'), './admin/reports.js': () => import('./admin/reports.js'),
+  './admin/system.js': () => import('./admin/system.js'), './admin/security.js': () => import('./admin/security.js'),
+  './admin/identity.js': () => import('./admin/identity.js'),
+};
 
 function forbidden(el, signedIn) {
   document.title = 'Admin · Parlance';
   el.innerHTML = `<div class="card empty adm-forbidden" role="alert" data-testid="admin-forbidden"><h1 class="typ-title-x20">${signedIn ? 'You don’t have access to the admin panel' : 'Sign in to continue'}</h1>
     <p class="muted">${signedIn ? 'This area is for exchange staff. If you think you should have access, ask an administrator to grant you a role.' : 'The admin panel is only available to signed-in staff accounts.'}</p>
-    <div style="display:flex;gap:8px;justify-content:center">${signedIn ? '' : '<a class="btn btn-primary" href="/sign-in?next=/admin" data-link>Log in</a>'}<a class="btn" href="/" data-link>Go home</a></div></div>`;
+    <div class="d-flex gap-8 jc-center">${signedIn ? '' : '<a class="btn btn-primary" href="/sign-in?next=/admin" data-link>Log in</a>'}<a class="btn" href="/" data-link>Go home</a></div></div>`;
 }
 
 export async function render({ el, params, query, navigate }) {
@@ -40,7 +50,7 @@ export async function render({ el, params, query, navigate }) {
   const sec = SECTIONS.find(([k]) => k === key);
   el.innerHTML = `<div class="adm" data-testid="admin">
     <aside class="adm-side" aria-label="Admin sections"><div class="adm-brand"><span>Parlance</span> Admin</div>
-      <nav>${allowed.map(([k, l]) => `<a href="/admin/${k}" data-link class="${k === key ? 'on' : ''}" data-section="${k}">${esc(l)}</a>`).join('')}</nav>
+      <nav>${allowed.map(([k, l]) => `<a href="/admin/${esc(k)}" data-link class="${k === key ? 'on' : ''}" data-section="${esc(k)}">${esc(l)}</a>`).join('')}</nav>
       <div class="adm-who faint"><div>${esc(me.user.email)}</div><div data-testid="admin-roles">${me.roles.map(esc).join(', ')}</div></div></aside>
     <section class="adm-main" id="adm-main" data-testid="admin-main"></section></div>`;
   const main = el.querySelector('#adm-main');
@@ -51,6 +61,6 @@ export async function render({ el, params, query, navigate }) {
     return;
   }
   document.title = `${sec[1]} · Admin · Parlance`;
-  const mod = await import(sec[3]);
+  const mod = await LOADERS[sec[3]]();
   return mod.render({ el: main, section: key, parts: parts[0] === 'preview' ? ['preview', ...parts.slice(1)] : parts.slice(1), query, me, perms, navigate });
 }

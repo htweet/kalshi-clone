@@ -1,4 +1,5 @@
 // Shared helpers: escaping, formatting, local storage with expiry (spec §8.2 pattern).
+import { vars } from './dynstyle.js';
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const cents = (dollarStr) => (dollarStr == null ? null : Math.round(Number(dollarStr) * 100));
 export const pct = (dollarStr) => (dollarStr == null ? '—' : `${cents(dollarStr)}%`);
@@ -70,7 +71,7 @@ const AV = ['#4b3fe0', '#0a875c', '#cf2f4b', '#d9480f', '#1c7ed6', '#862e9c', '#
 export function avatar(nick, cls = '') {
   const n = String(nick || '?');
   let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return `<span class="avatar ${cls}" style="background:${AV[h % AV.length]}" aria-hidden="true">${esc(n[0].toUpperCase())}</span>`;
+  return `<span class="avatar ${esc(cls)} v-bg"${vars({ '--bg': AV[h % AV.length] })} aria-hidden="true">${esc(n[0].toUpperCase())}</span>`;
 }
 // Category colour for card icons.
 const CAT_COLORS = { politics: '#1c7ed6', sports: '#0a875c', elections: '#4b3fe0', crypto: '#d9480f', 'climate-and-weather': '#0b7285', economics: '#5f3dc4', entertainment: '#c2255c', companies: '#495057', financials: '#2b8a3e', 'science-and-technology': '#1864ab' };

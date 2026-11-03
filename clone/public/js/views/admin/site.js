@@ -25,13 +25,13 @@ function applyFeatures() {
 const GATES = [['social', /^\/social(\/|$)/, 'Social'], ['perps', /^\/(perps|portfolio\/perps)(\/|$)/, 'Perps'], ['combos', /^\/combos$/, 'Combos']];
 export function featureGate(pathname) {
   const g = GATES.find(([k, re]) => site.features[k] === false && re.test(pathname));
-  return g ? `<div class="card empty" role="status" data-testid="feature-off" style="min-height:40vh;display:grid;place-content:center;gap:8px"><h1 class="typ-title-x20" style="margin:0">${g[2]} is unavailable right now</h1><p class="muted" style="margin:0">This part of Parlance is temporarily turned off.</p><div><a class="btn" href="/" data-link>Go home</a></div></div>` : null;
+  return g ? `<div class="card empty center-40" role="status" data-testid="feature-off"><h1 class="typ-title-x20 m-0">${esc(g[2])} is unavailable right now</h1><p class="muted m-0">This part of Parlance is temporarily turned off.</p><div><a class="btn" href="/" data-link>Go home</a></div></div>` : null;
 }
 
 export function renderBanners() {
   document.querySelectorAll('.site-banner').forEach((b) => b.remove());
   const pick = (pos) => site.banners.find((b) => b.position === pos);
-  const html = (b) => `<div class="site-banner ${b.position}" role="region" aria-label="Announcement" data-testid="site-banner" data-position="${esc(b.position)}"><div class="container">${b.link ? `<a href="${esc(b.link)}" ${b.link.startsWith('/') ? 'data-link' : 'target="_blank" rel="noopener"'}>${esc(b.content)} <span aria-hidden="true">›</span></a>` : `<span>${esc(b.content)}</span>`}</div></div>`;
+  const html = (b) => `<div class="site-banner ${esc(b.position)}" role="region" aria-label="Announcement" data-testid="site-banner" data-position="${esc(b.position)}"><div class="container">${b.link ? `<a href="${esc(b.link)}" ${b.link.startsWith('/') ? 'data-link' : 'target="_blank" rel="noopener"'}>${esc(b.content)} <span aria-hidden="true">›</span></a>` : `<span>${esc(b.content)}</span>`}</div></div>`;
   const top = pick('top'); const bottom = pick('bottom');
   if (top) document.querySelector('header.topbar')?.insertAdjacentHTML('afterend', html(top));
   if (bottom) document.querySelector('footer.footer')?.insertAdjacentHTML('beforebegin', html(bottom));
@@ -45,7 +45,7 @@ window.addEventListener('parlance:site-config', () => loadSite());
 function inline(s) {
   // s is already escaped; allow **bold** and [text](/path or https://…)
   return s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(((?:\/(?!\/)|https:\/\/)[^\s)]*)\)/g, (m, t, href) => `<a href="${href}" ${href.startsWith('/') ? 'data-link' : 'target="_blank" rel="noopener"'}>${t}</a>`);
+    .replace(/\[([^\]]+)\]\(((?:\/(?!\/)|https:\/\/)[^\s)]*)\)/g, (m, t, href) => `<a href="${href}" ${href.startsWith('/') ? 'data-link' : 'target="_blank" rel="noopener"'}>${t}</a>`); // eslint-disable-line parlance/no-unescaped-html -- s is esc()'d by the caller before this substitution, and the pattern only accepts site paths or https:// URLs without spaces or quotes
 }
 export function renderHelpText(text) {
   const out = []; let list = null; let para = [];
@@ -67,7 +67,7 @@ export const helpView = {
   async render({ el, params }) {
     let r;
     try { r = await request('GET', `/v1/help/${encodeURIComponent(params.slug)}`); } catch (e) {
-      if (e.notFound) { el.innerHTML = '<div class="empty" style="min-height:50vh;display:grid;place-content:center;gap:8px" data-testid="help-missing"><h1 class="typ-title-x10" style="margin:0">Help page not found</h1><a class="btn" href="/" data-link>Go home</a></div>'; document.title = 'Help · Parlance'; return; }
+      if (e.notFound) { el.innerHTML = '<div class="empty center-50" data-testid="help-missing"><h1 class="typ-title-x10 m-0">Help page not found</h1><a class="btn" href="/" data-link>Go home</a></div>'; document.title = 'Help · Parlance'; return; }
       throw e;
     }
     let pages = [];

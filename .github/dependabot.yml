@@ -1,0 +1,34 @@
+# Dependabot (PLAN P0.2): weekly npm and GitHub Actions updates. Security updates are raised as soon as an
+# advisory is published (enable "Dependabot security updates" in the repository settings).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /clone
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    labels: [dependencies, security]
+    commit-message:
+      prefix: "deps"
+    groups:
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]

@@ -36,7 +36,7 @@ export function wirePosts(root, { navigate, onDeleted } = {}) {
         const { comments } = await api.comments(pid);
         box.hidden = false;
         box.innerHTML = `${comments.map((c) => `<div class="comment" data-comment="${esc(c.id)}"><a href="/social/profile/${encodeURIComponent(c.author.nickname)}" data-link><strong>@${esc(c.author.nickname)}</strong></a>${c.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified">✓</span>' : ''} <span class="faint">${relTime(c.created_time)}</span>${c.is_mine ? ' <button class="btn btn-sm btn-ghost btn-danger" data-act="del-comment">Delete</button>' : ` <button class="btn btn-sm btn-ghost" data-report-comment="${esc(c.id)}">Report</button>`}<div>${esc(c.body)}</div></div>`).join('') || '<div class="faint">No replies yet.</div>'}
-          ${session.user ? `<form class="inline-form" data-reply style="margin-top:8px"><label class="field"><span hidden>Reply</span><input name="body" placeholder="Write a reply" maxlength="300" data-testid="reply-input"></label><button class="btn btn-sm" type="submit">Reply</button></form>` : ''}`;
+          ${session.user ? `<form class="inline-form mt-8" data-reply><label class="field"><span hidden>Reply</span><input name="body" placeholder="Write a reply" maxlength="300" data-testid="reply-input"></label><button class="btn btn-sm" type="submit">Reply</button></form>` : ''}`;
         const f = box.querySelector('[data-reply]');
         if (f) f.onsubmit = async (ev) => {
           ev.preventDefault();
@@ -61,11 +61,11 @@ const profileHint = (ex) => (ex.code === 'social_profile_required' ? 'Pick a nic
 
 // Composer used on the feed and on event pages.
 export function composer(eventTicker) {
-  if (!session.user) return '<div class="card composer"><a href="/sign-in?next=/social" data-link style="color:var(--brand)">Log in</a> to share your take.</div>';
-  if (!session.nickname) return '<div class="card composer" data-testid="need-profile">Pick a nickname to post. <a href="/account/profile" data-link style="color:var(--brand)">Create your social profile</a></div>';
+  if (!session.user) return '<div class="card composer"><a href="/sign-in?next=/social" data-link class="c-brand">Log in</a> to share your take.</div>';
+  if (!session.nickname) return '<div class="card composer" data-testid="need-profile">Pick a nickname to post. <a href="/account/profile" data-link class="c-brand">Create your social profile</a></div>';
   return `<form class="card composer" id="composer" data-event="${esc(eventTicker || '')}">
-    <div style="display:flex;gap:10px">${avatar(session.nickname)}<textarea name="body" maxlength="500" placeholder="${eventTicker ? 'Share your view on this market' : 'What are you trading?'}" aria-label="New post" data-testid="composer-input"></textarea></div>
-    <div class="composer-foot"><span class="faint" id="composer-count">0 / 500</span><span style="flex:1"></span><button class="btn btn-primary btn-sm" type="submit" data-testid="composer-submit">Post</button></div></form>`;
+    <div class="d-flex gap-10">${avatar(session.nickname)}<textarea name="body" maxlength="500" placeholder="${eventTicker ? 'Share your view on this market' : 'What are you trading?'}" aria-label="New post" data-testid="composer-input"></textarea></div>
+    <div class="composer-foot"><span class="faint" id="composer-count">0 / 500</span><span class="flex-1"></span><button class="btn btn-primary btn-sm" type="submit" data-testid="composer-submit">Post</button></div></form>`;
 }
 export function wireComposer(root, onPosted) {
   const f = root.querySelector('#composer');
@@ -97,20 +97,20 @@ export async function render({ el, params, navigate }) {
 
   async function drawLeaders(target, metric = 'pnl') {
     const { leaders } = await api.leaderboard(metric);
-    target.innerHTML = `<div class="card side-card" data-testid="leaderboard"><div style="display:flex;justify-content:space-between;align-items:center"><h3>Top traders</h3>
+    target.innerHTML = `<div class="card side-card" data-testid="leaderboard"><div class="d-flex jc-between ai-center"><h3>Top traders</h3>
       <div class="seg"><button data-metric="pnl" class="${metric === 'pnl' ? 'on' : ''}">Profit</button><button data-metric="volume" class="${metric === 'volume' ? 'on' : ''}">Volume</button></div></div>
-      ${leaders.map((l) => `<a class="rank-row" href="/social/profile/${encodeURIComponent(l.nickname)}" data-link style="grid-template-columns:22px 32px 1fr auto;align-items:center"><span class="faint">${l.rank}</span>${avatar(l.nickname)}<span class="t">@${esc(l.nickname)}</span><span class="num">${metric === 'pnl' ? money(l.value) : qty(l.value)}</span></a>`).join('') || '<p class="faint">No traders yet.</p>'}</div>`;
+      ${leaders.map((l) => `<a class="rank-row rank-4" href="/social/profile/${encodeURIComponent(l.nickname)}" data-link><span class="faint">${esc(l.rank)}</span>${avatar(l.nickname)}<span class="t">@${esc(l.nickname)}</span><span class="num">${metric === 'pnl' ? money(l.value) : qty(l.value)}</span></a>`).join('') || '<p class="faint">No traders yet.</p>'}</div>`;
     for (const b of target.querySelectorAll('[data-metric]')) b.onclick = () => drawLeaders(target, b.dataset.metric);
   }
 
   if (lbTab) { document.title = 'Leaderboard · Parlance'; await drawLeaders(main); side.innerHTML = ''; return; }
 
   main.innerHTML = `${composer()}<div class="tabs" role="tablist">${FEEDS.map(([k, l]) => `<button data-feed="${k}" class="${k === feed ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="card" id="posts"></div><div style="text-align:center;margin-top:12px"><button class="btn" id="more-posts" hidden>Load more</button></div>`;
+    <div class="card" id="posts"></div><div class="ta-c mt-12"><button class="btn" id="more-posts" hidden>Load more</button></div>`;
   let cursor = '';
   const box = main.querySelector('#posts');
   async function load(append) {
-    if (feed !== 'all' && !session.user) { box.innerHTML = '<div class="empty"><a href="/sign-in?next=/social" data-link style="color:var(--brand)">Log in</a> to see this feed.</div>'; return; }
+    if (feed !== 'all' && !session.user) { box.innerHTML = '<div class="empty"><a href="/sign-in?next=/social" data-link class="c-brand">Log in</a> to see this feed.</div>'; return; }
     const r = await api.posts({ feed, cursor: append ? cursor : '' });
     cursor = r.cursor;
     const html = r.posts.map((p) => postCard(p)).join('');
@@ -138,11 +138,11 @@ async function renderProfile({ el, nickname, navigate }) {
   document.title = `@${p.nickname} · Parlance`;
   el.innerHTML = `<div class="social-layout"><div>
       <section class="card profile-head" data-testid="profile">${avatar(p.nickname, 'lg')}
-        <div style="flex:1;min-width:200px"><h1 class="typ-title-x20" style="margin:0">@${esc(p.nickname)}</h1><div class="muted">${esc(p.bio)}</div>
-          <div class="profile-stats" style="margin-top:8px"><span><strong data-testid="followers">${p.followers}</strong> followers</span><span><strong>${p.following}</strong> following</span><span><strong>${p.posts}</strong> posts</span><span class="faint">Joined ${shortDate(p.joined_time)}</span></div></div>
+        <div class="flex-1 minw-200"><h1 class="typ-title-x20 m-0">@${esc(p.nickname)}</h1><div class="muted">${esc(p.bio)}</div>
+          <div class="profile-stats mt-8"><span><strong data-testid="followers">${esc(p.followers)}</strong> followers</span><span><strong>${esc(p.following)}</strong> following</span><span><strong>${esc(p.posts)}</strong> posts</span><span class="faint">Joined ${shortDate(p.joined_time)}</span></div></div>
         ${p.is_me ? '<a class="btn" href="/account/profile" data-link>Edit profile</a>' : `<button class="btn ${p.is_following ? '' : 'btn-primary'}" id="follow-btn" data-testid="follow-btn">${p.is_following ? 'Following' : 'Follow'}</button>`}
       </section>
-      <div class="stat-row" style="margin-top:8px"><div class="card stat"><div class="label">Realized profit</div><div class="value">${money(p.metrics.realized_pnl_dollars)}</div></div><div class="card stat"><div class="label">Contracts traded</div><div class="value">${qty(p.metrics.volume_fp)}</div></div></div>
+      <div class="stat-row mt-8"><div class="card stat"><div class="label">Realized profit</div><div class="value">${money(p.metrics.realized_pnl_dollars)}</div></div><div class="card stat"><div class="label">Contracts traded</div><div class="value">${qty(p.metrics.volume_fp)}</div></div></div>
       <h2 class="section-title">Posts</h2><div class="card" id="posts"></div></div>
     <aside><div class="card side-card"><h3>Positions</h3><div id="holdings" class="faint">Loading…</div></div></aside></div>`;
   const fb = el.querySelector('#follow-btn');
@@ -164,5 +164,5 @@ async function renderProfile({ el, nickname, navigate }) {
   box.innerHTML = r.posts.map((x) => postCard(x)).join('') || '<div class="empty">No posts yet.</div>';
   wirePosts(box, { navigate });
   const h = await api.holdings(p.nickname);
-  el.querySelector('#holdings').innerHTML = h.hidden ? 'This trader keeps positions private.' : h.holdings.map((x) => `<a class="rank-row" href="${esc(x.link)}" data-link style="grid-template-columns:1fr auto"><span><div class="t">${esc(x.event_title)}</div><div class="faint">${esc(x.outcome)} · ${x.side.toUpperCase()}</div></span><span class="num">${qty(x.position_fp)}</span></a>`).join('') || 'No open positions.';
+  el.querySelector('#holdings').innerHTML = h.hidden ? 'This trader keeps positions private.' : h.holdings.map((x) => `<a class="rank-row rank-2" href="${esc(x.link)}" data-link><span><div class="t">${esc(x.event_title)}</div><div class="faint">${esc(x.outcome)} · ${esc(x.side.toUpperCase())}</div></span><span class="num">${qty(x.position_fp)}</span></a>`).join('') || 'No open positions.';
 }

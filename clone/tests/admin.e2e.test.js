@@ -18,13 +18,15 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-admin-'));
 const DB_FILE = path.join(TMP, 'admin.db');
 const PORT = 4500 + Math.floor(Math.random() * 40);
 const BASE = `http://127.0.0.1:${PORT}`;
+const clientToken = require('./helpers/client-token').clientTokens(BASE); // signed client token for Node-side writes (SEC_PERIMETER_SPEC §21)
 const PW = 'correct-horse-9';
-const ADMIN = { email: 'admin@parlance.local', password: 'parlance-admin' };
+const ADMIN = { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' }; // no default admin password: created by start({ admin })
+const DEMO_PW = 'Seeded-Crowd-2026'; // demo accounts have no default password (start({ demoPassword }))
 const stamp = Date.now();
 const trader = { email: `trader.${stamp}@example.test`, name: 'Tess Trader', password: PW };
 const editor = { email: `editor.${stamp}@example.test`, name: 'Eddie Editor', password: PW };
 const moder = { email: `mod.${stamp}@example.test`, name: 'Mona Moderator', password: PW };
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 300, rollingWindowSec: 5 };
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 300, rollingWindowSec: 5, admin: ADMIN, demoPassword: DEMO_PW };
 
 let srv; let browser;
 const dbq = (sql, ...a) => { const d = new DatabaseSync(DB_FILE); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
@@ -40,13 +42,14 @@ async function until(fn, ms = 15000, step = 200) {
 function client() {
   let cookie = ''; let csrf = '';
   const call = async (method, p, body) => {
-    const r = await fetch(BASE + p, { method, headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const r = await fetch(BASE + p, { method, headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf, 'x-client-token': await clientToken() }, body: body === undefined ? undefined : JSON.stringify(body) });
     const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
     const text = await r.text(); let json; try { json = JSON.parse(text); } catch { json = text; }
     if (json && json.csrf_token) csrf = json.csrf_token;
     return { status: r.status, body: json };
   };
-  return { call, login: (u) => call('POST', '/v1/log_in', { email: u.email, password: u.password }), signup: (u) => call('POST', '/v1/users', { email: u.email, password: u.password, display_name: u.name }) };
+  const preAuth = () => call('GET', '/v1/auth/csrf'); // login CSRF token + cookie (SEC_IDENTITY_SPEC §22.2)
+  return { call, login: async (u) => { await preAuth(); return call('POST', '/v1/log_in', { email: u.email, password: u.password }); }, signup: async (u) => { await preAuth(); return call('POST', '/v1/users', { email: u.email, password: u.password, display_name: u.name }); } };
 }
 
 async function newPage(viewport = { width: 1440, height: 1000 }) {
@@ -466,7 +469,7 @@ test('moderation: report a post from its ⋯ menu → moderator hides it → gon
   await confirm(mp, 'Repeated promotional posts');
   await mp.locator('[data-testid=mod-profiles] [data-nick=harborwatch] [data-a=unban]').waitFor();
   const hc = client();
-  await hc.login({ email: 'harborwatch@parlance.local', password: 'parlance-demo' });
+  await hc.login({ email: 'harborwatch@parlance.local', password: DEMO_PW });
   const blocked = await hc.call('POST', `/v1/users/${uidOf('harborwatch@parlance.local')}/social/posts`, { body: 'Buy my newsletter' });
   assert.equal(blocked.status, 403);
   assert.equal(blocked.body.error.code, 'posting_banned');
@@ -558,7 +561,7 @@ test('settings: APY change is persisted and used by the next accrual; feature sw
   const p = await newPage();
   await p.goto(BASE + '/social');
   await p.locator('[data-testid=feature-off]').waitFor();
-  const hc = client(); await hc.login({ email: 'maple_quant@parlance.local', password: 'parlance-demo' });
+  const hc = client(); await hc.login({ email: 'maple_quant@parlance.local', password: DEMO_PW });
   assert.equal((await hc.call('POST', `/v1/users/${uidOf('maple_quant@parlance.local')}/social/posts`, { body: 'hello' })).body.error.code, 'feature_disabled');
   await page.locator('[data-testid=settings-form] [name=social]').check();
   await page.click('[data-testid=settings-form] button[type=submit]');

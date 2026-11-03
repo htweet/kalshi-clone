@@ -1,5 +1,6 @@
 // Content CMS: home hero carousel, hubs, promo/spotlight cards, site banners, category navigation, info cards,
 // event news items and help pages. Empty collections fall back to the built-in defaults on the public site.
+import { vars } from '../../dynstyle.js';
 import { esc, get, post, put, del, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, subTabs, badge, fmtTime } from './ui.js';
 import { CATEGORIES, catLabel } from '../../lib.js';
 
@@ -15,7 +16,7 @@ const COLL = {
       { name: 'link', label: 'Link', required: true, value: r.link, placeholder: '/category/sports' }, { name: 'color', label: 'Colour', type: 'color', value: r.color || '#8f7fff' },
       { name: 'starts_at', label: 'Starts (optional)', type: 'datetime', value: r.starts_at }, { name: 'ends_at', label: 'Ends (optional)', type: 'datetime', value: r.ends_at },
       { name: 'position', label: 'Order', type: 'number', value: r.position ?? 0 }, { name: 'active', label: 'Active', type: 'checkbox', value: r.active ?? true }],
-    cols: [{ key: 'position', label: '#', num: true }, { key: 'title', label: 'Title', render: (r) => `<i class="adm-swatch" style="background:${esc(r.color)}"></i>${r.overline ? `<span class="faint">${esc(r.overline)} · </span>` : ''}${esc(r.title)}` }, { key: 'link', label: 'Link' }, { key: 'starts_at', label: 'Window', render: (r) => esc(windowText(r)) }, { key: 'active', label: 'State', render: active }] },
+    cols: [{ key: 'position', label: '#', num: true }, { key: 'title', label: 'Title', render: (r) => `<i class="adm-swatch v-bg"${vars({ '--bg': r.color })}></i>${r.overline ? `<span class="faint">${esc(r.overline)} · </span>` : ''}${esc(r.title)}` }, { key: 'link', label: 'Link' }, { key: 'starts_at', label: 'Window', render: (r) => esc(windowText(r)) }, { key: 'active', label: 'State', render: active }] },
   banners: { noun: 'banner', hint: 'A message bar in the site shell (spec §13.5 manual banner: content, visibility, position). The newest active banner per position is shown.',
     fields: (r) => [{ name: 'content', label: 'Text', required: true, value: r.content, span: true }, { name: 'link', label: 'Link (optional)', value: r.link },
       { name: 'visibility', label: 'Visible to', type: 'select', options: [['all', 'Everyone'], ['logged_in', 'Signed-in users'], ['logged_out', 'Signed-out visitors']], value: r.visibility || 'all' },

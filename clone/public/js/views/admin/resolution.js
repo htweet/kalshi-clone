@@ -16,8 +16,8 @@ export async function render({ el, perms }) {
       { key: 'ticker', label: 'Market', render: (r) => `<div><code>${esc(r.ticker)}</code></div><div class="faint">${esc(r.event_title)} · ${esc(r.outcome)}</div>` },
       { key: 'close_time', label: 'Closed', render: (r) => esc(fmtTime(r.close_time)) },
       { key: 'open_interest_fp', label: 'Open interest', num: true, render: (r) => fmtQty(r.open_interest_fp) },
-      { key: 'result', label: 'Result', render: (r) => (r.result ? `<b class="res-${r.result}">${r.result.toUpperCase()}</b>` : '—') },
-      { key: 'settlement', label: 'Settlement', render: (r) => `${settlementLabel(r)}${r.payouts ? `<div class="faint">${r.payouts.users} paid · ${fmtMoney(r.payouts.paid_dollars)}</div>` : ''}` },
+      { key: 'result', label: 'Result', render: (r) => (r.result ? `<b class="res-${esc(r.result)}">${esc(r.result.toUpperCase())}</b>` : '—') },
+      { key: 'settlement', label: 'Settlement', render: (r) => `${settlementLabel(r)}${r.payouts ? `<div class="faint">${esc(r.payouts.users)} paid · ${fmtMoney(r.payouts.paid_dollars)}</div>` : ''}` },
       { key: 'resolution', label: 'Source note', sort: false, render: (r) => (r.resolution ? `<div class="adm-note">${esc(r.resolution.source_note)}</div><div class="faint">${esc(r.resolution.resolved_by || '')}${r.resolution.status === 'reversed' ? ' · reversed' : ''}</div>` : '<span class="faint">—</span>') },
       ...(canWrite ? [{ key: '_a', label: '', sort: false, render: (r) => `<span class="adm-actions">
         ${['closed', 'active', 'inactive'].includes(r.status) ? `<button class="btn btn-sm btn-primary" data-resolve="${esc(r.ticker)}">Resolve</button>` : ''}
@@ -47,7 +47,7 @@ export async function render({ el, perms }) {
         const ok = await confirmAction({ title: `Resolve ${r.ticker}`, body: `${esc(r.event_title)} · <b>${esc(r.outcome)}</b>`, confirm: 'Resolve market',
           extraHtml: `<fieldset class="adm-choice" data-testid="resolve-choice"><legend>Result</legend><label><input type="radio" name="result" value="yes"> YES — ${esc(r.outcome)} happened</label><label><input type="radio" name="result" value="no"> NO — it did not</label></fieldset>
             <label class="field"><span>Source note (required): what was checked, where, when</span><textarea name="source_note" rows="3" data-testid="resolve-note"></textarea><small class="adm-err" data-note-err role="alert"></small></label>
-            <label class="field"><span>Settlement delay (seconds before payout)</span><input type="number" name="delay" min="0" value="${r.settlement_timer_seconds}" data-testid="resolve-delay"><small class="faint">The result can be reversed during this window.</small></label>` });
+            <label class="field"><span>Settlement delay (seconds before payout)</span><input type="number" name="delay" min="0" value="${esc(r.settlement_timer_seconds)}" data-testid="resolve-delay"><small class="faint">The result can be reversed during this window.</small></label>` });
         if (!ok) return;
         const f = ok.form;
         const result = f.querySelector('input[name=result]:checked')?.value;

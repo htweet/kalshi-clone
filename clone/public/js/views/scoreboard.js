@@ -2,6 +2,7 @@
 // card for the /sports hub, the full event-page scoreboard, win-probability bar, play-by-play and box score, plus
 // the page-wide live patcher that applies `live_data` WebSocket messages (polling fallback) to whatever is shown.
 // Monograms and sport icons are generated here (no logos or photos).
+import { vars } from '../dynstyle.js';
 import { esc, cents, eventHref } from '../lib.js';
 import { socket } from '../ws.js';
 import { request } from '../api.js';
@@ -16,8 +17,8 @@ const ICONS = {
   esports: '<path d="M7.2 7.5h9.6a4.2 4.2 0 014.1 3.6l.8 5a2.1 2.1 0 01-3.6 1.8l-2.4-2.6H8.3l-2.4 2.6a2.1 2.1 0 01-3.6-1.8l.8-5a4.2 4.2 0 014.1-3.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.2 9.8v3.4M6.5 11.5h3.4" stroke="currentColor" stroke-width="1.5"/><circle cx="15.6" cy="10.6" r="1.1" fill="currentColor"/><circle cx="17.6" cy="12.6" r="1.1" fill="currentColor"/>',
   all: '<circle cx="8" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="16" cy="16" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M14 6h6M17 3v6M4 18h6" stroke="currentColor" stroke-width="1.7"/>',
 };
-export const sportIcon = (sport, size = 18) => `<svg class="sb-icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[sport] || ICONS.all}</svg>`;
-export const monogram = (t, cls = '') => `<span class="sb-mono ${cls}" style="--team:${esc(t.color)}" aria-hidden="true">${esc(t.abbr)}</span>`;
+export const sportIcon = (sport, size = 18) => `<svg class="sb-icon" width="${esc(size)}" height="${esc(size)}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[sport] || ICONS.all}</svg>`;
+export const monogram = (t, cls = '') => `<span class="sb-mono ${esc(cls)}"${vars({ '--team': t.color })} aria-hidden="true">${esc(t.abbr)}</span>`;
 
 const sideKey = (side) => (side === 'home' ? 'competitor1' : 'competitor2');
 const isFinal = (ld) => ld.status === 'final';
@@ -38,14 +39,14 @@ export function sideCols(ld, side) {
   if (ld.sport === 'tennis') {
     const c = sideKey(side);
     const serve = ld.status === 'live' && d.server === c;
-    return `<i class="sb-serve${serve ? ' on' : ''}" ${serve ? 'data-testid="sb-serve" title="Serving"' : ''}></i>${(d[`${c}_round_scores`] || []).map((s) => `<span class="sb-set${s.outcome === 'winner' ? ' won' : ''}" data-testid="sb-set">${s.score}${s.tiebreak_score != null ? `<sup data-tb="${s.tiebreak_score}">${s.tiebreak_score}</sup>` : ''}</span>`).join('')}${ld.status === 'live' ? `<span class="sb-pts" data-testid="sb-pts">${esc(d[`${c}_current_round_score`])}</span>` : ''}`;
+    return `<i class="sb-serve${serve ? ' on' : ''}" ${serve ? 'data-testid="sb-serve" title="Serving"' : ''}></i>${(d[`${c}_round_scores`] || []).map((s) => `<span class="sb-set${s.outcome === 'winner' ? ' won' : ''}" data-testid="sb-set">${esc(s.score)}${s.tiebreak_score != null ? `<sup data-tb="${esc(s.tiebreak_score)}">${esc(s.tiebreak_score)}</sup>` : ''}</span>`).join('')}${ld.status === 'live' ? `<span class="sb-pts" data-testid="sb-pts">${esc(d[`${c}_current_round_score`])}</span>` : ''}`;
   }
   if (ld.sport === 'cricket') {
     const batted = d[`${side}_balls`] > 0 || d.batting === side;
-    return batted ? `<span class="sb-runs" data-testid="sb-runs">${d[`${side}_total_runs`]}/${d[`${side}_wickets`]}</span><span class="sb-ov">${d[`${side}_overs`]}</span>` : '<span class="sb-ov">Yet to bat</span>';
+    return batted ? `<span class="sb-runs" data-testid="sb-runs">${esc(d[`${side}_total_runs`])}/${esc(d[`${side}_wickets`])}</span><span class="sb-ov">${esc(d[`${side}_overs`])}</span>` : '<span class="sb-ov">Yet to bat</span>';
   }
-  if (ld.sport === 'esports') return `<span class="sb-set" title="Rounds on the current map">${d[`${side}_periods`]?.[`period_${d.current_period}`] ?? 0}</span><span class="sb-big" data-testid="sb-score">${d[`${side}_score`]}</span>`;
-  return `<span class="sb-big" data-testid="sb-score">${d[`${side}_score`]}</span>`;
+  if (ld.sport === 'esports') return `<span class="sb-set" title="Rounds on the current map">${esc(d[`${side}_periods`]?.[`period_${d.current_period}`] ?? 0)}</span><span class="sb-big" data-testid="sb-score">${esc(d[`${side}_score`])}</span>`;
+  return `<span class="sb-big" data-testid="sb-score">${esc(d[`${side}_score`])}</span>`;
 }
 // Card rows for a game: home then away (the draw market stays on the event page and the hub card).
 export function cardMarkets(ev) {
@@ -58,7 +59,7 @@ export function scoreCols(ev, m) {
   if (!ld) return '';
   const side = ld.outcomes?.[m.ticker];
   if (side !== 'home' && side !== 'away') return '<span class="sb-cols"></span>';
-  return `<span class="sb-cols${winnerCls(ld, side)}" data-testid="sb-cols" data-live-ms="${esc(ld.milestone_id)}" data-sb-part="cols" data-sb-side="${side}">${sideCols(ld, side)}</span>`;
+  return `<span class="sb-cols${winnerCls(ld, side)}" data-testid="sb-cols" data-live-ms="${esc(ld.milestone_id)}" data-sb-part="cols" data-sb-side="${esc(side)}">${sideCols(ld, side)}</span>`;
 }
 const subInner = (ld) => (ld.status === 'live' ? `<span class="live-dot">Live</span><span>${esc(ld.competition)} · ${esc(ld.live_label)}</span>`
   : isFinal(ld) ? `<span class="sb-final-tag">Final</span><span>${esc(ld.competition)}</span>` : `<span>${esc(ld.competition)} · ${esc(startText(ld.start_date))}</span>`);
@@ -71,9 +72,9 @@ function winBarInner(ld) {
   const h = Math.round(d.home_win_probability * 100); const a = Math.round(d.away_win_probability * 100);
   const dr = d.draw_probability != null ? Math.max(0, 100 - h - a) : 0;
   return `<div class="sb-wp-labels"><span><b>${esc(ld.home.abbr)}</b> ${h}%</span>${d.draw_probability != null ? `<span>Draw ${dr}%</span>` : ''}<span>${a}% <b>${esc(ld.away.abbr)}</b></span></div>
-    <div class="sb-wp-bar" role="img" aria-label="Win probability ${esc(ld.home.name)} ${h}%, ${esc(ld.away.name)} ${a}%"><span style="flex:${Math.max(h, 0.5)};background:${esc(ld.home.color)}"></span>${dr ? `<span class="draw" style="flex:${dr}"></span>` : ''}<span style="flex:${Math.max(a, 0.5)};background:${esc(ld.away.color)}"></span></div>`;
+    <div class="sb-wp-bar" role="img" aria-label="Win probability ${esc(ld.home.name)} ${h}%, ${esc(ld.away.name)} ${a}%"><span class="v-flex v-bg"${vars({ '--flex': Math.max(h, 0.5), '--bg': ld.home.color })}></span>${dr ? `<span class="draw v-flex"${vars({ '--flex': dr })}></span>` : ''}<span class="v-flex v-bg"${vars({ '--flex': Math.max(a, 0.5), '--bg': ld.away.color })}></span></div>`;
 }
-export const winBar = (ld, attrs = '') => `<div class="sb-wp" data-testid="win-bar" ${attrs}>${winBarInner(ld)}</div>`;
+export const winBar = (ld, attrs = '') => `<div class="sb-wp" data-testid="win-bar" ${attrs /* eslint-disable-line parlance/no-unescaped-html -- attribute markup from callers, built with esc() */}>${winBarInner(ld)}</div>`;
 
 // ---------- hub game card (compact scoreboard + odds per side) ----------
 function oddsOf(m) {
@@ -88,11 +89,11 @@ export function gameCard({ live_data: ld, event: ev }) {
   const row = (side) => {
     const t = ld[side]; const m = mk(side); const p = oddsOf(m);
     return `<div class="sb-row${winnerCls(ld, side)}">${monogram(t)}<span class="sb-name">${esc(t.name)}</span>
-      <span class="sb-cols${winnerCls(ld, side)}" data-live-ms="${esc(ld.milestone_id)}" data-sb-part="cols" data-sb-side="${side}">${sideCols(ld, side)}</span>
+      <span class="sb-cols${winnerCls(ld, side)}" data-live-ms="${esc(ld.milestone_id)}" data-sb-part="cols" data-sb-side="${esc(side)}">${sideCols(ld, side)}</span>
       ${m && m.status === 'active' ? `<a class="odds pill sb-odds" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link data-odds-ticker="${esc(m.ticker)}">${p == null ? '—' : p + '%'}</a>` : `<span class="sb-odds-ph">${m && m.result ? (m.result === 'yes' ? 'Won' : '') : ''}</span>`}</div>`;
   };
   const draw = ev && ev.markets.find((m) => ld.outcomes[m.ticker] === 'draw');
-  return `<article class="card sb-game ${ld.status}" data-testid="game-card" data-milestone="${esc(ld.milestone_id)}" data-status="${ld.status}" data-sport="${ld.sport}" data-league="${esc(ld.league.id)}">
+  return `<article class="card sb-game ${esc(ld.status)}" data-testid="game-card" data-milestone="${esc(ld.milestone_id)}" data-status="${esc(ld.status)}" data-sport="${esc(ld.sport)}" data-league="${esc(ld.league.id)}">
     <a class="sb-game-head" href="${href}" data-link>${sportIcon(ld.sport, 16)}<span class="sb-league">${esc(ld.league.short_name)}</span><span class="sb-state" data-live-ms="${esc(ld.milestone_id)}" data-sb-part="state">${stateInner(ld)}</span></a>
     ${row('home')}${row('away')}
     ${draw && draw.status === 'active' ? `<div class="sb-draw-row"><span>Draw</span><a class="odds pill sb-odds" href="${href}?side=yes&amp;market=${esc(draw.ticker)}" data-link data-odds-ticker="${esc(draw.ticker)}">${oddsOf(draw) ?? '—'}%</a></div>` : ''}
@@ -106,15 +107,15 @@ const lastLine = (ld) => (ld.status === 'scheduled' ? `${ld.competition}` : ld.s
 // ---------- full scoreboard (event page) ----------
 function teamBlock(ld, side) {
   const t = ld[side];
-  return `<div class="sb-team sb-${side}${winnerCls(ld, side)}">${monogram(t, 'lg')}<div class="sb-team-name">${esc(t.name)}</div></div>`;
+  return `<div class="sb-team sb-${esc(side)}${winnerCls(ld, side)}">${monogram(t, 'lg')}<div class="sb-team-name">${esc(t.name)}</div></div>`;
 }
 function lineScore(ld, heads) {
   const L = ld.lines || { home: [], away: [] };
   const n = Math.max(L.home.length, L.away.length);
   if (!n) return '';
   const cols = Array.from({ length: n }, (_, i) => heads(i));
-  return `<table class="sb-line" data-testid="line-score"><thead><tr><th></th>${cols.map((c) => `<th>${c}</th>`).join('')}<th>T</th></tr></thead><tbody>
-    ${['home', 'away'].map((s) => `<tr class="${winnerCls(ld, s)}"><td>${esc(ld[s].abbr)}</td>${cols.map((_, i) => `<td>${L[s][i] ?? '–'}</td>`).join('')}<td><b>${ld.details[`${s}_score`]}</b></td></tr>`).join('')}</tbody></table>`;
+  return `<table class="sb-line" data-testid="line-score"><thead><tr><th></th>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}<th>T</th></tr></thead><tbody>
+    ${['home', 'away'].map((s) => `<tr class="${winnerCls(ld, s)}"><td>${esc(ld[s].abbr)}</td>${cols.map((_, i) => `<td>${esc(L[s][i] ?? '–')}</td>`).join('')}<td><b>${esc(ld.details[`${s}_score`])}</b></td></tr>`).join('')}</tbody></table>`;
 }
 function fullBody(ld) {
   const d = ld.details;
@@ -122,25 +123,25 @@ function fullBody(ld) {
     const sets = Math.max(d.competitor1_round_scores.length, 1);
     const head = `<tr><th></th>${Array.from({ length: sets }, (_, i) => `<th>Set ${i + 1}</th>`).join('')}${ld.status === 'live' ? '<th>Pts</th>' : ''}</tr>`;
     const row = (side) => { const c = sideKey(side); const serve = ld.status === 'live' && d.server === c;
-      return `<tr class="${winnerCls(ld, side)}" data-side="${side}"><td class="sb-who">${monogram(ld[side])}<i class="sb-serve${serve ? ' on' : ''}" ${serve ? 'data-testid="sb-serve" title="Serving"' : ''}></i><span>${esc(ld[side].name)}</span></td>
-        ${d[`${c}_round_scores`].map((s) => `<td class="sb-set${s.outcome === 'winner' ? ' won' : ''}" data-testid="sb-set">${s.score}${s.tiebreak_score != null ? `<sup data-tb="${s.tiebreak_score}">${s.tiebreak_score}</sup>` : ''}</td>`).join('')}
+      return `<tr class="${winnerCls(ld, side)}" data-side="${esc(side)}"><td class="sb-who">${monogram(ld[side])}<i class="sb-serve${serve ? ' on' : ''}" ${serve ? 'data-testid="sb-serve" title="Serving"' : ''}></i><span>${esc(ld[side].name)}</span></td>
+        ${d[`${c}_round_scores`].map((s) => `<td class="sb-set${s.outcome === 'winner' ? ' won' : ''}" data-testid="sb-set">${esc(s.score)}${s.tiebreak_score != null ? `<sup data-tb="${esc(s.tiebreak_score)}">${esc(s.tiebreak_score)}</sup>` : ''}</td>`).join('')}
         ${ld.status === 'live' ? `<td class="sb-pts" data-testid="sb-pts">${esc(d[`${c}_current_round_score`])}</td>` : ''}</tr>`; };
     return `<table class="sb-tennis" data-testid="sb-tennis"><thead>${head}</thead><tbody>${row('home')}${row('away')}</tbody></table>
       ${d.in_tiebreak ? '<div class="sb-note">Tiebreak</div>' : d.advantage ? `<div class="sb-note">Advantage ${esc(ld[d.advantage === 'competitor1' ? 'home' : 'away'].name)}</div>` : ''}`;
   }
   if (ld.sport === 'cricket') {
     const row = (side) => { const batted = d[`${side}_balls`] > 0 || d.batting === side;
-      return `<tr class="${winnerCls(ld, side)}"><td class="sb-who">${monogram(ld[side])}<span>${esc(ld[side].name)}</span>${d.batting === side ? '<i class="sb-bat" title="Batting">bat</i>' : ''}</td><td class="sb-runs" data-testid="sb-runs-${side}">${batted ? `${d[`${side}_total_runs`]}/${d[`${side}_wickets`]}` : '–'}</td><td class="sb-ov">${batted ? `${d[`${side}_overs`]} ov` : 'Yet to bat'}</td></tr>`; };
-    const info = [d.target ? `<span data-testid="sb-target">Target <b>${d.target}</b></span>` : '', `<span data-testid="sb-crr">CRR <b>${Number(d.run_rate || 0).toFixed(2)}</b></span>`, d.required_run_rate != null ? `<span data-testid="sb-rrr">RRR <b>${Number(d.required_run_rate).toFixed(2)}</b></span>` : ''].filter(Boolean).join('');
-    return `<table class="sb-cricket"><tbody>${row('home')}${row('away')}</tbody></table><div class="sb-info">${info}<span class="sb-allotted">${d.allotted_overs} overs</span></div>
+      return `<tr class="${winnerCls(ld, side)}"><td class="sb-who">${monogram(ld[side])}<span>${esc(ld[side].name)}</span>${d.batting === side ? '<i class="sb-bat" title="Batting">bat</i>' : ''}</td><td class="sb-runs" data-testid="sb-runs-${esc(side)}">${batted ? `${esc(d[`${side}_total_runs`])}/${esc(d[`${side}_wickets`])}` : '–'}</td><td class="sb-ov">${batted ? `${esc(d[`${side}_overs`])} ov` : 'Yet to bat'}</td></tr>`; };
+    const info = [d.target ? `<span data-testid="sb-target">Target <b>${esc(d.target)}</b></span>` : '', `<span data-testid="sb-crr">CRR <b>${Number(d.run_rate || 0).toFixed(2)}</b></span>`, d.required_run_rate != null ? `<span data-testid="sb-rrr">RRR <b>${Number(d.required_run_rate).toFixed(2)}</b></span>` : ''].filter(Boolean).join('');
+    return `<table class="sb-cricket"><tbody>${row('home')}${row('away')}</tbody></table><div class="sb-info">${info}<span class="sb-allotted">${esc(d.allotted_overs)} overs</span></div>
       ${d.match_comment ? `<div class="sb-note" data-testid="sb-comment">${esc(d.match_comment)}</div>` : ''}${(d.recent_balls || []).length && ld.status === 'live' ? `<div class="sb-balls" aria-label="Recent deliveries">${d.recent_balls.map((b) => `<span class="b b-${esc(b)}">${esc(b)}</span>`).join('')}</div>` : ''}`;
   }
-  const mid = `<div class="sb-mid"><div class="sb-scoreline"><span data-testid="sb-score-home">${d.home_score}</span><span class="dash">–</span><span data-testid="sb-score-away">${d.away_score}</span></div>
+  const mid = `<div class="sb-mid"><div class="sb-scoreline"><span data-testid="sb-score-home">${esc(d.home_score)}</span><span class="dash">–</span><span data-testid="sb-score-away">${esc(d.away_score)}</span></div>
     <div class="sb-clock" data-testid="sb-clock">${ld.status === 'live' ? esc(ld.live_label) : esc(statusText(ld))}</div>
     ${ld.sport === 'football' && d.down_distance ? `<div class="sb-note" data-testid="sb-downs">${esc(d.down_distance)} · ${esc(ld[d.possession].abbr)} ball</div>` : ''}
     ${ld.sport === 'basketball' && ld.status === 'live' ? `<div class="sb-note">${esc(ld[d.possession].abbr)} possession</div>` : ''}
-    ${ld.sport === 'soccer' && (d.home_red_cards || d.away_red_cards) ? `<div class="sb-note">Red cards ${d.home_red_cards}–${d.away_red_cards}</div>` : ''}
-    ${ld.sport === 'esports' ? `<div class="sb-note">Best of ${d.best_of} · maps won</div>` : ''}</div>`;
+    ${ld.sport === 'soccer' && (d.home_red_cards || d.away_red_cards) ? `<div class="sb-note">Red cards ${esc(d.home_red_cards)}–${esc(d.away_red_cards)}</div>` : ''}
+    ${ld.sport === 'esports' ? `<div class="sb-note">Best of ${esc(d.best_of)} · maps won</div>` : ''}</div>`;
   const head = { soccer: (i) => `${i === 0 ? '1st' : '2nd'}`, basketball: (i) => (i < 4 ? `Q${i + 1}` : i === 4 ? 'OT' : `${i - 3}OT`), football: (i) => (i < 4 ? `Q${i + 1}` : 'OT'), esports: (i) => `Map ${i + 1}` }[ld.sport];
   return `<div class="sb-teams">${teamBlock(ld, 'home')}${mid}${teamBlock(ld, 'away')}</div>${head ? lineScore(ld, head) : ''}`;
 }
@@ -148,7 +149,7 @@ export function fullBoard(ld) {
   const d = ld.details;
   const winner = isFinal(ld) && d.winner ? (d.winner === 'draw' ? 'Draw' : `${ld[d.winner].name} won`) : '';
   return `<div class="sb-full-head"><span class="sb-full-league">${sportIcon(ld.sport, 16)} ${esc(ld.competition.startsWith(ld.league.name) ? ld.competition : `${ld.league.name} · ${ld.competition}`)} · ${esc(ld.sport_label)}</span>
-      <span class="sb-status ${ld.status}" data-testid="sb-status">${ld.status === 'live' ? `<span class="live-dot">Live</span> ${esc(ld.live_label)}` : esc(statusText(ld))}</span></div>
+      <span class="sb-status ${esc(ld.status)}" data-testid="sb-status">${ld.status === 'live' ? `<span class="live-dot">Live</span> ${esc(ld.live_label)}` : esc(statusText(ld))}</span></div>
     ${winner ? `<div class="sb-winner" data-testid="sb-winner">${esc(winner)}</div>` : ''}
     <div class="sb-full-body">${fullBody(ld)}</div>
     ${ld.status === 'scheduled' ? `<div class="sb-last">Pre-game win probability</div>` : `<div class="sb-last" data-testid="last-play"><span class="faint">Last play</span> ${esc(d.last_play || '')}</div>`}
@@ -158,7 +159,7 @@ export function fullBoard(ld) {
 // ---------- play-by-play + box score ----------
 export function playItem(p, ld) {
   const t = p.team === 'home' || p.team === 'away' ? ld[p.team] : null;
-  return `<li data-testid="pbp-item" data-seq="${p.seq}" class="k-${esc(p.kind)}"><span class="sb-pbp-clock">${esc(p.clock)}</span>${t ? monogram(t, 'sm') : '<span class="sb-mono sm none"></span>'}<span class="sb-pbp-text">${esc(p.text)}</span><span class="sb-pbp-score num">${p.home_score}-${p.away_score}</span></li>`;
+  return `<li data-testid="pbp-item" data-seq="${esc(p.seq)}" class="k-${esc(p.kind)}"><span class="sb-pbp-clock">${esc(p.clock)}</span>${t ? monogram(t, 'sm') : '<span class="sb-mono sm none"></span>'}<span class="sb-pbp-text">${esc(p.text)}</span><span class="sb-pbp-score num">${esc(p.home_score)}-${esc(p.away_score)}</span></li>`;
 }
 export const playsList = (plays, ld) => `<ol class="sb-pbp" data-testid="pbp">${plays.map((p) => playItem(p, ld)).join('') || '<li class="faint">No plays yet.</li>'}</ol>`;
 const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : '–');

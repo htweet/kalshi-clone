@@ -30,18 +30,18 @@ export async function render({ el, params, query, navigate }) {
     try { subs = (await queries.fetch(['categories'], api.categories, { staleTime: 300000 })).categories.find((c) => c.name === category)?.subcategories || []; } catch { /* optional */ }
   }
 
-  el.innerHTML = `<div class="page-head" style="padding-top:0"><h1 class="page-title">${esc(title)}</h1>
-      <div class="toolbar" style="margin:0">
+  el.innerHTML = `<div class="page-head pt-0"><h1 class="page-title">${esc(title)}</h1>
+      <div class="toolbar m-0">
         <select class="pill-select" id="order-by" aria-label="Sort by">${ORDERS.map(([v, l]) => `<option value="${v}" ${v === orderBy ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <select class="pill-select" id="frequency" aria-label="Frequency">${FREQS.map(([v, l]) => `<option value="${v}" ${v === frequency ? 'selected' : ''}>${v ? l : 'Frequency'}</option>`).join('')}</select>
         ${!category ? `<select class="pill-select" id="category" aria-label="Category"><option value="">All categories</option>${CATEGORIES.map((c) => `<option value="${esc(c)}" ${c === category ? 'selected' : ''}>${esc(catLabel(c))}</option>`).join('')}</select>` : ''}
         <select class="pill-select" id="status" aria-label="Status">${STATUSES.map(([v, l]) => `<option value="${v}" ${v === status ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <div class="seg" role="group" aria-label="Layout"><button data-layout="grid" aria-label="Grid">${ICON.grid}</button><button data-layout="list" aria-label="List">${ICON.list}</button></div>
       </div></div>
-    <div class="faint" id="result-count" style="margin:-4px 0 12px"></div>
-    ${category ? `<div class="chips" style="margin-bottom:16px" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>All ${esc(catLabel(category))}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}${category === 'Sports' ? '<a class="chip sb-hub-chip" href="/sports" data-link data-testid="sports-hub-link" hidden>Live scores ›</a>' : ''}</div>` : ''}
+    <div class="faint m-count" id="result-count"></div>
+    ${category ? `<div class="chips mb-16" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>All ${esc(catLabel(category))}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}${category === 'Sports' ? '<a class="chip sb-hub-chip" href="/sports" data-link data-testid="sports-hub-link" hidden>Live scores ›</a>' : ''}</div>` : ''}
     <div class="grid" id="results">${'<div class="skeleton"></div>'.repeat(6)}</div>
-    <div style="text-align:center;margin-top:16px"><button class="btn" id="more" hidden>Load more</button></div>`;
+    <div class="ta-c mt-16"><button class="btn" id="more" hidden>Load more</button></div>`;
 
   const results = el.querySelector('#results');
   revealSportsLink(el);
@@ -58,7 +58,7 @@ export async function render({ el, params, query, navigate }) {
     cursor = r.next_cursor;
     const html = page.map(eventCard).join('');
     if (append) results.insertAdjacentHTML('beforeend', html);
-    else results.innerHTML = html || `<div class="card empty" data-testid="empty-results">${live ? 'Nothing is live right now. Check the <a href="/calendar" data-link style="color:var(--brand)">calendar</a>.' : 'No markets match these filters.'}</div>`;
+    else results.innerHTML = html || `<div class="card empty" data-testid="empty-results">${live ? 'Nothing is live right now. Check the <a href="/calendar" data-link class="c-brand">calendar</a>.' : 'No markets match these filters.'}</div>`;
     el.querySelector('#result-count').textContent = `${live ? page.length : r.total_results_count} events`;
     el.querySelector('#more').hidden = !cursor || live;
   }

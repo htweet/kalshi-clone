@@ -4,32 +4,40 @@
 // Server: {id, type:'subscribed', msg:{sid, channel}} | {id, type:'unsubscribed', msg:{sid}} | {id, type:'error', msg:{code, msg}}
 //         {type, sid, seq, msg} data messages.
 const { WebSocketServer } = require('ws');
-const { parseCookies, SESSION_COOKIE } = require('./app');
 const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat']);
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications']);
 
-function attachWs(server, { db, engine }) {
+function attachWs(server, { engine, auth, security }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 }); // inbound frame cap (clients only send small commands)
   const clients = new Set();
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://x');
     if (url.pathname !== '/v1/ws') { socket.destroy(); return; }
-    let userId = null;
-    const tok = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-    if (tok) {
-      const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(tok);
-      // CSRF token in the query must match the session (spec §7.2).
-      if (s && Date.parse(s.expires_at) > Date.now() && s.csrf_token === url.searchParams.get('csrfToken')) userId = s.user_id;
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, userId));
+    // Perimeter (server/security.js, S2 AwsWafTokenForWebSocket): allowed Origin and a valid signed client token (`ct`).
+    const gate = security ? security.checkUpgrade(req) : { ok: true };
+    if (!gate.ok) { socket.end(`HTTP/1.1 ${gate.status} Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); return; }
+    let userId = null; let sessionId = null;
+    // Same validity rules as HTTP (hashed token, idle + absolute expiry, account lock; server/auth.js), and the CSRF
+    // token in the query must match the session (spec §7.2).
+    const a = auth.fromCookieHeader(req.headers.cookie);
+    if (a && a.session.csrf_token === url.searchParams.get('csrfToken')) { userId = a.user.id; sessionId = a.session.sid; }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, userId, sessionId));
   });
 
-  wss.on('connection', (ws, userId) => {
-    const c = { ws, userId, subs: new Map(), nextSid: 1, alive: true };
+  // A revoked / expired session loses its private channels at once: the client is told and the socket closed (4401).
+  function endSession(c) {
+    send(c, { type: 'session_revoked', msg: {} });
+    c.userId = null; c.sessionId = null;
+    try { c.ws.close(4401, 'session ended'); } catch { /* ignore */ }
+  }
+  auth.events.on('revoked', (sids) => { for (const c of clients) if (c.sessionId && sids.includes(c.sessionId)) endSession(c); });
+
+  wss.on('connection', (ws, userId, sessionId) => {
+    const c = { ws, userId, sessionId, subs: new Map(), nextSid: 1, alive: true };
     clients.add(c);
     ws.on('pong', () => { c.alive = true; });
     ws.on('close', () => clients.delete(c));
@@ -114,6 +122,7 @@ function attachWs(server, { db, engine }) {
   const iv = setInterval(() => {
     for (const c of clients) {
       if (!c.alive) { c.ws.terminate(); clients.delete(c); continue; }
+      if (c.sessionId && !auth.sessionAlive(c.sessionId)) { endSession(c); continue; } // idle/absolute expiry, lock, admin revoke
       c.alive = false;
       try { c.ws.ping(); } catch { /* ignore */ }
     }

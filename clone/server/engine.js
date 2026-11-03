@@ -6,21 +6,32 @@ const { EventEmitter } = require('node:events');
 const { tx } = require('./db');
 const { nowIso, newId, E, ApiError, ustr } = require('./util');
 
-const FEE_RATE_NUM = 7; // design choice for unknown U3: fee = ceil(0.07 * C * P * (1-P)) dollars
+// Taker fee coefficient (design choice for unknown U3: fee = ceil(0.07 * C * P * (1-P)) dollars), held as an integer number
+// of 1/10,000ths so the fee arithmetic stays exact. Editable at runtime from Admin › Settings (gap G7, server/admin.js);
+// the value is per process (one exchange per process; set at boot from the persisted setting).
+const DEFAULT_TAKER_FEE_COEFFICIENT = 0.07;
+let feeK = 700;
+function setTakerFeeCoefficient(c) {
+  const k = Math.round(Number(c) * 10000);
+  if (!Number.isInteger(k) || k < 0 || k > 2500) throw new RangeError('taker fee coefficient must be between 0 and 0.25');
+  feeK = k;
+  return feeK / 10000;
+}
+const takerFeeCoefficient = () => feeK / 10000;
 const UNITS = 100;      // quantities are integer hundredths of a contract (spec §16.1)
 const MAX_COUNT = 100000;
 const MAX_UNITS = MAX_COUNT * UNITS;
 
-// Taker fee in cents for `units` hundredths of a contract at `price` cents: ceil(7·q·p·(100−p) / 1,000,000).
-// For whole contracts (q = 100·C) this is exactly ceil(0.07·C·P·(1−P)) dollars, as before.
+// Taker fee in cents for `units` hundredths of a contract at `price` cents: ceil(k·q·p·(100−p) / 10^8), k = coefficient·10^4.
+// For whole contracts (q = 100·C) and k = 700 this is exactly ceil(0.07·C·P·(1−P)) dollars, as before.
 function takerFeeCents(units, price, multiplier = 1) {
-  const raw = FEE_RATE_NUM * units * price * (100 - price) * multiplier; // in 1/1,000,000 cents
-  return Math.ceil(raw / 1000000);
+  const raw = feeK * units * price * (100 - price) * multiplier; // in 1/100,000,000 cents
+  return Math.ceil(raw / 100000000);
 }
 // Upper bound on per-contract fee for any execution price <= limit (P(1-P) peaks at 50).
 function perContractFeeCap(limit, multiplier = 1) {
   const p = Math.min(limit, 50);
-  return Math.ceil((FEE_RATE_NUM * p * (100 - p) * multiplier) / 10000);
+  return Math.ceil((feeK * p * (100 - p) * multiplier) / 1000000);
 }
 // Cash split for a fill of q units at YES-side price p: the pair costs exactly q cents; the taker side pays
 // ceil(p·q/100) and the maker side the remainder (spec §16.2).
@@ -108,7 +119,7 @@ class Engine extends EventEmitter {
     if (!['gtc', 'ioc'].includes(time_in_force)) throw E.badRequest('time_in_force must be gtc or ioc');
     if (!Number.isInteger(price) || price < 1 || price > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99');
     if (!Number.isInteger(count) || count < 1 || count > MAX_UNITS) throw E.badRequest(`count must be between 0.01 and ${MAX_COUNT} contracts`);
-    const exact = exact_reserve && time_in_force === 'ioc';
+    let exact = exact_reserve && time_in_force === 'ioc';
     if (expiration_ts != null) {
       if (time_in_force !== 'gtc') throw E.badRequest('an expiration time cannot be combined with immediate-or-cancel');
       if (!Number.isFinite(expiration_ts) || expiration_ts <= Date.now()) throw E.badRequest('expiration_time must be in the future');
@@ -146,11 +157,23 @@ class Engine extends EventEmitter {
         const base = exact ? out.reduce((a, f) => a + f.cost, 0) : R(cnt);
         return { fills: out, rem, suffix, required: base + suffix[0] };
       };
-      let pl = plan(count);
+      let pl;
       if (max_cost_cents != null) {
-        const step = m.fractional_trading_enabled ? 1 : UNITS;
-        for (let i = 0; i < 1000 && pl.required > max_cost_cents && count > step; i++) { count -= step; pl = plan(count); }
+        // Dollars / target-cost orders (gap G2): size against the exact planned cost, fill by fill, so the per-maker
+        // cent rounding (ceil of each fill's principal and fee) is part of the budget. The order is IOC and reserves
+        // exactly that cost; the spend can never exceed the cap however many makers it crosses.
+        if (time_in_force !== 'ioc') throw E.badRequest('a cost cap requires an immediate-or-cancel order');
+        exact = true;
+        const step = m.fractional_trading_enabled || allow_fractional ? 1 : UNITS;
+        const fits = (n) => plan(n).required <= max_cost_cents;
+        // Planned cost is non-decreasing in size, so binary-search the largest multiple of `step` that fits.
+        let lo = 0; let hi = Math.floor(count / step);
+        while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (fits(mid * step)) lo = mid; else hi = mid - 1; }
+        if (lo === 0) throw E.badRequest('amount is below the cost of the smallest order size at the current price, fee included');
+        count = lo * step;
       }
+      pl = plan(count);
+      if (max_cost_cents != null && pl.required > max_cost_cents) throw new Error('invariant: cost-capped plan exceeds its cap');
       if (post_only && pl.fills.length) throw E.conflict('post_only_cross', 'post-only order would cross the book');
       const reserve = pl.required;
       if (this.balance(userId) < reserve) throw E.conflict('insufficient_balance', 'insufficient balance', `order requires $${(reserve / 100).toFixed(2)} including max fees`);
@@ -442,4 +465,4 @@ class Engine extends EventEmitter {
   }
 }
 
-module.exports = { Engine, takerFeeCents, perContractFeeCap, takerPrincipal, MAX_COUNT, MAX_UNITS, UNITS };
+module.exports = { Engine, takerFeeCents, perContractFeeCap, takerPrincipal, setTakerFeeCoefficient, takerFeeCoefficient, DEFAULT_TAKER_FEE_COEFFICIENT, MAX_COUNT, MAX_UNITS, UNITS };

@@ -1,8 +1,7 @@
 'use strict';
-const path = require('node:path');
 const express = require('express');
 const { tx } = require('./db');
-const { nowIso, newId, token, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, hashPassword, verifyPassword, encCursor, decCursor } = require('./util');
+const { nowIso, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, encCursor, decCursor } = require('./util');
 const { marketVo, eventVo, seriesVo, orderVo, fillVo } = require('./serialize');
 const { mountFeatures, CATEGORIES } = require('./features');
 const { perContractFeeCap } = require('./engine');
@@ -15,9 +14,13 @@ const { mountPositions } = require('./positions');
 const { mountSports } = require('./sports');
 const { mountAdmin } = require('./admin');
 const { mountChat } = require('./chat');
+const { jsonBody, validateRoutes } = require('./validate');
+const { idempotency } = require('./idempotency');
+const { createAuth } = require('./auth');
+const { createSecurity } = require('./security');
 
+// Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
 const SESSION_COOKIE = 'plx_session';
-const SESSION_DAYS = 30;
 const STATUS_FILTER = { unopened: ['initialized'], open: ['active'], paused: ['inactive'], closed: ['closed', 'determined'], settled: ['finalized'] };
 const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode', 'orderbook_hide_fractional_shares', 'rfq_enabled', 'history_filters', 'positions_sort', 'positions_filter']);
 
@@ -30,21 +33,7 @@ function parseCookies(header) {
   return out;
 }
 
-// Token bucket per client IP (spec §5.4: 429 too_many_requests).
-function rateLimiter({ burst, perSec }) {
-  const buckets = new Map();
-  return (req, res, next) => {
-    const key = req.ip || 'local';
-    const now = Date.now();
-    const b = buckets.get(key) || { tokens: burst, ts: now };
-    b.tokens = Math.min(burst, b.tokens + ((now - b.ts) / 1000) * perSec);
-    b.ts = now;
-    if (b.tokens < 1) { buckets.set(key, b); return next(E.tooMany()); }
-    b.tokens -= 1;
-    buckets.set(key, b);
-    next();
-  };
-}
+// Rate limits (spec §5.4: 429 too_many_requests) are tiered and persisted: server/bot.js, wired by server/security.js.
 
 // Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope.
 class ParamError extends Error { constructor(msg) { super(msg); this.status = 400; } }
@@ -57,11 +46,16 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions }) {
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '64kb' }));
+  // Perimeter (server/security.js, SEC_PERIMETER_SPEC §21): headers + CSP nonce, CORS, honeypots, robots.txt, CSP reports,
+  // bot challenge verify and client-token bootstrap — before body parsing and the session / CSRF middleware.
+  const security = createSecurity({ app, db, rate, parseCookies, options: { ...(securityOptions || {}), dataDir: keyDir } });
+  app.locals.security = security;
+  app.use(security.early);
+  app.use(jsonBody()); // JSON bodies with per-route size limits (server/validate.js, PLAN P1.8)
 
   // ---------- helpers ----------
   const q = engine.quote.bind(engine);
@@ -84,35 +78,14 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     return vo;
   };
 
-  function sessionFrom(req) {
-    const tok = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-    if (!tok) return null;
-    const s = db.prepare('SELECT * FROM sessions WHERE token=?').get(tok);
-    if (!s || Date.parse(s.expires_at) < Date.now()) return null;
-    const u = db.prepare('SELECT * FROM users WHERE id=?').get(s.user_id);
-    return u ? { session: s, user: u } : null;
-  }
-
   const publicUser = (u) => ({ user_id: u.id, email: u.email, display_name: u.display_name, is_admin: !!u.is_admin, created_at: u.created_at });
 
-  function startSession(res, user) {
-    const s = { token: token(), csrf: token(18) };
-    db.prepare('INSERT INTO sessions(token,user_id,csrf_token,created_at,expires_at) VALUES(?,?,?,?,?)')
-      .run(s.token, user.id, s.csrf, nowIso(), new Date(Date.now() + SESSION_DAYS * 86400000).toISOString());
-    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${s.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`);
-    return s.csrf;
-  }
-
-  // Attach auth; enforce CSRF header on mutating requests made with a session.
-  app.use((req, res, next) => {
-    req.auth = sessionFrom(req);
-    if (req.auth && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-      if (req.get('x-csrf-token') !== req.auth.session.csrf_token) return next(E.forbidden('missing or invalid x-csrf-token'));
-    }
-    next();
-  });
-  const limiter = rateLimiter(rate);
-  app.use(['/v1', '/trade-api'], limiter);
+  // Sessions, login CSRF, step-up, login hardening, two-factor, first-admin setup (server/auth.js, SEC_IDENTITY_SPEC §22).
+  const auth = createAuth({ db, engine, options: authOptions, keyDir });
+  app.locals.auth = auth;
+  app.use(auth.attach); // req.auth from the session cookie; session CSRF on writes, login CSRF on pre-session endpoints
+  app.use('/v1', auth.guard); // step-up verification for sensitive actions; privilege-change session rotation
+  app.use(['/v1', '/trade-api'], security.apiGuard); // tiered rate limits; signed client token on /v1 writes (server/bot.js)
 
   const requireUser = (req, res, next) => {
     if (!req.auth) return next(E.unauthorized());
@@ -123,11 +96,17 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
 
   const v2 = express.Router();
   const v1 = express.Router();
+  // Body schemas for high-risk writes (server/validate.js, PLAN P1.8). Registered first so admin-mounted routes are covered.
+  v1.use(validateRoutes({ rolesOf: (u) => admin.rolesOf(u) }));
   // Admin + CMS first: its v1 middleware (locks, bans, feature switches, CMS decorators) must run before later routes.
   const admin = mountAdmin({ v1, app, db, engine, notify: (...a) => feat.notify(...a), eventFull, rate, rollingWindowSec });
-  const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent, startSession, publicUser });
+  security.mountAdminRoutes({ v1, can: admin.can }); // Admin › Security event log
+  auth.initAuditChain(); // admin_audit exists now: add chain columns, seal pre-chain rows (server/audit-chain.js)
+  // Idempotency-Key replay for orders, deposits, withdrawals, transfers, RFQ accept (server/idempotency.js, PLAN P1.9).
+  v1.use(idempotency({ db }).middleware);
+  const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent });
   app.use('/v1', feat.sessionMiddleware);
-  mountRolling({ v1, db, engine, windowSec: rollingWindowSec });
+  app.locals.rolling = mountRolling({ v1, db, engine, windowSec: admin.rollingWindowSec() ?? rollingWindowSec }); // window editable live (G7)
   mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
   mountCombos({ v1, db, engine, requireUser, notify: feat.notify, eventFull, checkTrading: feat.checkTrading, options: combos });
   mountHistory({ v1, db, requireUser });
@@ -249,41 +228,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   });
 
   // ======================= Web client API v1 =======================
-  v1.get('/session', (req, res) => {
-    if (!req.auth) return res.json({ user: null });
-    res.json({ user: publicUser(req.auth.user), csrf_token: req.auth.session.csrf_token, balance_dollars: dollars(req.auth.user.balance_cents) });
-  });
-
-  v1.post('/users', (req, res) => {
-    const { email, password, display_name } = req.body || {};
-    const em = String(email || '').trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) throw E.badRequest('a valid email is required');
-    if (typeof password !== 'string' || password.length < 8) throw E.badRequest('password must be at least 8 characters');
-    const name = String(display_name || '').trim();
-    if (name.length < 2 || name.length > 40) throw E.badRequest('display name must be 2-40 characters');
-    if (db.prepare('SELECT 1 FROM users WHERE email=?').get(em)) throw E.conflict('email_taken', 'an account with this email already exists');
-    const user = { id: newId('u_'), email: em, display_name: name };
-    db.prepare('INSERT INTO users(id,email,display_name,password_hash,balance_cents,created_at) VALUES(?,?,?,?,0,?)').run(user.id, em, name, hashPassword(password), nowIso());
-    const u = db.prepare('SELECT * FROM users WHERE id=?').get(user.id);
-    const csrf = startSession(res, u);
-    res.status(201).json({ user: publicUser(u), csrf_token: csrf });
-  });
-
-  v1.post('/log_in', (req, res) => {
-    const { email, password } = req.body || {};
-    const u = db.prepare('SELECT * FROM users WHERE email=? AND is_system=0').get(String(email || '').trim().toLowerCase());
-    if (!u || !verifyPassword(String(password || ''), u.password_hash)) throw new ApiError(401, 'invalid_credentials', 'incorrect email or password');
-    const gate = feat.loginGate(u);
-    if (gate) return res.json(gate);
-    const csrf = startSession(res, u);
-    res.json({ user: publicUser(u), csrf_token: csrf });
-  });
-
-  v1.post('/log_out', (req, res) => {
-    if (req.auth) db.prepare('DELETE FROM sessions WHERE token=?').run(req.auth.session.token);
-    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
-    res.json({});
-  });
+  // /session, /users (sign-up), /log_in, /log_in_mfa, /log_out, two-factor, sessions, step-up (server/auth.js).
+  auth.mountRoutes({ v1, requireUser, notify: feat.notify, rolesOf: admin.rolesOf, publicUser });
 
   v1.get('/users/:uid', requireUser, (req, res) => res.json({ user: publicUser(req.auth.user) }));
 
@@ -570,14 +516,14 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     res.json({ trading_active: engine.tradingActive });
   });
 
+  app.locals.routers = [['/trade-api/v2', v2], ['/v1', v1]]; // mount table for route enumeration (tests/authz.e2e.test.js)
   app.use('/trade-api/v2', v2);
   app.use('/v1', v1);
   app.use(['/v1', '/trade-api'], (req, res, next) => next(E.notFound()));
 
-  // Static SPA.
-  const pub = path.join(__dirname, '..', 'public');
-  app.use(express.static(pub, { index: false, maxAge: 0 }));
-  app.get(/^\/(?!v1\/|trade-api\/).*/, (req, res) => res.sendFile(path.join(pub, 'index.html')));
+  // Static SPA: explicit allowlist, hashed immutable assets (dist) or sources (dev), page template with the CSP nonce and
+  // boot proof, bot challenge for suspicious HTML requests; everything else 404 (server/security.js, P1.11/P1.12).
+  security.mountStatic(app);
 
   // Error envelopes (spec §5.4).
   // eslint-disable-next-line no-unused-vars

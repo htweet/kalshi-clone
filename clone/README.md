@@ -6,16 +6,19 @@ A functional binary event-contract exchange built only from `../CLONE_SPEC.md`. 
 
 ```bash
 npm install
-npm start            # http://localhost:3000, or the next free port if 3000 is taken (DB at data/parlance.db, auto-seeded)
+npm start            # http://localhost:3000, or the next free port if 3000 is taken (DB at data/parlance.db, auto-seeded);
+                     # serves the hashed production bundle in dist/, built first if missing or stale
+npm run dev          # same, but serves the unbundled sources from public/ (no build step)
+npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
 npm run test:e2e     # 103 end-to-end browser tests (Playwright + node:test)
 ```
 
-Seeded admin account: `admin@parlance.local` / `parlance-admin`. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local` / `parlance-demo`). It can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page.
+**Admin bootstrap (no default password, `../SEC_IDENTITY_SPEC.md` §22.5).** On first start with no admin, the server prints a single-use setup link (`http://localhost:3000/setup?token=…`, valid 60 minutes) where you create the first admin. Alternatives: `ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='…' npm start` (PowerShell: `$env:ADMIN_EMAIL='…'; $env:ADMIN_PASSWORD='…'; npm start`), or `npm run create-admin` with the server stopped (prompts for email and password). Passwords need 12+ characters mixing two character classes, not your name/email, and not a common breached password. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local`) get a random password printed once when the database is seeded, or `DEMO_PASSWORD`. Admins can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page. Account › Security has password change, two-factor login, withdrawal verification, signed-in devices (sign out one / everywhere) and the account's security activity.
 
 Port: with `PORT` unset the server tries 3000-3019 and prints the URL it actually bound. With `PORT=8080 npm start` (PowerShell: `$env:PORT=8080; npm start`) it uses exactly that port and exits with a clear message if the port is busy.
 
-Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`. Requires Node ≥ 22.5 (`node:sqlite`).
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_PASSWORD`, `SECRET_KEY` / `SECRET_KEY_FILE` (default: `secret.key` next to the database), `SECURE_COOKIES=1` behind a TLS proxy, `SCRYPT_LOG_N` (see `.env.example`). Requires Node ≥ 22.5 (`node:sqlite`).
 
 ## Pages
 
@@ -34,7 +37,9 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`. Requires Node ≥ 
 
 Not built: KYC/identity checks, real payment rails, GIFs, ballot lookup, AI summaries, signed public API keys (spec §12).
 
-Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`, `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1).
+Perimeter security (`../SEC_PERIMETER_SPEC.md` §21): CSP with per-response nonces and the other security headers, CORS allowlist (`ALLOWED_ORIGINS`), proof-of-work bot challenge for suspicious HTML requests, signed client tokens on `/v1` writes and the WebSocket, honeypot paths, tiered persisted rate limits, Admin › Security event log. Taker fee coefficient, rolling window, rate limits and bot settings are editable live in Admin › Settings & health. Fonts are self-hosted (`public/fonts/`, SIL OFL).
+
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1).
 
 ## Architecture
 

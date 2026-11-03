@@ -1,3 +1,29 @@
 node_modules/
 clone/data/
 *.zip
+
+# ---- secrets and local data (PLAN P1.13; also enforced by .githooks/pre-commit and .claude/settings.json) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+# Personal Claude Code settings (the shared deny rules live in .claude/settings.json, which is committed).
+.claude/settings.local.json
+
+# ---- generated ----
+clone/dist/
+clone/test-results/
+clone/playwright-report/
+report_json.json
+report_html.html
+report_md.md

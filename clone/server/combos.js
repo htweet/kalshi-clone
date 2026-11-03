@@ -447,6 +447,8 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     if (!q || q.maker_id !== uid) throw E.notFound();
     if (q.status !== 'accepted') throw new ApiError(409, 'quote_not_accepted', 'only an accepted quote can be confirmed', `status ${q.status}`);
     if (q.confirm_deadline_ts <= Date.now()) { pump(); throw new ApiError(409, 'quote_expired', 'the confirmation window has passed'); }
+    // G4 (PLAN §7): the maker's daily trading limit applies to the order confirming a quote creates (maker bid × size).
+    if (checkTrading) { const yes = q.accepted_side === 'yes'; checkTrading(uid, Math.ceil(((yes ? q.yes_units : q.no_units) * (yes ? q.yes_bid_cents : q.no_bid_cents)) / UNITS)); }
     return execute(qid);
   }
 

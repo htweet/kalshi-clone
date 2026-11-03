@@ -1,6 +1,7 @@
 // Root store (observable) + query cache with staleTime/refetchInterval (spec §2 hybrid pattern).
 import { api, csrf } from './api.js';
 import { socket } from './ws.js';
+import { toast } from './lib.js';
 
 class Observable {
   constructor() { this.subs = new Set(); }
@@ -42,15 +43,30 @@ class SessionStore extends Observable {
     }));
   }
 
-  // Returns {mfa_token} when a second factor is required, otherwise completes the sign-in.
+  // Login CSRF (SEC_IDENTITY_SPEC §22.2): pre-session endpoints need a fresh token bound to a short-lived cookie.
+  async preAuth() { csrf.set((await api.loginCsrf()).csrf_token); }
+
+  // Returns {mfa_token} when a second factor is required, {change_token} when an admin forced a password reset,
+  // otherwise completes the sign-in.
   async login(email, password) {
+    await this.preAuth();
     const r = await api.logIn({ email, password });
     if (r.mfa_required) return { mfa_token: r.mfa_token };
+    if (r.password_change_required) return { change_token: r.change_token };
     await this.finishLogin(r);
     return null;
   }
 
-  async loginMfa(mfaToken, code) { await this.finishLogin(await api.logInMfa({ mfa_token: mfaToken, code })); }
+  async loginMfa(mfaToken, code) {
+    const r = await api.logInMfa({ mfa_token: mfaToken, code });
+    if (r.password_change_required) return { change_token: r.change_token };
+    await this.finishLogin(r);
+    return null;
+  }
+
+  async completePasswordChange(changeToken, newPassword) { await this.finishLogin(await api.completePasswordChange({ change_token: changeToken, new_password: newPassword })); }
+
+  async setupAdmin(body) { await this.preAuth(); await this.finishLogin(await api.setupAdmin(body)); }
 
   async finishLogin(r) {
     csrf.set(r.csrf_token);
@@ -59,10 +75,34 @@ class SessionStore extends Observable {
   }
 
   async signup(body) {
+    await this.preAuth();
     const r = await api.signUp(body);
     csrf.set(r.csrf_token);
     socket.reconnect();
     await this.setUser(r.user);
+  }
+
+  // The server ended this session (signed out from another device, idle timeout, lock): re-check and, if it is
+  // really gone, drop to the signed-out state without another round trip.
+  async sessionEnded() {
+    if (this.checking || !this.user) return;
+    this.checking = true;
+    try {
+      const had = this.user;
+      await this.load();
+      if (!this.user) { this.clearLocal(); toast('You were signed out of this device.'); }
+      else if (this.user.user_id !== had.user_id) this.notify();
+    } finally { this.checking = false; }
+  }
+
+  clearLocal() {
+    csrf.clear();
+    for (const u of this.unsubs) u();
+    this.unsubs = [];
+    this.user = null; this.balance = null; this.props = {}; this.nickname = null;
+    applyTheme(localTheme());
+    queries.clear();
+    this.notify();
   }
 
   async logout() {
@@ -117,4 +157,5 @@ class QueryCache {
 }
 
 export const session = new SessionStore();
+window.addEventListener('parlance:session-ended', () => { session.sessionEnded(); });
 export const queries = new QueryCache();

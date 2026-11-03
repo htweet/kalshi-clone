@@ -1,0 +1,22 @@
+# OWASP ZAP baseline rules (zap-baseline.py -c). Columns: plugin id <TAB> IGNORE|WARN|FAIL <TAB> justification.
+# Reviewed 2026-11-03 for PLAN §6 ("ZAP baseline clean of high/medium"). scripts/zap-gate.js fails CI on any High or
+# Medium alert that is not IGNOREd here, and on any alert whose rule is FAIL. Every IGNORE must say why it is safe and
+# where the control lives; review this file whenever a finding appears or the perimeter (server/security.js) changes.
+#
+# ---- accepted (reviewed) -----------------------------------------------------------------------------------------
+10202	IGNORE	Absence of Anti-CSRF Tokens: the SPA posts JSON with fetch, never HTML form submissions. CSRF defence is a per-session token sent in the x-csrf-token header on every mutating /v1 request (app.js; login CSRF per P1.4) plus SameSite cookies; a hidden form field would add nothing.
+10035	IGNORE	Strict-Transport-Security: the scan targets plain http://localhost; HSTS is only meaningful over TLS and is sent in production behind HTTPS (P1.1, P9.1).
+10096	IGNORE	Timestamp Disclosure: API responses carry ISO and epoch timestamps by design (market close times, trade times, spec §5.1); they are public market data, not server internals.
+10027	IGNORE	Information Disclosure - Suspicious Comments: source comments in public JS reference spec sections only; production assets are minified by the build step (P1.11).
+10109	IGNORE	Modern Web Application: informational marker that the site is an SPA; nothing to fix.
+10049	IGNORE	Storable and Cacheable Content: informational; immutable hashed assets are cacheable on purpose, authenticated API responses carry no-store (P1.1, P1.11).
+#
+# ---- must never regress (perimeter controls from P1.1 / P1.3) ----------------------------------------------------
+10038	FAIL	Content Security Policy header not set: every HTML and API response must carry a CSP (P1.1).
+10020	FAIL	Missing anti-clickjacking header: CSP frame-ancestors / X-Frame-Options required (P1.1, S6).
+10021	FAIL	X-Content-Type-Options missing: nosniff on every response (P1.1, S5).
+10098	FAIL	Cross-Domain Misconfiguration: CORS must use the explicit origin allowlist (P1.3, S4).
+10010	FAIL	Cookie without HttpOnly flag: session cookies are HttpOnly (P1.4).
+10054	FAIL	Cookie without SameSite attribute: session cookies are SameSite=Lax/Strict (P1.4).
+10037	FAIL	Server leaks X-Powered-By: disabled in app.js.
+10036	WARN	Server header version disclosure: Node does not send one; investigate if this appears (reverse proxy).

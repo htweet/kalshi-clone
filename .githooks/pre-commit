@@ -1,0 +1,28 @@
+#!/bin/sh
+# Pre-commit guardrail (PLAN P1.13): secret scan + dependency audit.
+# Installed by `npm install` / `npm run prepare` in clone/ (sets `git config core.hooksPath .githooks`).
+# Bypass only in an emergency with `git commit --no-verify`; CI runs the same checks (gitleaks + npm audit) anyway.
+set -u
+ROOT=$(git rev-parse --show-toplevel) || exit 1
+cd "$ROOT" || exit 1
+status=0
+
+echo "pre-commit: secret scan"
+# The bundled scanner always runs: it also blocks forbidden files (.env, keys, clone/data/*.db) that gitleaks does not.
+node scripts/secret-scan.js || status=1
+if command -v gitleaks >/dev/null 2>&1; then
+  # gitleaks >= 8.19 uses `git --pre-commit --staged`; older releases use `protect --staged`.
+  gitleaks git --pre-commit --staged --redact --no-banner 2>/dev/null \
+    || gitleaks protect --staged --redact --no-banner \
+    || status=1
+else
+  echo "pre-commit: gitleaks not installed; bundled scanner only (install gitleaks for full coverage)"
+fi
+
+echo "pre-commit: npm audit (high and critical)"
+node scripts/audit-gate.js || status=1
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-commit: blocked. Fix the findings above (or, for a reviewed false positive, add 'secret-scan:allow' on that line)."
+fi
+exit $status

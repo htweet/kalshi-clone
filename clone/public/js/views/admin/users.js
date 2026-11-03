@@ -20,7 +20,7 @@ export async function render({ el, section: sec, parts, perms, navigate }) {
 async function renderUser(el, id, perms, navigate) {
   const d = await get(`/users/${encodeURIComponent(id)}`);
   const u = d.user;
-  const lim = (l, money) => (l ? `${money ? (l.limit_dollars == null ? 'none' : fmtMoney(l.limit_dollars)) : (l.limit_minutes == null ? 'none' : `${l.limit_minutes} min`)} <span class="faint">· used ${money ? fmtMoney(l.used_today_dollars) : `${Math.round(l.used_today_seconds / 60)} min`} today${l.pending ? ' · change pending' : ''}</span>` : '—');
+  const lim = (l, money) => (l ? `${money ? (l.limit_dollars == null ? 'none' : fmtMoney(l.limit_dollars)) : (l.limit_minutes == null ? 'none' : `${esc(l.limit_minutes)} min`)} <span class="faint">· used ${money ? fmtMoney(l.used_today_dollars) : `${Math.round(l.used_today_seconds / 60)} min`} today${l.pending ? ' · change pending' : ''}</span>` : '—');
   const can = (p) => perms.has(p);
   el.innerHTML = section(u.display_name, `${esc(u.email)}${u.nickname ? ` · @${esc(u.nickname)}` : ''} · joined ${esc(fmtTime(u.created_at))}`, '<a class="btn" href="/admin/users" data-link>All users</a>') +
     `<div class="adm-tiles" data-testid="user-detail" data-user="${esc(u.user_id)}">
@@ -29,7 +29,7 @@ async function renderUser(el, id, perms, navigate) {
       <div class="adm-tile"><span>Positions value</span><b>${fmtMoney(d.balance.portfolio_value_dollars)}</b></div>
       <div class="adm-tile"><span>Status</span><b data-testid="user-status">${u.locked ? badge('Locked', 'bad') : badge('Active', 'ok')} ${u.banned ? badge('posting banned', 'warn') : ''}</b></div>
       <div class="adm-tile"><span>Two-factor</span><b data-testid="user-mfa">${d.mfa_enabled ? 'On' : 'Off'}</b></div>
-      <div class="adm-tile"><span>Sessions</span><b>${d.sessions}</b></div>
+      <div class="adm-tile"><span>Sessions</span><b>${esc(d.sessions)}</b></div>
     </div>
     ${u.lock ? `<div class="adm-banner bad" role="status">Locked by ${esc(u.lock.locked_by || '')} on ${esc(fmtTime(u.lock.locked_at))}: ${esc(u.lock.reason)}</div>` : ''}
     <div class="adm-actions adm-user-actions">
@@ -44,7 +44,7 @@ async function renderUser(el, id, perms, navigate) {
     </div>
     <h3 class="adm-h3">Positions</h3><div id="u-pos"></div>
     <h3 class="adm-h3">Resting orders</h3><div id="u-ord"></div>
-    <h3 class="adm-h3">Ledger <span class="faint">(latest 50 of ${d.transactions_total})</span></h3><div id="u-led"></div>`;
+    <h3 class="adm-h3">Ledger <span class="faint">(latest 50 of ${esc(d.transactions_total)})</span></h3><div id="u-led"></div>`;
   dataTable(el.querySelector('#u-pos'), { search: false, rows: d.positions, empty: 'No positions', testid: 'user-positions',
     cols: [{ key: 'ticker', label: 'Market', render: (r) => `<code>${esc(r.ticker)}</code><div class="faint">${esc(r.outcome || '')}</div>` }, { key: 'side', label: 'Side', render: (r) => (r.side ? r.side.toUpperCase() : '—') },
       { key: 'position_fp', label: 'Contracts', num: true, render: (r) => fmtQty(r.position_fp) }, { key: 'total_cost_dollars', label: 'Cost', num: true, render: (r) => fmtMoney(r.total_cost_dollars) },

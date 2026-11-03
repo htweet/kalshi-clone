@@ -16,7 +16,7 @@ const PFILTERS = [['all', 'All'], ['open', 'Open'], ['closing', 'Closing soon'],
 const signed = (d) => (d == null ? '' : `<span class="${Number(d) > 0 ? 'amt-pos' : Number(d) < 0 ? 'amt-neg' : ''}">${Number(d) > 0 ? '+' : ''}${money(d)}</span>`);
 const QSTATUS = { open: 'Open', accepted: 'Accepted', confirmed: 'Confirmed', executed: 'Executed', expired: 'Expired', cancelled: 'Cancelled' };
 const sizeLabel = (x) => (x.contracts_fp != null ? `${qty(x.contracts_fp)} contracts` : `${money(x.target_cost_dollars)} target`);
-const legChips = (legs) => `<div class="leg-chips">${legs.map((l) => `<span class="leg-chip ${l.leg_status}" data-leg-status="${l.leg_status}"><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${l.side.toUpperCase()}</b> ${esc(l.outcome)}</span>`).join('')}</div>`;
+const legChips = (legs) => `<div class="leg-chips">${legs.map((l) => `<span class="leg-chip ${esc(l.leg_status)}" data-leg-status="${esc(l.leg_status)}"><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${esc(l.side.toUpperCase())}</b> ${esc(l.outcome)}</span>`).join('')}</div>`;
 
 export async function render({ el, navigate, query }) {
   if (query && query.get('perpsTab')) return renderPerpsPortfolio({ el, navigate, query }); // Perps product (PERPS_SPEC_SECTION.md)
@@ -43,14 +43,14 @@ export async function render({ el, navigate, query }) {
       <div class="card stat"><div class="label">Held for open orders</div><div class="value" id="s-reserved" data-testid="reserved">—</div></div>
       <form class="card stat" id="funds" aria-label="Move funds">
         <div class="label">Simulated funds</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"><input id="f-amount" type="number" min="0.01" step="0.01" placeholder="Amount $" aria-label="Amount in dollars" style="flex:1 1 90px;min-width:0;padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface-x10)">
+        <div class="d-flex fw-wrap gap-6 mt-6"><input id="f-amount" class="amount-input" type="number" min="0.01" step="0.01" placeholder="Amount $" aria-label="Amount in dollars">
           <button class="btn btn-primary" data-act="deposit" type="submit">Deposit</button><button class="btn" data-act="withdraw" type="button">Withdraw</button></div>
         <div class="form-error" id="f-error" role="alert"></div>
       </form>
     </div>
     <div class="tabs" role="tablist" id="pf-tabs">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}
-      <a class="btn btn-ghost" style="margin-left:auto" href="/portfolio?perpsTab=positions" data-link data-testid="perps-portfolio-link">Perps</a><a class="btn btn-ghost" href="${api.csvUrl(uid)}" download data-testid="csv-link">Export CSV</a></div>
-    <div class="card" style="padding:4px 12px" id="panel"></div>`;
+      <a class="btn btn-ghost ml-auto" href="/portfolio?perpsTab=positions" data-link data-testid="perps-portfolio-link">Perps</a><a class="btn btn-ghost" href="${esc(api.csvUrl(uid))}" download data-testid="csv-link">Export CSV</a></div>
+    <div class="card p-4-12" id="panel"></div>`;
 
   const $ = (s) => el.querySelector(s);
   async function drawStats() {
@@ -79,25 +79,25 @@ export async function render({ el, navigate, query }) {
   async function drawPositions(p) {
     const [r, combos] = await Promise.all([api.portfolioPositions(uid, { sort: posSort, filter: posFilter }), api.myCombos(uid)]);
     const S = r.summary;
-    const stat = (label, v, id, sign) => `<div><span class="label">${label}</span><strong data-testid="${id}">${sign ? signed(v) || money(0) : money(v)}</strong></div>`;
+    const stat = (label, v, id, sign) => `<div><span class="label">${esc(label)}</span><strong data-testid="${esc(id)}">${sign ? signed(v) || money(0) : money(v)}</strong></div>`;
     const state = (x) => (x.state === 'open' ? `<span class="faint">Closes ${new Date(x.close_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : x.state === 'settling' ? `<span class="status-chip accepted">Settling · ${esc(String(x.result).toUpperCase())}</span>` : `<span class="status-chip">${esc(x.market_status)}</span>`);
     const row = (x) => `<tr data-ticker="${esc(x.ticker)}" ${x.is_combo ? `data-combo="${esc(x.ticker)}"` : ''} data-state="${esc(x.state)}">
       <td><a class="pos-outcome" href="${esc(x.link)}" data-link>${ocAvatar({ yes_sub_title: x.is_combo ? '◇' : x.outcome, color_code: x.color_code }, 'sm')}<span>${esc(x.is_combo ? x.market_title : x.outcome)}</span></a>${x.legs ? legChips(x.legs) : ''}</td>
-      <td><strong style="color:var(--${x.side})">${x.side.toUpperCase()}</strong></td><td class="num" data-testid="p-qty">${qty(x.position_fp)}</td>
+      <td><strong class="c-${esc(x.side)}">${esc(x.side.toUpperCase())}</strong></td><td class="num" data-testid="p-qty">${qty(x.position_fp)}</td>
       <td class="num">${cents(x.avg_price_dollars)}¢</td><td class="num" data-testid="p-cost">${money(x.cost_basis_dollars)}</td><td class="num" data-testid="p-mark">${cents(x.mark_price_dollars)}¢</td>
-      <td class="num" data-testid="p-value">${money(x.market_value_dollars)}</td><td class="num" data-testid="p-upnl">${signed(x.unrealized_pnl_dollars) || money(0)}${x.unrealized_pnl_pct != null ? ` <span class="faint">${x.unrealized_pnl_pct}%</span>` : ''}</td>
+      <td class="num" data-testid="p-value">${money(x.market_value_dollars)}</td><td class="num" data-testid="p-upnl">${signed(x.unrealized_pnl_dollars) || money(0)}${x.unrealized_pnl_pct != null ? ` <span class="faint">${esc(x.unrealized_pnl_pct)}%</span>` : ''}</td>
       <td class="num" data-testid="p-rpnl">${signed(x.realized_pnl_dollars) || money(0)}</td><td class="num" data-testid="p-payout">${money(x.payout_if_win_dollars)}</td>
-      <td class="num" data-testid="p-sell">${x.state === 'open' ? money(x.sell_value_dollars) : '—'}</td><td class="num" data-testid="p-orders">${x.resting_orders || ''}</td><td>${state(x)}</td>
-      <td class="row-actions">${x.market_status === 'active' ? `<button class="btn btn-sm" data-sell="${esc(x.ticker)}">Sell</button><a class="btn btn-sm btn-ghost" data-link data-buy-more href="${esc(x.link)}?market=${encodeURIComponent(x.ticker)}&side=${x.side}">Buy more</a><button class="btn btn-sm" data-close="${esc(x.ticker)}" data-side="${x.side === 'yes' ? 'no' : 'yes'}" data-count="${Number(x.position_fp)}">Close</button>` : ''}</td></tr>`;
+      <td class="num" data-testid="p-sell">${x.state === 'open' ? money(x.sell_value_dollars) : '—'}</td><td class="num" data-testid="p-orders">${esc(x.resting_orders || '')}</td><td>${state(x)}</td>
+      <td class="row-actions">${x.market_status === 'active' ? `<button class="btn btn-sm" data-sell="${esc(x.ticker)}">Sell</button><a class="btn btn-sm btn-ghost" data-link data-buy-more href="${esc(x.link)}?market=${encodeURIComponent(x.ticker)}&side=${esc(x.side)}">Buy more</a><button class="btn btn-sm" data-close="${esc(x.ticker)}" data-side="${x.side === 'yes' ? 'no' : 'yes'}" data-count="${Number(x.position_fp)}">Close</button>` : ''}</td></tr>`;
     const empty = posFilter === 'all' ? '<div class="empty" data-testid="no-positions">No open positions. <a href="/browse" data-link>Find a market</a></div>' : '<div class="empty" data-testid="no-positions-filtered">No positions match this filter.</div>';
     p.innerHTML = `<div class="pos-summary" data-testid="pos-summary">${stat('Total value', S.total_value_dollars, 'pos-total')}${stat('Cash', S.cash_dollars, 'pos-cash')}${stat('Positions', S.positions_value_dollars, 'pos-value')}${stat('Today', S.today_change_dollars, 'pos-today', true)}${stat('All-time P&L', S.all_time_pnl_dollars, 'pos-pnl', true)}</div>
       <div class="pf-sub"><div class="hist-chips">${PFILTERS.map(([k, l]) => `<button class="chip ${k === posFilter ? 'on' : ''}" data-pfilter="${k}" aria-pressed="${k === posFilter}">${l}</button>`).join('')}</div>
-        <span class="faint">Open combos · <span data-testid="open-combo-count">${combos.total_open_combos}</span></span>
+        <span class="faint">Open combos · <span data-testid="open-combo-count">${esc(combos.total_open_combos)}</span></span>
         <label class="book-setting">Sort <select id="pos-sort" data-testid="pos-sort">${PSORTS.map(([k, l]) => `<option value="${k}" ${k === posSort ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
       ${r.events.length ? `<table class="table positions-table" data-testid="positions-table"><thead><tr><th>Outcome</th><th>Side</th><th class="num">Contracts</th><th class="num">Avg</th><th class="num">Cost incl. fees</th><th class="num">Mark</th><th class="num">Value</th><th class="num">Unrealized</th><th class="num">Realized</th><th class="num">Payout if right</th><th class="num">Sell now</th><th class="num">Orders</th><th>Status</th><th></th></tr></thead><tbody>
         ${r.events.map((g) => `<tr class="group-row" data-event-group="${esc(g.event_ticker)}"><td colspan="14"><a href="${esc(g.link)}" data-link>${esc(g.title)}</a></td></tr>${g.positions.map(row).join('')}`).join('')}</tbody></table>` : empty}
       ${combos.settled_combos.length ? `<div class="pf-sub"><strong>Settled combos</strong></div><table class="table" data-testid="settled-combos"><thead><tr><th>Combo</th><th>Result</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
-      ${combos.settled_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${c.result.toUpperCase()}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
+      ${combos.settled_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${esc(c.result.toUpperCase())}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
     for (const b of p.querySelectorAll('[data-pfilter]')) b.onclick = () => { posFilter = b.dataset.pfilter; session.setProp('positions_filter', posFilter).catch(() => {}); drawPanel(); };
     p.querySelector('#pos-sort').onchange = (e) => { posSort = e.target.value; session.setProp('positions_sort', posSort).catch(() => {}); drawPanel(); };
     for (const b of p.querySelectorAll('[data-close]')) {
@@ -117,7 +117,7 @@ export async function render({ el, navigate, query }) {
   function openSellSheet(x) {
     const step = x.fractional_trading_enabled ? '0.01' : '1';
     const held = Number(x.position_fp);
-    const S = x.side.toUpperCase();
+    const S = esc(x.side.toUpperCase());
     const wrap = document.createElement('div');
     wrap.className = 'sheet-backdrop';
     wrap.innerHTML = `<section class="card sheet" role="dialog" aria-label="Sell position" data-testid="sell-sheet"><div class="combo-mini-head"><h3>Sell ${S} · ${esc(x.is_combo ? x.market_title : x.outcome)}</h3><button class="icon-btn" data-sheet-close aria-label="Close">×</button></div>
@@ -162,7 +162,7 @@ export async function render({ el, navigate, query }) {
   const histRow = (r) => `<tr data-hrow="${esc(r.id)}" data-type="${esc(r.type)}" data-group="${esc(r.group)}"><td class="faint" title="${esc(r.time)}">${new Date(r.time).toLocaleString()}</td>
     <td><span class="hist-badge ${esc(r.group)}">${esc(r.type_label)}</span></td>
     <td>${r.market_ticker ? (r.link ? `<a href="${esc(r.link)}" data-link>${esc(r.market_title || r.market_ticker)}</a>` : esc(r.market_title || r.market_ticker)) : '<span class="faint">—</span>'}<div class="faint hist-desc">${esc(r.description)}</div></td>
-    <td>${r.side ? `<strong style="color:var(--${r.side})">${r.action ? r.action.toUpperCase() + ' ' : ''}${r.side.toUpperCase()}</strong>` : ''}</td>
+    <td>${r.side ? `<strong class="c-${esc(r.side)}">${esc(r.action ? r.action.toUpperCase() + ' ' : '')}${esc(r.side.toUpperCase())}</strong>` : ''}</td>
     <td class="num">${r.quantity_fp != null ? qty(r.quantity_fp) : ''}</td><td class="num">${r.price_dollars != null ? cents(r.price_dollars) + '¢' : ''}</td>
     <td class="num" data-amount="${esc(r.amount_dollars ?? '')}">${signed(r.amount_dollars)}</td><td class="num">${r.fee_dollars ? signed(r.fee_dollars) : ''}</td><td><span class="status-chip ${esc(r.status)}">${esc(r.status || '')}</span></td></tr>`;
   async function drawHistory(p) {
@@ -172,9 +172,9 @@ export async function render({ el, navigate, query }) {
       hist.cursor = r.cursor; hist.ids = new Set(r.history.map((x) => x.id));
       p.innerHTML = `${seg}<div class="hist-filters" data-testid="history-filters"><div class="hist-chips">${HTYPES.map(([k, l]) => `<button class="chip ${k === hist.type ? 'on' : ''}" data-htype="${k}" aria-pressed="${k === hist.type}">${l}</button>`).join('')}</div>
         <div class="hist-inputs"><input type="search" id="h-market" placeholder="Search market" aria-label="Search market" value="${esc(hist.market)}"><label>From <input type="date" id="h-from" value="${esc(hist.from)}"></label><label>To <input type="date" id="h-to" value="${esc(hist.to)}"></label>
-        <a class="btn btn-ghost" id="h-csv" data-testid="history-csv" href="${api.historyCsvUrl(uid, histQs())}" download>Download CSV</a></div></div>
+        <a class="btn btn-ghost" id="h-csv" data-testid="history-csv" href="${esc(api.historyCsvUrl(uid, histQs()))}" download>Download CSV</a></div></div>
         ${r.history.length ? `<table class="table" data-testid="history-table"><thead><tr><th>Time</th><th>Type</th><th>Market</th><th>Side</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th><th class="num">Fee</th><th>Status</th></tr></thead><tbody id="h-rows">${r.history.map(histRow).join('')}</tbody></table>` : '<div class="empty" data-testid="history-empty">No activity matches these filters.</div>'}
-        ${r.cursor ? '<button class="btn" id="h-more" data-testid="history-more" style="margin:12px auto;display:block">Load more</button>' : ''}`;
+        ${r.cursor ? '<button class="btn mx-auto-12 d-block" id="h-more" data-testid="history-more">Load more</button>' : ''}`;
       const save = () => session.setProp('history_filters', { type: hist.type, market: hist.market, from: hist.from, to: hist.to }).catch(() => {});
       for (const b of p.querySelectorAll('[data-htype]')) b.onclick = () => { hist.type = b.dataset.htype; save(); drawPanel(); };
       let mt = null;
@@ -216,12 +216,12 @@ export async function render({ el, navigate, query }) {
     if (view === 'fills') {
       const { fills } = await api.fills(uid);
       p.innerHTML = fills.length ? `<table class="table" data-testid="fills-table"><thead><tr><th>Time</th><th>Market</th><th>Side</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">Fee</th><th>Role</th></tr></thead><tbody>
-        ${fills.map((f) => `<tr><td>${new Date(f.created_time).toLocaleString()}</td><td>${esc(f.ticker)}</td><td>${f.side.toUpperCase()}</td><td class="num">${cents(f.price_dollars)}¢</td><td class="num">${qty(f.count_fp)}</td><td class="num">${money(f.fee_dollars)}</td><td>${f.is_taker ? 'Taker' : 'Maker'}</td></tr>`).join('')}</tbody></table>`
+        ${fills.map((f) => `<tr><td>${new Date(f.created_time).toLocaleString()}</td><td>${esc(f.ticker)}</td><td>${esc(f.side.toUpperCase())}</td><td class="num">${cents(f.price_dollars)}¢</td><td class="num">${qty(f.count_fp)}</td><td class="num">${money(f.fee_dollars)}</td><td>${f.is_taker ? 'Taker' : 'Maker'}</td></tr>`).join('')}</tbody></table>`
         : '<div class="empty">No trades yet.</div>';
     } else if (view === 'settlements') {
       const { settlements } = await api.settlements(uid);
       p.innerHTML = settlements.length ? `<table class="table" data-testid="settlements-table"><thead><tr><th>Settled</th><th>Market</th><th>Result</th><th class="num">Yes</th><th class="num">No</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
-        ${settlements.map((s) => `<tr><td>${new Date(s.settled_time).toLocaleString()}</td><td>${esc(s.market_title)}</td><td>${s.market_result.toUpperCase()}</td><td class="num">${qty(s.yes_count_fp)}</td><td class="num">${qty(s.no_count_fp)}</td><td class="num">${money(s.cost_dollars)}</td><td class="num">${money(s.revenue_dollars)}</td></tr>`).join('')}</tbody></table>`
+        ${settlements.map((s) => `<tr><td>${new Date(s.settled_time).toLocaleString()}</td><td>${esc(s.market_title)}</td><td>${esc(s.market_result.toUpperCase())}</td><td class="num">${qty(s.yes_count_fp)}</td><td class="num">${qty(s.no_count_fp)}</td><td class="num">${money(s.cost_dollars)}</td><td class="num">${money(s.revenue_dollars)}</td></tr>`).join('')}</tbody></table>`
         : '<div class="empty">No settled markets yet.</div>';
     } else {
       const { transactions } = await api.transactions(uid);
@@ -246,7 +246,7 @@ export async function render({ el, navigate, query }) {
       ev.markets.get(o.ticker).orders.push(o);
     }
     const row = (o) => `<tr data-order="${esc(o.order_id)}" data-ticker="${esc(o.ticker)}"><td>${esc(o.outcome)}</td>
-      <td><strong style="color:var(--${o.user_side})">${o.user_action.toUpperCase()} ${o.user_side.toUpperCase()}</strong></td>
+      <td><strong class="c-${esc(o.user_side)}">${esc(o.user_action.toUpperCase())} ${esc(o.user_side.toUpperCase())}</strong></td>
       <td class="num" data-testid="o-price">${cents(o.user_price_dollars)}¢</td><td class="num" data-testid="o-filled">${fp2(o.fill_count_fp)} / ${fp2(o.initial_count_fp)}</td>
       <td class="num" data-testid="o-remaining">${fp2(o.remaining_count_fp)}</td><td class="num">${money(o.reserved_dollars)}</td><td class="num" data-testid="o-queue">${fp2(o.queue_position_fp)}</td>
       <td class="faint">${relTime(o.created_time)}</td><td data-testid="o-expiry">${o.expiration_time ? countdown(o.expiration_time) : '<span class="faint">GTC</span>'}</td><td><span class="status-chip open">${esc(o.status)}</span></td>
@@ -268,7 +268,7 @@ export async function render({ el, navigate, query }) {
       try { const r = await api.cancelAllOrders(uid); toast(`Canceled ${r.canceled_count} orders`); } catch (e) { toast(e.message, 'error'); }
       refresh();
     };
-    const formRow = (o, html) => { closeForms(); p.querySelector(`tr[data-order="${CSS.escape(o.order_id)}"]`).insertAdjacentHTML('afterend', `<tr class="edit-row" data-edit-row="${esc(o.order_id)}"><td colspan="11">${html}<div class="form-error" role="alert"></div></td></tr>`); return p.querySelector('.edit-row'); };
+    const formRow = (o, html) => { closeForms(); p.querySelector(`tr[data-order="${CSS.escape(o.order_id)}"]`).insertAdjacentHTML('afterend', `<tr class="edit-row" data-edit-row="${esc(o.order_id)}"><td colspan="11">${html /* eslint-disable-line parlance/no-unescaped-html -- form markup built by the amend/decrease callers from esc()'d values */}<div class="form-error" role="alert"></div></td></tr>`); return p.querySelector('.edit-row'); };
     for (const b of p.querySelectorAll('[data-edit]')) {
       b.onclick = () => {
         const o = byId.get(b.dataset.edit);
@@ -312,7 +312,7 @@ export async function render({ el, navigate, query }) {
 
   // ---------- RFQs (spec §17.6): yours vs other traders' ----------
   const fmtLeft = (n) => (n < 120 ? `${n}s` : n < 3600 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${Math.floor(n / 3600)}h ${Math.floor((n % 3600) / 60)}m`);
-  const countdown = (iso, prefix = '') => `<span class="countdown" data-countdown="${esc(iso)}" data-prefix="${esc(prefix)}">${prefix}${fmtLeft(secsLeft(iso))}</span>`;
+  const countdown = (iso, prefix = '') => `<span class="countdown" data-countdown="${esc(iso)}" data-prefix="${esc(prefix)}">${esc(prefix)}${fmtLeft(secsLeft(iso))}</span>`;
   async function drawRfqs(p) {
     const r = await api.rfqs(rfqScope);
     const enabled = !!r.rfq_enabled;
@@ -375,7 +375,7 @@ export async function render({ el, navigate, query }) {
             : q.status === 'executed' ? `<span class="faint">${qty(q.executed_contracts_fp)} contracts</span>` : '';
         const size = q.rfq_contracts_fp != null ? `${qty(q.rfq_contracts_fp)} contracts` : `${money(q.rfq_target_cost_dollars)} target`;
         return `<tr data-quote-row="${esc(q.id)}" data-status="${esc(q.status)}"><td>${mine ? 'You quoted' : 'On your RFQ'}</td><td><a href="${esc(q.link)}" data-link>${esc(q.market_title)}</a></td><td class="num">${cents(q.yes_bid_dollars)}¢</td><td class="num">${cents(q.no_bid_dollars)}¢</td><td>${size}</td>
-          <td><span class="status-chip ${esc(q.status)}">${QSTATUS[q.status]}</span>${q.accepted_side ? ` <span class="faint">(${q.accepted_side.toUpperCase()} side)</span>` : ''}</td><td>${action}</td></tr>`;
+          <td><span class="status-chip ${esc(q.status)}">${QSTATUS[q.status]}</span>${q.accepted_side ? ` <span class="faint">(${esc(q.accepted_side.toUpperCase())} side)</span>` : ''}</td><td>${action}</td></tr>`;
       }).join('')}</tbody></table>` : '<div class="empty" data-testid="no-quotes">No quotes yet.</div>';
     for (const b of p.querySelectorAll('[data-confirm]')) {
       b.onclick = async () => {

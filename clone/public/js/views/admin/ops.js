@@ -32,7 +32,7 @@ export async function render({ el, section: sec }) {
     mt.setRows(data.markets);
     st.setRows(data.series);
     const r = data.rolling;
-    el.querySelector('#ops-rolling').innerHTML = r ? `<dl class="adm-dl" data-testid="rolling-view"><dt>Window</dt><dd>${r.window_seconds} s</dd><dt>Series</dt><dd><code>${esc(r.series_ticker)}</code></dd><dt>Windows so far</dt><dd>${r.windows_total}</dd>
+    el.querySelector('#ops-rolling').innerHTML = r ? `<dl class="adm-dl" data-testid="rolling-view"><dt>Window</dt><dd>${esc(r.window_seconds)} s</dd><dt>Series</dt><dd><code>${esc(r.series_ticker)}</code></dd><dt>Windows so far</dt><dd>${esc(r.windows_total)}</dd>
       <dt>Current</dt><dd>${r.current ? `${esc(fmtTime(r.current.start_time))} → ${esc(fmtTime(r.current.end_time))}, target $${esc(Number(r.current.target_dollars).toFixed(2))}` : '—'}</dd></dl>
       <p class="faint">Window length is set at boot (${esc(r.configurable)}).</p>
       <table class="table"><thead><tr><th>Ended</th><th class="num">Target</th><th class="num">Close</th><th>Result</th></tr></thead><tbody>${r.recent.map((w) => `<tr><td>${esc(fmtTime(w.end_time))}</td><td class="num">$${Number(w.target_dollars).toFixed(2)}</td><td class="num">$${Number(w.close_dollars).toFixed(2)}</td><td>${w.result === 'yes' ? 'Above' : 'Below'}</td></tr>`).join('') || '<tr><td colspan="4" class="faint">None yet</td></tr>'}</tbody></table>` : '<p class="faint">Rolling markets are not running.</p>';

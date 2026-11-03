@@ -4,6 +4,7 @@
 // seeded market except the Harbor State election series (PLXSTATE), which stays whole-contract (spec §16.3).
 const { open, tx, QTY_UNITS_KEY } = require('./db');
 const { nowIso, newId, hashPassword, slugify } = require('./util');
+const passwords = require('./passwords');
 
 // Deterministic PRNG so seeded charts are stable across runs.
 function rng(seed) {
@@ -91,7 +92,10 @@ const CATALOG = [
   ] },
 ];
 
-function seed(db, { reset = false } = {}) {
+// Identity (SEC_IDENTITY_SPEC §22.5): no admin is seeded (the first admin comes from ADMIN_EMAIL/ADMIN_PASSWORD,
+// start({admin}), `npm run create-admin` or the one-time setup URL). The demo traders get `demoPassword`
+// (DEMO_PASSWORD) or a random password printed once here; there is no default password.
+function seed(db, { reset = false, demoPassword = null, quiet = false } = {}) {
   if (reset) {
     for (const t of ['rfq_quotes', 'rfqs', 'combo_slips', 'combo_creations', 'combo_legs']) {
       if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t)) db.exec(`DELETE FROM ${t}`);
@@ -111,15 +115,16 @@ function seed(db, { reset = false } = {}) {
   if (db.prepare('SELECT COUNT(*) c FROM series').get().c > 0) return false;
   const r = rng(20261102);
   const now = Date.now();
+  const demoPw = demoPassword || passwords.generatedPassword();
+  const demoHash = passwords.hashPasswordSync(demoPw); // one hash shared by the three demo accounts
   tx(db, () => {
     const mk = (email, name, cents, admin, system) => {
       const id = newId('u_');
       db.prepare('INSERT INTO users(id,email,display_name,password_hash,is_admin,is_system,balance_cents,created_at) VALUES(?,?,?,?,?,?,?,?)')
-        .run(id, email, name, hashPassword(system ? newId() : admin ? 'parlance-admin' : 'parlance-demo'), admin, system, cents, nowIso());
+        .run(id, email, name, system ? hashPassword(newId()) : demoHash, admin, system, cents, nowIso());
       return id;
     };
     const lp = mk('liquidity@parlance.local', 'Parlance Liquidity', 1_000_000_00, 0, 1);
-    mk('admin@parlance.local', 'Exchange Admin', 0, 1, 0);
     let seq = 0;
     let evIndex = 0;
     for (const s of CATALOG) {
@@ -197,6 +202,7 @@ function seed(db, { reset = false } = {}) {
     db.prepare('UPDATE users SET balance_cents = balance_cents - ? WHERE id=?').run(held, lp);
     db.prepare("INSERT INTO meta(key,value) VALUES('order_seq',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(seq));
   });
+  if (!demoPassword && !quiet) console.log(`Demo accounts maple_quant@, harborwatch@ and rainmaker@parlance.local were created with the password ${demoPw} (shown once; set DEMO_PASSWORD to choose one).`);
   return true;
 }
 

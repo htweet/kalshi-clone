@@ -1,4 +1,5 @@
 // App shell: router, header (nav, live count, notifications, account menu), category strip (spec §3, §4.1, §13.1).
+import { vars, watchVars } from './dynstyle.js';
 import { session, queries, applyTheme, localTheme } from './store.js';
 import { socket } from './ws.js';
 import { api } from './api.js';
@@ -19,6 +20,7 @@ import * as combos from './views/combos.js';
 import * as sports from './views/sports.js';
 import { startLivePatcher } from './views/scoreboard.js';
 import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
+watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
 
@@ -49,6 +51,7 @@ const routes = [
   [/^\/account\/([a-z-]+)$/, account, (m) => ({ section: m[1] })],
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
+  [/^\/setup$/, auth, () => ({ mode: 'setup' })], // first-admin setup link (SEC_IDENTITY_SPEC §22.5)
   [/^\/admin(?:\/(.*))?$/, adminView, (m) => ({ path: m[1] || '' })],
   [/^\/help\/([a-z0-9-]+)$/, helpView, (m) => ({ slug: m[1] })],
 ];
@@ -76,7 +79,7 @@ async function render() {
   const gated = match && featureGate(url.pathname); // admin feature switches (views/admin/site.js)
   if (gated) { view.innerHTML = gated; return; }
   if (!match) {
-    view.innerHTML = `<div class="empty" style="min-height:60vh;display:grid;place-content:center;gap:8px"><h1 class="typ-title-x10" style="margin:0">Page not found</h1><p class="muted" style="margin:0">That page doesn't exist.</p><div><a class="btn" href="/" data-link>Go home</a></div></div>`;
+    view.innerHTML = `<div class="empty center-60"><h1 class="typ-title-x10 m-0">Page not found</h1><p class="muted m-0">That page doesn't exist.</p><div><a class="btn" href="/" data-link>Go home</a></div></div>`;
     document.title = 'Not found · Parlance';
     return;
   }
@@ -97,7 +100,7 @@ function renderCategoryStrip(url) {
   strip.innerHTML = [
     `<a href="/" data-link class="${current === 'trending' ? 'active' : ''}">Trending</a>`,
     // Featured tab and category order / labels / visibility come from the CMS (defaults when unconfigured).
-    `<a href="${esc(site.nav.featured.href)}" data-link class="featured ${p === site.nav.featured.href || (current && site.nav.featured.href === `/category/${current}`) ? 'active' : ''}" data-testid="featured-tab"${site.nav.featured.color ? ` style="color:${esc(site.nav.featured.color)}"` : ''}>${esc(site.nav.featured.label)}</a>`,
+    `<a href="${esc(site.nav.featured.href)}" data-link class="featured ${site.nav.featured.color ? 'v-color ' : ''}${p === site.nav.featured.href || (current && site.nav.featured.href === `/category/${current}`) ? 'active' : ''}" data-testid="featured-tab"${vars({ '--color': site.nav.featured.color })}>${esc(site.nav.featured.label)}</a>`,
     `<a href="/browse?order_by=newest" data-link class="${current === 'new' ? 'active' : ''}">New</a>`,
     '<span class="sep" aria-hidden="true"></span>',
     ...(site.nav.categories || CATEGORIES.map((name) => ({ name }))).filter((c) => !c.hidden).map(({ name: c, label }) => `<a href="/category/${catSlug(c)}" data-link class="${current === catSlug(c) ? 'active' : ''}">${esc(label || catLabel(c))}</a>`),
@@ -133,6 +136,7 @@ function toggleMenu(btn, html, cls = '') {
   const m = document.createElement('div');
   m.className = `menu ${cls}`;
   m.dataset.owner = btn.id;
+  // eslint-disable-next-line parlance/no-unescaped-html -- menu markup comes from the header builders in this file (templates checked by this rule)
   m.innerHTML = html;
   btn.parentElement.appendChild(m);
   openMenu = m;
@@ -157,7 +161,7 @@ function renderAccount() {
     <span class="faint" data-testid="header-user" hidden>${esc(session.user.display_name)}</span>`;
   drawBell();
   el.querySelector('#bell-btn').onclick = async (e) => {
-    const m = toggleMenu(e.currentTarget, '<div class="menu-head" style="display:flex;justify-content:space-between;align-items:center"><strong>Notifications</strong><button class="btn btn-sm btn-ghost" id="read-all" style="width:auto">Mark all read</button></div><div id="notif-items"></div><a class="faint" href="/notifications" data-link style="justify-content:center">See all</a>', 'notif-menu');
+    const m = toggleMenu(e.currentTarget, '<div class="menu-head d-flex jc-between ai-center"><strong>Notifications</strong><button class="btn btn-sm btn-ghost w-auto" id="read-all">Mark all read</button></div><div id="notif-items"></div><a class="faint jc-center" href="/notifications" data-link>See all</a>', 'notif-menu');
     if (!m) return;
     await loadNotifications();
     m.querySelector('#notif-items').innerHTML = notifList(notif.items.slice(0, 8));

@@ -17,7 +17,7 @@ const DB_FILE = path.join(TMP, 'history.db');
 const PORT = 4700 + Math.floor(Math.random() * 30);
 const BASE = `http://127.0.0.1:${PORT}`;
 const PW = 'correct-horse-9';
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, combos: { makerDelayMs: 100, autoConfirmMs: 200 } };
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, admin: { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' }, combos: { makerDelayMs: 100, autoConfirmMs: 200 } };
 const RAV = 'PLXCUP-26FINAL-RAV';
 const CUT = 'PLXRATE-26DEC-CUT';
 const ORCH = 'PLXFILM-27PIC-ORCHARD';
@@ -90,7 +90,7 @@ test('activity of every kind appears in History with correct signed amounts', as
   await until(ph, () => dbq('SELECT status FROM rfqs WHERE id=?', rid)[0].status === 'executed');
   // settlement via admin resolve
   const admin = await newPage();
-  await logIn(admin, { email: 'admin@parlance.local' }, 'parlance-admin');
+  await logIn(admin, { email: 'admin@parlance.local' }, 'Ledger-Keeper-2026!');
   assert.equal((await call(admin, 'POST', `/v1/admin/markets/${ORCH}/determine`, { result: 'yes' })).s, 200);
   await admin.context().close();
   await until(ph, () => dbq('SELECT 1 FROM settlements WHERE user_id=? AND market_ticker=?', uid(), ORCH).length === 1);

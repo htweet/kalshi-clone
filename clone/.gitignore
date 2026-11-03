@@ -1,2 +1,5 @@
 node_modules/
 data/*.db*
+# production asset build output (npm run build / npm start; SEC_PERIMETER_SPEC §21)
+dist/
+.dist-tmp-*/

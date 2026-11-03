@@ -1,0 +1,58 @@
+# Code owners (PLAN P1.13): changes to security-sensitive files need a review from the owner.
+# Enforced when branch protection on `main` turns on "Require review from Code Owners".
+# Later rules override earlier ones, so the catch-all comes first.
+
+*                                   @htweet
+
+# Repository guardrails, CI and supply chain
+/.github/                           @htweet
+/.githooks/                         @htweet
+/.claude/                           @htweet
+/scripts/                           @htweet
+/.gitignore                         @htweet
+/.secretscanignore                  @htweet
+/.zap/                              @htweet
+/SECURITY.md                        @htweet
+/clone/package.json                 @htweet
+/clone/package-lock.json            @htweet
+/clone/eslint.config.js             @htweet
+/clone/.env.example                 @htweet
+
+# Identity, sessions, authorization and the perimeter
+/clone/server/app.js                @htweet
+/clone/server/auth.js               @htweet
+/clone/server/security.js           @htweet
+/clone/server/bot.js                @htweet
+/clone/server/admin.js              @htweet
+/clone/server/ws.js                 @htweet
+/clone/server/validate.js           @htweet
+/clone/server/idempotency.js        @htweet
+/clone/server/util.js               @htweet
+/clone/server/passwords.js          @htweet
+/clone/server/crypto.js             @htweet
+/clone/server/audit-chain.js        @htweet
+/clone/server/create-admin.js       @htweet
+/clone/scripts/                     @htweet
+/clone/eslint-rules/                @htweet
+
+# Money: matching engine, ledger, perps margin, combos/RFQ settlement
+/clone/server/engine.js             @htweet
+/clone/server/perps.js              @htweet
+/clone/server/combos.js             @htweet
+/clone/server/orders.js             @htweet
+/clone/server/db.js                 @htweet
+
+# Client code that renders user content or handles tokens
+/clone/public/js/api.js             @htweet
+/clone/public/js/ws.js              @htweet
+/clone/public/js/lib.js             @htweet
+/clone/public/js/views/auth.js      @htweet
+/clone/public/js/views/account.js   @htweet
+/clone/public/js/views/stepup.js    @htweet
+/clone/public/js/security.js        @htweet
+/clone/public/js/perps-api.js       @htweet
+
+# Security tests
+/clone/tests/authz.e2e.test.js      @htweet
+/clone/tests/idempotency.e2e.test.js @htweet
+/clone/tests/lib/                   @htweet

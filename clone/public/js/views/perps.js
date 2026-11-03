@@ -1,6 +1,7 @@
 // Perps (PERPS_SPEC_SECTION.md): market list (/perps, /perps/categories/:assetClass), market page (/perps/:ticker)
 // and the Perps portfolio (/portfolio?perpsTab=positions|orders|history, also /portfolio/perps).
 // Prices travel per contract in dollars (4 dp); the UI shows the underlying level = contract price / contract size.
+import { vars } from '../dynstyle.js';
 import { perpsApi as P } from '../perps-api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
@@ -29,7 +30,7 @@ const compactUsd = (v) => `$${n(v).toLocaleString('en-US', { notation: 'compact'
 const lev = (x) => (x == null ? '—' : `${Number.isInteger(x) ? x : Number(x).toFixed(1)}x`);
 const time = (iso) => new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const dateTime = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const icon = (m) => `<span class="perps-ico" style="--perps-accent:${esc(m.product_metadata?.color || 'var(--brand)')}" aria-hidden="true">${esc(m.title[0])}</span>`;
+const icon = (m) => `<span class="perps-ico"${vars({ '--perps-accent': m.product_metadata?.color || 'var(--brand)' })} aria-hidden="true">${esc(m.title[0])}</span>`;
 function countdown(ms) {
   const s = Math.max(0, Math.floor((ms - Date.now()) / 1000));
   const h = Math.floor(s / 3600); const mi = Math.floor((s % 3600) / 60); const se = s % 60;
@@ -63,7 +64,7 @@ async function renderList({ el, params }) {
       <p class="muted">Perpetual futures on simulated indices. Go long or short with leverage, no expiry. Funding payments keep each contract near its index.</p></div>
     <nav class="perps-chips" aria-label="Asset classes" data-testid="perps-chips">
       <a href="/perps" data-link class="${want ? '' : 'on'}" data-class="all">All <span>${markets.length}</span></a>
-      ${classes.map((c) => `<a href="/perps/categories/${esc(c.slug)}" data-link class="${want && want.slug === c.slug ? 'on' : ''}" data-class="${esc(c.name)}">${esc(c.name)} <span>${c.count}</span></a>`).join('')}
+      ${classes.map((c) => `<a href="/perps/categories/${esc(c.slug)}" data-link class="${want && want.slug === c.slug ? 'on' : ''}" data-class="${esc(c.name)}">${esc(c.name)} <span>${esc(c.count)}</span></a>`).join('')}
     </nav>
     <div class="perps-table-wrap card"><table class="perps-table" data-testid="perps-table">
       <thead><tr><th>Market</th><th class="num">Price</th><th class="num">24h</th><th class="num perps-hide-sm">Funding</th><th class="num perps-hide-sm">Max leverage</th><th class="num perps-hide-md">24h volume</th></tr></thead>
@@ -231,12 +232,12 @@ function wireOrders(root, refresh) {
 function fundingHtml(rows, metas) {
   if (!rows.length) return '<div class="empty" data-testid="perp-no-funding">No funding payments yet. Funding is exchanged between longs and shorts on each market\'s schedule.</div>';
   return `<div class="perps-scroll"><table class="table" data-testid="perp-funding"><thead><tr><th>Time</th><th>Market</th><th class="num">Position</th><th class="num">Rate</th><th class="num">Mark</th><th class="num">Payment</th></tr></thead><tbody>
-    ${rows.map((f) => { const m = metas.get(f.market_ticker); const a = n(f.funding_amount); return `<tr data-testid="perp-funding-row" data-amount="${a}" data-qty="${n(f.quantity)}"><td>${dateTime(f.funding_time)}</td><td>${esc(m ? m.title : f.market_ticker)}</td><td class="num">${n(f.quantity) > 0 ? 'Long' : 'Short'} ${Math.abs(n(f.quantity))}</td><td class="num">${fundingPct(f.funding_rate)}</td><td class="num">${m ? fmtPx(m, f.mark_price) : f.mark_price}</td><td class="num perps-pnl ${cls(a)}">${signedUsd(a, 4)}</td></tr>`; }).join('')}</tbody></table></div>`;
+    ${rows.map((f) => { const m = metas.get(f.market_ticker); const a = n(f.funding_amount); return `<tr data-testid="perp-funding-row" data-amount="${a}" data-qty="${n(f.quantity)}"><td>${dateTime(f.funding_time)}</td><td>${esc(m ? m.title : f.market_ticker)}</td><td class="num">${n(f.quantity) > 0 ? 'Long' : 'Short'} ${Math.abs(n(f.quantity))}</td><td class="num">${fundingPct(f.funding_rate)}</td><td class="num">${esc(m ? fmtPx(m, f.mark_price) : f.mark_price)}</td><td class="num perps-pnl ${cls(a)}">${signedUsd(a, 4)}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function fillsHtml(fills, metas) {
   if (!fills.length) return '<div class="empty">No perps trades yet.</div>';
   return `<div class="perps-scroll"><table class="table" data-testid="perp-fills"><thead><tr><th>Time</th><th>Market</th><th>Side</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">Fee</th><th class="num">Realized PnL</th><th>Source</th></tr></thead><tbody>
-    ${fills.map((f) => { const m = metas.get(f.ticker); const r = n(f.realized_pnl); return `<tr data-testid="perp-fill-row" data-source="${esc(f.source_detail)}"><td>${dateTime(f.created_time)}</td><td>${esc(m.title)}</td><td>${f.side === 'bid' ? 'Buy' : 'Sell'}</td><td class="num">${fmtPx(m, f.price)}</td><td class="num">${n(f.count)}</td><td class="num">${money(f.fees)}</td><td class="num perps-pnl ${cls(r)}">${r ? signedUsd(r) : '—'}</td><td>${{ user: 'You', exit_trigger: 'TP/SL', liquidation: 'Liquidation', liquidity: 'Maker' }[f.source_detail] || esc(f.source_detail)}</td></tr>`; }).join('')}</tbody></table></div>`;
+    ${fills.map((f) => { const m = metas.get(f.ticker); const r = n(f.realized_pnl); return `<tr data-testid="perp-fill-row" data-source="${esc(f.source_detail)}"><td>${dateTime(f.created_time)}</td><td>${esc(m.title)}</td><td>${f.side === 'bid' ? 'Buy' : 'Sell'}</td><td class="num">${fmtPx(m, f.price)}</td><td class="num">${n(f.count)}</td><td class="num">${money(f.fees)}</td><td class="num perps-pnl ${cls(r)}">${r ? signedUsd(r) : '—'}</td><td>${esc({ user: 'You', exit_trigger: 'TP/SL', liquidation: 'Liquidation', liquidity: 'Maker' }[f.source_detail] || f.source_detail)}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function liquidationsHtml(rows, metas) {
   if (!rows.length) return '';
@@ -283,7 +284,7 @@ async function renderMarket({ el, params, navigate }) {
     <div class="perps-layout">
       <div class="perps-main">
         <section class="card perps-box perps-chart-card">
-          <div class="perps-chart-head"><span class="faint">Mark price</span><div class="perps-seg" role="tablist" data-testid="perp-ranges">${Object.keys(RANGES).map((k) => `<button data-range="${k}" class="${k === range ? 'on' : ''}">${k}</button>`).join('')}</div></div>
+          <div class="perps-chart-head"><span class="faint">Mark price</span><div class="perps-seg" role="tablist" data-testid="perp-ranges">${Object.keys(RANGES).map((k) => `<button data-range="${esc(k)}" class="${k === range ? 'on' : ''}">${esc(k)}</button>`).join('')}</div></div>
           <div class="perps-chart" data-testid="perp-chart"></div>
         </section>
         <div class="perps-duo">
@@ -294,7 +295,7 @@ async function renderMarket({ el, params, navigate }) {
           <div class="perps-tabs" role="tablist">${[['positions', 'Positions'], ['orders', 'Open orders'], ['funding', 'Funding'], ['history', 'History']].map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
           <div data-testid="perp-panel" class="perps-panel"></div></section>` : ''}
         <section class="card perps-box perps-about"><h3 class="perps-box-title">About ${esc(m.title)}</h3><p class="muted">${esc(m.product_metadata?.description || '')}</p>
-          <dl class="perps-dl"><div><dt>Contract size</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? 'index points' : 'units')}</dd></div><div><dt>Tick</dt><dd>$${m.tick_size} per contract</dd></div><div><dt>Initial / maintenance margin</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>Fees (maker / taker)</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>Funding schedule</dt><dd>every ${Math.round(m.funding_interval_ms / 3600000) || '<1'}h <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>Index</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl></section>
+          <dl class="perps-dl"><div><dt>Contract size</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? 'index points' : 'units')}</dd></div><div><dt>Tick</dt><dd>$${esc(m.tick_size)} per contract</dd></div><div><dt>Initial / maintenance margin</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>Fees (maker / taker)</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>Funding schedule</dt><dd>every ${Math.round(m.funding_interval_ms / 3600000) || '<1'}h <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>Index</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl></section>
       </div>
       <aside class="perps-side-col">
         <section class="card perps-box perps-ticket" data-testid="perp-ticket">
@@ -386,7 +387,7 @@ async function renderMarket({ el, params, navigate }) {
     const asks = b.asks.slice(0, 8).reverse();
     const bids = b.bids.slice(0, 8);
     const maxQ = Math.max(1, ...[...asks, ...bids].map((l) => n(l[1])));
-    const row = (l, side) => `<button type="button" class="perps-lvl ${side}" data-px="${l[0]}" style="--perps-depth:${((n(l[1]) / maxQ) * 100).toFixed(1)}%"><span>${fmtPx(m, l[0])}</span><span>${n(l[1]).toLocaleString('en-US')}</span></button>`;
+    const row = (l, side) => `<button type="button" class="perps-lvl ${esc(side)}" data-px="${esc(l[0])}"${vars({ '--perps-depth': `${((n(l[1]) / maxQ) * 100).toFixed(1)}%` })}><span>${fmtPx(m, l[0])}</span><span>${n(l[1]).toLocaleString('en-US')}</span></button>`;
     const spread = b.asks.length && b.bids.length ? n(b.asks[0][0]) - n(b.bids[0][0]) : null;
     $('[data-testid=perp-book]').innerHTML = `<div class="perps-lvl head faint"><span>Price</span><span>Contracts</span></div>
       <div data-testid="perp-asks">${asks.map((l) => row(l, 'ask')).join('') || '<div class="faint">No asks</div>'}</div>

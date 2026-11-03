@@ -22,7 +22,7 @@ let srv; let browser;
 const alice = { email: `alice.${Date.now()}@example.test`, name: 'Alice Tester' };
 const bob = { email: `bob.${Date.now()}@example.test`, name: 'Bob Tester' };
 
-async function boot() { srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300 }); }
+async function boot() { srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300, admin: { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' } }); } // no default admin password (SEC_IDENTITY_SPEC §22.5)
 async function newPage() {
   const ctx = await browser.newContext({ viewport: { width: 1366, height: 900 }, acceptDownloads: true });
   const page = await ctx.newPage();
@@ -100,7 +100,7 @@ test('auth: validation errors, sign up, log out, bad login, log in', async () =>
   await page.fill('input[name=email]', alice.email);
   await page.fill('input[name=password]', 'short');
   await page.click('button[type=submit]');
-  await page.waitForSelector('#auth-error:has-text("at least 8")');
+  await page.waitForSelector('#auth-error:has-text("at least 12")'); // password policy (SEC_IDENTITY_SPEC §22.4)
   await signUp(page, alice);
   assert.equal((await sess(page)).user.display_name, alice.name);
   assert.equal(await page.textContent('[data-testid=header-balance]'), '$0.00');
@@ -314,7 +314,7 @@ test('lifecycle: admin pause/resume/resolve, MARKET_INACTIVE errors, automatic s
   await pa.waitForSelector('.toast:has-text("Filled 4 YES")');
 
   const admin = await newPage();
-  await logIn(admin, 'admin@parlance.local', 'parlance-admin');
+  await logIn(admin, 'admin@parlance.local', 'Ledger-Keeper-2026!');
   await admin.goto(BASE + URL);
   await admin.click(`tr[data-ticker="${TICK}"]`);
   await admin.waitForSelector('[data-testid=admin-panel]');

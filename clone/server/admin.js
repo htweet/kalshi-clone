@@ -12,6 +12,7 @@ const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, usd, UNITS, E, ApiError, slugify } = require('./util');
 const { marketVo } = require('./serialize');
 const { CATEGORIES } = require('./features');
+const auditChain = require('./audit-chain');
 
 // ----------------------------------------------------------------------------------------------- roles
 const PERMS = ['catalog.read', 'catalog.write', 'content.write', 'resolution.write', 'markets.ops', 'perps.ops', 'users.read', 'users.support', 'users.money',
@@ -27,7 +28,8 @@ const ROLE_PERMS = {
 const ROLES = Object.keys(ROLE_PERMS);
 const COMBO_SERIES = 'PLXCOMBO';
 const FLASH_SERIES = 'PLXFLASH';
-const TAKER_FEE_COEFFICIENT = 0.07; // engine.js FEE_RATE_NUM / 100 (display only, see ADMIN_SPEC §18.6)
+// Taker fee coefficient: engine-held, persisted in admin_settings and editable at runtime (gap G7, SEC_PERIMETER_SPEC §21.9).
+const { setTakerFeeCoefficient, takerFeeCoefficient, DEFAULT_TAKER_FEE_COEFFICIENT } = require('./engine');
 const DEFAULT_APY = 0.035;
 const APY_META_KEY = 'setting_interest_apy'; // read by features.js accrueInterest()
 const DEFAULT_SETTINGS = {
@@ -180,6 +182,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   }
   const apyNow = () => { const r = db.prepare('SELECT value FROM meta WHERE key=?').get(APY_META_KEY); return r ? Number(r.value) : DEFAULT_APY; };
   const features = () => setting('features');
+  // Runtime-editable exchange settings (gap G7): applied at boot from the persisted values, changed live by PUT /settings.
+  setTakerFeeCoefficient(setting('taker_fee')?.coefficient ?? DEFAULT_TAKER_FEE_COEFFICIENT);
+  const persistedRollingWindow = () => setting('rolling_window')?.seconds ?? null;
 
   // ---------------------------------------------------------------- roles + audit
   function rolesOf(u) {
@@ -198,9 +203,8 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     next();
   };
   function audit(req, action, targetType, targetId, before, after, reason = '') {
-    db.prepare('INSERT INTO admin_audit(id,ts,actor_id,actor_email,action,target_type,target_id,before_json,after_json,reason) VALUES(?,?,?,?,?,?,?,?,?,?)')
-      .run(newId('au_'), Date.now(), req.auth?.user.id || null, req.auth?.user.email || null, action, targetType || '', String(targetId ?? ''),
-        before === undefined || before === null ? null : JSON.stringify(before), after === undefined || after === null ? null : JSON.stringify(after), reason || '');
+    // Tamper-evident: every row is HMAC-chained to the previous one (server/audit-chain.js, SEC_IDENTITY_SPEC §22.7).
+    auditChain.append(db, { actor_id: req.auth?.user.id || null, actor_email: req.auth?.user.email || null, action, target_type: targetType, target_id: targetId, before, after, reason });
   }
 
   // ---------------------------------------------------------------- internal reads through the user-facing routes
@@ -1433,12 +1437,15 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   });
 
   // ================================================================ settings + health
+  const secSettings = () => app?.locals?.security?.settings() ?? null; // perimeter: rate-limit tiers + bot management (server/bot.js)
   function settingsVo() {
     return {
       interest_apy: apyNow(), features: features(), publish_liquidity: setting('publish_liquidity'),
-      taker_fee: { coefficient: TAKER_FEE_COEFFICIENT, formula: 'fee = ceil(coefficient × C × P × (1 − P) × series fee multiplier)', editable: false, note: 'The base coefficient is an engine constant; per-series fee multipliers (Market ops) scale it and are applied by the engine.' },
-      rate_limit: { burst: rate.burst ?? null, per_second: rate.perSec ?? null, scope: 'per client IP, /v1 and /trade-api', editable: false, note: 'Set with RATE_BURST / RATE_PER_SEC at boot.' },
-      rolling_window_seconds: Math.max(5, Number(rollingWindowSec) || 900),
+      taker_fee: { coefficient: takerFeeCoefficient(), formula: 'fee = ceil(coefficient × C × P × (1 − P) × series fee multiplier)', editable: true, note: 'Applies to new fills immediately; per-series fee multipliers (Market ops) scale it.' },
+      rate_limit: { burst: secSettings()?.rate_limits.anonymous.burst ?? rate.burst ?? null, per_second: secSettings()?.rate_limits.anonymous.per_second ?? rate.perSec ?? null, scope: 'anonymous tier, per client IP, /v1 and /trade-api', editable: true, note: 'Defaults from RATE_BURST / RATE_PER_SEC; signed-in, staff, credential-endpoint and write tiers below.' },
+      rate_limits: secSettings()?.rate_limits ?? null,
+      bot: secSettings()?.bot ?? null,
+      rolling_window_seconds: app?.locals?.rolling ? app.locals.rolling.windowSec() : Math.max(5, Number(persistedRollingWindow() ?? rollingWindowSec) || 900),
     };
   }
   v1.get(`${A}/settings`, can('settings.write'), (req, res) => res.json({ settings: settingsVo() }));
@@ -1446,19 +1453,28 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const b = req.body || {};
     const before = settingsVo();
     const errs = {};
-    let apy; let feats; let pl;
+    let apy; let feats; let pl; let fee; let rollSec; let secPatch = null;
     if (b.interest_apy !== undefined) { const n = Number(b.interest_apy); if (!Number.isFinite(n) || n < 0 || n > 0.2) errs.interest_apy = 'must be between 0 and 0.20 (20%)'; else apy = n; }
     if (b.features !== undefined) { if (typeof b.features !== 'object' || !b.features) errs.features = 'must be an object'; else feats = { ...features(), ...Object.fromEntries(['social', 'perps', 'combos'].filter((k) => k in b.features).map((k) => [k, !!b.features[k]])) }; }
     if (b.publish_liquidity !== undefined) {
       try { pl = check(b.publish_liquidity, { enabled: F.bool(1), spread_cents: F.int(2, 40), size_contracts: F.int(1, 10000), levels: F.int(1, 5) }, setting('publish_liquidity')); pl.enabled = !!pl.enabled; }
       catch (e) { if (e instanceof FieldError) for (const [k, v] of Object.entries(e.fields)) errs[`publish_liquidity.${k}`] = v; else throw e; }
     }
+    if (b.taker_fee_coefficient !== undefined) { const n = Number(b.taker_fee_coefficient); if (b.taker_fee_coefficient === null || b.taker_fee_coefficient === '' || !Number.isFinite(n) || n < 0 || n > 0.25 || Math.abs(Math.round(n * 10000) - n * 10000) > 1e-6) errs.taker_fee_coefficient = 'must be between 0 and 0.25 with at most 4 decimal places'; else fee = n; }
+    if (b.rolling_window_seconds !== undefined) { const n = Number(b.rolling_window_seconds); if (!Number.isInteger(n) || n < 5 || n > 86400) errs.rolling_window_seconds = 'must be a whole number of seconds from 5 to 86400'; else rollSec = n; }
+    const sec = app?.locals?.security;
+    if (sec && (b.rate_limits !== undefined || b.bot !== undefined)) { const v = sec.validate({ rate_limits: b.rate_limits, bot: b.bot }); Object.assign(errs, v.errs); secPatch = v.out; }
     if (Object.keys(errs).length) throw new FieldError(errs);
     tx(db, () => {
+      if (fee !== undefined) putSetting('taker_fee', { coefficient: fee }, req.auth.user.id);
+      if (rollSec !== undefined) putSetting('rolling_window', { seconds: rollSec }, req.auth.user.id);
+      if (secPatch) sec.save(secPatch, req.auth.user.id, nowIso());
       if (apy !== undefined) db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(APY_META_KEY, String(apy));
       if (feats) putSetting('features', feats, req.auth.user.id);
       if (pl) putSetting('publish_liquidity', pl, req.auth.user.id);
     });
+    if (fee !== undefined) setTakerFeeCoefficient(fee); // live: the next fill uses it
+    if (rollSec !== undefined) app?.locals?.rolling?.setWindowSec(rollSec); // live: the next window opens on the new grid
     const after = settingsVo();
     audit(req, 'settings.update', 'settings', 'system', before, after);
     res.json({ settings: after });
@@ -1476,7 +1492,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     });
   });
 
-  return { decorateEvent, rolesOf, asUser, requote };
+  return { decorateEvent, rolesOf, asUser, requote, can, rollingWindowSec: persistedRollingWindow };
 }
 
 module.exports = { mountAdmin, ROLE_PERMS, PERMS, parseCsv, IMPORT_COLUMNS };

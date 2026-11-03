@@ -18,7 +18,7 @@ const DB_FILE = path.join(TMP, 'combos.db');
 const PORT = 4530 + Math.floor(Math.random() * 30);
 const BASE = `http://127.0.0.1:${PORT}`;
 const PW = 'correct-horse-9';
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, combos: { makerDelayMs: 150, autoConfirmMs: 400, quoteTtlMs: 4000 } };
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, admin: { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' }, combos: { makerDelayMs: 150, autoConfirmMs: 400, quoteTtlMs: 4000 } };
 const CUT = 'PLXRATE-26DEC-CUT';
 const RAV = 'PLXCUP-26FINAL-RAV';
 const HOLD = 'PLXRATE-26DEC-HOLD';
@@ -245,7 +245,7 @@ test('resolution: legs drive the combo (NO as soon as one misses, YES when all h
   await page.waitForSelector('[data-testid=combo-legs] [data-testid=combo-leg]');
   assert.equal(await page.locator('[data-testid=combo-leg][data-leg-status=pending]').count(), 2);
   const admin = await newPage();
-  await logIn(admin, 'admin@parlance.local', 'parlance-admin');
+  await logIn(admin, 'admin@parlance.local', 'Ledger-Keeper-2026!');
   const before = bal();
   const units = dbq('SELECT yes_count FROM positions WHERE user_id=? AND market_ticker=?', uid(), comboTicker)[0].yes_count;
   // Ravens lose → the "No Ravens" leg wins; the combo waits for the Cut leg.

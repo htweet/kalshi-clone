@@ -171,8 +171,8 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
   const publishPinned = (t) => publish(t, 'chat_pinned', { event_ticker: t, pinned: pinnedVo(roomRow(t)) });
 
   function audit(req, action, targetId, before, after, reason = '') {
-    db.prepare('INSERT INTO admin_audit(id,ts,actor_id,actor_email,action,target_type,target_id,before_json,after_json,reason) VALUES(?,?,?,?,?,?,?,?,?,?)')
-      .run(newId('au_'), Date.now(), req.auth.user.id, req.auth.user.email, action, 'chat', String(targetId), before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), reason || '');
+    // Hash-chained like every admin audit row (server/audit-chain.js).
+    require('./audit-chain').append(db, { actor_id: req.auth.user.id, actor_email: req.auth.user.email, action, target_type: 'chat', target_id: targetId, before, after, reason });
   }
 
   // Shared guards for every chat write by a member.

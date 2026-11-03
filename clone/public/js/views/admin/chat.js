@@ -36,14 +36,14 @@ async function renderRoom(el, ticker, navigate) {
     const r = data.room;
     el.innerHTML = section(r.title, `${esc(r.event_ticker)} · ${r.message_count} messages · ${r.online} online now`, `<a class="btn" href="/admin/chat" data-link>All rooms</a>`)
       + `<div class="adm-two"><div class="card adm-card" data-testid="chat-room-state"><h3>Room ${roomBadge(r.status)}</h3>
-          <div class="adm-form-actions" style="justify-content:flex-start;flex-wrap:wrap">
+          <div class="adm-form-actions jc-start fw-wrap">
             <label class="field"><span>Slow mode</span><select class="adm-input" data-slow data-testid="adm-chat-slow">${SLOW.map(([v, l]) => `<option value="${v}" ${v === r.slow_mode_sec ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
             <label class="field"><span>After the event closes</span><select class="adm-input" data-after data-testid="adm-chat-after"><option value="read_only" ${r.after_close === 'read_only' ? 'selected' : ''}>Read-only</option><option value="open" ${r.after_close === 'open' ? 'selected' : ''}>Keep open</option></select></label>
           </div>
           <p class="muted">${r.locked ? `Locked${r.lock_reason ? `: ${esc(r.lock_reason)}` : ''}` : r.event_active ? 'The event has an active market, so the room is open.' : 'No active market: the room follows the “after close” setting.'}</p>
           <button class="btn ${r.locked ? '' : 'btn-danger-solid'}" data-lock data-testid="adm-chat-lock">${r.locked ? 'Unlock room' : 'Lock room…'}</button></div>
         <div class="card adm-card" data-testid="chat-room-pinned"><h3>Pinned message</h3>${r.pinned ? `<p><b>@${esc(r.pinned.author.nickname)}</b> ${esc(r.pinned.body)}</p><button class="btn btn-sm" data-unpin>Unpin</button>` : '<p class="faint">Nothing pinned.</p>'}
-          <h3 style="margin-top:16px">Muted in this room</h3>${data.mutes.length ? `<ul class="adm-list" data-testid="chat-mutes">${data.mutes.map((m) => `<li><b>@${esc(m.nickname)}</b> until ${esc(fmtTime(m.muted_until))}${m.reason ? `<div class="faint">${esc(m.reason)}</div>` : ''} <button class="btn btn-sm" data-unmute="${esc(m.nickname)}">Unmute</button></li>`).join('')}</ul>` : '<p class="faint">Nobody is muted.</p>'}</div></div>
+          <h3 class="mt-16">Muted in this room</h3>${data.mutes.length ? `<ul class="adm-list" data-testid="chat-mutes">${data.mutes.map((m) => `<li><b>@${esc(m.nickname)}</b> until ${esc(fmtTime(m.muted_until))}${m.reason ? `<div class="faint">${esc(m.reason)}</div>` : ''} <button class="btn btn-sm" data-unmute="${esc(m.nickname)}">Unmute</button></li>`).join('')}</ul>` : '<p class="faint">Nobody is muted.</p>'}</div></div>
         <h3 class="adm-h3">Latest messages</h3><div id="msgs"></div>`;
     const t = dataTable(el.querySelector('#msgs'), { testid: 'chat-messages', pageSize: 50, empty: 'No messages yet.', rowAttrs: (m) => `data-msg="${esc(m.id)}"`,
       cols: [

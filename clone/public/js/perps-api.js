@@ -1,5 +1,5 @@
 // Perps REST client (PERPS_SPEC_SECTION.md): one method per /v1/perps endpoint, same transport as api.js.
-import { request } from './api.js';
+import { request, newIdempotencyKey } from './api.js';
 
 const qs = (o = {}) => {
   const s = new URLSearchParams(Object.entries(o).filter(([, v]) => v != null && v !== '')).toString();
@@ -19,13 +19,13 @@ export const perpsApi = {
   fundingEstimate: (t) => request('GET', `${B}/funding_rates/estimate${qs({ ticker: t })}`),
   riskParameters: () => request('GET', `${B}/risk_parameters`),
   balance: () => request('GET', `${B}/balance`),
-  transfer: (direction, amountDollars) => request('POST', `${B}/transfers`, { direction, amount_dollars: amountDollars }),
+  transfer: (direction, amountDollars) => request('POST', `${B}/transfers`, { direction, amount_dollars: amountDollars }, { idempotencyKey: newIdempotencyKey() }),
   transfers: () => request('GET', `${B}/transfers`),
-  placeOrder: (b) => request('POST', `${B}/orders`, b),
+  placeOrder: (b) => request('POST', `${B}/orders`, b, { idempotencyKey: newIdempotencyKey() }),
   orders: (o) => request('GET', `${B}/orders${qs(o)}`),
   cancelOrder: (id) => request('DELETE', `${B}/orders/${enc(id)}`),
   positions: (o) => request('GET', `${B}/positions${qs(o)}`),
-  closePosition: (t, percent = 100) => request('POST', `${B}/positions/${enc(t)}/close`, { percent }),
+  closePosition: (t, percent = 100) => request('POST', `${B}/positions/${enc(t)}/close`, { percent }, { idempotencyKey: newIdempotencyKey() }),
   fills: (o) => request('GET', `${B}/fills${qs(o)}`),
   fundingHistory: (o) => request('GET', `${B}/funding_history${qs(o)}`),
   liquidations: () => request('GET', `${B}/liquidations`),

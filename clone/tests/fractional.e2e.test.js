@@ -53,7 +53,7 @@ const bookRows = (page) => page.$$eval('[data-testid=orderbook] .book-row', (rs)
 // Cash a taker paid for an order: ceil(q·p/100) per fill plus the fee (COMBOS_FRACTIONAL_SPEC §16.2).
 const takerCost = (orderId) => dbq('SELECT count c, price_cents p, fee_cents f FROM fills WHERE order_id=?', orderId).reduce((a, f) => a + Math.ceil((f.c * f.p) / 100) + f.f, 0);
 
-before(async () => { srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300 }); browser = await chromium.launch(); });
+before(async () => { srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300, admin: { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' } }); browser = await chromium.launch(); });
 after(async () => { await browser?.close(); await srv?.close(); fs.rmSync(TMP, { recursive: true, force: true }); });
 
 test('fractional buy in Contracts mode: 2.55 contracts, exact conserving cents, stored as 255 units', async () => {
@@ -225,7 +225,7 @@ test('fractional settlement pays exactly q cents per q units; the resting fracti
   const held = pos().yes_count;
   assert.equal(held % 100 !== 0, true);
   const admin = await newPage();
-  await logIn(admin, 'admin@parlance.local', 'parlance-admin');
+  await logIn(admin, 'admin@parlance.local', 'Ledger-Keeper-2026!');
   const before = bal();
   const reserved = dbq("SELECT COALESCE(SUM(reserved_cents),0) c FROM orders WHERE user_id=? AND status='resting' AND market_ticker=?", uid(), CUT)[0].c;
   assert.equal((await call(admin, 'POST', `/v1/admin/markets/${CUT}/determine`, { result: 'yes' })).s, 200);
@@ -244,7 +244,7 @@ test('fractional settlement pays exactly q cents per q units; the resting fracti
 test('restart keeps unit quantities; 390px layouts have no horizontal overflow', async () => {
   const before = dbq('SELECT SUM(count) c FROM fills WHERE user_id=?', uid())[0].c;
   await srv.close();
-  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300 });
+  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300, admin: { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' } });
   assert.equal(dbq('SELECT SUM(count) c FROM fills WHERE user_id=?', uid())[0].c, before, 'migration does not run twice');
   const page = await newPage({ width: 390, height: 844 });
   await logIn(page);

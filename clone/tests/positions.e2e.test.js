@@ -17,7 +17,7 @@ const DB_FILE = path.join(TMP, 'positions.db');
 const PORT = 4660 + Math.floor(Math.random() * 30);
 const BASE = `http://127.0.0.1:${PORT}`;
 const PW = 'correct-horse-9';
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, combos: { makerDelayMs: 100, autoConfirmMs: 200 } };
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, admin: { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' }, combos: { makerDelayMs: 100, autoConfirmMs: 200 } };
 const RAV = 'PLXCUP-26FINAL-RAV';
 const CUT = 'PLXRATE-26DEC-CUT';
 const BLUE = 'PLXSTATE-26SEN-BLUE';
@@ -186,7 +186,7 @@ test('combo position shows its legs; sort and filter persist in the DB and acros
 
 test('settlement: determined shows "Settling", then the position leaves the open list; restart; 390px', async () => {
   const admin = await newPage();
-  await logIn(admin, { email: 'admin@parlance.local' }, 'parlance-admin');
+  await logIn(admin, { email: 'admin@parlance.local' }, 'Ledger-Keeper-2026!');
   assert.equal((await call(admin, 'POST', `/v1/admin/markets/${BLUE}/determine`, { result: 'yes' })).s, 200);
   await pp.goto(BASE + '/portfolio');
   await pp.click('[data-pfilter=all]');

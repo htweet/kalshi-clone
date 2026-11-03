@@ -18,13 +18,14 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-chat-'));
 const DB_FILE = path.join(TMP, 'chat.db');
 const PORT = 4480 + Math.floor(Math.random() * 40);
 const BASE = `http://127.0.0.1:${PORT}`;
+const clientToken = require('./helpers/client-token').clientTokens(BASE); // signed client token for Node-side writes + WS (SEC_PERIMETER_SPEC §21)
 const PW = 'correct-horse-9';
 const EV = 'PLXCOUNCIL-27TRAM';
 const EV_URL = '/markets/plxcouncil/harbor-city-council-vote/plxcouncil-27tram';
 const SEN_URL = '/markets/plxstate/harbor-state-elections/plxstate-26sen';
 const CLOSED_EV = 'PLXCOIN-26DEC';
 const CLOSED_URL = '/markets/plxcoin/token-price-levels/plxcoin-26dec';
-const ADMIN = { email: 'admin@parlance.local', password: 'parlance-admin' };
+const ADMIN = { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' }; // no default admin password: created by start({ admin })
 const stamp = Date.now();
 const A = { email: `chat.a.${stamp}@example.test`, password: PW, name: 'Alice Chat', nick: `alice_${stamp % 100000}` };
 const B = { email: `chat.b.${stamp}@example.test`, password: PW, name: 'Bob Chat', nick: `bob_${stamp % 100000}` };
@@ -40,7 +41,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function client() {
   let cookie = ''; let csrf = '';
   const call = async (method, p, body, { noCsrf = false } = {}) => {
-    const headers = { 'content-type': 'application/json', cookie };
+    const headers = { 'content-type': 'application/json', cookie, 'x-client-token': await clientToken() };
     if (!noCsrf) headers['x-csrf-token'] = csrf;
     const r = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
@@ -49,8 +50,9 @@ function client() {
     return { status: r.status, body: json, headers: r.headers };
   };
   const c = { call, uid: null };
-  c.signup = async (u) => { const r = await call('POST', '/v1/users', { email: u.email, password: u.password, display_name: u.name }); c.uid = r.body.user.user_id; return r; };
-  c.login = async (u) => { const r = await call('POST', '/v1/log_in', { email: u.email, password: u.password }); c.uid = r.body.user.user_id; return r; };
+  c.preAuth = () => call('GET', '/v1/auth/csrf'); // login CSRF token + cookie (SEC_IDENTITY_SPEC §22.2)
+  c.signup = async (u) => { await c.preAuth(); const r = await call('POST', '/v1/users', { email: u.email, password: u.password, display_name: u.name }); c.uid = r.body.user.user_id; return r; };
+  c.login = async (u) => { await c.preAuth(); const r = await call('POST', '/v1/log_in', { email: u.email, password: u.password }); c.uid = r.body.user.user_id; return r; };
   c.post = (ticker, body, extra = {}) => call('POST', `/v1/users/${c.uid}/chat/${ticker}/messages`, { body, ...extra });
   return c;
 }
@@ -86,7 +88,7 @@ const api = { a: client(), b: client(), c: client(), d: client(), admin: client(
 let pageA; let pageB; let pageAdmin;
 
 before(async () => {
-  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300 });
+  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300, admin: ADMIN });
   browser = await chromium.launch();
   for (const [k, u] of [['a', A], ['b', B], ['c', C], ['d', D]]) await api[k].signup(u);
   for (const [k, u] of [['a', A], ['b', B], ['d', D]]) assert.equal((await api[k].call('POST', `/v1/users/${api[k].uid}/social/profile`, { nickname: u.nick })).status, 201);
@@ -352,7 +354,8 @@ test('closed event: the room turns read-only live and refuses posts', async () =
 });
 
 test('WebSocket: chat requires an event filter, delivers only to subscribers, caps frame size', async () => {
-  const open = () => new Promise((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${PORT}/v1/ws`); const q = []; w.on('message', (d) => q.push(JSON.parse(String(d)))); w.on('open', () => res({ w, q })); w.on('error', rej); });
+  const ct = await clientToken();
+  const open = () => new Promise((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${PORT}/v1/ws?ct=${encodeURIComponent(ct)}`, { headers: { 'user-agent': 'node' } }); /* token is bound to IP + UA (fetch's UA) */ const q = []; w.on('message', (d) => q.push(JSON.parse(String(d)))); w.on('open', () => res({ w, q })); w.on('error', rej); });
   const { w, q } = await open();
   w.send(JSON.stringify({ id: 1, cmd: 'subscribe', params: { channels: ['chat'] } }));
   w.send(JSON.stringify({ id: 2, cmd: 'subscribe', params: { channels: ['chat'], event_tickers: ['PLXCOUNCIL-27MAYOR'] } }));
@@ -373,7 +376,7 @@ test('WebSocket: chat requires an event filter, delivers only to subscribers, ca
 test('restart keeps history, pins and rooms; per-IP limit; 390px drawer without overflow in dark and light', async () => {
   await srv.close();
   process.env.CHAT_IP_BURST = '3'; process.env.CHAT_IP_PER_SEC = '0.05';
-  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300 });
+  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300, admin: ADMIN });
   try {
     for (const k of ['a', 'b', 'c', 'd']) await api[k].login({ a: A, b: B, c: C, d: D }[k]);
     // Per-IP bucket across different users from one address.

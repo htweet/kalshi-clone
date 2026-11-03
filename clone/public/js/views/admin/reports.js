@@ -20,12 +20,12 @@ export async function render({ el, query }) {
     let r;
     try { r = await get(`/reports${qs}`); } catch (ex) { host.innerHTML = `<p class="adm-err" role="alert">${esc(ex.message)}${ex.fields ? ': ' + esc(Object.values(ex.fields).join('; ')) : ''}</p>`; return; }
     const T = r.totals;
-    const tile = (k, label, val) => `<div class="adm-tile" data-metric="${k}"><span>${label}</span><b data-testid="metric-${k}">${val}</b></div>`;
+    const tile = (k, label, val) => `<div class="adm-tile" data-metric="${esc(k)}"><span>${esc(label)}</span><b data-testid="metric-${esc(k)}">${esc(val)}</b></div>`;
     const pts = (key, fmt) => r.daily.map((d) => ({ label: d.day, value: Number(d[key]), display: fmt(d[key]) }));
     const money = (v) => fmtMoney(v); const n = (v) => Number(v).toLocaleString('en-US');
     const compactMoney = (v, axis) => (axis ? `$${Number(v).toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 })}` : fmtMoney(v));
     const compactN = (v, axis) => (axis ? Number(v).toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 }) : n(v));
-    const chart = (title, key, fmt, axisFmt) => `<div class="card adm-card"><h3>${title}</h3>${barChart(pts(key, fmt), { format: axisFmt, label: title })}</div>`;
+    const chart = (title, key, fmt, axisFmt) => `<div class="card adm-card"><h3>${esc(title)}</h3>${barChart(pts(key, fmt), { format: axisFmt, label: title })}</div>`;
     host.innerHTML = `<div class="adm-tiles" data-testid="report-totals">
         ${tile('volume_fp', 'Volume (contracts)', fmtQty(T.volume_fp))}${tile('volume_dollars', 'Volume ($)', fmtMoney(T.volume_dollars))}${tile('trades', 'Trades', n(T.trades))}
         ${tile('fees_dollars', 'Fees collected', fmtMoney(T.fees_dollars))}${tile('deposits_dollars', 'Deposits', fmtMoney(T.deposits_dollars))}${tile('withdrawals_dollars', 'Withdrawals', fmtMoney(T.withdrawals_dollars))}
