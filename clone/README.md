@@ -11,7 +11,7 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 181 end-to-end browser scenarios across 22 files (Playwright + node:test)
+npm run test:e2e     # 190 end-to-end browser scenarios across 23 files (Playwright + node:test)
 ```
 
 **If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
@@ -61,7 +61,7 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_E
   - **Demo funds** (outside production): instant simulated deposits and withdrawals, as before (also the Portfolio "Demo funds" box).
   - Promotional credits (promo codes) can be traded but not withdrawn, and expire after 30 days. Admin › Payments has transactions, reconciliation, AML cases, the double-entry ledger audit, provider settings (limits, fees, sandbox timings) and the webhook log.
 
-Not built yet (PLAN.md Phases 5-9): real payment providers (sandbox rails built, no real money), public developer API keys and portal, FIX gateway, referrals and rewards payouts, ballot lookup, AI summaries.
+Not built yet (PLAN.md Phases 5-9; payments: sandbox rails built, no real money): public developer API keys and portal, FIX gateway, referrals and rewards payouts, ballot lookup, AI summaries.
 
 Perimeter security (`../CLONE_SPEC.md` §21): CSP with per-response nonces and the other security headers, CORS allowlist (`ALLOWED_ORIGINS`), proof-of-work bot challenge for suspicious HTML requests, signed client tokens on `/v1` writes and the WebSocket, honeypot paths, tiered persisted rate limits, Admin › Security event log. Taker fee coefficient, rolling window, rate limits and bot settings are editable live in Admin › Settings & health. Fonts are self-hosted (`public/fonts/`, SIL OFL).
 
