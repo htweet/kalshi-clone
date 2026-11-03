@@ -395,7 +395,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §25 identity: onboarding (phone code → name → DOB → address/ID → document verification with QR phone handoff), encrypted PII, KYC sandbox + review, email verification/reset, OAuth (mock provider), passkeys, geo/fraud simulation, export/closure, account area (activity, documents, settings), promo codes, checklist | yes | tests `onboarding`, `identity2`, `account-area` |
 | Real KYC vendors, real payment rails, real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | deposits are simulated; see §16.x–19.x "not done" notes |
 
-Verification: 179 Playwright scenarios across 22 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 180 Playwright scenarios across 22 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
