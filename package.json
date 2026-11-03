@@ -1,0 +1,18 @@
+{
+  "name": "kalshi-clone-workspace",
+  "private": true,
+  "description": "Repository root. The app lives in clone/; these scripts forward to it so npm works from either folder.",
+  "scripts": {
+    "postinstall": "npm --prefix clone install",
+    "start": "npm --prefix clone start",
+    "dev": "npm --prefix clone run dev",
+    "build": "npm --prefix clone run build",
+    "seed": "npm --prefix clone run seed",
+    "create-admin": "npm --prefix clone run create-admin",
+    "lint": "npm --prefix clone run lint",
+    "test:e2e": "npm --prefix clone run test:e2e"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}
