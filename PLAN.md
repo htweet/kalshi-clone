@@ -142,7 +142,7 @@ All research follows the ground rules (logged-out public surfaces and docs only;
 | R1 | Live chat protocol and UI states (channel names, message shapes, moderation cues) | REA `analyze_javascript_application` on chunks containing chat code; `inspect_web_network_capture` on a HAR | HAR + screenshots of an event with live chat open (logged out is fine) | §20, Phase 2 |
 | R2 | Logged-in portfolio tabs: exact columns, empty states, sort/filter | REA `inspect_web_network_capture` with `sensitive_values` redaction | Your logged-in HAR with balances/IDs removed, screenshots | §17 refinements |
 | R3 | Account/security pages: sessions/devices list, passkeys flow, MFA step-up prompts | chunk analysis (`passkeys`, `action_verification_mfa`); your screenshots | Screenshots of Account › Security | P1.4–P1.6, P3.4 |
-| R4 | Full security header set from a real browser (HSTS, CSP, Permissions-Policy, report endpoints) | `inspect_web_network_capture` on an unsanitised-headers HAR | A HAR with response headers kept (cookies stripped) | P1.1 |
+| R4 | Full security header set from a real browser (HSTS, CSP, Permissions-Policy, report endpoints) — per-request token use answered by HAR4 (§13.13) | `inspect_web_network_capture` on an unsanitised-headers HAR | A HAR with response headers kept (cookies stripped) | P1.1 |
 | R5 | Bot-management client lifecycle (token fetch/refresh, WS token use) — understanding only, for our own design | REA static analysis of the AWS WAF integration chunk | none | P1.10 |
 | R6 | Telemetry/consent: scrub lists, consent banner, analytics opt-out | chunk analysis | none | P9.4, P3.8 |
 | R7 | Sports live-data feed and WS updates (`/v1/live_data/*`, milestone channels) | HAR of a live game page + chunk analysis (`useMilestoneLiveData`) | HAR of a live sports page | §19 refinements |
@@ -226,4 +226,4 @@ The project is complete only when **all** of the following hold:
 | 7 Public API | pending |
 | 8 Growth & reach | pending |
 | 9 Production readiness | pending |
-| Research R1–R12 | R2/R3 waiting on logged-in screenshots from the user |
+| Research R1–R12 | R4 partly answered by HAR4 (logged-in request headers, spec §13.13); R2/R3 still need logged-in captures of Portfolio (all tabs), Account › Security, deposits/withdrawals and placing an order |

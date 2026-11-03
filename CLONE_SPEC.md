@@ -30,6 +30,7 @@ Every requirement carries a bracketed evidence tag. Tags resolve as follows.
 | `CHK` | Capture of the live site refusing automated access | `evidence/checkpoint.net.json` |
 | `SHOT3:<page>` | User-supplied screenshots of the live site on 2026-11-02 (logged out, dark theme, ~1700px wide): `home`, `home-scroll`, `event-multi` (`/markets/kxnextpressecperm/…`), `event-related`, `event-social`, `live` (`/calendar`), `browse` (`/browse`), `event-h2h` (`/markets/controls/senate-winner/controls-2026`), `event-series`. Described here; not redistributed (they contain third-party branding and photos). | session uploads |
 | `JS26:<chunk>:"<string>"` | Literal strings in the **current** build's JS chunks (`/_next/static/immutable/chunks/*.js`, build `v3-3LP8JYaUgMIitMhWMD`), fetched from the static CDN path, which is not behind the bot checkpoint | REA Evidence `ev_46583010dbc420327910cd6a4dfbcc1a0afb77b26bd38f151c3e667359fbd39c` (97-file inventory; the route view of the selected chunk returned no routes, so citations are string-level) |
+| `HAR4#n` | **Logged-in** user-supplied DevTools HAR, 2026-11-03 10:43 UTC, 13 first-party requests on market pages (no portfolio/account calls). *n* = original entry ordinal. | `evidence/web_loggedin_2026-11-03.har` (sha256 `d2fd690b…`); account user id replaced with `{user_id}`; CSRF/WAF/tracking header **values** removed (names kept in `_present_security_headers`); telemetry POST body removed; Datadog entries dropped |
 | `HAR3#n` | **Live site, 2026-11-02**, user-supplied DevTools HAR from a logged-out Chrome 155 session (market page, Browse, Calendar and Social prefetches). *n* is the entry ordinal in the original 286-entry capture. | `evidence/web_live_2026-11-02.har` (98 first-party entries; identifying headers and third-party trackers removed; sha256 `9e28ea83…d008`; each entry keeps `_original_index`; REA Evidence `ev_124ab23da6a5c10eab2448adc93cdab46d09a4d5dee60e0506d223c45acdf04a`, summary view `ev_dec18c6c…1509`, 98/98 records decoded) |
 
 HAR1 ordinals: 0 exchange/status · 1 exchange/schedule · 2 events?with_nested_markets · 3 series list · 4 search/tags_by_categories · 5 search/filters_by_sport · 6 markets?status=open · 7 events/{t} · 8 events/{t}/metadata · 9 series/{t} · 10 markets/{t} · 11 markets/{t}/orderbook · 12 markets/trades (got 429) · 13 candlesticks · 14 historical/cutoff · 15 milestones · 16 unknown market (404) · 17 portfolio/balance without auth (401) · 18 POST order without auth (401) · 19 `limit=abc` (400) · 20 `status=bogus` (400) · 21 `limit=100000` (400) · 22 cursor page 2.
@@ -507,6 +508,15 @@ Not implemented; the clone keeps the home hero carousel.
 | Products | binary event contracts | plus margin **Perps** and fractional contracts |
 
 ---
+
+### 13.13 Logged-in client behaviour (OBSERVED HAR4)
+
+- **Security headers per request.** Every API call carries `x-aws-waf-token`, including cached public reads (`/v1/cached/series/{s}/markets/{id}/forecast_history`, `/v1/milestones/{id}/volume`). `x-csrf-token` rides on credentialed `/v1` calls: `GET /v1/social/trades`, `GET /v1/events/`, `GET /v1/series/` and `POST /v1/users/{user_id}/metrics/client_event`. The cached reads don't carry it [HAR4 all entries]. Tracking IDs (`x-appsflyer-web-id`, `x-fbp`) go on some credentialed calls. Unauthenticated public reads still answer without any token (curl, 2026-11-03), so the WAF token is enforced at the edge for page traffic, not as an API requirement for public data.
+- **Charts use forecast history, not candles.** `GET /v1/cached/series/{series}/markets/{market_uuid}/forecast_history?start_ts&end_ts&period_interval=1440&candlestick_function=mean_price` returns `{forecast_history:[{market_ticker, event_ticker, raw_numerical_forecast, numerical_forecast, formatted_forecast:"65.69%", end_period_ts, period_interval}]}`: 382 daily points for a ~2-year range [HAR4#2–#14].
+- **Event detail.** `GET /v1/events/?tickers=…&with_markdown=true` adds `mutually_exclusive_side`, `collateral_return_type:"MECNET"`, `settle_details` (markdown) and `underlying` [HAR4].
+- **Polling while logged in.** `milestones/{id}/volume` and `social/trades?series_ticker=` repeat about every 5 s and 10 s, matching §13.5.
+- **First-party telemetry.** `POST /v1/users/{user_id}/metrics/client_event` returns 204 with a newline-delimited JSON body of `event_data` records. The body was removed from evidence and its fields are not specified here (privacy).
+- **Not in this capture (still UNKNOWN):** the portfolio tabs, Account/Security, deposits, withdrawals and order entry while logged in (research R2/R3 remain open).
 
 ## 14. Perpetual futures ("Perps")
 
