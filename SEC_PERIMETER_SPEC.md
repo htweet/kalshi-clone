@@ -1,7 +1,7 @@
 ## 21. Perimeter security
 
 Status 2026-11-03 · PLAN Phase 1A (P1.1, P1.2, P1.3, P1.10, P1.11, P1.12, gaps G7 and G13) · branch `phase-1-security`.
-Evidence ids (S1–S12) are the observations in `PLAN.md` §2; everything else is a Parlance design choice, stated as such.
+Evidence ids (S1–S12) are the observations in `PLAN.md` §2. **HAR4** is the sanitised logged-in capture `evidence/web_loggedin_2026-11-03.har` (13 API entries; each lists `_present_security_headers`). Everything else is a Parlance design choice, stated as such.
 Tests: `clone/tests/security-perimeter.e2e.test.js` (12 browser + HTTP tests, run against the production bundle).
 
 ### 21.1 Where the controls sit
@@ -10,7 +10,7 @@ Tests: `clone/tests/security-perimeter.e2e.test.js` (12 browser + HTTP tests, ru
 |---|---|---|---|
 | 1 | `security.early` | `server/security.js` | Per-response CSP nonce and security headers; CORS; `robots.txt`; honeypots; `POST /v1/csp-report`; `POST /v1/bot/challenge`; `POST /v1/client_token`. Runs before body parsing and before the session / CSRF middleware, so these endpoints never need a session or CSRF token. |
 | 2 | session + CSRF | `server/auth.js` (Phase 1B) | `req.auth`, session CSRF, login CSRF. |
-| 3 | `security.apiGuard` | `server/security.js` → `server/bot.js` | Tiered rate limits on `/v1` and `/trade-api`; signed client token on every `/v1` write. |
+| 3 | `security.apiGuard` | `server/security.js` → `server/bot.js` | Tiered rate limits on `/v1` and `/trade-api`; signed client token on every `/v1` write and every `/v1/users/*` request. |
 | 4 | routes | `server/app.js` … | Unchanged. |
 | 5 | `security.mountStatic` | `server/security.js` | Explicit static allowlist, hashed immutable assets, SPA page template (nonce + boot proof), bot challenge for suspicious HTML requests, 404 for everything else. |
 | WS | `security.checkUpgrade` | `server/ws.js` | Origin allowlist + client token on the `/v1/ws` upgrade. |
@@ -61,7 +61,19 @@ Inter (variable, 100–900) and Barlow Condensed 600/700, latin and latin-ext su
 
 **Proof-of-work challenge** (S1: 429 + `cache-control: private, no-store` on every HTML route). The response is HTTP 429 with `X-Plx-Mitigated: challenge`, the site CSP, and a page whose nonce'd script finds `n` with `SHA-256(id:n)` having `d` leading zero bits (default 14, about 16k hashes, tens of milliseconds). The SHA-256 is pure JS, because `crypto.subtle` is missing on plain-http origins. The challenge (`id`, time, difficulty, IP+UA binding) is HMAC-signed. `POST /v1/bot/challenge` checks the signature, binding, a 2-minute age limit, the proof and single use (`security_challenges_used`). It then sets `plx_chk` (HttpOnly, SameSite=Lax, 30 min, `__Host-` + `Secure` over https), bound to an HMAC of IP + User-Agent, and the page reloads. Choice: verify answers 200/403, not S1's 708. Challenge modes are `off`, `suspicious` (default) and `all` (attack mode, also the test hook `start({ security: { challengeMode: 'all' } })`), switchable live in Admin › Settings. `robots.txt` is never challenged (S1 challenges it; choice: crawlers must be able to read the policy).
 
-**Signed client token** (S2: `x-aws-waf-token` on API calls, `AwsWafTokenForWebSocket`). Every page the server renders carries a signed boot proof (10 min, bound to IP+UA). A challenged client only gets one after passing. After load, `public/js/security.js` posts it to `/v1/client_token` and receives `{token, expires_in}`: HMAC-signed `{issued, expires, binding}`, 15 min by default, also set as an HttpOnly SameSite=Strict `plx_ct` cookie. The SPA sends it as `X-Client-Token` on every write (`api.js`, admin `ui.js`), as `ct=` on the WebSocket URL (`ws.js`), and refreshes it at half-life using the current token. Expired tokens can be exchanged for 12 h, so a sleeping laptop recovers. A 403 `client_token_*` triggers one silent refresh and retry. The server requires a valid token (header, else cookie) on every `/v1` POST/PUT/PATCH/DELETE (403 `client_token_required` / `client_token_invalid`). The WebSocket upgrade requires an allowed `Origin` (if one is sent; this also blocks cross-site WebSocket hijacking) and a valid token, else `HTTP 403` before the handshake. Rejections are logged (`client_token_rejected`, `ws_rejected`).
+**Signed client token** (S2: `x-aws-waf-token` on API calls, `AwsWafTokenForWebSocket`). Every page the server renders carries a signed boot proof (10 min, bound to IP+UA). A challenged client only gets one after passing. After load, `public/js/security.js` posts it to `/v1/client_token` and receives `{token, expires_in}`: HMAC-signed `{issued, expires, binding}`, 15 min by default, also set as an HttpOnly SameSite=Strict `plx_ct` cookie. The SPA sends it as `X-Client-Token` on **every `/v1` request, reads included** (`api.js`, admin `ui.js`), as `ct=` on the WebSocket URL (`ws.js`), and refreshes it at half-life using the current token. Expired tokens can be exchanged for 12 h, so a sleeping laptop recovers. A 403 `client_token_*` triggers one silent refresh and retry.
+
+Sending versus enforcing follows HAR4:
+- The observed client attaches `x-aws-waf-token` to all 13 API requests, including cached public reads (`/v1/cached/series/…`, `/v1/milestones/{id}/volume`).
+- It attaches `x-csrf-token` to credentialed `/v1` calls, GETs and POSTs alike (`/v1/social/trades`, `/v1/events/`, `/v1/series/`, `POST /v1/users/{id}/metrics/client_event`), but not to cached reads.
+- Plain unauthenticated public reads (`/v1/live_data/count`, `/trade-api/v2/exchange/status`) answer 200 with no token at all.
+
+So the server requires a valid token (header, else cookie; 403 `client_token_required` / `client_token_invalid`) on:
+- every `/v1` POST/PUT/PATCH/DELETE;
+- every request under `/v1/users/*` (authenticated reads such as balance, orders, positions, history and CSV exports — a signed-in session does not replace it);
+- the WebSocket upgrade.
+
+Public unauthenticated reads (`/v1` market, social, live-data and BFF reads, `/v1/session`, and all of `/trade-api/v2/*`) stay open, so third-party API clients and cached reads keep working. The WebSocket upgrade requires an allowed `Origin` (if one is sent; this also blocks cross-site WebSocket hijacking) and a valid token, else `HTTP 403` before the handshake. Rejections are logged (`client_token_rejected`, `ws_rejected`).
 
 **Honeypots** (P1.10/P1.12): any dot-segment except `/.well-known/` (`/.env*`, `/.git/*`, `/.DS_Store` …), `/wp-admin`, `/wp-login.php`, `/xmlrpc`, `/phpmyadmin`, `/cgi-bin`, `/actuator`; `/server/`, `/data/`, `/node_modules/`, `/scripts/`, `/tests/`, `/dist/`; `package(-lock).json`, `secret.key`, config files; extensions `.map .sqlite .db .db-wal .sql .bak .env .key .pem .log .php …`. Paths are percent-decoded first (`/%2e%65nv` is caught). The response is a plain-text 404 (never the SPA page) and a `honeypot` event. Choice: S1 answers these with the challenge; the brief asks for 404.
 
@@ -115,7 +127,7 @@ Persisted values are applied at boot. They take precedence over `ROLLING_WINDOW_
 4. CSP reports: both formats, query stripping, truncation, 415/413, flood capped.
 5. CORS: foreign preflight 403, partner 204 with exact headers, expose headers, own origin allowed, foreign write 403 + event.
 6. Challenge: curl / python-requests / no UA / GPTBot get the 429 page; robots.txt is open; wrong PoW, foreign binding and replay are refused; the pass cookie admits curl; the Node helper earns a token; Chromium is not challenged; a forced challenge is solved transparently by Chromium.
-7. Client token: missing / forged / tampered / foreign-UA / expired → 403 on writes; WS refused without a token, with a forged or expired token, or with a foreign Origin; an expired token is refreshed; a bad bootstrap is refused; the SPA sends the header, the `ct` URL parameter and the cookie.
+7. Client token: the HAR4 split (public `/v1` and `/trade-api/v2` reads 200 without a token; `/v1/users/*` reads 403 without one, even with a session); missing / forged / tampered / foreign-UA / expired → 403 on writes; WS refused without a token, with a forged or expired token, or with a foreign Origin; an expired token is refreshed; a bad bootstrap is refused; the SPA sends the header on every `/v1` read and write, the `ct` URL parameter and the cookie.
 8. Honeypots → 404 text + events (path, IP, UA); sources and maps 404 in production; no maps built.
 9. Hashed assets: immutable, minified, manifest matches the served entries, fonts hashed.
 10. Rate-limit tiers: auth bucket, user vs anonymous separation, 429 envelope + `Retry-After`, buckets persisted across restart.

@@ -1,7 +1,7 @@
 // Signed client token (PLAN P1.10, mirrors S2: the live site's WAF SDK fetches a token after page load and sends it as
 // `x-aws-waf-token` on API calls and as a query parameter on the WebSocket). The server embeds a short-lived, signed
 // boot proof in the HTML it serves (only after any bot challenge has been passed); this module exchanges it at
-// /v1/client_token for an HMAC-signed token bound to this client, sends it as `X-Client-Token` on /v1 writes and as
+// /v1/client_token for an HMAC-signed token bound to this client, sends it as `X-Client-Token` on every /v1 call and as
 // `ct` on the WebSocket URL, and refreshes it at half its lifetime. The same token is also set as an HttpOnly cookie.
 
 const ENDPOINT = '/v1/client_token';

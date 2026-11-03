@@ -3,7 +3,7 @@
 //   S1  a proof-of-work JS challenge (HTTP 429 + no-store) for suspicious HTML requests, passed with a short-lived signed
 //       cookie bound to the client's IP + User-Agent hash;
 //   S2  a signed client token (`X-Client-Token`, HMAC with the server secret, short TTL) issued to pages after load and
-//       required on /v1 writes and on the WebSocket upgrade (`ct` query parameter);
+//       required on /v1 writes, on /v1/users/* reads and on the WebSocket upgrade (`ct` query parameter);
 //   honeypot paths that answer 404 and raise a security event; tiered, persisted rate limits; a security event log.
 // Everything stateful is in SQLite: settings (admin_settings), security_events, used challenge ids, rate buckets.
 // The server secret comes from SECRET_KEY or a generated, gitignored data/secret.key (0600); it is never logged.

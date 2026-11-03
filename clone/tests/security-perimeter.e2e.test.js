@@ -311,7 +311,7 @@ test('bot challenge: curl-like requests get the 429 proof-of-work page; Chromium
   } finally { await forced.close(); }
 });
 
-test('client token: missing / forged / expired / foreign-bound tokens get 403 on writes; the WebSocket upgrade is refused', async () => {
+test('client token: required on writes, /v1/users/* reads and the WebSocket (missing / forged / expired / foreign-bound → 403); public reads stay open', async () => {
   const short = await start({ port: PORT + 102, dbFile: path.join(TMP, 'short.db'), quiet: true, assets: 'dist', security: { bot: { client_token_ttl_seconds: 2 } } });
   const B2 = `http://127.0.0.1:${PORT + 102}`;
   try {
@@ -322,6 +322,12 @@ test('client token: missing / forged / expired / foreign-bound tokens get 403 on
     const { token } = await fetchClientToken(B2);
     const ok = await write({ 'x-client-token': token });
     assert.equal(ok.status, 401, 'a valid token passes the perimeter (then the route says: not signed in)');
+    // The HAR4 split: public unauthenticated reads need no token; /v1/users/* reads do.
+    for (const p of ['/v1/live_data/count', '/v1/session', '/v1/bff/home', '/v1/social/posts', '/trade-api/v2/exchange/status', `/trade-api/v2/markets/${RAV}/orderbook`]) assert.equal((await fetch(B2 + p)).status, 200, `${p} is public`);
+    const read = await fetch(`${B2}/v1/users/u_x/balance`);
+    assert.equal(read.status, 403);
+    assert.equal((await read.json()).error.code, 'client_token_required');
+    assert.equal((await fetch(`${B2}/v1/users/u_x/balance`, { headers: { 'x-client-token': token } })).status, 401, 'with a token the read reaches the route');
     const [p, s] = token.split('.');
     const forged = `${p}.${s.slice(0, -2)}${s.endsWith('AA') ? 'BB' : 'AA'}`;
     assert.equal((await (await write({ 'x-client-token': forged })).json()).error.code, 'client_token_invalid');
@@ -361,15 +367,35 @@ test('client token: missing / forged / expired / foreign-bound tokens get 403 on
     } finally { d.close(); }
   } finally { await short.close(); }
 
-  // In the browser the token is fetched after load, sent as X-Client-Token on writes and as ?ct= on the socket.
+  // A signed-in session does not replace the token on /v1/users/* reads.
+  const c = apiClient();
+  assert.equal((await c.login({ email: 'maple_quant@parlance.local', password: DEMO_PW })).status, 200);
+  assert.equal((await c.call('GET', `/v1/users/${c.uid}/balance`)).status, 200);
+  const noTok = await c.call('GET', `/v1/users/${c.uid}/balance`, undefined, { 'x-client-token': '' });
+  assert.equal(noTok.status, 403);
+  assert.equal(noTok.body.error.code, 'client_token_required');
+  assert.equal((await c.call('GET', '/v1/session', undefined, { 'x-client-token': '' })).status, 200, 'public read');
+
+  // In the browser the token is fetched after load and sent as X-Client-Token on every /v1 call (reads too, as in HAR4)
+  // and as ?ct= on the socket; /trade-api/v2 public market data is fetched without it.
   const page = await newPage();
-  const sent = [];
-  page.on('request', (r) => { if (r.method() !== 'GET' && r.url().startsWith(`${BASE}/v1/`)) sent.push([r.url(), r.headers()['x-client-token']]); });
+  const sent = []; const v1Reads = []; const v2 = [];
+  page.on('request', (r) => {
+    const u = r.url(); const h = r.headers()['x-client-token'];
+    if (u.startsWith(`${BASE}/v1/`) && !u.includes('/v1/client_token')) (r.method() === 'GET' ? v1Reads : sent).push([u, h]);
+    if (u.startsWith(`${BASE}/trade-api/`)) v2.push([u, h]);
+  });
   const wsUrls = []; page.on('websocket', (w) => wsUrls.push(w.url()));
   await logIn(page, { email: 'harborwatch@parlance.local', password: DEMO_PW });
   await page.waitForFunction(() => document.getElementById('conn-banner').hidden);
   const login = sent.find(([u]) => u.endsWith('/v1/log_in'));
   assert.ok(login && login[1], 'log_in carries X-Client-Token');
+  await page.goto(`${BASE}${EVENT_URL}`);
+  await page.waitForSelector('[data-testid=event-title]');
+  await page.waitForTimeout(500);
+  assert.ok(v1Reads.length >= 5 && v1Reads.every(([, h]) => h), `every /v1 read carries the token: ${v1Reads.filter(([, h]) => !h).map(([u]) => u)}`);
+  assert.ok(v1Reads.some(([u]) => u.includes('/v1/users/')), 'including /v1/users/* reads');
+  assert.ok(v2.length >= 1, 'the event page reads /trade-api/v2');
   assert.ok(wsUrls.length && wsUrls.every((u) => /[?&]ct=[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(u)), `WS URL carries ct: ${wsUrls}`);
   const cookie = (await page.context().cookies()).find((c) => c.name === 'plx_ct');
   assert.ok(cookie && cookie.httpOnly && cookie.sameSite === 'Strict', 'HttpOnly SameSite=Strict cookie copy');
