@@ -14,6 +14,7 @@ const { mountOrders, parseExpiry } = require('./orders');
 const { mountPositions } = require('./positions');
 const { mountSports } = require('./sports');
 const { mountAdmin } = require('./admin');
+const { mountChat } = require('./chat');
 
 const SESSION_COOKIE = 'plx_session';
 const SESSION_DAYS = 30;
@@ -135,6 +136,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Simulated live sports (SPORTS_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
+  mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify }); // event live chat (CHAT_SPEC.md §20)
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));
