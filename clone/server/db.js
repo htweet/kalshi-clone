@@ -296,11 +296,47 @@ function migrate(db) {
   }
 }
 
+// One server per database file. A second process (e.g. a second `npm start` that fell back to port 3001)
+// would otherwise contend for SQLite's write lock and fail with "database is locked".
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+function acquireLock(file) {
+  const lock = `${file}.lock`;
+  try {
+    const other = Number(fs.readFileSync(lock, 'utf8').trim());
+    if (other && other !== process.pid && pidAlive(other)) {
+      const e = new Error(`Another Parlance server (process ${other}) is already using ${file}. Stop it first (Ctrl+C in its terminal, or end that node process), or start this one with a different DB_FILE.`);
+      e.code = 'DB_IN_USE';
+      throw e;
+    }
+  } catch (e) { if (e.code === 'DB_IN_USE') throw e; /* no lock file or unreadable: take it */ }
+  fs.writeFileSync(lock, String(process.pid));
+  const release = () => { try { if (Number(fs.readFileSync(lock, 'utf8').trim()) === process.pid) fs.unlinkSync(lock); } catch { /* already gone */ } };
+  process.once('exit', release);
+  return release;
+}
+
 function open(file) {
-  if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec(SCHEMA);
-  migrate(db);
+  let release = null;
+  if (file !== ':memory:') {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    release = acquireLock(file);
+  }
+  let db;
+  try {
+    db = new DatabaseSync(file);
+    // Wait up to 5 s for a competing writer instead of failing immediately with SQLITE_BUSY.
+    db.exec('PRAGMA busy_timeout = 5000');
+    db.exec(SCHEMA);
+    migrate(db);
+  } catch (e) {
+    try { db?.close(); } catch { /* ignore */ }
+    if (release) release();
+    throw e;
+  }
+  if (release) {
+    const close = db.close.bind(db);
+    db.close = () => { try { close(); } finally { release(); } };
+  }
   return db;
 }
 

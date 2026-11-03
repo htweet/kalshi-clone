@@ -12,6 +12,6 @@
   "engines": { "node": ">=22.5" },
   "dependencies": {
     "express": "5.1.0",
-    "ws": "8.18.3"
+    "ws": "8.22.1"
   }
 }

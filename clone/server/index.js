@@ -68,8 +68,22 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
 module.exports = { start, DEFAULT_PORT };
 
 if (require.main === module) {
-  start({ sports: process.env.SPORTS === '0' ? false : {} }).then(({ port }) => console.log(`Parlance Exchange listening on http://localhost:${port}`), (e) => {
-    console.error(`Could not start Parlance Exchange: ${e.message}`);
+  start({ sports: process.env.SPORTS === '0' ? false : {} }).then((srv) => {
+    console.log(`Parlance Exchange listening on http://localhost:${srv.port}`);
+    // Ctrl+C / termination: close the HTTP server and database cleanly so the DB lock is released.
+    let stopping = false;
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      console.log('Stopping Parlance Exchange…');
+      const force = setTimeout(() => process.exit(0), 3000);
+      srv.close().then(() => { clearTimeout(force); process.exit(0); }, () => process.exit(0));
+    };
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+  }, (e) => {
+    const msg = /database is locked/i.test(e.message) ? 'the database is busy — another Parlance server is probably still running on it. Stop the other server (Ctrl+C in its terminal) and try again.' : e.message;
+    console.error(`Could not start Parlance Exchange: ${msg}`);
     process.exit(1);
   });
 }
