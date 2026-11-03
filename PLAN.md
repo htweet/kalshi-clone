@@ -85,8 +85,9 @@ Size: S ≈ a day, M ≈ 2–4 days, L ≈ a week+, for one engineer with this c
 - Security gate: abuse controls (rate limits, spam heuristics, report/ban paths), XSS tests on every new text field, moderation audit.
 
 ### Phase 3 — Accounts, identity and compliance (L)
-- P3.1 Multi-step sign-up wizard, email verification and password reset (signed single-use tokens, short expiry), SMTP provider abstraction with a local dev mailbox.
-- P3.2 Phone verification via an SMS provider abstraction (dev stub).
+- P3.1 Identity onboarding exactly as observed (spec §13.14): full-screen flow with a segmented progress bar, steps **phone code → legal name → date of birth (18+) → address + country-specific national ID → "Verifying info…" → outcome (approved / manual review / rejected / retry)**, "Not now" skip with resume, persisted progress per step, trading and deposits gated until approved. Plus email verification and password reset (signed single-use tokens, short expiry) via an SMTP abstraction with a local dev mailbox.
+- P3.1a **Personal data protection** (blocking for P3): field-level AES-GCM encryption for legal name, date of birth, address and national ID; national ID stored encrypted plus a keyed hash for duplicate detection, **never returned in full** (last 2–4 digits only), never logged, excluded from telemetry and audit payloads; country-specific format validation; support role sees masked values and every unmasked view is audited; `autocomplete="off"` on ID fields; retention/deletion policy; age check server-side.
+- P3.2 Phone verification with **4-digit codes** (spec §13.9/§13.14): E.164 validation, an SMS provider abstraction (dev stub shows codes in a local outbox), code expiry ~10 min, max attempts, resend cooldown, per-number/per-IP/per-country send limits (SMS-pumping fraud protection), codes stored hashed.
 - P3.3 OAuth sign-in (Google/Apple) with PKCE and state, account linking rules.
 - P3.4 Passkeys (WebAuthn) registration/authentication; passkey-required option for admins (S9).
 - P3.5 Identity verification (KYC) through a provider interface with a sandbox adapter; status gating on deposits/trading.
@@ -116,7 +117,8 @@ Size: S ≈ a day, M ≈ 2–4 days, L ≈ a week+, for one engineer with this c
 ### Phase 7 — Public trading API (L)
 - P7.1 API keys with RSA-PSS / Ed25519 signed requests (timestamp + method + path), scopes, per-key rate tiers, key rotation and revocation; step-up to create keys.
 - P7.2 Batch orders, order groups, historical data endpoints, public WebSocket `/trade-api/ws/v2` with authenticated private channels.
-- P7.3 Generated OpenAPI/AsyncAPI docs site.
+- P7.3 **Developer portal**: Account › API keys page (create with step-up, label, scopes read/trade, IP allowlist optional, show private key once / accept user-supplied public key, rotate, revoke, last-used), generated OpenAPI 3 + AsyncAPI docs served at `/docs` with try-it against a **demo environment** (separate DB, fake money), quick-start guides and code samples (curl, Python, JavaScript) for signing requests, rate-limit tiers and usage dashboard, changelog and deprecation policy, status page.
+- P7.4 API parity checklist against the public Trade API v2 reference (markets, events, series, orderbook, trades, candlesticks, portfolio balance/positions/orders/fills/settlements, order create/amend/decrease/cancel/batch, order groups, RFQ/quotes, multivariate collections, WebSocket channels) with contract tests generated from our OpenAPI spec.
 - Security gate: signature replay window, clock-skew handling, key storage (public keys only), abuse throttling.
 
 ### Phase 8 — Growth and reach (M)
@@ -140,6 +142,7 @@ All research follows the ground rules (logged-out public surfaces and docs only;
 | ID | Question | Method | Needs from you | Feeds |
 |---|---|---|---|---|
 | R1 | Live chat protocol and UI states (channel names, message shapes, moderation cues) | REA `analyze_javascript_application` on chunks containing chat code; `inspect_web_network_capture` on a HAR | HAR + screenshots of an event with live chat open (logged out is fine) | §20, Phase 2 |
+| R2b | Identity onboarding outcome screens (approved / review / rejected), resend timer, country list and per-country ID fields | your screenshots of the remaining steps (blur personal data) | §13.14, P3.1 |
 | R2 | Logged-in portfolio tabs: exact columns, empty states, sort/filter | REA `inspect_web_network_capture` with `sensitive_values` redaction | Your logged-in HAR with balances/IDs removed, screenshots | §17 refinements |
 | R3 | Account/security pages: sessions/devices list, passkeys flow, MFA step-up prompts | chunk analysis (`passkeys`, `action_verification_mfa`); your screenshots | Screenshots of Account › Security | P1.4–P1.6, P3.4 |
 | R4 | Full security header set from a real browser (HSTS, CSP, Permissions-Policy, report endpoints) — per-request token use answered by HAR4 (§13.13) | `inspect_web_network_capture` on an unsanitised-headers HAR | A HAR with response headers kept (cookies stripped) | P1.1 |

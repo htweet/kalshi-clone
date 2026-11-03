@@ -30,6 +30,7 @@ Every requirement carries a bracketed evidence tag. Tags resolve as follows.
 | `CHK` | Capture of the live site refusing automated access | `evidence/checkpoint.net.json` |
 | `SHOT3:<page>` | User-supplied screenshots of the live site on 2026-11-02 (logged out, dark theme, ~1700px wide): `home`, `home-scroll`, `event-multi` (`/markets/kxnextpressecperm/…`), `event-related`, `event-social`, `live` (`/calendar`), `browse` (`/browse`), `event-h2h` (`/markets/controls/senate-winner/controls-2026`), `event-series`. Described here; not redistributed (they contain third-party branding and photos). | session uploads |
 | `JS26:<chunk>:"<string>"` | Literal strings in the **current** build's JS chunks (`/_next/static/immutable/chunks/*.js`, build `v3-3LP8JYaUgMIitMhWMD`), fetched from the static CDN path, which is not behind the bot checkpoint | REA Evidence `ev_46583010dbc420327910cd6a4dfbcc1a0afb77b26bd38f151c3e667359fbd39c` (97-file inventory; the route view of the selected chunk returned no routes, so citations are string-level) |
+| `SHOT4:<step>` | User-supplied screenshots of the logged-in **identity-verification onboarding**, 2026-11-03: `phone-code`, `name`, `birthday`, `address`, `verifying`. Described structurally only; **not stored** (they contain personal data). | session uploads |
 | `HAR4#n` | **Logged-in** user-supplied DevTools HAR, 2026-11-03 10:43 UTC, 13 first-party requests on market pages (no portfolio/account calls). *n* = original entry ordinal. | `evidence/web_loggedin_2026-11-03.har` (sha256 `d2fd690b…`); account user id replaced with `{user_id}`; CSRF/WAF/tracking header **values** removed (names kept in `_present_security_headers`); telemetry POST body removed; Datadog entries dropped |
 | `HAR3#n` | **Live site, 2026-11-02**, user-supplied DevTools HAR from a logged-out Chrome 155 session (market page, Browse, Calendar and Social prefetches). *n* is the entry ordinal in the original 286-entry capture. | `evidence/web_live_2026-11-02.har` (98 first-party entries; identifying headers and third-party trackers removed; sha256 `9e28ea83…d008`; each entry keeps `_original_index`; REA Evidence `ev_124ab23da6a5c10eab2448adc93cdab46d09a4d5dee60e0506d223c45acdf04a`, summary view `ev_dec18c6c…1509`, 98/98 records decoded) |
 
@@ -517,6 +518,28 @@ Not implemented; the clone keeps the home hero carousel.
 - **Polling while logged in.** `milestones/{id}/volume` and `social/trades?series_ticker=` repeat about every 5 s and 10 s, matching §13.5.
 - **First-party telemetry.** `POST /v1/users/{user_id}/metrics/client_event` returns 204 with a newline-delimited JSON body of `event_data` records. The body was removed from evidence and its fields are not specified here (privacy).
 - **Not in this capture (still UNKNOWN):** the portfolio tabs, Account/Security, deposits, withdrawals and order entry while logged in (research R2/R3 remain open).
+
+### 13.14 Identity-verification onboarding (OBSERVED SHOT4)
+
+This is the multi-step flow a signed-in user goes through before trading. It confirms the INFERRED sign-up wizard of §4.7 (`/sign-up/identity`, `verify_phone`, `resume_sign_up` call sites).
+
+- **Frame.** A full-screen dark page with only the centred wordmark. A **segmented progress bar** sits at the top: three segments, the first full and the second partly filled as steps advance. There is no site navigation.
+- **Phone verification [SHOT4:phone-code].**
+  - Title: "Enter your 4 digit code". Line: "We've sent a code to <phone in international format>". Hint: "check your text message spam folder".
+  - **Four separate single-digit boxes**, with the first focused.
+  - "Continue" stays disabled until all four digits are entered. "Resend code" is a secondary pill button, and "Learn more" a text link.
+  - Matches the `four_digit_code=true` call sites (§13.9).
+- **Legal name [SHOT4:name].**
+  - "What's your name?", "It helps us verify your identity." with a dotted-underline "Learn more".
+  - Fields: "Legal first name" and "Legal last name", each a floating label inside a rounded field.
+  - "Continue" is the primary button. **"Not now"** lets the user skip and resume later (`resume_sign_up`).
+- **Date of birth [SHOT4:birthday].** "When's your birthday?" with three fields, MM · DD · Year (auto-advance; the focused field gets an accent border). Notices: "You must be 18 or over to use Kalshi" and "Federal law requires submitting truthful information". Continue stays disabled until the date is valid.
+- **Address and national ID [SHOT4:address].**
+  - "What's your address?" with the note "we won't send you marketing mail".
+  - Fields: **Country** select (country-specific fields follow); "Residential address" with autocomplete; "Apt, suite, other"; "City"; "State/Province/Region" select; "Postal code"; and a **national identification number** whose label and format depend on the country (e.g. Nigeria shows "National Identification Number (NIN) · 11 digits"; presumably SSN in the US).
+  - Rule: "use the same address as on your state ID or driver's license, not a business or PO box".
+- **Verification [SHOT4:verifying].** A centred spinner around the wordmark with "Verifying info…" while the identity check runs. The outcome screens (pass, manual review, fail) were not captured and are UNKNOWN.
+- **Clone mapping.** Phase 3 (P3.1, P3.2, P3.5) in `PLAN.md`. The identity provider is a sandbox adapter, and no real identity checks are run.
 
 ## 14. Perpetual futures ("Perps")
 
