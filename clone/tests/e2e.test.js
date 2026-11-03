@@ -489,6 +489,64 @@ test('port in use: auto-selects the next free port (CLI + browser); explicit POR
   } finally { for (const b of blockers) b.close(); }
 });
 
+test('database lock: a leftover lock naming a live unrelated process does not block; a real second server is refused; a crashed owner is taken over', async () => {
+  const { spawn } = require('node:child_process');
+  const fs = require('node:fs');
+  const dbFile = path.join(TMP, 'lock.db');
+  const serverJs = path.join(__dirname, '..', 'server', 'index.js');
+  const runServer = (port) => new Promise((resolve) => {
+    const child = spawn(process.execPath, ['--no-warnings', serverJs], { env: { ...process.env, DB_FILE: dbFile, PORT: String(port), ASSETS: 'src', SPORTS: '0' } });
+    let out = '';
+    const done = (r) => { if (!child.__done) { child.__done = true; resolve({ child, ...r, out }); } };
+    child.stdout.on('data', (d) => { out += d; if (/listening on/.test(out)) done({ listening: true }); });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('exit', (code) => done({ code }));
+  });
+  const exited = (child) => new Promise((r) => (child.exitCode != null || child.signalCode ? r() : child.once('exit', r)));
+  const homeRenders = async (port) => {
+    const page = await newPage();
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.waitForSelector('[data-testid=hero-title]');
+    assert.deepEqual(page.errors, []);
+    await page.context().close();
+  };
+  // A live process that is not a Parlance server (the Windows case: the crashed server's pid now belongs to a service).
+  const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+  const portA = PORT + 230;
+  let a = null;
+  try {
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    fs.writeFileSync(`${dbFile}.lock`, String(bystander.pid));
+    a = await runServer(portA);
+    assert.equal(a.listening, true, `server must start despite the stale lock:\n${a.out}`);
+    await homeRenders(portA);
+
+    // A genuine second server on the same database is refused, naming the running one.
+    const b = await runServer(portA + 1);
+    assert.equal(b.code, 1);
+    assert.match(b.out, new RegExp(`Another Parlance server \\(process ${a.child.pid}\\) is already using`));
+    assert.doesNotMatch(b.out, /node:internal|at Object\./);
+
+    // Hard crash of the owner (no clean shutdown, files left behind) → the next start takes over.
+    a.child.kill('SIGKILL');
+    await exited(a.child);
+    assert.equal(fs.existsSync(`${dbFile}.lock`), true, 'the crash leaves the info file behind');
+    const c = await runServer(portA + 2);
+    assert.equal(c.listening, true, `server must take over after a crash:\n${c.out}`);
+    await homeRenders(portA + 2);
+    // Persistence across the crash: the same database file is in use (seeded data still there).
+    const r = await fetch(`http://127.0.0.1:${portA + 2}/trade-api/v2/markets?limit=1`);
+    assert.equal(r.status, 200);
+    assert.ok((await r.json()).markets.length >= 1);
+    c.child.kill('SIGINT');
+    await exited(c.child);
+    assert.equal(fs.existsSync(`${dbFile}.lock`), false, 'a clean shutdown removes the info file');
+  } finally {
+    bystander.kill();
+    if (a && a.child.exitCode == null && !a.child.signalCode) a.child.kill('SIGKILL');
+  }
+});
+
 test('startup on an old Node: exits 1 with an install hint before touching the database, then the app still serves', async () => {
   const { spawnSync } = require('node:child_process');
   const fs = require('node:fs');
