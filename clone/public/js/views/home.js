@@ -78,9 +78,9 @@ export async function render({ el, navigate }) {
         <div class="pager"><button class="icon-btn" id="hero-prev" aria-label="Previous">‹</button><span data-testid="hero-pager">${idx + 1} of ${hl.length}</span><button class="icon-btn" id="hero-next" aria-label="Next">›</button></div></div>
       <div class="minw-0"><a href="${eventHref(ev)}" data-link><h2 data-testid="hero-title">${esc(ev.title)}</h2></a>
         <div class="hero-table"><span class="h">Market</span><span class="h">Pays out</span><span class="h ta-c">Odds</span>
-        ${ms.map((m) => `<span class="outcome-row d-flex gap-14 ai-center minw-0" data-ticker="${esc(m.ticker)}">${ocAvatar(m)}<span class="oc-name"><span>${esc(m.yes_sub_title)}</span><span class="oc-bar v-w v-bg"${vars({ '--w': `${Math.max(8, prob(m) ?? 0)}%`, '--bg': seriesColor(m, ms.indexOf(m)) })}></span></span></span>
+        ${ms.map((m) => `<span class="outcome-row d-flex gap-16 ai-center minw-0" data-ticker="${esc(m.ticker)}">${ocAvatar(m)}<span class="oc-name"><span>${esc(m.yes_sub_title)}</span><span class="oc-bar v-w v-bg"${vars({ '--w': `${Math.max(8, prob(m) ?? 0)}%`, '--bg': seriesColor(m, ms.indexOf(m)) })}></span></span></span>
           <span class="mult">${multiplier(m)}</span><a class="odds pill" href="${eventHref(ev)}?side=yes&amp;market=${esc(m.ticker)}" data-link data-ticker-pill="${esc(m.ticker)}">${previewPct(m) == null ? '—' : previewPct(m) + '%'}</a>`).join('')}</div>
-        <div class="d-flex jc-between mt-18"><span class="num muted">${money0(ev.dollar_volume)} vol</span><a href="${eventHref(ev)}" data-link class="muted">Trade</a></div>
+        <div class="d-flex jc-between mt-20"><span class="num muted">${money0(ev.dollar_volume)} vol</span><a href="${eventHref(ev)}" data-link class="muted">Trade</a></div>
         ${ev.news ? `<div class="news"><strong>News</strong> · ${esc(ev.news)}</div>` : ''}</div>
       <div class="minw-0"><div class="legend">${ms.map((m, i) => `<span><i class="v-bg"${vars({ '--bg': seriesColor(m, i) })}></i>${esc(m.yes_sub_title)} <b>${prob(m) ?? '—'}%</b></span>`).join('')}<span class="watermark">Parlance</span></div>
         <div id="hero-chart"><div class="skeleton minh-260"></div></div></div>`;

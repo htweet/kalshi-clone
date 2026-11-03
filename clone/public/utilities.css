@@ -5,33 +5,29 @@
 
 /* spacing */
 .m-0 { margin: 0 !important; }
-.m-10-0 { margin: 10px 0 !important; }
-.m-count { margin: -4px 0 12px !important; }
-.mt-6 { margin-top: 6px !important; }
-.mt-8 { margin-top: 8px !important; }
-.mt-10 { margin-top: 10px !important; }
-.mt-12 { margin-top: 12px !important; }
-.mt-14 { margin-top: 14px !important; }
-.mt-16 { margin-top: 16px !important; }
-.mt-18 { margin-top: 18px !important; }
-.mt-44 { margin-top: 44px !important; }
-.mb-8 { margin-bottom: 8px !important; }
-.mb-16 { margin-bottom: 16px !important; }
+.m-12-0 { margin: var(--space-3) 0 !important; }
+.m-count { margin: calc(var(--space-1) * -1) 0 var(--space-3) !important; }
+.mt-6 { margin-top: var(--space-1h) !important; }
+.mt-8 { margin-top: var(--space-2) !important; }
+.mt-12 { margin-top: var(--space-3) !important; }
+.mt-16 { margin-top: var(--space-4) !important; }
+.mt-20 { margin-top: var(--space-5) !important; }
+.mt-48 { margin-top: var(--space-12) !important; }
+.mb-8 { margin-bottom: var(--space-2) !important; }
+.mb-16 { margin-bottom: var(--space-4) !important; }
 .ml-auto { margin-left: auto !important; }
-.mx-auto-12 { margin: 12px auto !important; }
+.mx-auto-12 { margin: var(--space-3) auto !important; }
 .pt-0 { padding-top: 0 !important; }
-.p-20 { padding: 20px !important; }
-.p-4-12 { padding: 4px 12px !important; }
-.p-4-16 { padding: 4px 16px !important; }
-.p-4-18 { padding: 4px 18px !important; }
+.p-20 { padding: var(--space-5) !important; }
+.p-4-12 { padding: var(--space-1) var(--space-3) !important; }
+.p-4-16 { padding: var(--space-1) var(--space-4) !important; }
+.p-4-20 { padding: var(--space-1) var(--space-5) !important; }
 
 /* text */
 .ta-l { text-align: left !important; }
 .ta-c { text-align: center !important; }
 .ta-r { text-align: right !important; }
 .nowrap { white-space: nowrap !important; }
-.fs-17 { font-size: 17px !important; }
-.fs-18 { font-size: 18px !important; }
 .c-brand { color: var(--brand) !important; }
 .c-yes { color: var(--yes) !important; }
 .c-no { color: var(--no) !important; }
@@ -47,12 +43,10 @@
 .ai-center { align-items: center !important; }
 .ai-baseline { align-items: baseline !important; }
 .fw-wrap { flex-wrap: wrap !important; }
-.gap-6 { gap: 6px !important; }
-.gap-8 { gap: 8px !important; }
-.gap-10 { gap: 10px !important; }
-.gap-12 { gap: 12px !important; }
-.gap-14 { gap: 14px !important; }
-.gap-16 { gap: 16px !important; }
+.gap-6 { gap: var(--space-1h) !important; }
+.gap-8 { gap: var(--space-2) !important; }
+.gap-12 { gap: var(--space-3) !important; }
+.gap-16 { gap: var(--space-4) !important; }
 .flex-1 { flex: 1 !important; }
 .flex-90 { flex: 1 1 90px !important; }
 .flex-70 { flex: 1 1 70px !important; }
@@ -60,8 +54,8 @@
 .minw-200 { min-width: 200px !important; }
 .w-auto { width: auto !important; }
 .w-full { width: 100% !important; }
-.h-40 { height: 40px !important; }
-.h-44 { height: 44px !important; }
+.h-40 { height: var(--control-md) !important; }
+.h-48 { height: var(--control-lg) !important; }
 .minh-260 { min-height: 260px !important; }
 .minh-420 { min-height: 420px !important; }
 .col-full { grid-column: 1 / -1 !important; }
@@ -70,11 +64,11 @@
 .rank-4 { grid-template-columns: 22px 32px 1fr auto !important; align-items: center !important; }
 .rank-3 { grid-template-columns: 18px 1fr auto !important; }
 .rank-2 { grid-template-columns: 1fr auto !important; }
-.center-40, .center-50, .center-60 { display: grid !important; place-content: center !important; gap: 8px !important; }
+.center-40, .center-50, .center-60 { display: grid !important; place-content: center !important; gap: var(--space-2) !important; }
 .center-40 { min-height: 40vh !important; }
 .center-50 { min-height: 50vh !important; }
 .center-60 { min-height: 60vh !important; }
-.amount-input { flex: 1 1 90px !important; min-width: 0 !important; padding: 7px 10px !important; border-radius: 10px !important; border: 1px solid var(--line) !important; background: var(--surface-x10) !important; }
+.amount-input { flex: 1 1 90px !important; min-width: 0 !important; padding: var(--space-2) var(--space-3) !important; border-radius: var(--rounded-x10) !important; border: 1px solid var(--line) !important; background: var(--surface-x10) !important; }
 
 /* dynamic values (custom properties set by js/dynstyle.js) */
 .v-bg { background: var(--bg) !important; }

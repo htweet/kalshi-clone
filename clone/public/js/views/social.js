@@ -73,7 +73,7 @@ export function composer(eventTicker) {
   if (!session.user) return '<div class="card composer"><a href="/sign-in?next=/social" data-link class="c-brand">Log in</a> to share your take.</div>';
   if (!session.nickname) return '<div class="card composer" data-testid="need-profile">Pick a nickname to post. <a href="/account/profile" data-link class="c-brand">Create your social profile</a></div>';
   return `<form class="card composer" id="composer" data-event="${esc(eventTicker || '')}">
-    <div class="d-flex gap-10">${avatar(session.nickname)}<textarea name="body" maxlength="500" placeholder="${eventTicker ? "What's on your mind?" : 'What are you trading?'}" aria-label="New post" data-testid="composer-input"></textarea></div>
+    <div class="d-flex gap-12">${avatar(session.nickname)}<textarea name="body" maxlength="500" placeholder="${eventTicker ? "What's on your mind?" : 'What are you trading?'}" aria-label="New post" data-testid="composer-input"></textarea></div>
     ${composerExtrasHtml()}
     <div class="composer-foot"><span class="faint" id="composer-count">0 / 500</span><span class="flex-1"></span><button class="btn btn-primary btn-sm" type="submit" data-testid="composer-submit">Post</button></div></form>`;
 }
@@ -102,7 +102,7 @@ export async function render({ el, params, navigate }) {
   const FEEDS = [['all', 'For you'], ['following', 'Following'], ['circle', 'Inner Circle'], ['topics', 'Topics'], ['bookmarks', 'Saved']];
   let feed = session.user ? (session.props.social_feed || 'all') : 'all';
   const lbTab = params.tab === 'leaderboard';
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Social</h1><div class="seg"><a class="btn btn-sm ${lbTab ? 'btn-ghost' : ''}" href="/social" data-link>Feed</a><a class="btn btn-sm ${lbTab ? '' : 'btn-ghost'}" href="/social/leaderboard" data-link data-testid="lb-link">Leaderboard</a></div></div>
+  el.innerHTML = `<div class="page-head"><h1 class="page-title">Social</h1><div class="seg"><a class="btn btn-sm ${lbTab ? 'btn-ghost' : ''}" href="/social" data-link>Feed</a><a class="btn btn-sm ${lbTab ? '' : 'btn-ghost'}" href="/social/leaderboard" data-link data-testid="lb-link">Leaderboard</a></div></div>
     <div class="social-layout"><div id="main-col"></div><aside id="side-col"></aside></div>`;
   const main = el.querySelector('#main-col');
   const side = el.querySelector('#side-col');

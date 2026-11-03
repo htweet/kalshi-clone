@@ -8,7 +8,7 @@ import { h, loadStickers, invalidateMutes } from './social2.js';
 
 const head = (title, active) => {
   const tab = (href, label, key) => h('a', { class: `btn btn-sm${active === key ? '' : ' btn-ghost'}`, href, 'data-link': '' }, label);
-  return h('div', { class: 'page-head' }, h('h1', { class: 'typ-title-x10' }, title), h('div', { class: 'd-flex gap-6 fw-wrap' }, tab('/social', 'Feed', 'feed'), tab('/social/circle', 'Inner Circle', 'circle'), tab('/messages', 'Group chats', 'messages'), tab('/social/settings', 'Settings', 'settings')));
+  return h('div', { class: 'page-head' }, h('h1', { class: 'page-title' }, title), h('div', { class: 'd-flex gap-6 fw-wrap' }, tab('/social', 'Feed', 'feed'), tab('/social/circle', 'Inner Circle', 'circle'), tab('/messages', 'Group chats', 'messages'), tab('/social/settings', 'Settings', 'settings')));
 };
 const nickLink = (n) => h('a', { href: `/social/profile/${encodeURIComponent(n)}`, 'data-link': '' }, `@${n}`);
 

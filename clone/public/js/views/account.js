@@ -32,7 +32,7 @@ export async function render({ el, params, navigate, query }) {
   const title = NAV.find(([k]) => k === top)[2];
   document.title = `${title} · Parlance`;
   el.innerHTML = `<div class="acct" data-testid="account-frame" data-section="${esc(section)}">
-    <div class="acct-main"><h1 class="typ-title-x10 acct-title" data-testid="account-title">${esc(title)}</h1>
+    <div class="acct-main"><h1 class="page-title acct-title" data-testid="account-title">${esc(title)}</h1>
       ${top === 'security' ? `<nav class="acct-sub chips" aria-label="Account and security sections" data-testid="account-subnav">${SUB.map(([k, href, l]) => `<a class="chip ${k === section ? 'on' : ''}" href="${href}" data-link data-sub="${esc(k)}">${esc(l)}</a>`).join('')}</nav>` : ''}
       <div id="panel"></div></div>
     <nav class="acct-nav card" aria-label="Account" data-testid="account-nav">${NAV.map(([k, href, l, icon]) => `<a href="${href}" data-link class="${k === top ? 'on' : ''}" data-nav-item="${esc(k)}"${k === top ? ' aria-current="page"' : ''}><span class="acct-ic">${icon}</span><span>${esc(l)}</span></a>`).join('')}</nav></div>`;
@@ -46,7 +46,7 @@ async function profile(panel) {
   panel.innerHTML = `<form class="card panel" id="profile-form"><h2>Social profile</h2><p class="muted">Your nickname appears on posts, replies, the leaderboard and (if you allow it) next to your trades.</p>
     <label class="field">Nickname<input name="nickname" value="${esc(p?.nickname || '')}" maxlength="20" pattern="[A-Za-z0-9_]{3,20}" required data-testid="nickname-input"></label>
     <label class="field">Bio<textarea name="bio" maxlength="280">${esc(p?.bio || '')}</textarea></label>
-    <label class="d-flex gap-8 ai-center m-10-0"><input type="checkbox" name="share_trades" ${!p || p.share_trades ? 'checked' : ''}> Show my nickname on my trades and positions</label>
+    <label class="d-flex gap-8 ai-center m-12-0"><input type="checkbox" name="share_trades" ${!p || p.share_trades ? 'checked' : ''}> Show my nickname on my trades and positions</label>
     <div class="form-error" id="p-error" role="alert"></div>
     <button class="btn btn-primary" type="submit">${p ? 'Save' : 'Create profile'}</button>
     ${p ? ` <a class="btn btn-ghost" href="/social/profile/${encodeURIComponent(p.nickname)}" data-link>View profile</a>` : ''}</form>`;

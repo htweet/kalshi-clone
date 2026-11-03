@@ -38,7 +38,7 @@ export async function render({ el, params, query, navigate }) {
     <nav class="live-side" aria-label="Calendar categories" data-testid="cal-filters">
       <div class="overline">Featured</div>
       <div id="sports-featured" class="sb-featured" data-testid="sports-featured"></div><a href="/category/elections" data-link>Harbor 2026</a><a href="/category/crypto" data-link>Crypto · 15 min</a>
-      <a href="/calendar" data-link class="next mt-10">What's next</a>
+      <a href="/calendar" data-link class="next mt-12">What's next</a>
       <div id="sports-tree" class="sb-treebox" data-testid="sports-tree"></div>
       ${row('', f.all, !category)}${CATEGORIES.filter((c) => f.categories[c]).map((c) => row(c, f.categories[c], c === category)).join('')}
     </nav>

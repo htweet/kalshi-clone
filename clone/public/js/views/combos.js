@@ -25,7 +25,7 @@ export async function render({ el, navigate }) {
     } catch { /* empty slip */ }
   }
 
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10" data-testid="combos-title">${esc(coll.title)}</h1><p class="muted">${esc(coll.description)}</p></div>
+  el.innerHTML = `<div class="page-head"><h1 class="page-title" data-testid="combos-title">${esc(coll.title)}</h1><p class="muted">${esc(coll.description)}</p></div>
     <div class="combos-layout">
       <section class="combo-picker" aria-label="Outcomes">
         <input class="combo-search" id="combo-search" type="search" placeholder="Filter events" aria-label="Filter events">

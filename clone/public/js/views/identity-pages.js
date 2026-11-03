@@ -36,9 +36,9 @@ async function verifyEmail({ el, query }) {
   el.innerHTML = card('<h1>Confirming your email…</h1>', 'verify-email');
   try {
     await idApi.verifyEmail(query.get('token') || '');
-    el.innerHTML = card(`<h1>Email confirmed</h1><p class="muted" data-testid="verify-email-ok">Thanks — your email address is verified.</p><p class="ta-c mt-14"><a class="btn btn-primary" href="${session.user ? '/account/privacy' : '/sign-in'}" data-link>Continue</a></p>`, 'verify-email');
+    el.innerHTML = card(`<h1>Email confirmed</h1><p class="muted" data-testid="verify-email-ok">Thanks — your email address is verified.</p><p class="ta-c mt-16"><a class="btn btn-primary" href="${session.user ? '/account/privacy' : '/sign-in'}" data-link>Continue</a></p>`, 'verify-email');
   } catch (ex) {
-    el.innerHTML = card(`<h1>Link not valid</h1><p class="muted" data-testid="verify-email-error">${esc(cap(ex.message))}.</p><p class="faint">${esc(ex.details || '')}</p><p class="ta-c mt-14"><a class="btn" href="/" data-link>Go home</a></p>`, 'verify-email');
+    el.innerHTML = card(`<h1>Link not valid</h1><p class="muted" data-testid="verify-email-error">${esc(cap(ex.message))}.</p><p class="faint">${esc(ex.details || '')}</p><p class="ta-c mt-16"><a class="btn" href="/" data-link>Go home</a></p>`, 'verify-email');
   }
 }
 
@@ -48,8 +48,8 @@ async function forgot({ el }) {
     <p class="muted">Enter the email you use for Parlance. If it belongs to an account, we’ll send a link to choose a new password.</p>
     <label class="field">Email<input name="email" type="email" autocomplete="email" required data-testid="forgot-email"></label>
     <div class="form-error" role="alert" id="forgot-error"></div>
-    <button class="btn btn-primary w-full h-44" type="submit">Send reset link</button>
-    <p class="faint ta-c mt-14"><a href="/sign-in" data-link class="c-brand">Back to log in</a></p></form>`;
+    <button class="btn btn-primary w-full h-48" type="submit">Send reset link</button>
+    <p class="faint ta-c mt-16"><a href="/sign-in" data-link class="c-brand">Back to log in</a></p></form>`;
   const f = el.querySelector('#forgot-form');
   f.onsubmit = async (e) => {
     e.preventDefault();
@@ -58,7 +58,7 @@ async function forgot({ el }) {
     try {
       await session.preAuth();
       const r = await idApi.requestReset(f.email.value.trim());
-      f.outerHTML = card(`<h1>Check your email</h1><p class="muted" data-testid="forgot-sent">${esc(r.message)}</p><p class="faint">The link works once and expires in 30 minutes.</p><p class="ta-c mt-14"><a class="btn" href="/sign-in" data-link>Back to log in</a></p>`, 'forgot-done');
+      f.outerHTML = card(`<h1>Check your email</h1><p class="muted" data-testid="forgot-sent">${esc(r.message)}</p><p class="faint">The link works once and expires in 30 minutes.</p><p class="ta-c mt-16"><a class="btn" href="/sign-in" data-link>Back to log in</a></p>`, 'forgot-done');
     } catch (ex) { err.textContent = cap(ex.fields ? Object.values(ex.fields).join('. ') : ex.message); }
   };
 }
@@ -68,7 +68,7 @@ async function reset({ el, query, navigate }) {
   const token = query.get('token') || '';
   const ok = await idApi.resetValid(token).then((r) => r.valid).catch(() => false);
   if (!ok) {
-    el.innerHTML = card(`<h1>Reset link not valid</h1><p class="muted" data-testid="reset-invalid">This link is invalid, has expired or was already used.</p><p class="ta-c mt-14"><a class="btn btn-primary" href="/forgot-password" data-link>Request a new link</a></p>`, 'reset-invalid-card');
+    el.innerHTML = card(`<h1>Reset link not valid</h1><p class="muted" data-testid="reset-invalid">This link is invalid, has expired or was already used.</p><p class="ta-c mt-16"><a class="btn btn-primary" href="/forgot-password" data-link>Request a new link</a></p>`, 'reset-invalid-card');
     return;
   }
   el.innerHTML = `<form class="card auth-card" id="reset-form" novalidate data-testid="reset-form"><h1>Choose a new password</h1>
@@ -77,7 +77,7 @@ async function reset({ el, query, navigate }) {
     <label class="field">Confirm new password<input name="confirm" type="password" autocomplete="new-password" required data-testid="reset-confirm"></label>
     <p class="faint mt-6 mb-8">${esc(PASSWORD_RULES)}</p>
     <div class="form-error" role="alert" id="reset-error" data-testid="reset-error"></div>
-    <button class="btn btn-primary w-full h-44" type="submit">Set new password</button></form>`;
+    <button class="btn btn-primary w-full h-48" type="submit">Set new password</button></form>`;
   const f = el.querySelector('#reset-form');
   f.onsubmit = async (e) => {
     e.preventDefault();
@@ -98,7 +98,7 @@ async function oauthCallback({ el, params, query, navigate }) {
   const provider = params.provider;
   document.title = 'Signing in · Parlance';
   el.innerHTML = card('<h1>Signing you in…</h1>', 'oauth-callback');
-  const fail = (msg) => { el.innerHTML = card(`<h1>Sign-in didn’t work</h1><p class="muted" data-testid="oauth-error">${esc(msg)}</p><p class="ta-c mt-14"><a class="btn btn-primary" href="/sign-in" data-link>Back to log in</a></p>`, 'oauth-callback'); };
+  const fail = (msg) => { el.innerHTML = card(`<h1>Sign-in didn’t work</h1><p class="muted" data-testid="oauth-error">${esc(msg)}</p><p class="ta-c mt-16"><a class="btn btn-primary" href="/sign-in" data-link>Back to log in</a></p>`, 'oauth-callback'); };
   if (query.get('error')) { fail(query.get('error') === 'access_denied' ? 'You cancelled signing in.' : 'The provider reported an error.'); return; }
   let r;
   try {
@@ -110,7 +110,7 @@ async function oauthCallback({ el, params, query, navigate }) {
   function mfa(mfaToken) {
     el.innerHTML = `<form class="card auth-card" id="oa-mfa" novalidate><h1>Two-factor login</h1><p class="muted">Enter the 6-digit code from your authenticator app.</p>
       <label class="field">Code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required data-testid="mfa-code"></label><div class="form-error" role="alert" id="oa-err"></div>
-      <button class="btn btn-primary w-full h-44" type="submit">Verify</button></form>`;
+      <button class="btn btn-primary w-full h-48" type="submit">Verify</button></form>`;
     const f = el.querySelector('#oa-mfa');
     f.code.focus();
     f.onsubmit = async (e) => { e.preventDefault(); try { const out = await session.loginMfa(mfaToken, f.code.value.trim()); if (!out) { toast('Logged in'); afterSignIn(navigate, '/'); } } catch { f.querySelector('#oa-err').textContent = 'That code is not valid. Try again.'; } };
@@ -119,8 +119,8 @@ async function oauthCallback({ el, params, query, navigate }) {
     el.innerHTML = `<form class="card auth-card" id="oa-link" novalidate data-testid="oauth-link-form"><h1>Link your ${esc(cap(provider))} account</h1>
       <p class="muted">An account for <strong>${esc(r.email_masked)}</strong> already exists. Enter its Parlance password once to link ${esc(cap(provider))} sign-in to it.</p>
       <label class="field">Parlance password<input name="password" type="password" autocomplete="current-password" required data-testid="oauth-link-password"></label>
-      <div class="form-error" role="alert" id="oa-err" data-testid="oauth-link-error"></div><button class="btn btn-primary w-full h-44" type="submit">Link and log in</button>
-      <p class="faint ta-c mt-14"><a href="/sign-in" data-link>Cancel</a></p></form>`;
+      <div class="form-error" role="alert" id="oa-err" data-testid="oauth-link-error"></div><button class="btn btn-primary w-full h-48" type="submit">Link and log in</button>
+      <p class="faint ta-c mt-16"><a href="/sign-in" data-link>Cancel</a></p></form>`;
     const f = el.querySelector('#oa-link');
     f.password.focus();
     f.onsubmit = async (e) => {
@@ -142,7 +142,7 @@ async function mailbox({ el }) {
   // The body is escaped first; the URLs found in that escaped text are wrapped as they are (already escaped).
   // eslint-disable-next-line parlance/no-unescaped-html -- m is a substring of esc(body), matched as an http(s) URL
   const linkify = (body) => esc(body).replace(/(https?:\/\/[^\s<"]+)/g, (m) => `<a href="${m}" class="c-brand" data-testid="mail-link">${m}</a>`);
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Dev mailbox</h1><p class="muted">Emails and text messages the server would have sent (transport: ${esc(mail.transport)} / ${esc(sms.transport)}). Development only.</p></div>
+  el.innerHTML = `<div class="page-head"><h1 class="page-title">Dev mailbox</h1><p class="muted">Emails and text messages the server would have sent (transport: ${esc(mail.transport)} / ${esc(sms.transport)}). Development only.</p></div>
     <div class="dev-mailbox"><section class="card panel" data-testid="mailbox-emails"><h2>Email</h2>${mail.messages.map((m) => `<article class="dev-mail" data-testid="mail-item"><div class="faint">${esc(relTime(m.time))} · to ${esc(m.to)}</div><h3>${esc(m.subject)}</h3>
       <pre class="dev-mail-body">${linkify(m.body)}</pre></article>`).join('') || '<p class="faint">No emails yet.</p>'}</section>
     <section class="card panel" data-testid="mailbox-sms"><h2>Text messages</h2>${sms.messages.map((m) => `<article class="dev-mail" data-testid="sms-item"><div class="faint">${esc(relTime(m.time))} · to ${esc(m.to)}</div><p>${esc(m.body)}</p></article>`).join('') || '<p class="faint">No text messages yet.</p>'}</section></div>`;

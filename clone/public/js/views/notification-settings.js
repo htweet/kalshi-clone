@@ -51,7 +51,7 @@ export function mountNotificationSettings(el) {
     const p = prefs;
     const q = p.quiet_hours;
     const dev = deviceId();
-    root.innerHTML = `<div class="ns-head"><h2 class="typ-title-x20 m-0">Notifications <span class="info" title="Choose where each kind of notification reaches you. Filled pills are on." aria-hidden="true">ⓘ</span></h2></div>
+    root.innerHTML = `<div class="ns-head"><h2 class="m-0">Notifications <span class="info" title="Choose where each kind of notification reaches you. Filled pills are on." aria-hidden="true">ⓘ</span></h2></div>
       ${p.groups.map((g) => `<details class="card nt-group" data-group="${esc(g.key)}" data-testid="group-${esc(g.key)}" ${openGroups.has(g.key) ? 'open' : ''}><summary><b>${esc(g.label)}</b><span class="faint">${g.types.length} type${g.types.length === 1 ? '' : 's'}</span></summary>${g.types.map(typeRow).join('')}</details>`).join('')}
       <div class="card ns-card" data-testid="quiet-hours"><h3>Quiet hours</h3><p class="faint m-0">Email and push wait until quiet hours end; in-app notifications are kept without a pop-up.${p.in_quiet_hours ? ' <b data-testid="quiet-now">Quiet hours are on now.</b>' : ''}</p>
         <form class="quiet-form" data-quiet><label class="opt-row"><input type="checkbox" name="enabled" data-testid="quiet-enabled" ${q.enabled ? 'checked' : ''}> Pause email and push</label>
@@ -153,7 +153,7 @@ export function mountSecurityNotificationSetting(el) {
 export async function render({ el, navigate }) {
   if (!session.user) { navigate('/sign-in?next=/notifications/settings', { replace: true }); return undefined; }
   document.title = 'Notification settings · Parlance';
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Notification settings</h1><a class="btn" href="/notifications" data-link>Inbox</a></div>
+  el.innerHTML = `<div class="page-head"><h1 class="page-title">Notification settings</h1><a class="btn" href="/notifications" data-link>Inbox</a></div>
     <div class="ns-layout"><div data-module></div><aside class="card ns-card"><h3>Security notifications</h3><div data-security></div></aside></div>`;
   const stop = mountNotificationSettings(el.querySelector('[data-module]'));
   mountSecurityNotificationSetting(el.querySelector('[data-security]'));

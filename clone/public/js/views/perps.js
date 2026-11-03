@@ -60,7 +60,7 @@ async function renderList({ el, params }) {
   }
   const shown = markets.filter((m) => !want || m.asset_class === want.name).sort((a, b) => ASSET_ORDER.indexOf(a.asset_class) - ASSET_ORDER.indexOf(b.asset_class));
   el.innerHTML = `<div class="perps" data-testid="perps-list">
-    <div class="perps-hero"><h1 class="typ-title-x10">Perps</h1>
+    <div class="perps-hero"><h1 class="page-title">Perps</h1>
       <p class="muted">Perpetual futures on simulated indices. Go long or short with leverage, no expiry. Funding payments keep each contract near its index.</p></div>
     <nav class="perps-chips" aria-label="Asset classes" data-testid="perps-chips">
       <a href="/perps" data-link class="${want ? '' : 'on'}" data-class="all">All <span>${markets.length}</span></a>
@@ -561,7 +561,7 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
   const metas = new Map(markets.map((m) => [m.ticker, m]));
   let positions = [];
   el.innerHTML = `<div class="perps perps-portfolio" data-testid="perps-portfolio">
-    <div class="page-head"><h1 class="typ-title-x10">Portfolio</h1></div>
+    <div class="page-head"><h1 class="page-title">Portfolio</h1></div>
     <nav class="perps-product" aria-label="Product"><a href="/portfolio" data-link data-testid="product-predictions">Predictions</a><a href="/portfolio?perpsTab=positions" data-link class="on" data-testid="product-perps">Perps</a></nav>
     <div class="perps-stat-row">
       <div class="card perps-stat"><span>Account equity</span><strong data-testid="perps-equity">—</strong></div>

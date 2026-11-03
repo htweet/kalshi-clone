@@ -17,7 +17,7 @@ export function authMessage(ex) {
 
 const passwordField = (name, label, autocomplete, testid = '') => `<label class="field">${esc(label)}<input name="${esc(name)}" type="password" autocomplete="${esc(autocomplete)}" required${testid ? ` data-testid="${esc(testid)}"` : ''}></label>`;
 const rules = '<p class="faint mt-6 mb-8" data-testid="password-rules">' + PASSWORD_RULES + '</p>';
-const submit = (label) => `<button class="btn btn-primary w-full h-44" type="submit">${esc(label)}</button>`;
+const submit = (label) => `<button class="btn btn-primary w-full h-48" type="submit">${esc(label)}</button>`;
 
 export async function render({ el, params, query, navigate }) {
   const next = query.get('next') && query.get('next').startsWith('/') ? query.get('next') : '/';
@@ -36,7 +36,7 @@ export async function render({ el, params, query, navigate }) {
     ${submit(signUp ? 'Sign up' : 'Log in')}
     ${signUp ? '' : '<p class="auth-forgot"><a href="/forgot-password" data-link class="c-brand" data-testid="forgot-link">Forgot password?</a></p>'}
     <div class="auth-alt" data-auth-alt hidden></div>
-    <p class="faint ta-c mt-14">${signUp ? 'Already have an account? <a href="/sign-in" data-link class="c-brand">Log in</a>' : 'New here? <a href="/sign-up" data-link class="c-brand">Create an account</a>'}</p>
+    <p class="faint ta-c mt-16">${signUp ? 'Already have an account? <a href="/sign-in" data-link class="c-brand">Log in</a>' : 'New here? <a href="/sign-up" data-link class="c-brand">Create an account</a>'}</p>
   </form>`;
   const form = el.querySelector('#auth-form');
   // After sign-in or sign-up: identity onboarding first when verification gates trading (CLONE_SPEC §25).
@@ -55,7 +55,7 @@ export async function render({ el, params, query, navigate }) {
       <label class="field">Code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required data-testid="mfa-code"></label>
       <div class="form-error" id="auth-error" role="alert"></div>
       ${submit('Verify')}
-      <p class="faint ta-c mt-14"><a href="/sign-in" data-link>Start over</a></p>`;
+      <p class="faint ta-c mt-16"><a href="/sign-in" data-link>Start over</a></p>`;
     form.querySelector('input').focus();
     const step = async () => after(await session.loginMfa(mfaToken, form.querySelector('input[name=code]').value.trim()));
     step.errorText = (ex) => (ex.code === 'mfa_challenge_expired' || ex.code === 'account_locked' ? `${ex.message}.` : 'That code is not valid. Try again.');
@@ -86,8 +86,8 @@ export async function render({ el, params, query, navigate }) {
   const alt = form.querySelector('[data-auth-alt]');
   const cfg = await idApi.config().catch(() => null);
   const buttons = [];
-  if (!signUp && passkeysSupported() && cfg?.passkeys) buttons.push('<button type="button" class="btn w-full h-44" data-passkey data-testid="passkey-login">Log in with a passkey</button>');
-  for (const p of cfg?.oauth_providers || []) buttons.push(`<button type="button" class="btn w-full h-44" data-oauth="${esc(p.id)}" data-testid="oauth-${esc(p.id)}">Continue with ${esc(p.label)}${p.mock ? ' <span class="faint">(test)</span>' : ''}</button>`);
+  if (!signUp && passkeysSupported() && cfg?.passkeys) buttons.push('<button type="button" class="btn w-full h-48" data-passkey data-testid="passkey-login">Log in with a passkey</button>');
+  for (const p of cfg?.oauth_providers || []) buttons.push(`<button type="button" class="btn w-full h-48" data-oauth="${esc(p.id)}" data-testid="oauth-${esc(p.id)}">Continue with ${esc(p.label)}${p.mock ? ' <span class="faint">(test)</span>' : ''}</button>`);
   if (buttons.length) {
     alt.innerHTML = `<div class="auth-or"><span>or</span></div>${buttons.join('')}`;
     alt.hidden = false;
@@ -104,7 +104,7 @@ async function setup({ el, query, navigate }) {
   if (!st.valid) {
     el.innerHTML = `<div class="card auth-card" role="alert" data-testid="setup-invalid"><h1>Setup link not valid</h1>
       <p class="muted">This setup link is invalid, has expired or was already used. Restart the server for a new link, set ADMIN_EMAIL and ADMIN_PASSWORD, or run <code>npm run create-admin</code>.</p>
-      <p class="ta-c mt-14"><a class="btn" href="/" data-link>Go home</a></p></div>`;
+      <p class="ta-c mt-16"><a class="btn" href="/" data-link>Go home</a></p></div>`;
     return;
   }
   el.innerHTML = `<form class="card auth-card" id="auth-form" novalidate data-testid="setup-form">

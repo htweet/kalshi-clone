@@ -395,7 +395,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §25 identity: onboarding (phone code → name → DOB → address/ID → document verification with QR phone handoff), encrypted PII, KYC sandbox + review, email verification/reset, OAuth (mock provider), passkeys, geo/fraud simulation, export/closure, account area (activity, documents, settings), promo codes, checklist | yes | tests `onboarding`, `identity2`, `account-area` |
 | Real KYC vendors, real payment rails, real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | deposits are simulated; see §16.x–19.x "not done" notes |
 
-Verification: 181 Playwright scenarios across 22 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 187 Playwright scenarios across 23 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -2933,6 +2933,93 @@ Tables (all `CREATE TABLE IF NOT EXISTS`, idempotent column migrations): `identi
 - Proof of work raises the cost of online guessing but does not stop a determined, well-resourced attacker; the per-IP
   hard limit and password policy remain the main defences.
 - A2 exempts staff accounts by design; staff identity is assumed verified out of band.
+
+---
+
+## 27. Visual system
+
+### 27.1 Observed vs. Parlance design
+
+| Aspect | Observed on the live site (§13.2, §15) | Parlance |
+|---|---|---|
+| Theme | Dark default; semantic `surface/text/fill` scales with light variants | Same structure, own palette (violet brand, coral featured hub) |
+| Container | `max-w-[1320px]`, `px-3` on phones | `--container: 1320px`; gutter 24px, 12px at ≤640px |
+| Grid | `minmax(min(360px,100%),1fr)`, `gap-2` | Unchanged (8px gap) |
+| Type classes | `typ-title-x10`, `typ-body-x20` exist; values UNKNOWN (U15) | Token scale below; `.typ-*` classes kept and mapped onto it |
+| Faces | Kalshi Sans (body), Kalshi Condensed (titles) | Inter (variable) + Barlow Condensed 600/700, self-hosted, SIL OFL |
+| Header | Wordmark, uppercase tracked nav, pill search, category strip | Same order; values chosen (below) |
+| Odds | Outlined pill, outcome underline in its colour | Same; 40px pill, 16px bold tabular |
+
+Values the screenshots do not give (sizes, weights, spacing, control heights) are Parlance design choices.
+
+### 27.2 Tokens (`clone/public/app.css`, first `:root` block)
+
+- **Type scale** (size / paired line height): `--fs-3xs` 10/12 (count badges and small monograms only), `2xs` 11/14,
+  `xs` 12/16, `sm` 13/18, `md` 14/20 (body), `lg` 16/24, `xl` 18/24, `2xl` 22/28, `3xl` 28/34, `4xl` 36/40, `5xl`
+  44/48. A rule that sets `--fs-N` also sets `--lh-N` unless it needs a unitless display line height.
+- **Weights:** `--fw-regular` 400, `--fw-medium` 500, `--fw-semibold` 600, `--fw-bold` 700. No other weight is used.
+- **Tracking:** `--ls-tight` −0.02em (wordmark), `--ls-display` −0.01em (display face, large numbers), `--ls-normal`
+  0, `--ls-caps` 0.06em (uppercase labels, overlines, nav, table headers).
+- **Spacing:** 4px grid with 2px and 6px half steps: `--space-half` 2, `-1` 4, `-1h` 6, `-2` 8, `-3` 12, `-4` 16, `-5`
+  20, `-6` 24, `-8` 32, `-10` 40, `-12` 48, `-16` 64.
+- **Controls:** `--control-sm` 32, `--control-md` 40, `--control-lg` 48. **Radii:** `--rounded-x05` 4, `-x10` 8, `-x20`
+  12, `-x30` 16, `--rounded-pill`.
+- **Layout:** `--container` 1320px, `--gutter`, `--header-h` (64/56px), `--strip-h` (48/44px); sticky offsets derive
+  from these.
+
+### 27.3 Rules
+
+1. **Display face** (`--font-display`) only for display headlines: page titles, hero and event titles, section heads
+   (home sections, event "People are also trading"), the event's big tabs, the ticket outcome and payout, outcome
+   chances in the event table, scoreboard scores and the wordmark. Never below 16px. Everything else is Inter.
+2. **One page-title style:** `.page-title` (display, 36/40 bold, 28/34 on phones) on every page (Browse, Portfolio,
+   Perps, Settings and the account area, Social, Leaderboard, Notifications, Watchlist, Combos, Pro, Sports, Rewards;
+   the Live title uses the same size in the live colour).
+3. **Section headings inside cards** (`.panel h2`, settings sections, rail boxes): Inter 18/24 semibold.
+4. **Tables:** header 12/16 semibold uppercase tracked (`--ls-caps`), cells 14/20, tabular numerals.
+5. **Numbers:** `font-variant-numeric: tabular-nums` on prices, percents, money, counts, odds pills, multipliers,
+   order-book and chart readouts.
+6. **Controls:** one button system, `.btn` (secondary, 40px) with `.btn-primary`, `.btn-secondary`, `.btn-ghost` ×
+   `.btn-sm` (32) / default (40) / `.btn-lg` (48), `.btn-pill` for the rounded shape. Native `select`, text inputs and
+   textareas share one styled look (`:where()` defaults, so component rules still win); selects use `appearance:
+   none` with a CSS chevron. Chips 32px, segmented controls 32px, tabs 40px with trailing actions (`.tabs > .btn`) on
+   the same row. Every focusable element shows a 2px brand `:focus-visible` outline; inputs add a soft ring.
+7. **Cards:** stat rows are grids with `align-items: start`, so a tall card (the Portfolio funds form) does not stretch
+   the others.
+8. No inline `style=""` (strict style CSP, §21.3); dynamic values go through `js/dynstyle.js` custom properties.
+
+### 27.4 Layout fixes made with the system
+
+- **Event header:** the icon and title share the first grid row and the title takes the whole main column; the action
+  bar (Live chat, calendar, discussion, share, download, Watch, Follow, Move alert) has its own row and never overlaps
+  the series label. On phones it is at most two rows; the text pills share out each row's free space.
+- **Home hero:** single column at ≤760px (title, table, news, then chart); the Market / Pays out / Odds headers never
+  overlap.
+- **Phone header:** the wordmark stays; search collapses to a 40px icon button that expands over the header row when
+  focused.
+- **Portfolio:** stat cards hug their content; the funds form uses small controls; Perps / Export CSV sit on the tab
+  row; the Sort select is the styled select. On phones the three values share one row and the form spans it.
+- **Settings:** every section heading uses the same card-heading style, including Notifications.
+- **Header nav:** uppercase is kept (observed) at 13px semibold with 0.06em tracking instead of 15px/750/0.08em; the
+  category strip is 14px medium (active semibold) instead of 17px semibold.
+
+### 27.5 Enforcement and tooling
+
+- `clone/scripts/apply-type-tokens.js` rewrites literal font sizes, weights, letter-spacing, margins/padding/gaps and
+  radii in `public/*.css` to tokens, gives a re-tokenised font size its paired line height, and renames px-named
+  utility classes in the views (`mt-14` → `mt-16`, `fs-17` → `fs-lg`, `h-44` → `h-48`). It is idempotent; `--check`
+  exits 1 when anything would change. Re-run it after merging branches that add CSS or views, then review display
+  headlines by hand.
+- `clone/scripts/visual-audit.js <outdir> <tag>` screenshots 16 pages at 1280 dark, 390 dark and 1280 light on a
+  throwaway database and reports horizontal overflow and page errors.
+- `clone/tests/visual-system.e2e.test.js` (6 scenarios): no literal font-size, font-weight, letter-spacing or off-scale
+  spacing outside the token block (allowlist empty; `±1px` margins allowed for hairline border compensation; SVG chart
+  text uses SVG user units and is out of scope); the token script is a no-op; at 1280 and 390 in dark and light: event
+  title ≥ 50% of the main column at 1280, no overlap between series label, title and action bar, phone hero single
+  column with non-overlapping headers, phone brand visible and search usable, portfolio stat cards not stretched,
+  identical computed page-title family/size/weight/line height across Browse, Portfolio, Perps, Settings, Leaderboard
+  and Social, visible focus rings, tabular numerals, control heights, and no horizontal overflow, page errors or CSP
+  violations on 16 pages.
 
 ---
 

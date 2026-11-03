@@ -37,7 +37,7 @@ export async function render({ el, navigate, query }) {
   let rfqScope = query && query.get('scope') === 'others' ? 'others' : 'mine'; // deep link /portfolio?tab=rfqs&scope=others
   const uid = session.uid;
 
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Portfolio</h1></div>
+  el.innerHTML = `<div class="page-head"><h1 class="page-title">Portfolio</h1></div>
     <div class="stat-row">
       <div class="card stat"><div class="label">Cash available</div><div class="value" id="s-cash" data-testid="cash">—</div></div>
       <div class="card stat"><div class="label">Positions value</div><div class="value" id="s-value" data-testid="positions-value">—</div></div>

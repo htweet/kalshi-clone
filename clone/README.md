@@ -1,6 +1,6 @@
 # Parlance Exchange (clean-room clone)
 
-A functional binary event-contract exchange built only from `../CLONE_SPEC.md`. Layout, page structure and features follow the live site as captured on 2026-11-02 (spec §13). It uses its own name, logo, palette, typeface (Inter, SIL OFL), copy and invented seed data. No third-party code or assets.
+A functional binary event-contract exchange built only from `../CLONE_SPEC.md`. Layout, page structure and features follow the live site as captured on 2026-11-02 (spec §13). It uses its own name, logo, palette, typefaces (Inter and Barlow Condensed, self-hosted, SIL OFL), copy and invented seed data. No third-party code or assets.
 
 ## Run
 
@@ -11,7 +11,7 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 181 end-to-end browser scenarios across 22 files (Playwright + node:test)
+npm run test:e2e     # 187 end-to-end browser scenarios across 23 files (Playwright + node:test)
 ```
 
 **If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
@@ -51,6 +51,10 @@ Not built yet (PLAN.md Phases 4-9): real payment rails (deposits are simulated),
 Perimeter security (`../CLONE_SPEC.md` §21): CSP with per-response nonces and the other security headers, CORS allowlist (`ALLOWED_ORIGINS`), proof-of-work bot challenge for suspicious HTML requests, signed client tokens on `/v1` writes and the WebSocket, honeypot paths, tiered persisted rate limits, Admin › Security event log. Taker fee coefficient, rolling window, rate limits and bot settings are editable live in Admin › Settings & health. Fonts are self-hosted (`public/fonts/`, SIL OFL).
 
 Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1).
+
+## Styling
+
+All design tokens live in the first `:root` block of `public/app.css`: the type scale (`--fs-*` with paired `--lh-*`), the four weights (`--fw-*`), tracking (`--ls-*`), the 4px spacing scale (`--space-*`), control heights (`--control-sm/md/lg`), radii and layout sizes; the colour themes follow. Every other stylesheet reads them, and no stylesheet may use a literal font size, font weight, letter-spacing or off-scale margin/padding/gap. `tests/visual-system.e2e.test.js` enforces this and checks the key layouts at 1280 and 390 px in both themes. After adding CSS or views, run `node scripts/apply-type-tokens.js` (idempotent; `--check` only reports) and `node scripts/visual-audit.js <outdir> <tag>` for screenshots. Rules and the full scale: `../CLONE_SPEC.md` §27.
 
 ## Architecture
 

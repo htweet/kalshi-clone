@@ -73,14 +73,14 @@ export async function render({ el, params, query, navigate }) {
       <div class="ev-header">
         ${evIcon({ ...ev, series_title: series.title }, 'xl')}
         <div class="flex-1 minw-0"><div class="crumbs"><a href="${isCombo ? '/combos' : `/category/${catSlug(ev.category)}`}" data-link>${esc(catLabel(ev.category))}</a> &nbsp;/&nbsp; ${esc(series.title)}</div>
-          <h1 data-testid="event-title">${esc(ev.title)}</h1><div class="muted fs-17">${esc(ev.sub_title)}</div>
+          <h1 data-testid="event-title">${esc(ev.title)}</h1><div class="muted fs-lg">${esc(ev.sub_title)}</div>
           ${ev.is_live ? `<div class="live-dot mt-8">Live · ${esc(ev.live_label)}</div>` : ''}</div>
         <div class="ev-actions">
           <button class="icon-btn" id="ics-btn" data-testid="ics-btn" title="Add to calendar" aria-label="Add to calendar">${SVG.cal}</button>
           <button class="icon-btn" id="chat-btn" title="Discussion" aria-label="Go to discussion">${SVG.chat}</button>
           <button class="icon-btn" id="share-btn" title="Copy link" aria-label="Copy link">${SVG.share}</button>
           <button class="icon-btn" id="csv-btn" data-testid="csv-btn" title="Download price history" aria-label="Download price history">${SVG.dl}</button>
-          <button class="btn btn-pill h-40" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}"></button>
+          <button class="btn btn-pill" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}"></button>
         </div>
       </div>
       ${ev.live_data ? '<div id="sports-board" class="sb-mount"></div>' : ''}
@@ -88,7 +88,7 @@ export async function render({ el, params, query, navigate }) {
       ${isCombo ? '<section class="card combo-legs" id="combo-legs" data-testid="combo-legs" aria-label="Combo legs"></section>' : ''}
       <section class="chart-box">
         <div class="chart-head"><div class="legend" id="legend"></div><span class="watermark">Parlance</span></div>
-        <div class="d-flex gap-14 ai-baseline mt-6"><span class="faint" id="chart-label"></span><span class="num" id="chart-prob" data-testid="chart-prob"></span><span class="change-chips" id="changes" data-testid="changes"></span></div>
+        <div class="d-flex gap-16 ai-baseline mt-6"><span class="faint" id="chart-label"></span><span class="num" id="chart-prob" data-testid="chart-prob"></span><span class="change-chips" id="changes" data-testid="changes"></span></div>
         <div id="chart"></div>
         <div class="range-row"><span class="num" id="ev-vol"></span><div class="seg" role="tablist" aria-label="Chart range">${Object.keys(RANGES).map((r) => `<button data-range="${esc(r)}" class="${r === state.range ? 'on' : ''}">${esc(r.toUpperCase())}</button>`).join('')}</div></div>
       </section>
@@ -96,7 +96,7 @@ export async function render({ el, params, query, navigate }) {
       <div id="series-events"></div>
       <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="bottom"></div>
-      <div class="sec-head mt-44"><h2>People are also trading</h2></div><div id="also"></div>
+      <div class="sec-head mt-48"><h2>People are also trading</h2></div><div id="also"></div>
       ${ev.news || ev.news_items ? `<div class="sec-head"><h2>News</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${new Date(Date.now() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
     </div>
     <aside>
@@ -169,7 +169,7 @@ export async function render({ el, params, query, navigate }) {
       const yesAsk = cents(m.yes_ask_dollars); const noAsk = cents(m.no_ask_dollars);
       const statusNote = tradable ? '' : `<div class="faint">${m.status === 'finalized' || m.status === 'determined' ? 'Resolved ' + esc(m.result.toUpperCase()) : esc(m.status)}</div>`;
       return `<tr data-ticker="${esc(m.ticker)}" class="${m.ticker === state.selected ? 'selected' : ''}">
-        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-18">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${showShares() ? `Yes ${cents(m.yes_ask_dollars) ?? '—'}¢ · No ${cents(m.no_ask_dollars) ?? '—'}¢` : multiplier(m)}</div></div></div></td>
+        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-xl">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${showShares() ? `Yes ${cents(m.yes_ask_dollars) ?? '—'}¢ · No ${cents(m.no_ask_dollars) ?? '—'}¢` : multiplier(m)}</div></div></div></td>
         <td class="ta-c nowrap"><span class="prob" data-testid="prob-${esc(m.ticker)}">${p == null ? '—' : p + '%'}</span>${d ? ` <span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</td>
         <td class="ta-r"><button class="yes-btn ${pickOn(m, 'yes') ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${yesAsk ? yesAsk + '¢' : '—'}</button></td>
         <td><button class="no-btn ${pickOn(m, 'no') ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${noAsk ? noAsk + '¢' : '—'}</button></td></tr>`;
@@ -265,7 +265,7 @@ export async function render({ el, params, query, navigate }) {
       <div class="tkt-body">
         <div class="tkt-q">${esc(state.ev.title)}</div>
         <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
-        <div class="d-flex ai-center jc-between gap-10 fw-wrap">
+        <div class="d-flex ai-center jc-between gap-12 fw-wrap">
           <div class="yn-toggle side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">YES ${(selling ? cents(m.yes_bid_dollars) : yesAsk) || '—'}¢</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">NO ${(selling ? cents(m.no_bid_dollars) : noAsk) || '—'}¢</button></div>
           <button class="interest-link" id="interest-btn" type="button">3.5% Interest</button>
         </div>
@@ -421,14 +421,14 @@ export async function render({ el, params, query, navigate }) {
       try {
         const r = await api.socialTrades({ event_ticker: ev.event_ticker });
         if (stale()) return;
-        box.innerHTML = `<div class="card p-4-18"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
+        box.innerHTML = `<div class="card p-4-20"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
           ${r.trades.slice(0, 25).map((t) => { const px = t.taker_side === 'yes' ? cents(t.price_dollars) : 100 - cents(t.price_dollars); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : '<span class="faint">Anonymous</span>'}</td><td>${esc(t.outcome)}</td><td><strong class="c-${esc(t.taker_side)}">${esc(t.taker_side.toUpperCase())}</strong></td><td class="num">${px}¢</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
       } catch (e) { box.innerHTML = `<p class="faint">${esc(e.tooManyRequests ? 'Too many requests, try again shortly.' : e.message)}</p>`; }
     } else if (tab === 'ideas') {
       const r = await api.posts({ event_ticker: ev.event_ticker });
       if (stale()) return;
       const draft = box.querySelector('#composer textarea')?.value || '';
-      box.innerHTML = `${composer(ev.event_ticker)}<div class="card mt-10" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || '<div class="empty" data-testid="no-ideas">No posts yet. Be the first to share your view.</div>'}</div>`;
+      box.innerHTML = `${composer(ev.event_ticker)}<div class="card mt-12" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || '<div class="empty" data-testid="no-ideas">No posts yet. Be the first to share your view.</div>'}</div>`;
       wirePosts(box.querySelector('#ev-posts'), { navigate });
       wireComposer(box, (post) => { const list = box.querySelector('#ev-posts'); list.querySelector('[data-testid=no-ideas]')?.remove(); list.insertAdjacentHTML('afterbegin', postCard(post, { showEvent: false })); });
       const ta = box.querySelector('#composer textarea');
@@ -461,7 +461,7 @@ export async function render({ el, params, query, navigate }) {
       }
       const also = r.people_also_trading;
       const drawAlso = (n) => {
-        $('#also').innerHTML = also.slice(0, n).map((x) => `<a class="list-row" href="${eventHref(x)}" data-link data-testid="also-row">${evIcon(x, 'sm')}<span>${esc(x.title)}</span></a>`).join('') + (also.length > n ? '<button class="btn btn-pill h-44 c-brand" id="also-more">Show more</button>' : '');
+        $('#also').innerHTML = also.slice(0, n).map((x) => `<a class="list-row" href="${eventHref(x)}" data-link data-testid="also-row">${evIcon(x, 'sm')}<span>${esc(x.title)}</span></a>`).join('') + (also.length > n ? '<button class="btn btn-pill h-48 c-brand" id="also-more">Show more</button>' : '');
         const more = $('#also-more');
         if (more) more.onclick = () => drawAlso(also.length);
       };

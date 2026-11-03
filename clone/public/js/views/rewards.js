@@ -10,7 +10,7 @@ export async function render({ el, navigate }) {
   if (!session.user) { navigate('/sign-in?next=/rewards', { replace: true }); return; }
   document.title = 'Rewards · Parlance';
   const [c, r] = await Promise.all([idApi.checklist(), idApi.promoRedemptions(session.uid)]);
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Rewards</h1></div>
+  el.innerHTML = `<div class="page-head"><h1 class="page-title">Rewards</h1></div>
     <section class="card panel" data-testid="checklist"><h2>Get started</h2><p class="muted"><span data-testid="checklist-progress">${esc(c.completed)} of ${esc(c.steps.length)}</span> done</p>
       <ol class="checklist">${c.steps.map((s) => `<li class="${s.status === 'completed' ? 'done' : ''}" data-step="${esc(s.step)}" data-status="${esc(s.status)}"><span class="check" aria-hidden="true">${s.status === 'completed' ? '✓' : ''}</span>
         <span class="grow">${esc(s.title)}</span>${s.status === 'completed' ? '<span class="faint">Done</span>' : `<a class="btn btn-sm" href="${esc(s.link)}" data-link>Start</a>`}</li>`).join('')}</ol></section>
