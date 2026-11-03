@@ -4,6 +4,7 @@
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, ustr, E, ApiError, encCursor, decCursor } = require('./util');
+const { centsLabel, ccToDollars } = require('./pricing'); // Phase 5A cc prices (CLONE_SPEC.md §28.1)
 
 // Category navigation (spec §13.3; names follow the observed top-level set, subcategories come from series tags).
 const CATEGORIES = ['Politics', 'Sports', 'Elections', 'Crypto', 'Climate and Weather', 'Economics', 'Entertainment', 'Companies', 'Financials', 'Science and Technology'];
@@ -68,7 +69,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
 
   engine.on('fill', (uid, f) => {
     if (isSystem(uid)) return;
-    notify(uid, { type: 'fill', title: `Order filled: ${ustr(f.count)} ${f.side.toUpperCase()} @ ${f.price_cents}¢`, body: marketLabel(f.market_ticker), link: eventLink(f.market_ticker), meta: { is_taker: !!f.is_taker, order_id: f.order_id } });
+    notify(uid, { type: 'fill', title: `Order filled: ${ustr(f.count)} ${f.side.toUpperCase()} @ ${centsLabel(f.price_cc ?? f.price_cents * 100)}`, body: marketLabel(f.market_ticker), link: eventLink(f.market_ticker), meta: { is_taker: !!f.is_taker, order_id: f.order_id } });
   });
   engine.on('settlement', (uid, s) => {
     if (isSystem(uid)) return;
@@ -146,7 +147,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   }
   const usedToday = {
     deposit: (uid) => db.prepare("SELECT COALESCE(SUM(amount_cents),0) c FROM ledger WHERE user_id=? AND kind='deposit' AND created_at>=?").get(uid, new Date(dayStartMs()).toISOString()).c,
-    trading: (uid) => db.prepare('SELECT CAST((COALESCE(SUM(initial_count*price_cents),0)+99)/100 AS INTEGER) c FROM orders WHERE user_id=? AND created_at>=?').get(uid, new Date(dayStartMs()).toISOString()).c,
+    trading: (uid) => db.prepare('SELECT CAST((COALESCE(SUM(initial_count*price_cc),0)+9999)/10000 AS INTEGER) c FROM orders WHERE user_id=? AND created_at>=?').get(uid, new Date(dayStartMs()).toISOString()).c,
     session: (uid) => db.prepare('SELECT seconds FROM session_usage WHERE user_id=? AND day=?').get(uid, dayKey())?.seconds ?? 0,
   };
   function limitVo(uid, kind) {
@@ -416,7 +417,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
       return f && f.share_trades ? f.nickname : '';
     };
     res.json({
-      trades: rows.slice(0, 50).map((t) => ({ trade_id: t.id, ticker: t.market_ticker, outcome: t.yes_sub_title, price_dollars: dollars(t.yes_price_cents), count_fp: ufp(t.count), taker_side: t.taker_side, taker_nickname: nickFor(t.id, true), maker_nickname: nickFor(t.id, false), create_date: new Date(t.created_ts).toISOString() })),
+      trades: rows.slice(0, 50).map((t) => ({ trade_id: t.id, ticker: t.market_ticker, outcome: t.yes_sub_title, price_dollars: ccToDollars(t.yes_price_cc), count_fp: ufp(t.count), taker_side: t.taker_side, taker_nickname: nickFor(t.id, true), maker_nickname: nickFor(t.id, false), create_date: new Date(t.created_ts).toISOString() })),
       cursor: rows.length > 50 ? encCursor({ o: off + 50 }) : '',
     });
   });

@@ -97,7 +97,7 @@ const CATALOG = [
 // (DEMO_PASSWORD) or a random password printed once here; there is no default password.
 function seed(db, { reset = false, demoPassword = null, quiet = false } = {}) {
   if (reset) {
-    for (const t of ['rfq_quotes', 'rfqs', 'combo_slips', 'combo_creations', 'combo_legs']) {
+    for (const t of ['rfq_quotes', 'rfqs', 'combo_slips', 'combo_creations', 'combo_legs', 'collateral_returns', 'res_approvals', 'settlement_corrections']) {
       if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t)) db.exec(`DELETE FROM ${t}`);
     }
     db.exec(`DELETE FROM follows; DELETE FROM comments; DELETE FROM post_likes; DELETE FROM post_bookmarks; DELETE FROM posts; DELETE FROM social_profiles; DELETE FROM notifications; DELETE FROM price_targets; DELETE FROM user_limits; DELETE FROM session_usage; DELETE FROM mfa_challenges; DELETE FROM mfa; DELETE FROM recently_visited; DELETE FROM watchlist; DELETE FROM ledger; DELETE FROM settlements; DELETE FROM positions; DELETE FROM fills; DELETE FROM trades; DELETE FROM orders; DELETE FROM markets; DELETE FROM events; DELETE FROM series; DELETE FROM user_settings; DELETE FROM sessions; DELETE FROM users; DELETE FROM meta;`);

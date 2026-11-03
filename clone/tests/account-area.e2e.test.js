@@ -246,8 +246,8 @@ test('Settings: observed order; every setting persisted and applied app-wide; co
   const yes1 = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--yes').trim());
   assert.notEqual(yes1, yes0); assert.equal(yes1, '#1e5fd8', 'red-green safe Yes colour (light)');
 
-  // 7. Trade mechanics: stored now (Phase 5 tags), RFQ opt-in is the existing rfq_enabled setting.
-  assert.equal(await page.locator('[data-testid=set-trade-mechanics] [data-testid=phase5-tag]').count(), 4);
+  // 7. Trade mechanics: live since Phase 5A (no "takes effect in Phase 5" tags), RFQ opt-in is the existing rfq_enabled setting.
+  assert.equal(await page.locator('[data-testid=set-trade-mechanics] [data-testid=phase5-tag]').count(), 0);
   for (const k of ['trade_flip_sell', 'trade_auto_sell_prompt', 'trade_skip_review', 'rfq_enabled']) await page.click(`[data-testid=toggle-${k}]`);
   await page.click('[data-testid=toggle-trade_collateral_return]'); // default on → off
   await H.until(() => prop(uid, 'rfq_enabled') === true && prop(uid, 'trade_collateral_return') === false);

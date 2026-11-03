@@ -317,7 +317,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
         const o = db.prepare('SELECT status, filled_count, side, market_ticker FROM orders WHERE id=?').get(meta.order_id);
         if (!o || o.status === 'resting') return { store: false };
         if (!db.prepare('INSERT INTO notif_order_done(order_id,user_id,created_ts) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(meta.order_id, uid, Date.now()).changes) return { store: false };
-        const f = db.prepare('SELECT COALESCE(SUM(count),0) n, COALESCE(SUM(count*price_cents),0) v FROM fills WHERE order_id=? AND user_id=?').get(meta.order_id, uid);
+        const f = db.prepare('SELECT COALESCE(SUM(count),0) n, COALESCE(SUM(count*price_cc),0)/100 v FROM fills WHERE order_id=? AND user_id=?').get(meta.order_id, uid);
         title = `Order ${o.status === 'executed' ? 'filled' : 'completed'}: ${(f.n / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${String(o.side).toUpperCase()} @ avg ${f.n ? Math.round(f.v / f.n) : 0}¢`;
       }
     }

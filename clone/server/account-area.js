@@ -34,16 +34,18 @@ CREATE TABLE IF NOT EXISTS promo_attempts (user_id TEXT NOT NULL, ts INTEGER NOT
 CREATE INDEX IF NOT EXISTS idx_promo_attempts ON promo_attempts(user_id, ts);
 `;
 
-// Settings page (CLONE_SPEC §13.16, in page order). `phase5` marks trade mechanics whose engine behaviour lands in Phase 5
-// (A7–A9); the preference itself is stored and returned now. `rfq_enabled` is the existing RFQ opt-in (spec §17.6).
+// Settings page (CLONE_SPEC §13.16, in page order). `phase5` marked trade mechanics stored before their behaviour existed;
+// Phase 5A made them live, so the list it produces is now empty. `rfq_enabled` is the existing RFQ opt-in (spec §17.6).
 const PREFS = {
   display_mode: { values: ['payout', 'shares'], def: 'payout' },
   theme: { values: ['system', 'light', 'dark'], def: 'dark' },
   accessible_colors: { bool: true, def: false },
-  trade_flip_sell: { bool: true, def: false, phase5: true },
-  trade_auto_sell_prompt: { bool: true, def: false, phase5: true },
-  trade_skip_review: { bool: true, def: false, phase5: true },
-  trade_collateral_return: { bool: true, def: true, phase5: true },
+  // Live since Phase 5A (CLONE_SPEC.md §28.5–§28.6): read by the ticket (review, auto-sell), POST orders (flip sell) and
+  // server/trading-core.js (collateral return).
+  trade_flip_sell: { bool: true, def: false },
+  trade_auto_sell_prompt: { bool: true, def: false },
+  trade_skip_review: { bool: true, def: false },
+  trade_collateral_return: { bool: true, def: true },
   rfq_enabled: { bool: true, def: false },
   market_price_type: { values: ['last_traded', 'current_buy'], def: 'last_traded' },
 };
@@ -169,15 +171,15 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
   function yearly(uid) {
     const out = new Map();
     const Y = (y) => { if (!out.has(y)) out.set(y, { year: y, realized: 0, fees: 0, credits: 0, interest: 0, trades: 0 }); return out.get(y); };
-    const fills = db.prepare('SELECT market_ticker, side, price_cents, count, fee_cents, is_taker, created_ts ts FROM fills WHERE user_id=?').all(uid).map((f) => ({ ...f, kind: 'fill' }));
-    const setts = db.prepare('SELECT market_ticker, payout_cents, cost_cents, created_at FROM settlements WHERE user_id=?').all(uid).map((s) => ({ ...s, kind: 'settle', ts: Date.parse(s.created_at) }));
+    const fills = db.prepare('SELECT market_ticker, side, price_cc, count, fee_cents, is_taker, created_ts ts FROM fills WHERE user_id=?').all(uid).map((f) => ({ ...f, kind: 'fill' }));
+    const setts = db.prepare('SELECT market_ticker, COALESCE(effective_payout_cents, payout_cents) payout_cents, cost_cents, created_at FROM settlements WHERE user_id=?').all(uid).map((s) => ({ ...s, kind: 'settle', ts: Date.parse(s.created_at) }));
     const inv = new Map();
     for (const e of [...fills, ...setts].sort((a, b) => a.ts - b.ts || (a.kind === 'fill' ? -1 : 1))) {
       const m = inv.get(e.market_ticker) || { yes: { u: 0, c: 0 }, no: { u: 0, c: 0 } };
       inv.set(e.market_ticker, m);
       const y = Y(yearOf(e.ts));
       if (e.kind === 'fill') {
-        const cost = e.is_taker ? Math.ceil((e.count * e.price_cents) / UNITS) : Math.floor((e.count * e.price_cents) / UNITS);
+        const cost = e.is_taker ? Math.ceil((e.count * e.price_cc) / (UNITS * 100)) : Math.floor((e.count * e.price_cc) / (UNITS * 100)); // price in cc (CLONE_SPEC.md §28.1)
         m[e.side].u += e.count; m[e.side].c += cost; y.fees += e.fee_cents; y.trades += 1;
         const pairs = Math.min(m.yes.u, m.no.u);
         if (pairs > 0) {

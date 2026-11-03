@@ -11,7 +11,7 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 196 end-to-end browser scenarios across 24 files (Playwright + node:test)
+npm run test:e2e     # 206 end-to-end browser scenarios across 25 files (Playwright + node:test)
 ```
 
 **If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
@@ -27,6 +27,18 @@ npm run test:e2e     # 196 end-to-end browser scenarios across 24 files (Playwri
 Port: with `PORT` unset the server tries 3000-3019 and prints the URL it actually bound. With `PORT=8080 npm start` (PowerShell: `$env:PORT=8080; npm start`) it uses exactly that port and exits with a clear message if the port is busy.
 
 Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_PASSWORD`, `SECRET_KEY` / `SECRET_KEY_FILE` (default: `secret.key` next to the database), `SECURE_COOKIES=1` behind a TLS proxy, `SCRYPT_LOG_N` (see `.env.example`). Requires Node ≥ 22.5 (`node:sqlite`).
+
+## Trading core (Phase 5A)
+
+- **Finer prices.** Some markets trade in 0.1¢ steps (`deci_cent`), or in finer steps near 0¢ and 100¢ (`tapered`). Combos use 0.1¢ steps, and 0.01¢ near the edges. The ticket's limit field steps by the market's tick and lists the bands.
+- **Fees.** Fees are charged once per order: the exact fee of every fill is added up and rounded up a single time.
+- **Scalar markets** (for example *Harbor GDP growth in Q4 2026*) pay YES a share of $1 by the reported value between a floor and a cap; NO gets the rest. Admins resolve them with the value.
+- **Settings › Trade mechanics** are live:
+  - **Skip order review** is off by default, so orders show a review first.
+  - **Auto-sell prompt** offers a take-profit sell after a buy fills.
+  - **Flip sell** lets you sell more than you hold to buy the other side.
+  - **Collateral return**, on by default, gives cash back early when your positions across one either/or event guarantee a payout. Portfolio shows the amount.
+- **Admin › Resolution.** A settled market can be corrected (clawed back or re-paid, with a reason and step-up). An optional two-person rule makes a second admin approve resolutions and corrections.
 
 ## Pages
 

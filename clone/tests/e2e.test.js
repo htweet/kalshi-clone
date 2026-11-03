@@ -161,7 +161,7 @@ test('trading: market buy fills with exact cost + fee, position appears everywhe
   const askC = Math.round(Number(ask) * 100);
   await mode(page, 'market');
   await page.fill('#t-count', '10');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Filled 10 YES")');
   await page.waitForSelector('[data-testid=my-position]:has-text("Ravens")');
   const fee = Math.ceil((7 * 10 * askC * (100 - askC)) / 10000);
@@ -180,7 +180,7 @@ test('trading: market buy fills with exact cost + fee, position appears everywhe
   assert.equal(await page.isDisabled('[data-testid=submit-order]'), true);
   await page.fill('#t-price', '50');
   await page.fill('#t-count', '90000');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('#t-error:has-text("insufficient balance")');
   assert.deepEqual(page.errors, []);
   await page.context().close();
@@ -209,7 +209,7 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   await mode(pa, 'limit');
   await pa.fill('#t-price', '45');
   await pa.fill('#t-count', '7');
-  await pa.click('[data-testid=submit-order]');
+  await pa.click('[data-testid=submit-order]'); await pa.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pa.waitForSelector('.toast:has-text("Order resting")');
   await bookHas(pb, '45¢'); // arrived via orderbook_delta
 
@@ -221,7 +221,7 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   await mode(pb, 'limit');
   await pb.fill('#t-price', '55');
   await pb.fill('#t-count', '7');
-  await pb.click('[data-testid=submit-order]');
+  await pb.click('[data-testid=submit-order]'); await pb.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pb.waitForSelector('.toast:has-text("Filled 7 NO")');
   await bookHas(pb, '45¢', false);
   await pa.waitForSelector('[data-testid=no-orders]'); // live via user_orders channel
@@ -236,7 +236,7 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   await mode(pa, 'limit');
   await pa.fill('#t-price', '5');
   await pa.fill('#t-count', '20');
-  await pa.click('[data-testid=submit-order]');
+  await pa.click('[data-testid=submit-order]'); await pa.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pa.waitForSelector('.toast:has-text("Order resting")');
   assert.equal(dbq('SELECT balance_cents b FROM users WHERE email=?', alice.email)[0].b, before - 20 * (5 + 1));
   await pa.goto(BASE + '/portfolio');
@@ -312,7 +312,7 @@ test('lifecycle: admin pause/resume/resolve, MARKET_INACTIVE errors, automatic s
   await pa.click(`tr[data-ticker="${TICK}"] [data-pick=yes]`);
   await mode(pa, 'market');
   await pa.fill('#t-count', '4');
-  await pa.click('[data-testid=submit-order]');
+  await pa.click('[data-testid=submit-order]'); await pa.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pa.waitForSelector('.toast:has-text("Filled 4 YES")');
 
   const admin = await newPage();
@@ -440,7 +440,7 @@ test('server restart: data and sessions persist; open page reconnects WS and res
   await mode(pb, 'limit');
   await pb.fill('#t-price', '3');
   await pb.fill('#t-count', '11');
-  await pb.click('[data-testid=submit-order]');
+  await pb.click('[data-testid=submit-order]'); await pb.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pb.waitForSelector('.toast:has-text("Order resting")');
   await bookHas(page, '3¢');
 

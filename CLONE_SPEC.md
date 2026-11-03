@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 9 (2026-11-03):** §28 trading core (PLAN Phase 5A): sub-cent price grids, the fee accumulator, scalar markets, order review / auto-sell / flip sell, MECNET collateral return, settlement correction with the two-person rule, combos on the finer grid with the HVM window.
+>
 > **Revision 8 (2026-11-03):** §26 payments, sandbox only (PLAN Phase 4).
 >
 > **Revision 7 (2026-11-03):** §13.13–§13.19 from logged-in captures and screenshots; §24 social and community completion; §25 accounts, identity, compliance and the account area (PLAN Phases 2–3).
@@ -396,9 +398,10 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §24 social completion: position-tagged posts, stickers, mute, edit window, follows/topics, profile search, badges, full notification matrix + push/email channels, Inner Circle, group chats, RFQ rest-remainder/obscured creator, chat reactions/edits | yes | tests `social2`, `groupchat` |
 | §25 identity: onboarding (phone code → name → DOB → address/ID → document verification with QR phone handoff), encrypted PII, KYC sandbox + review, email verification/reset, OAuth (mock provider), passkeys, geo/fraud simulation, export/closure, account area (activity, documents, settings), promo codes, checklist | yes | tests `onboarding`, `identity2`, `account-area` |
 | §26 payments, sandbox only: observed funds routes (cards, bank link, crypto, deposits/withdrawals, withdrawal_times, metadata, credit_history), card tokenizer (no PAN stored), ACH pending → settled / returns, crypto confirmations, signed webhooks with replay protection, double-entry journal + audit, reconciliation queue, limits, AML hooks, holds, withdrawal 2FA, non-withdrawable credits, Admin › Payments | yes (sandbox) | tests `payments`; UI is a Parlance design (screens not observed) |
+| §28 trading core (Phase 5A): price grids `linear_cent` / `deci_cent` / `tapered` / combo `center_deci_edge_centi_cent` in centi-cents, G1 fee accumulator, scalar markets, order review + auto-sell prompt, flip sell, MECNET collateral return, settlement correction (claw-back, debt rule, step-up, audit) with the optional two-person rule, combos on the finer grid + HVM 3 s window | yes | tests `trading-core`; tick bands and the tapered name are design choices (§28.1) |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 196 Playwright scenarios across 24 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 206 Playwright scenarios across 25 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -1216,11 +1219,11 @@ Per-market position objects are INFERRED from `chunk:1_rhh98rkbbd9.js` `marketPo
 
 | # | Topic | Choice |
 | --- | --- | --- |
-| C1 | Sub-cent amounts | Integer cents; taker ceil / maker remainder; fee ceil; no accumulator (§16.2) |
+| C1 | Sub-cent amounts | Integer cents; taker ceil / maker remainder; fee ceil per order through the accumulator since §28.3 (G1) |
 | C2 | Fractional markets | All seeded markets except PLXSTATE; combos and rolling markets on (§16.3) |
 | C3 | Combo ticker | sha256 of the sorted legs (§17.1) |
 | C4 | Leg limits | 2–6 legs, distinct events, active non-combo non-rolling markets |
-| C5 | Combo price grid | Cent grid (doc: deci/centi-cent edges) |
+| C5 | Combo price grid | `center_deci_edge_centi_cent` since §28.8 (G12) |
 | C6 | `accepted_side` meaning | The bid accepted; the requester takes the other side |
 | C7 | Timers | Quote 20 s, RFQ 10 min, one confirm window of 30 s, execution timer 0; all configurable |
 | C8 | Simulated maker | Combos only; product of leg odds ± max(3¢, 8%) |
@@ -1317,7 +1320,7 @@ Users with no role who open `/admin` get a friendly page (`data-testid=admin-for
 - **Resolve.** Requires YES/NO, a source note (5-1000 characters, stored in `res_resolutions`) and an optional settlement delay. The delay is written to `markets.settlement_timer_seconds`. The desk then calls `engine.determine()`; the existing tick runs `engine.finalize()` (payouts, `settlements`, `settlement` ledger rows, notifications) when the timer expires. A delay of 0 settles immediately.
 - **Reversal (before settlement only).** A `determined` market goes back to `closed` with `result=''` and `determined_at=NULL`, and the resolution row is marked `reversed` with a reversal note. No money has moved at that point, so this is ledger-correct by construction.
   - Reversal is refused if a combo has already resolved from this leg.
-  - **Reversal after settlement is not supported.** Clawing back paid-out cash safely needs negative-balance handling and user-facing disputes. The desk returns `409 already_settled`. The settlement delay is the review window that allows a reversal.
+  - **Reversal after settlement** goes through the settlement correction of §28.7 (claw-back through the ledger, debt rule, step-up, optional two-person rule). The reverse action itself still returns `409 already_settled` on a settled market. The settlement delay remains the review window for a reversal without money moving.
 - **Settle now** finalizes a determined market immediately.
 - **Close early** requires a reason and the market's `can_close_early` flag, and calls `engine.close()`.
 
@@ -3231,6 +3234,251 @@ Values the screenshots do not give (sizes, weights, spacing, control heights) ar
 - Page titles stay in the condensed display face (rule 2, matching §15.1).
 - Header nav 13px semibold uppercase with 0.06em tracking; category strip 14px medium.
 - Market-card titles 16px semibold; other sizes as listed in §27.2.
+
+---
+
+## 28. Trading core (Phase 5A)
+
+PLAN.md Phase 5 (P5.1, the scalar part of P5.2, the security gate), gaps G1, G6 and G12, and A7–A9 from §13.16. Code:
+`server/pricing.js` (grids, centi-cent prices, fee arithmetic), `server/engine.js` (matching, accumulator, scalar
+settlement, correction primitive), `server/trading-core.js` (collateral return, corrections, two-person rule, seed
+content), the ticket in `public/js/views/event.js`, Portfolio, Settings and the resolution desk. Tests:
+`tests/trading-core.e2e.test.js`.
+
+### 28.1 Price grids (P5.1)
+
+**Observed.** Markets carry `price_level_structure` (`"linear_cent"` with `price_ranges:[{start:"0.0000",end:"1.0000",step:"0.0100"}]`,
+HAR1#10). The openapi `PriceRange{start,end,step}` says to "use these ranges to determine valid prices rather than
+hardcoding the structure name". The RFQ docs name `center_deci_edge_centi_cent` for combos (§17.5). Prices are 4-decimal
+dollar strings (§5.1).
+
+**UNKNOWN.** The band edges of the sub-cent structures and the exact name of the tapered one.
+
+**Design choice.** Prices are stored as integer **centi-cents** (cc, $0.0001; $1 = 10,000 cc), which is the resolution of
+the 4-decimal strings. Every grid is symmetric (p is a tick ⇔ 10,000 − p is a tick), and every grid contains every whole
+cent, so integer-cent callers stay valid everywhere.
+
+| `price_level_structure` | Bands (start–end: step) | Use |
+| --- | --- | --- |
+| `linear_cent` | 0–1: $0.01 | every market before Phase 5A (default) |
+| `deci_cent` | 0–1: $0.001 | seeded `PLXSNOW-26DEC`, the scalar `PLXGDP-26Q4` |
+| `tapered` | 0–0.01: $0.0001 · 0.01–0.10: $0.001 · 0.10–0.90: $0.01 · 0.90–0.99: $0.001 · 0.99–1: $0.0001 | seeded `PLXCOMET-26` |
+| `center_deci_edge_centi_cent` | 0–0.01: $0.0001 · 0.01–0.99: $0.001 · 0.99–1: $0.0001 | every combo (G12) |
+
+- **Storage.** New columns `orders.price_cc`, `trades.yes_price_cc`, `fills.price_cc` are authoritative. The
+  `price_cents` columns stay as the rounded whole-cent view for label-only readers. Triggers fill `*_cc` for rows that
+  integer-cent writers insert (seed data, simulated sports prints). The migration backfills `cc = cents × 100` and is
+  additive (§28.9).
+- **Engine.** `placeOrder` takes `price_cc` or the legacy `price` (cents), rejects a limit that is not a tick
+  (400 `invalid_price`, with the bands in `details`), and matches by `price_cc`. Market orders use the top tick of the
+  grid as the protective limit (99¢ on `linear_cent`, as before). The reservation bound generalises exactly:
+  `R(n) = ceil(n·(L + 100·cap)/10^4)` with L in cc.
+- **API.** `POST /users/:uid/orders` and `…/amend` accept `price_dollars` (≤ 4 decimals) or `price` in cents (decimals
+  allowed). Market JSON adds `price_ranges` from the grid and `tick_size_dollars` (the smallest step). The order book,
+  trades, candlesticks, the WS `ticker` / `orderbook_snapshot` / `orderbook_delta` / `trade` messages and the order and
+  fill objects all emit the 4-decimal strings from cc. `GET …/orderbook` also returns the grid.
+- **UI.** The ticket's limit input steps by the grid's smallest tick (1, 0.1 or 0.01 ¢), validates against the bands and
+  lists them ("Ticks: …"). Prices render as `45¢`, `45.3¢`, `0.55¢` everywhere (book, outcome rows, Activity,
+  Portfolio, History). The book header names a non-default grid. The chart keeps sub-cent values.
+
+### 28.2 Fractional quantities on every grid
+
+Quantities stay integer hundredths of a contract (§16.1). q units at p cc: the pair costs exactly q cents; the taker pays
+`ceil(q·p/10^4)` and the maker `floor(q·p_maker/10^4)` (§16.2 with cc). Settlement and netting are unchanged.
+
+### 28.3 Fee accumulator (G1)
+
+**Observed (DOC fee_rounding, §5.1).** The trade fee is rounded **up** to $0.000001, a rounding fee realigns the balance,
+and a per-order accumulator rebates the excess.
+
+**Design choice.**
+- The exact fee of a fill is `ceil(k·m·q·p·(10^4 − p) / 10^12)` micro-dollars (k = coefficient × 10^4, m = series
+  multiplier × 10^4; BigInt, so it is exact at every size).
+- Each order keeps an accumulator (`orders.fee_micro`). After every fill the order has been charged
+  `ceil(accumulated / 10^4)` whole cents, so a fill pays `ceil(acc_after) − ceil(acc_before)` cents (it can be 0).
+- The result: an order pays ceil(Σ exact fees), at most one cent of rounding per order, instead of up to one cent per
+  fill. A single-fill order pays exactly what it did before, so the whole-contract tests are unchanged.
+- Plans, the reservation buffer, the Positions sell estimate (`sellWalk`) and RFQ sizing use the same accumulator.
+- **Journal (balances to the cent).** A fill's charge moves from `user:<uid>:reserved` to `house:fees` (the increase of
+  floor(accumulated)) and `house:fees:rounding` (the rest, −1 to +1 cent). The residual below a cent is carried in
+  `orders.fee_micro` (exposed as `taker_fees_exact_dollars` and `taker_fees_rounding_dollars`). The audit checks
+  `house:fees:rounding = Σ(fees_cents − floor(fee_micro/10^4))` over orders. Pre-5A orders are migrated as exact
+  (`fee_micro = fees_cents × 10^4`).
+
+### 28.4 Scalar markets (P5.2, scalar part)
+
+**Observed (openapi).** `market_type: binary | scalar`, `floor_strike`, `cap_strike`, `expiration_value`,
+`settlement_value_dollars` / `yes_settlement_value_dollars`, `result: 'scalar'`, `settlement_bounds_type`.
+
+**Design choice.**
+- A scalar market is the same two-sided book. At expiration the reported value v sets the YES payout to
+  `s = clamp((v − floor)/(cap − floor), 0, 1)`, rounded to the nearest $0.0001. NO pays `1 − s`.
+- Each holder is paid `floor(yes·s) + floor(no·(1 − s))` cents. The up to 1¢ per holder left in escrow goes to
+  `house:settlement_rounding`, so escrow ends at exactly zero.
+- Binary markets are the special case s ∈ {0, 1}; it is the same code path.
+- **Resolution.** The resolution desk (and the event-page admin box) asks for the value instead of YES/NO
+  (`expiration_value`). The market shows the value, `settlement_value_dollars` and `result: "scalar"`.
+- **UI.**
+  - The outcome row reads "Scalar · pays by value, −2% to 6%".
+  - A "How this market pays" card shows the formula and a worked example, then the settled value and both payouts.
+  - The ticket notes the formula, the review shows the payout range, and the closed ticket shows "Settled at 3.1%: YES pays 63.75¢".
+- **Seed.** An invented `PLXGDP-26Q4` (Harbor GDP growth, floor −2%, cap 6%, 0.1¢ grid).
+- **Creation.** The catalog draft takes `market_type`, `floor_strike`, `cap_strike`, `scalar_unit` and
+  `price_level_structure` (`catalog.write` only; the cap must exceed the floor).
+
+### 28.5 Order review, auto-sell prompt and flip sell (A7, A8)
+
+- **Order review.** By default (**Skip order review** off, §13.16) the ticket's button reads "Review · Buy Yes" and opens
+  a review panel: the order, the price or limit (and expiry), the max cost, the fee estimate and the payout. It has
+  **Edit** and **Place order**.
+  - With Skip order review on, the order is placed at once.
+  - A flip sell always shows the review ("unless a warning … needs acknowledgement", §13.16).
+  - The panel replaces the ticket body while open, so a sticky ticket never outgrows the viewport.
+- **Auto-sell prompt.** With the setting on, a buy that filled offers "Set an automatic sell?".
+  - The filled size is prefilled at the average fill price (from the new `fill_avg_price_dollars` on the order
+    response) + 10¢, snapped to the grid.
+  - **Place sell** submits a resting limit sell, which is an ordinary GTC order.
+- **Flip sell.** With **Flip sell** on, `POST orders` with `action:"sell"` and a size above the holding no longer
+  returns 409 `insufficient_position`.
+  - It places one order buying the other side for the full size. The held part nets back to cash first (§15.4) and
+    the remainder opens the opposite position.
+  - `orders.flip_units` records the opening part, and the response carries `flip:{closed_fp, opened_side, opened_fp}`.
+  - The ticket shows "Flip sell: Sells 165 YES you hold and buys 10 NO at 87.8¢".
+  - On whole-contract markets the opening part must be whole.
+  - Without the setting, the old 409 now tells the user about the setting.
+- **UNKNOWN.** The live review layout, the default auto-sell target and whether flip is one order or two.
+  **Design choice:** as above.
+
+### 28.6 Collateral return on mutually exclusive events (A9)
+
+**Observed.** `collateral_return_type: "MECNET"` on mutually exclusive events (HAR4). The openapi `EventData` says MECNET
+netting "applies within this event" and "requires netting to be enabled for the trading account" (the
+**Collateral return** setting, §13.16, default on).
+
+**Design choice.**
+- **Guarantee.** At most one outcome of the event resolves YES, and possibly none. The guaranteed payout of a user's
+  positions is `G = Σ no − max(0, maxᵢ(noᵢ − yesᵢ))`.
+  - Determined outcomes count at their known payout.
+  - Once any outcome is known YES, every other outcome pays its NO side exactly.
+  - Events with a scalar market never qualify.
+- **Advance.** The engine re-derives the user's advance for that event inside every fill and settlement transaction
+  (`positionHooks`, `settleHooks`), keeping it at G.
+  - The difference is a ledger entry of kind `collateral_return` against `house:collateral_advance` (positive when
+    released, negative when repaid).
+  - Settlement pays the full payout as usual, then the advance is repaid from it.
+  - Selling part of the hedge repays at once from the sale's netting proceeds.
+- **Setting.** With Collateral return off, nothing new is released, but a shrinking guarantee still repays the excess.
+- **Audit.** `house:collateral_advance = −Σ collateral_returns.amount_cents`; escrow still equals open interest (the
+  advance is not taken from escrow).
+- **API and UI.**
+  - `GET /users/:uid/collateral_returns`, plus `POST …/refresh` (Settings calls it when the toggle changes).
+  - Events expose `collateral_return_type`.
+  - Portfolio › Positions shows a "Collateral returned" stat and a "Collateral returned early" card per event.
+  - The total value no longer counts the advance twice.
+  - History lists `collateral_return` rows under Trades.
+- **Example (seeded rate decision, 3 outcomes).** NO on all three × 10 contracts → G = $30 − $10 = **$20 back now**.
+
+### 28.7 Settlement correction, two-person rule, permissions (G6, security gate)
+
+**UNKNOWN (§18.1 R12).** Admin tooling. **Design choice:**
+- **Correct a settled market.** `POST /admin/resolution/:ticker/correct {result | expiration_value, reason}` needs
+  `resolution.write` and **step-up** (`settlement_correction`). The reason must be 10–1000 characters. The market must
+  be finalized and must not be a combo or a leg of a resolved combo.
+  - The reverse-before-settlement path (§18.4) is unchanged; on a settled market it still answers `already_settled`, and
+    its details now point here.
+  - The engine re-prices every settlement row at the new result. Each holder's difference is a `settlement_correction`
+    ledger entry against `escrow:<ticker>`: a claw-back or a re-pay. The scalar rounding residual is re-derived, so
+    escrow ends at zero.
+  - Cash may go **negative**. This is the Phase 4 debt rule (§26.5): withdrawals answer `negative_balance` until a
+    deposit repays it, and credits are not touched.
+  - Settlement rows keep what was paid. `settlements.effective_payout_cents` tracks the corrected amount, which feeds
+    settlement history, Documents P&L and the desk totals.
+  - Each correction is a `settlement_corrections` row (users, claw-back, re-paid, requester, approver) and a
+    `res_resolutions` row with status `corrected`. It writes a hash-chained `resolution.correct` audit row with the
+    reason.
+  - Every affected user is notified (`settlement_correction`) with the amount, the reason and, when cash is negative,
+    what they owe.
+- **Two-person rule.** It is an admin setting (`PUT /admin/resolution/policy {two_person_rule}`, `settings.write` +
+  step-up, stored in `admin_settings`).
+  - With it on, a resolution or a correction answers **202** `pending_approval` and creates a `res_approvals` row. Other
+    resolvers are notified.
+  - A **different** admin with `resolution.write` approves (`…/approvals/:id/approve`; same admin → 409 `same_admin`;
+    corrections need step-up) or rejects with a note. Requests lapse after 24 h.
+  - Request, approval and rejection are each audited. Nothing changes until approval.
+  - The desk shows the rule, a "Waiting for a second admin" table and the Correct settlement… dialog.
+- **Market-creation permissions.** Drafting a market (including scalar and grid fields) still needs `catalog.write`. A
+  resolver gets 403. The authz matrix classifies every new route.
+
+### 28.8 Combos on the finer grid and the HVM window (G12)
+
+- **Grid.** Combo markets use `center_deci_edge_centi_cent` (§28.1); existing combos are migrated.
+  - Quotes are validated against the market's grid: 0.1¢ in the middle and 0.01¢ near the edges for combos, whole cents
+    for single markets.
+  - Quotes are stored as `rfq_quotes.yes_bid_cc / no_bid_cc`.
+  - The Other RFQs form steps 0.1¢ for combos.
+  - The simulated maker keeps whole-cent quotes, which are valid on every grid. **Design choice:** its price model is
+    unchanged.
+- **HVM.** Observed (`getting_started_rfqs.md` §Timing): standard 30 s, HVM 3 s.
+  - **Design choice:** a maker opts in per quote (`hvm: true`, the "HVM 3 s" checkbox). Accepting it opens a 3-second
+    last-look window (`confirm_window_ms`).
+  - If the maker does not confirm in time, the quote expires `not_confirmed` and the RFQ reopens.
+  - Quotes show `hvm` and `confirm_window_seconds`, and the Quotes tab marks them "HVM 3 s".
+  - The window is `combos.hvmConfirmWindowMs` (default 3000).
+
+### 28.9 Migration and shared files
+
+`db.js migratePhase5a()` (idempotent, additive) adds:
+- **markets:** `price_level_structure`, `market_type`, `floor_strike`, `cap_strike`, `scalar_unit`, `expiration_value`,
+  `settlement_value_cc`;
+- **orders:** `price_cc`, `fee_micro`, `flip_units`;
+- **trades:** `yes_price_cc`;
+- **fills:** `price_cc`, `fee_micro`;
+- **settlements:** `settlement_value_cc`, `effective_payout_cents`, `corrected_at`.
+
+It also adds a `price_cc` book index and the triggers of §28.1, then backfills. New tables are created by
+`server/trading-core.js` (`collateral_returns`, `res_approvals`, `settlement_corrections`) and `server/combos.js`
+(quote cc columns, `hvm`, `confirm_window_ms`). `seed --reset` clears the new tables.
+
+Small shared-file edits: `server/app.js` (mount, order route, cc views), `server/seed.js` (reset list),
+`public/index.html` (`trading.css`), `package.json` (test file). `public/js/main.js` is unchanged.
+
+### 28.10 Verification (`tests/trading-core.e2e.test.js`, 10 scenarios)
+
+| Scenario | Checks |
+| --- | --- |
+| Sub-cent grid | Grid JSON; a 0.1¢ limit from the ticket (off-grid refused in UI and API) crossing two makers with price improvement; exact per-fill micro fees; order fee = ceil(Σ); cash = principal + fee exactly; journal split; book, candles and tapered 0.01¢ resting bid |
+| Review on/off | Review panel, Edit; Skip order review places at once |
+| Auto-sell | Prompt after a fill; resting 20.5¢ take-profit |
+| Flip sell | Refused when off (UI + 409); review line; position flips; `flip_units` |
+| Scalar | Two users, desk resolve at 3.1%; YES/NO payouts floored; residual to the house; event page and History |
+| Collateral return | MECNET guarantee $20 released; Portfolio card; journal; off keeps but claws on sell; settlement repays to zero |
+| Correction | Step-up dialog; claw-back to negative cash (debt rule blocks withdrawal); re-pay; notifications; audit chain; History |
+| Two-person rule | 202 pending; same admin refused; second admin approves from the desk; rejected resolution changes nothing; catalog permissions for scalar drafts |
+| Combos + HVM | Combo grid; off-grid quote refused; 0.1¢ HVM quote from Portfolio; 3 s lapse; confirmed execution at 39.7¢ with exact fee |
+| Restart | Persistence of prices, advances, corrections, approvals; `journal.audit()` and the admin ledger audit pass; 390px light/dark with the review open, scalar page, collateral card |
+
+Existing tests changed: ticket flows click **Place order** after **Review** (the review step is on by default), and
+the Settings test expects no "takes effect in Phase 5" tags.
+
+### 28.11 Residual risks
+
+- **Fee rounding, journal and seed content.**
+  - The rounding cent is booked to `house:fees:rounding` per fill and can move back by a cent within an order. It nets
+    to ≤ 1¢ per order.
+  - Account closure or seed resets that delete orders would leave rounding postings unmatched. The reset already
+    leaves the journal unmatched (pre-existing).
+  - Seed content for the new structures is inserted at startup when missing, so existing databases gain three events.
+- **Collateral return.**
+  - The guarantee assumes "none of the outcomes" is possible (conservative). Exhaustive events would allow a larger
+    release.
+  - A repayment can make cash negative only if the user moved the cash out between fills. It is the same debt rule.
+- **Corrections.** A correction cannot cascade into combos (it is refused when a combo resolved from the leg). It does
+  not re-run collateral advances already repaid.
+- **Two-person rule.**
+  - It relies on distinct staff accounts. One person with two admin accounts defeats it; that is an organisational
+    control.
+  - Pending requests are not re-validated against market changes made between request and approval, beyond the
+    handler's own checks at execution.
 
 ---
 

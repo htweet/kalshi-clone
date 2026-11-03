@@ -5,6 +5,7 @@
 // (api-reference_orders_*.md) under the web client's /v1/users/:uid/orders prefix.
 const { ufp, ustr, toUnits, E } = require('./util');
 const { orderVo } = require('./serialize');
+const P = require('./pricing');
 
 // expiration_time: ISO string or unix ms; null clears (GTC). Returns undefined when absent.
 function parseExpiry(v) {
@@ -27,13 +28,15 @@ function mountOrders({ v1, db, engine, requireUser, notify }) {
     if (!o) throw E.notFound();
     return o;
   };
-  // User-facing price: sells are stored as buys of the other side at 100 − p.
+  // User-facing price in cc (CLONE_SPEC.md §28.1): `price_dollars` or `price` in cents; sells are stored as buys of the
+  // other side at 100 − p. The engine checks the market's grid.
   const storedPrice = (o, b) => {
-    let p = b.price;
-    if (b.price_dollars != null) p = Math.round(Number(b.price_dollars) * 100);
+    let p = null;
+    if (b.price_dollars != null && b.price_dollars !== '') { p = P.ccFromDollars(b.price_dollars); if (p == null) throw E.badRequest('price_dollars must be a dollar amount with at most 4 decimals'); }
+    else if (b.price != null && b.price !== '') { p = P.ccFromCents(b.price); if (p == null) throw E.badRequest('price must be a number of cents'); }
     if (p == null) return null;
-    if (!Number.isInteger(p) || p < 1 || p > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99');
-    return o.action === 'sell' ? 100 - p : p;
+    if (p < 1 || p >= P.CC) throw E.badRequest('price must be between 1¢ and 99¢ (sub-cent ticks where the market allows them)');
+    return o.action === 'sell' ? P.CC - p : p;
   };
   const units = (v, name) => {
     if (v == null || v === '') return null;
@@ -62,7 +65,7 @@ function mountOrders({ v1, db, engine, requireUser, notify }) {
     const exp = parseExpiry(b.expiration_time);
     if (price == null && total == null && exp === undefined) throw E.badRequest('provide price, count and/or expiration_time');
     const before = o.seq;
-    const r = engine.amendOrder(req.auth.user.id, o.id, { price, total, expiration_ts: exp });
+    const r = engine.amendOrder(req.auth.user.id, o.id, { price_cc: price, total, expiration_ts: exp });
     res.json({ order: richVo(db.prepare('SELECT * FROM orders WHERE id=?').get(o.id)), queue_priority_kept: r.seq === before });
   });
   v1.post('/users/:uid/orders/:oid/decrease', requireUser, (req, res) => {

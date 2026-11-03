@@ -14,6 +14,8 @@
 //   payouts:<rail>         withdrawals accepted but not yet paid out by the provider
 //   house:fees, house:fees:network, house:interest, house:promotions, house:adjustments, perps:collateral,
 //   payouts:closure, equity:opening (opening balances of databases created before the journal), house:suspense
+//   Phase 5A (CLONE_SPEC.md §28): house:fees:rounding (the G1 fee accumulator's rounding cents), house:settlement_rounding
+//   (scalar payouts are floored per holder), house:collateral_advance (MECNET collateral returned before settlement)
 // User-side accounts carry positive balances (liabilities); the exchange's own asset accounts carry the mirror image.
 //
 // Credits (observed `nonwithdrawable_credits`, CLONE_SPEC.md §26.5): a `credit` ledger entry (promo codes, rewards) is
@@ -86,7 +88,8 @@ function post(db, { kind, ref = null, userId = null, memo = '', ledgerId = null,
 function contraFor(db, uid, kind, ref) {
   switch (kind) {
     case 'refund': return reserved(uid); // a resting order's reservation released back
-    case 'netting': case 'settlement': return `escrow:${ref}`;
+    case 'netting': case 'settlement': case 'settlement_correction': return `escrow:${ref}`;
+    case 'collateral_return': return 'house:collateral_advance'; // A9: early return of hedged collateral (CLONE_SPEC.md §28.6)
     case 'withdrawal_hold': case 'withdrawal_hold_reversal': return held(uid);
     case 'interest': return 'house:interest';
     case 'credit': case 'credit_expired': return 'house:promotions';
@@ -231,6 +234,13 @@ function audit(db, { pendingPayouts = null } = {}) {
     cmp('escrow', `escrow:${t}`, p.y, 'market escrow vs open interest');
   }
   if (pendingPayouts) for (const rail of ['bank', 'crypto', 'card']) cmp('pending_payouts', `payouts:${rail}`, pendingPayouts(rail), 'pending withdrawals vs postings');
+  // G1: the rounding cents equal, per order, what was charged above the exact fee rounded down (each order < 1¢).
+  if (hasTable(db, 'orders')) {
+    const r = db.prepare('SELECT COALESCE(SUM(fees_cents - fee_micro / 10000),0) c FROM orders WHERE fee_micro > 0').get().c;
+    cmp('fee_rounding', 'house:fees:rounding', r, 'fee accumulator rounding vs orders');
+  }
+  // A9: collateral returned early is an advance against guaranteed settlement payouts (collateral_returns).
+  if (hasTable(db, 'collateral_returns')) cmp('collateral_advance', 'house:collateral_advance', -db.prepare('SELECT COALESCE(SUM(amount_cents),0) c FROM collateral_returns').get().c, 'collateral returned early vs outstanding advances');
   if (got('house:suspense') !== 0) problems.push({ check: 'suspense', account: 'house:suspense', expected_cents: 0, actual_cents: got('house:suspense'), detail: 'money posted to the suspense account (an unmapped ledger kind)' });
   const totals = {};
   for (const [a, s] of sums) {

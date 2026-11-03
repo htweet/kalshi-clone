@@ -284,6 +284,7 @@ function migrate(db) {
   if (!oc.has('expiration_ts')) db.exec('ALTER TABLE orders ADD COLUMN expiration_ts INTEGER'); // good-til-time (unix ms), NULL = GTC
   if (!oc.has('cancel_reason')) db.exec('ALTER TABLE orders ADD COLUMN cancel_reason TEXT');
   if (!oc.has('order_type')) { db.exec("ALTER TABLE orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'limit'"); db.exec("UPDATE orders SET order_type='market' WHERE time_in_force='ioc'"); }
+  migratePhase5a(db, cols);
   // One-time switch of every event-contract quantity from whole contracts to hundredths ("units").
   if (!db.prepare('SELECT 1 FROM meta WHERE key=?').get(QTY_UNITS_KEY)) {
     tx(db, () => {
@@ -293,6 +294,47 @@ function migrate(db) {
         UPDATE settlements SET yes_count=yes_count*100, no_count=no_count*100;`);
       db.prepare('INSERT INTO meta(key,value) VALUES(?,?)').run(QTY_UNITS_KEY, new Date().toISOString());
     });
+  }
+}
+
+// Phase 5A (CLONE_SPEC.md §28.9): price grids, centi-cent prices, the fee accumulator, scalar markets, settlement
+// corrections and flip sells. Additive columns only; `price_cents` columns stay as the whole-cent view of `price_cc`
+// (rounded) for readers that only need a label, and triggers fill `*_cc` for rows written by integer-cent writers
+// (seed data, simulated sports prints).
+const PRICE_CC_KEY = 'price_cc_v1';
+function migratePhase5a(db, cols) {
+  const add = (t, c, def) => { if (!cols(t).has(c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`); };
+  add('markets', 'price_level_structure', "TEXT NOT NULL DEFAULT 'linear_cent'");
+  add('markets', 'market_type', "TEXT NOT NULL DEFAULT 'binary'");
+  add('markets', 'floor_strike', 'REAL');
+  add('markets', 'cap_strike', 'REAL');
+  add('markets', 'scalar_unit', "TEXT NOT NULL DEFAULT ''");
+  add('markets', 'expiration_value', 'REAL');
+  add('markets', 'settlement_value_cc', 'INTEGER');
+  add('orders', 'price_cc', 'INTEGER');
+  add('orders', 'fee_micro', 'INTEGER NOT NULL DEFAULT 0');
+  add('orders', 'flip_units', 'INTEGER NOT NULL DEFAULT 0');
+  add('trades', 'yes_price_cc', 'INTEGER');
+  add('fills', 'price_cc', 'INTEGER');
+  add('fills', 'fee_micro', 'INTEGER NOT NULL DEFAULT 0');
+  add('settlements', 'settlement_value_cc', 'INTEGER');
+  add('settlements', 'effective_payout_cents', 'INTEGER');
+  add('settlements', 'corrected_at', 'TEXT');
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_book_cc ON orders(market_ticker, status, side, price_cc, seq);
+    CREATE TRIGGER IF NOT EXISTS trg_orders_price_cc AFTER INSERT ON orders WHEN NEW.price_cc IS NULL BEGIN UPDATE orders SET price_cc = NEW.price_cents * 100 WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_trades_price_cc AFTER INSERT ON trades WHEN NEW.yes_price_cc IS NULL BEGIN UPDATE trades SET yes_price_cc = NEW.yes_price_cents * 100 WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_fills_price_cc AFTER INSERT ON fills WHEN NEW.price_cc IS NULL BEGIN UPDATE fills SET price_cc = NEW.price_cents * 100 WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_settlements_eff AFTER INSERT ON settlements WHEN NEW.effective_payout_cents IS NULL BEGIN UPDATE settlements SET effective_payout_cents = NEW.payout_cents WHERE id = NEW.id; END;`);
+  // Backfill rows written before this build (idempotent: only NULLs are filled).
+  db.exec(`UPDATE orders SET price_cc = price_cents * 100 WHERE price_cc IS NULL;
+    UPDATE trades SET yes_price_cc = yes_price_cents * 100 WHERE yes_price_cc IS NULL;
+    UPDATE fills SET price_cc = price_cents * 100 WHERE price_cc IS NULL;
+    UPDATE settlements SET effective_payout_cents = payout_cents WHERE effective_payout_cents IS NULL;
+    UPDATE markets SET settlement_value_cc = CASE result WHEN 'yes' THEN 10000 WHEN 'no' THEN 0 END WHERE settlement_value_cc IS NULL AND result IN ('yes','no');`);
+  // Fees charged before the accumulator existed count as exact (no rounding residual to carry).
+  if (!db.prepare('SELECT 1 FROM meta WHERE key=?').get(PRICE_CC_KEY)) {
+    db.exec('UPDATE orders SET fee_micro = fees_cents * 10000 WHERE fee_micro = 0 AND fees_cents > 0; UPDATE fills SET fee_micro = fee_cents * 10000 WHERE fee_micro = 0 AND fee_cents > 0;');
+    db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(PRICE_CC_KEY, new Date().toISOString());
   }
 }
 

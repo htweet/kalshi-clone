@@ -3,6 +3,23 @@ import { vars } from './dynstyle.js';
 import { uiPrefs } from './prefs.js';
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const cents = (dollarStr) => (dollarStr == null ? null : Math.round(Number(dollarStr) * 100));
+// Phase 5A (CLONE_SPEC.md §28.1): prices are 4-decimal dollar strings on the market's grid; cc = $0.0001 (1¢ = 100 cc).
+export const ccOf = (dollarStr) => (dollarStr == null ? null : Math.round(Number(dollarStr) * 10000));
+export const pxc = (cc) => (cc == null ? '—' : `${(cc / 100).toFixed(2).replace(/\.?0+$/, '')}¢`); // 4500 → "45¢", 4530 → "45.3¢"
+export const px = (dollarStr) => pxc(ccOf(dollarStr));
+export const ccDollars = (cc) => (cc / 10000).toFixed(4);
+const LINEAR = [{ start: '0.0000', end: '1.0000', step: '0.0100' }];
+export const gridBands = (m) => (m && m.price_ranges ? m.price_ranges : LINEAR).map((r) => [ccOf(r.start), ccOf(r.end), ccOf(r.step)]);
+export const onGrid = (m, cc) => Number.isInteger(cc) && cc >= 1 && cc <= 9999 && gridBands(m).some(([s, e, st]) => cc >= s && cc <= e && (cc - s) % st === 0);
+export const minTickCc = (m) => Math.min(...gridBands(m).map((b) => b[2]));
+export function snapCc(m, cc) { // nearest tick at or below cc (within the tradable range)
+  let x = Math.max(1, Math.min(9999, Math.round(cc)));
+  while (x > 1 && !onGrid(m, x)) x -= 1;
+  return onGrid(m, x) ? x : minTickCc(m);
+}
+// Display estimate of the taker fee (dollars) for c contracts at cc: ceil(0.07·C·P·(1−P)) to the cent, as the server's
+// accumulator charges a single fill.
+export const feeDollars = (c, cc) => Math.ceil(0.07 * c * (cc / 10000) * (1 - cc / 10000) * 100 - 1e-9) / 100;
 export const pct = (dollarStr) => (dollarStr == null ? '—' : `${cents(dollarStr)}%`);
 export const money = (dollarStr) => {
   const n = Number(dollarStr || 0);

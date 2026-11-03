@@ -611,7 +611,7 @@ function mountSocial2({ v1, db, engine, requireUser, can, rolesOf, getFeat, circ
         dirty.add(uid);
         const k = `${uid}|${f.order_id}`;
         const o = orders.get(k) || { uid, order_id: f.order_id, ticker: f.market_ticker, side: f.side, units: 0, value: 0 };
-        o.units += f.count; o.value += f.count * f.price_cents; orders.set(k, o);
+        o.units += f.count; o.value += (f.price_cc ?? f.price_cents * 100) * f.count / 100; orders.set(k, o);
         markets.set(`${uid}|${f.market_ticker}`, { uid, ticker: f.market_ticker });
       }
       for (const o of orders.values()) {

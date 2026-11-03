@@ -1,0 +1,25 @@
+/* Phase 5A trading core (CLONE_SPEC.md §28): order review, auto-sell prompt, flip-sell line, sub-cent tick hint,
+   scalar payout card, collateral-return card, resolution-desk policy row. Tokens only (CLONE_SPEC §27). */
+.tkt-grid, .tkt-scalar { margin: var(--space-1) 0 var(--space-2); font-size: var(--fs-xs); line-height: var(--lh-xs); }
+.tkt-flip { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); border-radius: var(--rounded-x10); background: var(--brand-x20); color: var(--text-x10); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.tkt-review, .tkt-autosell { margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--rounded-x20); background: var(--surface-x30); }
+.tkt-review h4, .tkt-autosell h4 { margin: 0 0 var(--space-1); font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-semibold); }
+.tkt-review .tkt-row { margin: var(--space-2) 0; }
+.tkt-review .tkt-row strong { text-align: right; }
+.tkt-autosell p { margin: 0 0 var(--space-2); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.tkt-autosell .tkt-input { margin: var(--space-2) 0; height: var(--control-lg); }
+.tkt-review-actions { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-3); flex-wrap: wrap; }
+.tkt-review-actions .btn { min-height: var(--control-md); }
+.scalar-card, .collateral-card { padding: var(--space-4); margin: var(--space-3) 0; }
+.scalar-card h3, .collateral-card h3 { margin: 0 0 var(--space-2); font-size: var(--fs-lg); line-height: var(--lh-lg); }
+.scalar-card p, .collateral-card p { margin: 0 0 var(--space-2); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.collateral-card .tkt-row span { min-width: 0; overflow-wrap: anywhere; }
+.adm-policy { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .tkt-review-actions .btn { flex: 1; }
+}
+/* Single-column event layout: the ticket flows with the page (a sticky ticket was covered by the cards after it). */
+@media (max-width: 1100px) { .tkt.ticket { position: static; } }
+/* Review / auto-sell take the ticket over while open (the ticket is sticky; it must not outgrow the viewport). */
+.tkt-focus .tkt-body > * { display: none; }
+.tkt-focus .tkt-body > .tkt-keep { display: block; }
