@@ -27,7 +27,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS perp_markets (
   ticker TEXT PRIMARY KEY, market_id TEXT NOT NULL, title TEXT NOT NULL, asset_name TEXT NOT NULL, asset_class TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '', index_provider TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT 'usd', decimals INTEGER NOT NULL DEFAULT 2,
-  color TEXT NOT NULL DEFAULT '#8f7fff', sort_order INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active',
+  color TEXT NOT NULL DEFAULT '#008751', sort_order INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active',
   contract_size REAL NOT NULL, max_leverage REAL NOT NULL, im_multiplier REAL NOT NULL DEFAULT 2,
   maker_fee_rate REAL NOT NULL, taker_fee_rate REAL NOT NULL,
   funding_interval_ms INTEGER NOT NULL, funding_schedule TEXT NOT NULL, funding_cap REAL NOT NULL, funding_interest REAL NOT NULL,
