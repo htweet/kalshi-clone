@@ -111,3 +111,4 @@ a.combo-btn { display: grid; place-items: center; text-decoration: none; }
 .sheet { width: min(460px, 100%); padding: var(--space-5) var(--space-6); max-height: calc(100vh - 32px); overflow-y: auto; }
 .sheet .tkt-input { height: 54px; margin: var(--space-3) 0 var(--space-1h); }
 @media (min-width: 700px) { .sheet-backdrop { place-items: center; } }
+@media (max-width: 640px) { .pos-summary strong { font-size: var(--fs-lg); line-height: var(--lh-lg); } }
