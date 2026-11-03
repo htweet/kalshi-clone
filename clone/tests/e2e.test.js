@@ -559,7 +559,12 @@ test('startup on an old Node: exits 1 with an install hint before touching the d
   assert.equal(fs.existsSync(dbFile), false, 'no database or lock file is created');
   assert.equal(fs.existsSync(`${dbFile}.lock`), false);
   // On the real (supported) Node the same entry point starts and the browser renders the home page.
-  const s = await start({ port: 0, dbFile });
+  // port 0 means "any free port": no misleading "Port 0 is in use" warning.
+  const warns = []; const warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); };
+  let s;
+  try { s = await start({ port: 0, dbFile }); } finally { console.warn = warn; }
+  assert.ok(s.port > 0);
+  assert.deepEqual(warns.filter((w) => /is in use/.test(w)), []);
   try {
     const page = await newPage();
     await page.goto(`http://127.0.0.1:${s.port}/`);

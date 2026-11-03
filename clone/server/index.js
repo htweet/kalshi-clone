@@ -82,7 +82,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   }
   // Sandbox payment providers deliver their webhooks to this server over loopback HTTP (server/payment-providers.js).
   app.locals.payments?.setDeliveryBase(`http://127.0.0.1:${bound}`);
-  if (bound !== port) console.warn(`Port ${port} is in use; using ${bound} instead.`);
+  if (port !== 0 && bound !== port) console.warn(`Port ${port} is in use; using ${bound} instead.`); // 0 = any free port
   if (!quiet) for (const n of boot.notices) console.log(n);
   const setupUrl = boot.setupPath ? `http://localhost:${bound}${boot.setupPath}` : null;
   if (setupUrl && !quiet) console.log(`No admin account can sign in yet. Create the first admin within 60 minutes (single use):\n  ${setupUrl}\nor set ADMIN_EMAIL and ADMIN_PASSWORD, or run: npm run create-admin`);
