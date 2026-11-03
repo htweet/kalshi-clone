@@ -9,6 +9,7 @@ import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './c
 import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
 import { mountEventScoreboard } from './sports.js'; // live scoreboard for sports events (SPORTS_SPEC §19.6)
+import { mountChat } from './chat.js'; // "● Live chat" pill + panel (CHAT_SPEC §20)
 
 const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60], all: [365 * 86400, 1440] };
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
@@ -568,6 +569,7 @@ export async function render({ el, params, query, navigate }) {
   const tickers = ev.markets.map((m) => m.ticker);
   const unsubs = [];
   unsubs.push(mountEventScoreboard($('#sports-board'), ev));
+  if (!isCombo) unsubs.push(mountChat({ el, ev }));
   let pending = null;
   let tradeT = null;
   unsubs.push(socket.subscribe({ channels: ['ticker'] }, (msg) => {

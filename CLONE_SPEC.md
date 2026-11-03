@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 5 (2026-11-03):** §20 event live chat. Security research of Kalshi's public surfaces and the phased plan are in `PLAN.md`.
+>
 > **Revision 4 (2026-11-02):** §16 fractional contracts, §17 combos with RFQ/quotes and the Positions / Resting / RFQs / Quotes / History portfolio tabs, §18 the admin panel and CMS, §19 sports live data and scoreboards.
 >
 > **Revision 3 (2026-11-02):** §14 specifies the Perps margin product, and §15 the live UI/UX from the user's screenshots and the current build's JS chunks, analysed with REA.
@@ -379,9 +381,10 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §17 combos (multivariate markets), two-sided RFQ/quotes, portfolio tabs Positions · Resting · RFQs · Quotes · History | yes | tests `combos`, `rfq`, `orders`, `positions`, `history` |
 | §18 admin panel and CMS (roles, audit, catalog drafts + CSV import, resolution desk, content, ops, users, moderation, announcements, reports, settings) | yes | tests `admin.e2e.test.js` |
 | §19 sports live data: simulated games in six sports, scoreboards, live odds, auto-settlement, `/sports` hub | yes | tests `sports.e2e.test.js` |
-| KYC/identity, real payment rails, AI summaries, GIFs, live chat, ballot lookup, public signed API keys, ice hockey league | **no** | deposits are simulated; see §16.x–19.x "not done" notes |
+| §20 event live chat (rooms, slow mode, moderation, reports, presence, XSS-safe rendering, chat rate limits) | yes | tests `chat.e2e.test.js` |
+| KYC/identity, real payment rails, AI summaries, GIFs, ballot lookup, public signed API keys, ice hockey league | **no** | deposits are simulated; see §16.x–19.x "not done" notes |
 
-Verification: 94 Playwright scenarios across 12 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 103 Playwright scenarios across 13 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -1437,6 +1440,114 @@ A play is logged for every resolved segment that produces one (goals, shots, car
 7. **Unaffected + mobile + restart:** home, calendar category filter, the rolling PLX card and the non-game live event still render normally; no horizontal overflow at 390 px on the Live page, calendar, hub, a league page, the Sports category and one event page per sport; after a stop (3 s down) and restart, no game advanced while stopped, nothing was reseeded, every clock resumed from its persisted value without a catch-up jump, and clocks run again (verified in the UI).
 
 No page errors are allowed in any scenario.
+
+---
+
+## 20. Event live chat
+
+This section extends CLONE_SPEC.md and uses its conventions: **OBSERVED** (seen in evidence), **INFERRED** (follows from evidence), **design choice** (Parlance's own decision, not established by evidence). Product name is Parlance; all copy, styling and code are Parlance's own.
+
+### 20.1 Evidence
+
+| Fact | Source | Status |
+|---|---|---|
+| Event headers show a "● Live chat" pill next to the add-to-calendar, comments, share and download icons, on live events. | User screenshot of `/markets/controls/senate-winner/controls-2026`; CLONE_SPEC §15.4 ("Action icons: … and 'Live chat' for live events") | OBSERVED |
+| Protocol, message shapes, moderation cues, panel layout, limits. | none captured (PLAN.md research item R1) | **design choice** (everything below) |
+
+### 20.2 Model (design choice)
+
+- **One room per event**, keyed by event ticker; created lazily on the first write (message or moderator action). Reads never create rows. Combo events (`PLXCOMBO`) have no chat.
+- **Room status** is derived on every read/write:
+  - `locked` when a moderator locked it;
+  - otherwise `open` while the event has at least one `active` market, or when the room's `after_close` setting is `open`;
+  - otherwise `read_only` (default after the event closes).
+- **Messages**: 1–280 characters (Unicode code points, NFC, trimmed), one line, stored raw. Optional `reply_to` (must be a non-deleted message of the same room). Nickname is snapshotted at send time.
+- **Deletion is soft**: `mod_state` = `visible | author_deleted | moderator_removed`. Deleted messages vanish from history and live views; moderators still see them in the admin room log. Deleting a pinned message unpins it. Quotes of a deleted message read "Original message was deleted".
+- **Pinned message**: one per room, moderators only.
+- **Slow mode**: per room, one of 0/5/10/30/60/120/300 s between messages per user, enforced server-side from the user's last persisted message (survives restarts). Moderators are exempt.
+- **Mutes**: per user per room with an expiry (1 min – 7 days). The muted user also gets a notification.
+- **Presence**: approximate "N online" = distinct WebSocket connections subscribed to the room's `chat` channel (every open event page subscribes).
+- Not built: reactions, message editing (`edited_ts` column is reserved and always null), GIFs/media, typing indicators.
+
+### 20.3 Tables (`server/chat.js`, `CREATE TABLE IF NOT EXISTS`; no existing table changed)
+
+```
+chat_rooms    (event_ticker PK, slow_mode_sec, locked, lock_reason, after_close 'read_only'|'open', pinned_message_id, created_at, updated_at)
+chat_messages (seq INTEGER PK AUTOINCREMENT, id TEXT UNIQUE 'cm_'+UUIDv4, room, user_id → users, nickname, body, reply_to,
+               created_ts, edited_ts, deleted, deleted_by, deleted_ts, mod_state)
+               idx (room, deleted, seq), (room, user_id, created_ts)
+chat_mutes    (room, user_id → users, until_ts, reason, muted_by, created_at, PK(room, user_id))
+```
+
+Reused: `mod_reports` (kind `chat`, `content_id` = message id, `post_id` = event ticker, excerpt, reason), `admin_audit`, `mod_bans`, `acct_locks`, `mod_verified`, `social_profiles`, `admin_settings.features.social`.
+
+### 20.4 REST API
+
+Public message shape (never contains email or user id):
+`{id, event_ticker, body, created_time, edited, author:{nickname, verified}, reply_to:{id, nickname, excerpt, deleted}|null, is_mine?}` (`is_mine` only on REST responses to a signed-in viewer).
+
+Room shape: `{event_ticker, status, event_active, locked, lock_reason, slow_mode_sec, after_close, pinned: message|null, online, message_count}`.
+
+| Method + path | Auth | Notes |
+|---|---|---|
+| `GET /v1/events/{ticker}/chat?before={message_id}&limit=1..100` | public | `{room, messages (oldest→newest), has_more, viewer}`. `before` must be a message of this room (400 otherwise). `viewer` = `{signed_in, nickname, is_moderator, can_post, block: null|signed_out|no_nickname|banned|feature_disabled|locked|closed|muted, muted_until, slow_mode_wait_sec}`. `Cache-Control: no-store`. |
+| `POST /v1/users/{uid}/chat/{ticker}/messages` `{body, reply_to?}` | member, CSRF | 201 `{message, slow_mode_sec}`. Errors: 400 `bad_request` (validation), 401, 403 `forbidden` (CSRF / other uid), 403 `account_locked`, 403 `posting_banned`, 403 `feature_disabled`, 409 `social_profile_required`, 404, 403 `chat_locked`, 403 `chat_closed`, 403 `chat_muted` (+`muted_until`), 429 `too_many_requests` (+`retry_after_sec`, `Retry-After` header) for rate limit or slow mode. |
+| `DELETE /v1/users/{uid}/chat/{ticker}/messages/{id}` | author, or moderator | Author → `author_deleted`; moderator → `moderator_removed` + audit + open reports actioned. |
+| `POST /v1/users/{uid}/chat/{ticker}/messages/{id}/report` `{reason 3–300}` | member, CSRF | 201 `{report}`; duplicate open report returns the existing one; own messages refused (400). Feeds the admin report queue. |
+| `GET /v1/admin/chat/rooms` | `social.moderate` | Rooms with activity: messages, last 24 h, last message time, online, active mutes, open reports, state. |
+| `GET /v1/admin/chat/rooms/{ticker}` | `social.moderate` | Room + latest 200 messages including deleted (`mod_state`) + active mutes (nickname, until, reason). |
+| `POST /v1/admin/chat/rooms/{ticker}/{action}` | `social.moderate`, CSRF | `delete {message_id, reason?}`, `pin {message_id}`, `unpin`, `slow_mode {seconds}`, `lock {reason?}`, `unlock`, `settings {after_close}`, `mute {message_id or nickname, minutes, reason?}`, `unmute {nickname}`. Every action writes `admin_audit` (`chat.delete`, `chat.pin`, `chat.unpin`, `chat.slow_mode`, `chat.lock`, `chat.unlock`, `chat.settings`, `chat.mute`, `chat.unmute`) with before/after JSON. |
+| `GET /v1/admin/moderation/reports`, `POST …/reports/{id}/hide|delete` | `social.moderate` | Existing queue. For kind `chat` the response gets accurate `content_exists` and `event_ticker`; Hide/Delete remove the chat message (soft delete, live) and action the report; Dismiss is unchanged. Implemented as an app-level hook in `server/chat.js` ahead of the v1 router (admin.js untouched). |
+
+### 20.5 WebSocket (`/v1/ws`)
+
+- Public channel **`chat`**, receive-only. Subscribe: `{cmd:'subscribe', params:{channels:['chat'], event_tickers:['EVT', …]}}` — 1–20 tickers, each a string ≤ 64 chars; otherwise `{type:'error', msg:{code:10}}`. Publishing goes only to subscriptions whose filter contains the event ticker.
+- Messages (`{type, sid, seq, msg}`):
+  - `chat_message` — public message shape;
+  - `chat_deleted` — `{event_ticker, id}`;
+  - `chat_pinned` — `{event_ticker, pinned: message|null}`;
+  - `chat_room_state` — room shape; sent on slow mode / lock / settings changes, on market lifecycle changes of the event (close → read-only live), and when the online count changes (checked every ~2 s on the engine tick).
+- Clients resubscribe on reconnect (shared socket behaviour) and the chat view refetches the newest page to fill the gap (and drops messages deleted meanwhile).
+
+### 20.6 Security controls
+
+1. **Auth on every write**: session cookie + `requireUser` (path uid must equal the session user); moderator endpoints check `social.moderate` through the admin role model (`rolesOf` + `ROLE_PERMS`) server-side. UI hiding is cosmetic only.
+2. **CSRF**: the existing app middleware requires `x-csrf-token` on every non-GET request with a session (403 otherwise); WS upgrade still requires the `csrfToken` query for private channels.
+3. **Rate limits** (stricter than the global 300-burst/150 per s per IP limiter), token buckets on chat writes (send + report): per user 8 burst, 1 per 2 s; per IP 30 burst, 3 per s (env `CHAT_USER_BURST`, `CHAT_USER_PER_SEC`, `CHAT_IP_BURST`, `CHAT_IP_PER_SEC`). 429 `too_many_requests` with `retry_after_sec` and `Retry-After`. Invalid attempts also spend tokens.
+4. **Slow mode** enforced server-side from persisted timestamps.
+5. **Refused accounts**: locked accounts (session ignored by admin middleware, plus an explicit check), posting bans (`mod_bans`, same ban as social posts), per-room mutes, locked and read-only rooms, social feature switch off.
+6. **Validation**: body must be a JSON string; raw length ≤ 4000 before processing; well-formed UTF-16; NFC; trimmed 1–280 code points; rejects C0/C1 controls (incl. newlines/tabs), U+2028/2029, bidi overrides/isolates and direction marks, and runs of ≥ 6 combining marks; `reply_to` must be a live message in the same room; report reason 3–300 chars without controls; slow-mode and mute values from fixed ranges; tickers matched against `^[A-Z0-9][A-Z0-9._-]{0,63}$` and the events table.
+7. **XSS**: bodies are stored raw and rendered only via `textContent` / text nodes (`h()` builder in `public/js/views/chat.js`); no user content goes through `innerHTML`. Admin tables pass user content through `esc()`. Links: http/https only, parsed with `URL`, `rel="noopener noreferrer nofollow ugc"`, `target="_blank"`; `javascript:` and other schemes stay plain text. No user-controlled attributes (nicknames are `[A-Za-z0-9_]{3,20}`).
+8. **Privacy**: public payloads expose nickname snapshot + verified flag only; no emails or user ids in history or WS frames. Moderation targets authors by message id (or nickname), so the client never needs user ids.
+9. **Unguessable ids**: message ids are `cm_` + random UUIDv4; pagination cursor is a message id validated against the room.
+10. **WebSocket**: chat is receive-only (sending stays on REST so CSRF/auth/limits apply); publish only to subscribers of that event; subscriptions must carry an event filter (1–20); inbound frames capped at 64 KiB (`maxPayload`, close 1009) and socket errors are handled so an oversized frame drops the client instead of crashing the server; outbound chat frames are bounded by the 280-char body.
+11. **Audit log** for every moderator action (actor, action, target, before/after, reason).
+
+### 20.7 UI
+
+- **Event header**: "● Live chat" pill first in the action row; red pulsing dot when the room is `open`, grey otherwise; unread badge while the panel is closed. Events with a live sports scoreboard also get a compact "● Live chat · N online" bar under the scoreboard.
+- **Panel**: right side, full height on desktop, overlaying the page (the trade ticket stays reachable by closing it); bottom drawer (86 vh, backdrop) on phones. Header: title with live dot, "N online", moderation toggle (moderators), close. Pinned bar (moderators can unpin), state banner (locked + reason / read-only / slow mode).
+- **Message list**: nickname, verified badge, relative time (refreshes every 30 s), reply quote, auto-linked text. Actions: Reply; Delete (own, or any for moderators); ⋯ menu with Report (Spam or scam / Harassment or hate / Off-topic) and, for moderators, Pin and Mute author 10 min / 1 h / 24 h. Infinite scroll up ("Load earlier messages" fallback), "Jump to latest · N new" when scrolled up.
+- **Composer**: Enter sends; counter `n/280` (red and Send disabled over the limit or when empty); reply chip; slow-mode/rate-limit countdown "Slow mode · wait Ns" (from `retry_after_sec`, the room's slow mode after sending, or `viewer.slow_mode_wait_sec`); inline error line.
+- **Prompts**: signed out → "Log in to join the conversation" + Log in (`?next=` back); no nickname → inline nickname form (creates the social profile); banned / social off / locked / read-only / muted ("You're muted in this chat until 3:42 PM") replace the composer, live where the server pushes state.
+- **Admin → Chat** (`/admin/chat`, permission `social.moderate`): rooms table (state, messages, last 24 h, online, mutes, open reports, last message) and "Open room by ticker"; room page with slow mode, after-close setting, lock/unlock (reason dialog), pinned message, active mutes with Unmute, and the latest 200 messages (incl. removed) with Delete (reason) / Pin / Mute (duration + reason). Chat reports appear in Moderation → Report queue with type `chat`.
+- Styles: `public/chat.css` (app.css tokens; dark default + light).
+
+### 20.8 Verification
+
+`clone/tests/chat.e2e.test.js` (in `npm run test:e2e`), real server + SQLite file + Chromium, two or more browser contexts:
+
+1. A posts, B sees it live without reload; presence ≥ 2; reply with quote; A deletes own (live for B, `author_deleted` in DB); id format; history order after reload.
+2. XSS: `<img onerror>`, `<script>`, `"><svg onload>`, `javascript:` render verbatim as text; no img/script/svg nodes, no dialog, no page error, `window.__xss` undefined; one https link with the safe `rel`; same after reload.
+3. Validation (empty, spaces, 281 chars, BEL, newline, non-string, cross-room reply; 280 accepted); CSRF missing → 403; 401 / 403 / 404; history leaks no emails or user ids; bad cursor / limit → 400; per-user burst → 429 with `retry_after_sec` + `Retry-After`; composer counter 281/280 disables Send.
+4. Signed-out reader sees history and sign-in prompt (link carries `next`); member without a nickname gets the nickname form (API 409), picks one and posts.
+5. Moderator (seeded admin): slow mode banner live, API 429 for slow mode, browser send → 429 with countdown + error, Send disabled; pin (live for A); delete (live for B, `moderator_removed`, quote becomes "deleted"); mute (B's send refused with "muted … until", API 403 `chat_muted`); lock (A's composer replaced live, API `chat_locked`), unlock; non-moderator 403; audit rows for every action.
+6. Report from ⋯ → `mod_reports` kind `chat`; own message not reportable; appears in Admin → Moderation; Delete there removes it live and actions the report; Admin → Chat rooms list → room page shows removed message and mute; Unmute works.
+7. Closing the event's market turns the room read-only live (pill grey, banner, composer replaced); API 403 `chat_closed`; history still readable.
+8. WS: chat subscription without `event_tickers` → error; delivery only to the subscribed room; 70 KiB frame → close 1009 (server keeps running).
+9. Restart keeps history, pin, rooms; per-IP bucket across four users → 4th gets 429; 390 px bottom drawer with no horizontal overflow (dark and light, open and closed).
+
+Result at time of writing: `tests/chat.e2e.test.js` 9/9 pass; full `npm run test:e2e` 103/103 pass (94 existing + 9 chat).
 
 ---
 

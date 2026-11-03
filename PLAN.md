@@ -16,7 +16,7 @@ Built and passing (94 end-to-end browser tests on `main`): prediction-market exc
 
 Fixed 2026-11-03: "database is locked" on start (single-instance lock, busy timeout, clean Ctrl+C shutdown) and the `ws` high-severity advisories (8.18.3 → 8.22.1; `npm audit` clean).
 
-In progress: **event live chat** (spec §20) — being built now with server-side auth, CSRF, rate limits, slow mode, moderation and XSS-safe rendering.
+Done 2026-11-03: **event live chat** (spec §20) with server-side auth, CSRF, chat-specific rate limits, slow mode, moderation, reports and XSS-safe rendering; WebSocket frames capped at 64 KB (an oversized frame previously could crash the server). 103 end-to-end tests.
 
 ---
 
@@ -77,7 +77,7 @@ Size: S ≈ a day, M ≈ 2–4 days, L ≈ a week+, for one engineer with this c
 - Exit: header/CORS/cookie checks pass in automated tests; OWASP ZAP baseline scan clean of high/medium; authz matrix 100% green; threat model (STRIDE) for auth, trading, payments, admin written into `SECURITY.md`.
 
 ### Phase 2 — Social and community completion (M)
-- In progress: event live chat (§20).
+- ✅ Event live chat (§20). Remaining: reactions, message editing.
 - P2.1 Post extras: attach a position tag ("Yes · outcome · market"), share links, ⋯ menu (report — partly done — mute, copy link), "Read more" truncation, edit window.
 - P2.2 GIFs: self-hosted, moderated sticker set first (no third-party key); an external GIF provider later behind a server proxy with content filtering.
 - P2.3 Keyword and market follows, profile search, timeline counts, badges (earned rules).

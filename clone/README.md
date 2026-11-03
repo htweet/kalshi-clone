@@ -8,7 +8,7 @@ A functional binary event-contract exchange built only from `../CLONE_SPEC.md`. 
 npm install
 npm start            # http://localhost:3000, or the next free port if 3000 is taken (DB at data/parlance.db, auto-seeded)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 94 end-to-end browser tests (Playwright + node:test)
+npm run test:e2e     # 103 end-to-end browser tests (Playwright + node:test)
 ```
 
 Seeded admin account: `admin@parlance.local` / `parlance-admin`. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local` / `parlance-demo`). It can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page.
@@ -29,9 +29,10 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`. Requires Node ≥ 
 - Portfolio: Positions · Resting (edit, decrease, cancel all, queue position, expiry) · RFQs · Quotes · History (filters + CSV), plus the Perps tab.
 - Sports (`/sports`, Live page sidebar): simulated live games in six sports with scoreboards, play-by-play, live odds and automatic settlement.
 - Admin (`/admin`, admins only): roles and audit log, catalog drafts and CSV import, resolution desk, homepage/banner/nav/news/help content, market and perps ops, users, moderation, announcements, reports, settings.
+- Live chat on events (● Live chat on the event header): slow mode, replies, reports, moderator delete/mute/pin/lock (Admin › Chat).
 - Also: Social, Notifications, Watchlist, Account (profile, two-factor login, limits, alerts, appearance).
 
-Not built: KYC/identity checks, real payment rails, GIFs and live chat, ballot lookup, AI summaries, signed public API keys (spec §12).
+Not built: KYC/identity checks, real payment rails, GIFs, ballot lookup, AI summaries, signed public API keys (spec §12).
 
 Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`, `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1).
 

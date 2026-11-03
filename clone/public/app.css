@@ -556,3 +556,11 @@ main { padding-top: 28px; }
   .yn-toggle button { min-width: 90px; }
   .page-title, h1.display { font-size: 30px; line-height: 34px; }
 }
+
+/* Phone: the outcome table must fit 390px (single-market events have long outcome text). */
+@media (max-width: 640px) {
+  .mkt-table td:first-child .oc-av { display: none; }
+  .mkt-table td:first-child > div { gap: 0 !important; }
+  .mkt-table td:first-child { overflow-wrap: anywhere; }
+  .mkt-table td:nth-child(3) { padding-right: 2px; }
+}

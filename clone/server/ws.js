@@ -33,6 +33,7 @@ function attachWs(server, { db, engine }) {
     clients.add(c);
     ws.on('pong', () => { c.alive = true; });
     ws.on('close', () => clients.delete(c));
+    ws.on('error', () => { clients.delete(c); try { ws.terminate(); } catch { /* ignore */ } }); // e.g. maxPayload exceeded: drop the client, never crash
     ws.on('message', (raw) => {
       let m;
       try { m = JSON.parse(String(raw)); } catch { return send(c, { type: 'error', msg: { code: 1, msg: 'invalid json' } }); }

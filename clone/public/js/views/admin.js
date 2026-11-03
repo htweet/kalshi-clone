@@ -12,6 +12,7 @@ export const SECTIONS = [
   ['perps', 'Perps ops', 'perps.ops', './admin/ops.js'],
   ['users', 'Users', 'users.read', './admin/users.js'],
   ['moderation', 'Moderation', 'social.moderate', './admin/community.js'],
+  ['chat', 'Chat', 'social.moderate', './admin/chat.js'],
   ['announcements', 'Announcements', 'announce', './admin/community.js'],
   ['reports', 'Reports', 'reports.read', './admin/reports.js'],
   ['roles', 'Roles', 'roles.write', './admin/users.js'],

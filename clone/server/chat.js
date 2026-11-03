@@ -79,7 +79,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
   db.exec(SCHEMA);
   const env = (k, d) => { const n = Number(process.env[k]); return Number.isFinite(n) && n > 0 ? n : d; };
   // Stricter than the global limiter (300 burst / 150 per s per IP): per user and per IP, chat writes only.
-  const limits = { userBurst: env('CHAT_USER_BURST', 5), userPerSec: env('CHAT_USER_PER_SEC', 0.5), ipBurst: env('CHAT_IP_BURST', 20), ipPerSec: env('CHAT_IP_PER_SEC', 2) };
+  const limits = { userBurst: env('CHAT_USER_BURST', 8), userPerSec: env('CHAT_USER_PER_SEC', 0.5), ipBurst: env('CHAT_IP_BURST', 30), ipPerSec: env('CHAT_IP_PER_SEC', 3) };
   const userBucket = bucket(limits.userBurst, limits.userPerSec);
   const ipBucket = bucket(limits.ipBurst, limits.ipPerSec);
 

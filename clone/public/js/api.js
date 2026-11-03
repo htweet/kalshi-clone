@@ -15,6 +15,8 @@ export class ApiError extends Error {
     this.notFound = status === 404;
     this.unauthorized = status === 401;
     this.tooManyRequests = status === 429;
+    this.retryAfter = e.retry_after_sec ?? null; // chat rate limit / slow mode countdown
+    this.mutedUntil = e.muted_until ?? null; // chat mute
   }
 }
 
@@ -145,4 +147,10 @@ export const api = {
   historyCsvUrl: (uid, query) => u(uid, `/history.csv${query ? `?${query}` : ''}`),
   confirmQuote: (qid) => request('PUT', `/v1/communications/quotes/${encodeURIComponent(qid)}/confirm`, {}),
   admin: (ticker, action, body) => request('POST', `/v1/admin/markets/${encodeURIComponent(ticker)}/${action}`, body || {}),
+  // Event live chat (CHAT_SPEC.md §20)
+  chat: (t, o) => request('GET', `/v1/events/${encodeURIComponent(t)}/chat${qs(o || {})}`),
+  chatPost: (uid, t, b) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages`), b),
+  chatDelete: (uid, t, id) => request('DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`)),
+  chatReport: (uid, t, id, reason) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/report`), { reason }),
+  chatMod: (t, action, b) => request('POST', `/v1/admin/chat/rooms/${encodeURIComponent(t)}/${encodeURIComponent(action)}`, b || {}),
 };
