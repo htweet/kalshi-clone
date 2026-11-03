@@ -100,11 +100,13 @@ function check(body, schema, { unknown = 'ignore', maxKeys = 32 } = {}) {
 const S = (maxLen = 64) => ({ type: 'string', maxLen });
 const NUMISH = { type: ['number', 'string'], maxLen: 32 }; // amounts and counts accept "1.50" strings (fixed-point)
 const ID = { type: 'string', maxLen: 64, pattern: /^[A-Za-z0-9_.:-]+$/ };
+// Time-in-force values accepted by the handlers (perps.js TIF map; Kalshi API spellings for event contracts).
+const TIF = { type: 'string', enum: ['gtc', 'ioc', 'fok', 'good_till_canceled', 'immediate_or_cancel', 'fill_or_kill'] };
 const FLAG = { type: ['boolean', 'string', 'number'], maxLen: 8 };
 
 const SCHEMAS = {
   order: {
-    ticker: S(64), side: S(8), action: S(8), type: S(16), time_in_force: S(16),
+    ticker: S(64), side: S(8), action: S(8), type: S(16), time_in_force: TIF,
     count: NUMISH, count_fp: NUMISH, price: { type: ['number', 'string'], maxLen: 16, nullable: true }, price_dollars: NUMISH, yes_price: NUMISH, no_price: NUMISH,
     amount_dollars: NUMISH, client_order_id: { ...S(64), nullable: true }, expiration_time: { type: ['string', 'number'], maxLen: 64, nullable: true },
     post_only: FLAG, reduce_only: FLAG,
@@ -113,7 +115,7 @@ const SCHEMAS = {
   money: { amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
   perpsTransfer: { direction: S(16), source: S(32), destination: S(32), amount_dollars: NUMISH, amount: NUMISH, client_transfer_id: { ...ID, nullable: true } },
   perpsOrder: {
-    ticker: S(64), side: S(8), action: S(8), direction: S(16), type: S(16), time_in_force: S(16), count: NUMISH, count_fp: NUMISH, price: NUMISH, price_dollars: NUMISH, leverage: NUMISH,
+    ticker: S(64), side: S(8), action: S(8), direction: S(16), type: S(16), time_in_force: TIF, count: NUMISH, count_fp: NUMISH, price: NUMISH, price_dollars: NUMISH, leverage: NUMISH,
     client_order_id: { ...S(64), nullable: true }, reduce_only: FLAG, post_only: FLAG,
     take_profit: { type: ['object', 'number', 'string'], nullable: true, maxLen: 32 }, stop_loss: { type: ['object', 'number', 'string'], nullable: true, maxLen: 32 },
     expiration_time: { type: ['string', 'number'], maxLen: 64, nullable: true },
