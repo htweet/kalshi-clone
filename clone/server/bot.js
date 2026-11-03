@@ -91,7 +91,9 @@ const TIERS = ['anonymous', 'user', 'admin', 'auth', 'write'];
 const BOOT_TTL_MS = 10 * 60 * 1000;          // boot proof embedded in HTML
 const CHALLENGE_TTL_MS = 2 * 60 * 1000;      // a served challenge must be solved within 2 minutes
 const REFRESH_GRACE_MS = 12 * 3600 * 1000;   // an expired client token may still be traded for a fresh one for 12 h
-const AUTH_PATHS = /^\/v1\/(log_in[a-z_]*|users|password[a-z_/]*)$/; // credential endpoints: the stricter per-IP auth bucket
+// Credential endpoints (SEC_IDENTITY_SPEC §22.11): sign-up, sign-in, MFA sign-in, step-up, every /v1/auth/* route (login
+// CSRF, first-admin setup, forced password change) and password changes. They share the stricter per-IP auth bucket.
+const AUTH_PATHS = /^\/v1\/(auth\/[^?]+|step_up|log_in[a-z_]*|users|users\/[^/]+\/password|password[a-z_/]*)$/;
 
 function createBot({ db, dataDir, rate = {}, options = {}, clientIp, isSecure }) {
   const secret = keychain.deriveKey('bot-management:v1', { dir: dataDir });
@@ -279,7 +281,7 @@ CREATE TABLE IF NOT EXISTS rate_buckets (key TEXT PRIMARY KEY, tokens REAL NOT N
     let retry = take(tier, u ? u.id : ip);
     if (retry) return tooMany(req, res, next, tier, retry);
     const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-    if (write && AUTH_PATHS.test(req.originalUrl.split('?')[0])) { retry = take('auth', ip); if (retry) return tooMany(req, res, next, 'auth', retry); }
+    if (req.method !== 'OPTIONS' && AUTH_PATHS.test(req.originalUrl.split('?')[0])) { retry = take('auth', ip); if (retry) return tooMany(req, res, next, 'auth', retry); }
     if (write) { retry = take('write', u ? u.id : ip); if (retry) return tooMany(req, res, next, 'write', retry); }
     next();
   }

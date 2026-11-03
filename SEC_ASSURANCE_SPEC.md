@@ -124,7 +124,8 @@ review and fixed by escaping once, at the sink.
 - **Declarative schemas** for the highest-risk writes (orders, amend/decrease, deposits, withdrawals, perps
   transfers/orders/close, RFQ accept, social posts/comments/reports, chat messages, admin catalog writes): body must be a
   JSON object with a bounded number of fields; each known field has allowed types, string length caps, numeric ranges
-  or patterns (e.g. `client_order_id` ≤ 64 chars, `client_transfer_id` `[A-Za-z0-9_.:-]{1,64}`). Money routes
+  or patterns (e.g. `client_order_id` ≤ 64 chars, `client_transfer_id` `[A-Za-z0-9_.:-]{1,64}`, `time_in_force` one of
+  `gtc`, `ioc`, `fok`, `good_till_canceled`, `immediate_or_cancel`, `fill_or_kill` — the spellings the handlers accept). Money routes
   (deposits, withdrawals, perps transfers/close) **reject unknown fields**; the others ignore them (Kalshi-style APIs
   accept optional fields) but still type-check the known ones. Errors are `400 validation_failed` with a `fields` map,
   the same envelope as the admin validator.

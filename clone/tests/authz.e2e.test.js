@@ -22,7 +22,7 @@ const { Client } = require('./lib/client');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-authz-'));
 const DB_FILE = path.join(TMP, 'authz.db');
-const PORT = 5100 + Math.floor(Math.random() * 40);
+const PORT = 20000 + Math.floor(Math.random() * 40000); // random high port: test runs in parallel must not collide
 const BASE = `http://127.0.0.1:${PORT}`;
 const PW = 'Quartz-Lantern-Meadow-7391';
 const stamp = Date.now();

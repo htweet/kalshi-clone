@@ -18,19 +18,21 @@ const { fetchClientToken, clientTokens, solvePow } = require('./helpers/client-t
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-perimeter-'));
 const DB_FILE = path.join(TMP, 'perimeter.db');
-const PORT = 4400 + Math.floor(Math.random() * 40);
-const BASE = `http://127.0.0.1:${PORT}`;
+// Ports are picked free at runtime: other suites (and other agents' servers) may run on this machine at the same time.
+const net = require('node:net');
+const freePort = () => new Promise((res, rej) => { const s = net.createServer(); s.unref(); s.on('error', rej); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => res(port)); }); });
+let PORT; let BASE;
 const PARTNER = 'https://partner.example';
 const ADMIN = { email: 'admin@parlance.local', password: 'Harbor-Signal-4417!' };
 const DEMO_PW = 'Perimeter-Demo-2026';
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 300, admin: ADMIN, demoPassword: DEMO_PW, quiet: true, assets: 'dist', security: { allowedOrigins: [PARTNER] } };
+const opts = () => ({ port: PORT, dbFile: DB_FILE, tickMs: 300, admin: ADMIN, demoPassword: DEMO_PW, quiet: true, assets: 'dist', security: { allowedOrigins: [PARTNER] } });
 const EVENT_URL = '/markets/plxcup/northern-cup-final/plxcup-26final';
 const RAV = 'PLXCUP-26FINAL-RAV';
 // What a desktop Chrome navigation sends (Playwright's headless Chromium sends the same minus Accept-Language).
 const BROWSER = { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36', accept: 'text/html,application/xhtml+xml,*/*;q=0.8', 'accept-language': 'en-US,en;q=0.9', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', 'sec-fetch-site': 'none', 'sec-ch-ua': '"Chromium";v="131"' };
 
 let srv; let browser;
-const ct = clientTokens(BASE);
+let ct; // signed client token for Node-side calls to the main server (set once the port is known)
 const dbq = (sql, ...a) => { const d = new DatabaseSync(DB_FILE); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 const events = (kind) => dbq('SELECT * FROM security_events WHERE kind=? ORDER BY id', kind);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -77,7 +79,7 @@ async function logIn(page, u, base = BASE) {
   await page.waitForSelector('[data-testid=account-menu]');
 }
 
-before(async () => { srv = await start(OPTS); browser = await chromium.launch(); });
+before(async () => { PORT = await freePort(); BASE = `http://127.0.0.1:${PORT}`; ct = clientTokens(BASE); srv = await start(opts()); browser = await chromium.launch(); });
 after(async () => { await browser?.close(); await srv?.close(); fs.rmSync(TMP, { recursive: true, force: true }); });
 
 test('security headers on HTML, API and static responses; no-store on authenticated responses; HSTS only behind trusted https', async () => {
@@ -119,11 +121,12 @@ test('security headers on HTML, API and static responses; no-store on authentica
   assert.equal((await fetch(`${BASE}/v1/users/u_nobody/balance`)).headers.get('cache-control'), 'no-store');
 
   // HSTS: only with NODE_ENV=production or a trusted proxy that says the client used https.
-  const prox = await start({ port: PORT + 100, dbFile: path.join(TMP, 'proxy.db'), quiet: true, security: { trustProxy: 'loopback' } });
+  const P1 = await freePort();
+  const prox = await start({ port: P1, dbFile: path.join(TMP, 'proxy.db'), quiet: true, security: { trustProxy: 'loopback' } });
   try {
-    const viaHttps = await fetch(`http://127.0.0.1:${PORT + 100}/trade-api/v2/exchange/status`, { headers: { 'x-forwarded-proto': 'https' } });
+    const viaHttps = await fetch(`http://127.0.0.1:${P1}/trade-api/v2/exchange/status`, { headers: { 'x-forwarded-proto': 'https' } });
     assert.equal(viaHttps.headers.get('strict-transport-security'), 'max-age=31536000; includeSubDomains');
-    assert.equal((await fetch(`http://127.0.0.1:${PORT + 100}/trade-api/v2/exchange/status`)).headers.get('strict-transport-security'), null);
+    assert.equal((await fetch(`http://127.0.0.1:${P1}/trade-api/v2/exchange/status`)).headers.get('strict-transport-security'), null);
   } finally { await prox.close(); }
   // Without trust configured, a spoofed X-Forwarded-Proto is ignored.
   assert.equal((await fetch(`${BASE}/trade-api/v2/exchange/status`, { headers: { 'x-forwarded-proto': 'https' } })).headers.get('strict-transport-security'), null);
@@ -290,15 +293,16 @@ test('bot challenge: curl-like requests get the 429 proof-of-work page; Chromium
   await page.context().close();
 
   // Forced challenge (attack mode: every HTML request): Chromium solves it transparently and lands in the app.
-  const forced = await start({ port: PORT + 101, dbFile: path.join(TMP, 'forced.db'), quiet: true, assets: 'dist', security: { challengeMode: 'all' } });
+  const P2 = await freePort();
+  const forced = await start({ port: P2, dbFile: path.join(TMP, 'forced.db'), quiet: true, assets: 'dist', security: { challengeMode: 'all' } });
   try {
     const fp = await newPage();
-    const first = await fp.goto(`http://127.0.0.1:${PORT + 101}${EVENT_URL}`);
+    const first = await fp.goto(`http://127.0.0.1:${P2}${EVENT_URL}`);
     assert.equal(first.status(), 429);
     await fp.waitForSelector('[data-testid=event-title]', { timeout: 20000 });
     assert.ok((await fp.context().cookies()).some((c) => c.name === 'plx_chk' && c.httpOnly));
     // Within the pass lifetime the next navigation is not challenged.
-    assert.equal((await fp.goto(`http://127.0.0.1:${PORT + 101}/browse`)).status(), 200);
+    assert.equal((await fp.goto(`http://127.0.0.1:${P2}/browse`)).status(), 200);
     await fp.waitForSelector('[data-testid=event-card]');
     assert.deepEqual(await violations(fp), [], 'challenge page and app run under the CSP');
     assert.deepEqual(fp.errors, []);
@@ -312,8 +316,9 @@ test('bot challenge: curl-like requests get the 429 proof-of-work page; Chromium
 });
 
 test('client token: required on writes, /v1/users/* reads and the WebSocket (missing / forged / expired / foreign-bound → 403); public reads stay open', async () => {
-  const short = await start({ port: PORT + 102, dbFile: path.join(TMP, 'short.db'), quiet: true, assets: 'dist', security: { bot: { client_token_ttl_seconds: 2 } } });
-  const B2 = `http://127.0.0.1:${PORT + 102}`;
+  const P3 = await freePort();
+  const short = await start({ port: P3, dbFile: path.join(TMP, 'short.db'), quiet: true, assets: 'dist', security: { bot: { client_token_ttl_seconds: 2 } } });
+  const B2 = `http://127.0.0.1:${P3}`;
   try {
     const write = (headers = {}) => fetch(`${B2}/v1/users/u_x/deposits`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: '{"amount_dollars":1}' });
     const missing = await write();
@@ -337,7 +342,7 @@ test('client token: required on writes, /v1/users/* reads and the WebSocket (mis
 
     // WebSocket: no token / forged → refused; valid → open; foreign Origin → refused.
     const ws = (q, headers = { 'user-agent': 'node' }) => new Promise((res) => {
-      const w = new WebSocket(`ws://127.0.0.1:${PORT + 102}/v1/ws${q}`, { headers });
+      const w = new WebSocket(`ws://127.0.0.1:${P3}/v1/ws${q}`, { headers });
       w.on('open', () => { w.close(); res('open'); });
       w.on('unexpected-response', (req, r) => res(r.statusCode));
       w.on('error', () => res('error'));
@@ -456,8 +461,8 @@ test('hashed, minified assets are immutable and referenced by the page; the buil
 });
 
 test('rate-limit tiers: anonymous per IP vs signed-in per account, the stricter auth bucket, persisted across restart', async () => {
-  const P = PORT + 103; const B3 = `http://127.0.0.1:${P}`; const DB3 = path.join(TMP, 'rl.db');
-  const opts = { port: P, dbFile: DB3, quiet: true, demoPassword: DEMO_PW, rate: { burst: 12, perSec: 0.01 }, security: { authRate: { burst: 3, per_second: 0.01 } } };
+  const P = await freePort(); const B3 = `http://127.0.0.1:${P}`; const DB3 = path.join(TMP, 'rl.db');
+  const opts = { port: P, dbFile: DB3, quiet: true, demoPassword: DEMO_PW, rate: { burst: 12, perSec: 0.01 }, security: { authRate: { burst: 5, per_second: 0.01 } } };
   let s = await start(opts);
   const tokens = clientTokens(B3);
   const tiers = () => { const d = new DatabaseSync(DB3); try { return d.prepare("SELECT detail FROM security_events WHERE kind='rate_limited'").all().map((r) => JSON.parse(r.detail).tier); } finally { d.close(); } };
@@ -465,7 +470,8 @@ test('rate-limit tiers: anonymous per IP vs signed-in per account, the stricter 
     await tokens(); // bootstrap (anonymous bucket)
     const c = apiClient(B3, tokens);
     assert.equal((await c.login({ email: 'rainmaker@parlance.local', password: DEMO_PW })).status, 200);
-    // Credential endpoint bucket (3 per IP): 1 used by the login above, 2 more bad logins, then 429 from the auth tier.
+    // Credential endpoint bucket (5 per IP; challenge verify, /v1/auth/csrf and /v1/log_in all count): 4 used so far,
+    // one bad login still reaches the route (401), the next is refused by the auth tier (429).
     const bad = apiClient(B3, tokens);
     await bad.call('GET', '/v1/auth/csrf');
     const codes = [];
@@ -565,7 +571,7 @@ test('persistence across restart: settings, fee, events, used challenges and the
   assert.ok(used >= 1);
   const token = await ct(); // issued before the restart
   await srv.close();
-  srv = await start(OPTS);
+  srv = await start(opts());
   assert.deepEqual(dbq('SELECT kind, COUNT(*) c FROM security_events GROUP BY kind'), counts, 'event log persisted');
   assert.equal(dbq('SELECT COUNT(*) c FROM security_challenges_used')[0].c, used);
   // The persisted secret (0600, next to the database) keeps earlier tokens valid.

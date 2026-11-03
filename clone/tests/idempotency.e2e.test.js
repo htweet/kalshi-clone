@@ -22,7 +22,7 @@ const { Client } = require('./lib/client');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-idem-'));
 const DB_FILE = path.join(TMP, 'idem.db');
-const PORT = 5200 + Math.floor(Math.random() * 40);
+const PORT = 20000 + Math.floor(Math.random() * 40000); // random high port: test runs in parallel must not collide
 const BASE = `http://127.0.0.1:${PORT}`;
 const PW = 'Copper-Harbor-Lantern-5182';
 const stamp = Date.now();
@@ -225,6 +225,11 @@ test('request validation: schemas reject type confusion and unknown money fields
   assert.deepEqual([r.status, r.code], [400, 'validation_failed']);
   r = await a.call('POST', `/v1/users/${a.uid}/orders`, { ticker: market(), side: 'yes', type: 'limit', count: 1, price: 5, client_order_id: 'x'.repeat(65) });
   assert.deepEqual([r.status, r.code], [400, 'validation_failed']);
+  // time_in_force is checked against the values the handlers accept (perps spells them out in full).
+  r = await a.call('POST', '/v1/perps/orders', { ticker: 'PLXBTCPERP', side: 'bid', type: 'limit', price: '1.0000', count: 1, time_in_force: 'good_til_whenever' });
+  assert.deepEqual([r.status, r.code], [400, 'validation_failed']);
+  r = await a.call('POST', '/v1/perps/orders', { ticker: 'PLXBTCPERP', side: 'bid', type: 'limit', price: '1.0000', count: 1, time_in_force: 'good_till_canceled' });
+  assert.notEqual(r.code, 'validation_failed', show(r));
   r = await a.call('POST', '/v1/perps/transfers', { direction: 'to_perps', amount_dollars: 1, client_transfer_id: '<script>' });
   assert.deepEqual([r.status, r.code], [400, 'validation_failed']);
   // Size limits: 1 KB on deposits, 4 KB on orders; the same padding is fine on a route with a larger limit.

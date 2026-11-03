@@ -86,7 +86,7 @@ Public unauthenticated reads (`/v1` market, social, live-data and BFF reads, `/v
 | anonymous | IP | `RATE_BURST` / `RATE_PER_SEC` (300 / 150 s⁻¹) | `/v1` + `/trade-api` without a session; the client-token bootstrap |
 | user | account | 2× anonymous | signed-in requests |
 | admin | account | 5× anonymous | staff (admin flag or any admin role) |
-| auth | IP | 60 burst, 1 s⁻¹ | `POST /v1/log_in*`, `/v1/users` (sign-up), `/v1/password*`, challenge verify; on top of the tier |
+| auth | IP | 60 burst, 1 s⁻¹ | Credential routes of SEC_IDENTITY_SPEC §22.11: every `/v1/auth/*` (login CSRF, first-admin setup, forced password change), `/v1/step_up`, `/v1/log_in`, `/v1/log_in_mfa`, `POST /v1/users` (sign-up), `/v1/users/:uid/password`, plus the bot-challenge verify; on top of the tier |
 | write | account or IP | 300 burst, 30 s⁻¹ | every mutation; on top of the tier |
 
 Token buckets live in memory. Every 2 s, buckets that are not full are written to `rate_buckets`, and full ones are deleted (a full bucket is the default). They are reloaded at boot, so a restart does not reset an attacker's allowance (tested). The flush never runs inside another transaction. Phase 1B's per-account login backoff sits on top of this.
