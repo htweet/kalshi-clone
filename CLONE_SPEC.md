@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 8 (2026-11-03):** §26 payments, sandbox only (PLAN Phase 4).
+>
 > **Revision 7 (2026-11-03):** §13.13–§13.19 from logged-in captures and screenshots; §24 social and community completion; §25 accounts, identity, compliance and the account area (PLAN Phases 2–3).
 >
 > **Revision 6 (2026-11-03):** §21 perimeter security, §22 identity/sessions/login security, §23 assurance, CI and guardrails (PLAN Phase 0–1).
@@ -393,7 +395,8 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §21–23 security foundation: headers/CSP nonces, CORS allowlist, bot challenge + client tokens, honeypots, hashed assets; hashed rotating sessions, login hardening, no default admin, step-up, encrypted MFA secrets, hash-chained audit; CI, lint, validation, idempotency, authz matrix | yes | tests `security-perimeter`, `auth-security`, `authz`, `idempotency` |
 | §24 social completion: position-tagged posts, stickers, mute, edit window, follows/topics, profile search, badges, full notification matrix + push/email channels, Inner Circle, group chats, RFQ rest-remainder/obscured creator, chat reactions/edits | yes | tests `social2`, `groupchat` |
 | §25 identity: onboarding (phone code → name → DOB → address/ID → document verification with QR phone handoff), encrypted PII, KYC sandbox + review, email verification/reset, OAuth (mock provider), passkeys, geo/fraud simulation, export/closure, account area (activity, documents, settings), promo codes, checklist | yes | tests `onboarding`, `identity2`, `account-area` |
-| Real KYC vendors, real payment rails, real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | deposits are simulated; see §16.x–19.x "not done" notes |
+| §26 payments, sandbox only: observed funds routes (cards, bank link, crypto, deposits/withdrawals, withdrawal_times, metadata, credit_history), card tokenizer (no PAN stored), ACH pending → settled / returns, crypto confirmations, signed webhooks with replay protection, double-entry journal + audit, reconciliation queue, limits, AML hooks, holds, withdrawal 2FA, non-withdrawable credits, Admin › Payments | yes (sandbox) | tests `payments`; UI is a Parlance design (screens not observed) |
+| Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
 Verification: 180 Playwright scenarios across 22 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
@@ -2933,6 +2936,210 @@ Tables (all `CREATE TABLE IF NOT EXISTS`, idempotent column migrations): `identi
 - Proof of work raises the cost of online guessing but does not stop a determined, well-resourced attacker; the per-IP
   hard limit and password policy remain the main defences.
 - A2 exempts staff accounts by design; staff identity is assumed verified out of band.
+
+---
+
+## 26. Payments (sandbox only)
+
+Phase 4 of `PLAN.md` (P4.1 rails, P4.2 withdrawal MFA, holds, limits, AML hooks, reconciliation, double-entry ledger
+audit; the §6 security gate). **No real money, no real providers, no real personal data**: every rail is an in-process
+sandbox with invented institutions, test card numbers and a test chain. Vendor names that appear in the observed call
+sites are replaced by neutral ones throughout.
+
+### 26.1 Evidence vs design choice
+
+| Observed (evidence) | Clone |
+|---|---|
+| Funds call sites in the public bundle (`evidence/api_callsites_home.txt` lines 11–218, §6): `debit/{cards,payment_session,payment,payment_status_web,withdrawal}`, `banks/{all_accounts,linked_accounts}`, a bank-link provider's `accounts`/`deposit`/`withdrawal`, `crypto/{account (GET/PUT),wallets,withdrawal}`, a global `…/supported_networks`, `…/withdrawal_addresses`, `deposits`, `withdrawals`, `withdrawal_times`, `payments/metadata`, `credit_history`, `deposit_limits` | Same resource families and verbs under `/v1/users/:uid/` (bank-link provider → `bank_link/…`; networks → `GET /v1/payments/supported_networks`; addresses → `withdrawal_addresses`) |
+| `nonwithdrawable_credits: {predictions: {amount_cents, amount_dollars, expiry_days, credits[]}, perps: {…}}` in `/v1/rewards/referrals/summary` [HAR5]; the referral offer's `referee.threshold_cents` | Same shape in `payments/metadata` and `credit_history`; credits are tradable, not withdrawable, and expire; `grantCredit()` is the Phase 8 hook for referral rewards |
+| `Idempotency-Key` in the API CORS allowlist (PLAN §2 S4); `enableWithdrawalMfa`, `action_verification_mfa` (S9) | Required on every rail deposit / withdrawal; step-up and withdrawal two-factor on withdrawals and new payout destinations |
+| Deposit / withdraw **screens**, provider flows, settlement times, fees, limits, AML rules, ledger internals | **UNKNOWN.** The live site serves a bot checkpoint to automated browsers and we do not bypass it, so the UI and all behaviour below are **Parlance design** (research R2/R3 still open) |
+
+### 26.2 Provider interface and sandbox rails (`server/payment-providers.js`)
+
+One object per rail, like the KYC sandbox provider (§25.5): `card {tokenize, charge, completeChallenge, payout}`,
+`bank {institutions, link, debit, payout}`, `crypto {newAddress, validAddress, simulateIncoming, send, mine}`. Each call
+returns the provider's own record. **Every later status change reaches the exchange only through the signed webhook
+endpoint** (§26.3): the provider side writes its record (`sbx_provider_records`), queues an event (`sbx_webhook_outbox`)
+and a delivery worker POSTs it to `/v1/payments/webhooks/<provider>` over loopback HTTP once the server listens (before
+that, the identical verify-and-apply function in process). Delayed transitions are rows in `sbx_provider_jobs` with an
+absolute due time, so a restart resumes them; undelivered events are retried with backoff (12 attempts) in order.
+
+- **Card** (`sandbox_card`): only the documented test numbers are accepted; any other number (possibly a real card) is
+  refused and nothing is kept. Behaviour by number: approve `4000 9910 0000 0002` / `5500 9910 0000 0004`, decline
+  `4000 9920 0000 0000`, insufficient funds `4000 9930 0000 0008`, 3-D Secure-style challenge `4000 9940 0000 0006` /
+  `5500 9940 0000 0008` (invented, Luhn-valid; any future expiry, any CVC). Card payouts go only to a card that has paid
+  in (closed loop); decline / insufficient-funds cards fail the payout.
+- **Bank** (`sandbox_bank`, ACH-like): institutions Maple Test Bank, Harbor Sandbox Credit Union, Cedar Example Savings;
+  sandbox sign-in `sandbox` / `sandbox-pass` (checked, never stored). Accounts ••0001 (settles; payouts arrive), ••0002
+  (deposits are returned R01 insufficient funds), ••0003 (payouts fail R02 account closed). A debit is accepted at once
+  (`ach_debit.pending`) and settles or returns after `sandbox.ach_settle_seconds` (default 30 s); payouts after
+  `sandbox.payout_seconds` (10 s).
+- **Crypto** (`sandbox_crypto`, testnet-style): asset "tUSD" on the "Sandbox chain"; addresses `tpx1` + 28 base32
+  characters + a 6-character SHA-256 checksum, format-validated. A per-user deposit address after accepting the terms
+  (`PUT crypto/account`). Incoming transfers (sandbox trigger `POST crypto/simulate_deposit`) are credited after
+  `crypto.confirmations` blocks (default 3); a block every `sandbox.block_seconds` (5 s; 0 = manual) or on Admin ›
+  Payments `sandbox/crypto/mine`. Withdrawals carry a network fee (`fees.crypto_network_fee_cents`, $1.00), deducted from
+  the amount sent, and are paid at the next block.
+
+### 26.3 Webhooks (`POST /v1/payments/webhooks/:provider`)
+
+- Header `Parlance-Signature: t=<unix seconds>,v1=<hex>`, `v1 = HMAC-SHA256(key, "<t>.<raw body>")`, compared in constant
+  time. Per-provider keys are HKDF sub-keys of the master key (`server/crypto.js`, `SECRET_KEY` / `secret.key`).
+- 5-minute tolerance on `t`; event ids deduplicated in `webhook_events` inside the same transaction that applies the
+  event (a replay answers `409 webhook_replayed`, nothing is re-applied). Unsigned / malformed → `400
+  webhook_signature_missing`, wrong signature → `webhook_signature_invalid`, old → `webhook_timestamp_stale`.
+- Raw body (64 KB) read by the route itself, before the session, CSRF and client-token middleware; anonymous rate tier.
+- Every outcome is in `webhook_log` (Admin › Payments › Webhook log); rejections also go to the security log
+  (`security_events`, kind `webhook_rejected`, with the reason code).
+- Effects are state machines (`charge.*`, `ach_debit.{pending,settled,returned}`, `payout.{paid,failed}`,
+  `crypto_deposit.{detected,confirmation}`, `crypto_withdrawal.confirmed`): an event that does not match the current
+  status is ignored, so out-of-order or duplicate delivery is harmless.
+
+### 26.4 Card data and PCI scope
+
+- The card number and CVC go only to `POST /v1/payments/tokenize/card`, an app-level route with its own 1 KB raw-body
+  parser (the shared JSON parser skips the path, so no parser error object ever holds a number). The buffer is zeroed,
+  the values dropped, errors are fixed codes (`card_number_invalid`, `card_not_sandbox`, …) that never echo input.
+- A tokenization needs a fresh card payment session (`POST debit/payment_session`, 15 min, 5 uses) and is limited to
+  10 per user per 10 minutes (card-testing control).
+- Stored: token, brand, last 4, expiry, sandbox behaviour (`sbx_card_vault`); saved cards (`payment_methods`) keep the
+  token, brand, last 4 and expiry. Bank accounts: mask + provider token only. The SPA clears the card fields at submit.
+- Proof: `payments.e2e.test.js` greps the database file and WAL bytes (Latin-1 and UTF-16), every server log line and
+  every API response for each test number (with and without spaces): none.
+
+### 26.5 Money rules (design choices)
+
+- **Card**: credited when `charge.succeeded` arrives (normally within ~200 ms); a challenge (`requires_action`) shows the
+  sandbox issuer's Approve / Fail step, then the client polls `debit/payment_status_web` (observed) and listens on the
+  private `payments` WebSocket channel.
+- **ACH**: credited at `ach_debit.pending`, so **unsettled funds can be traded at once but not withdrawn** until
+  `settled` (withdrawable = cash − unsettled bank deposits). Choice: matches common brokerage practice and keeps the
+  exposure to the value of the deposit.
+- **Returns**: the return always comes out of **cash**, which may go **negative**: that negative cash is the debt
+  ("You owe $X" on Transfers). Withdrawals are refused (`negative_balance`) until a deposit repays it; credits are never
+  used to cover it; the user is notified.
+- **Credits** (observed `nonwithdrawable_credits`): a promo / reward credit is posted to the user's credits account.
+  Orders spend credits first; money an order releases goes back to credits up to what that order took from them; fills,
+  netting and settlement pay cash. Credits cannot be withdrawn (`credits_not_withdrawable`) or moved to Perps
+  (`credits_not_transferable`); unused credit expires after `credits.expiry_days` (30), removed by a job. Withdrawable
+  = cash − non-withdrawable credits − unsettled ACH (cash already excludes credits).
+- **Limits**: withdrawals per UTC day ($25,000) and calendar month ($100,000) across every method; deposit maxima per
+  rail; the §13.8 daily deposit limit counts in-flight rail deposits too.
+- **Demo funds**: `POST deposits` / `withdrawals` **without** `method_id` stay the instant simulated method (all existing
+  clients and tests); journaled, limits and AML apply; off in production (`PAYMENTS_DEMO_FUNDS`); `Idempotency-Key`
+  honoured but optional there. With `method_id` the same routes use the rail (key required).
+
+### 26.6 Double-entry journal (`server/journal.js`)
+
+- `journal_entries` + `journal_postings` (signed cents; each entry sums to zero) + `journal_balances` (materialised).
+  Accounts: `user:<id>:{cash,credits,reserved,held}`, `escrow:<ticker>`, `clearing:<rail>`, `payouts:<rail>`,
+  `house:{fees,fees:network,interest,promotions,adjustments,suspense}`, `perps:collateral`, `payouts:closure`,
+  `equity:opening`. The single-entry `ledger` table is unchanged and stays the user-facing statement.
+- **Hooked centrally** in `server/engine.js`: `credit()` (every deposit, withdrawal, refund, netting, settlement,
+  interest, credit, adjustment, perps transfer, hold, closure payout — contra account by kind, or an explicit one from
+  the rails), `ledgerOnly()` (trade principal → market escrow, taker fee → `house:fees`) and the order reservation
+  (cash/credits → reserved). No call site changed; system accounts inserted with a balance get an opening entry.
+- **Migration**: on first start, every user's cash, reservations and holds and every market's open interest get an
+  opening entry against `equity:opening`; later, any account with money but no postings is opened the same way.
+- **Audit** (job every 10 minutes, Admin › Payments › Ledger audit, `POST …/ledger_audit/run`): every entry balances;
+  the trial balance is zero; materialised balances equal posting sums; cash + credits = `users.balance_cents`;
+  reserved = Σ `orders.reserved_cents`; held = open withdrawal holds; each market's escrow = its open interest
+  (Σ YES = Σ NO units); `payouts:<rail>` = processing withdrawals; nothing in suspense. The full suite was run with the
+  audit on every test server's database at shutdown: every database balanced except in two suites that fabricate state
+  with raw SQL (`idempotency` inserts 3,000 resting maker orders and debits the balance directly for G2; `fractional`
+  writes a one-sided position into a pre-fractional database), where the audit correctly reports the out-of-journal
+  change. That is the check doing its job, not a missing hook.
+
+### 26.7 Holds, limits, AML hooks, step-up
+
+- Risk score (§25.6) on every rail withdrawal; at/above the threshold the withdrawal is **held** through the existing
+  `withdrawal_holds` (`compliance.createHold`). Releasing a held rail withdrawal in Admin › Fraud & holds (or from the
+  AML case) sends it to its provider; reversing returns it.
+- AML rule hooks (Admin › Payments settings: `off | case | hold`): **structuring** (≥ 3 deposits within 24 h in the band
+  just under $10,000), **rapid deposit-then-withdraw** (a withdrawal ≥ 80 % of the last 24 h's deposits with no trade),
+  **first crypto withdrawal to a new address** (default `hold`). Cases (`aml_cases`) are opened with an audit-chain row,
+  and closed or escalated with a reason, step-up and audit.
+- Step-up (§22.6) on every withdrawal and on each new payout destination (`banks/linked_accounts`, `crypto/wallets`);
+  with withdrawal two-factor on, a fresh authenticator code per withdrawal / destination. A new crypto address has a
+  **cooling period** (24 h) before withdrawals to it; the user gets a security alert when a destination is added.
+
+### 26.8 Reconciliation (`server/payments-admin.js`)
+
+Job every 15 minutes and on demand: each provider record vs its transaction (missing in ledger, missing at provider,
+amount, status) and each transaction's journal effect vs its status (ledger mismatch). Mismatches go to the queue
+(`recon_items`, signature-deduplicated); resolution (`acknowledge`, or `adjust_user` for an amount mismatch on a credited
+deposit, which posts the difference) needs `users.money`, a reason and step-up, and is written to the hash-chained audit
+log. A resolved signature is not raised again.
+
+### 26.9 Admin › Payments
+
+Sub-tabs: Transactions (house/provider account balances, every transaction), Reconciliation (run, resolve), AML cases
+(close / escalate; release / reverse the linked hold), Ledger audit (live result, recorded runs), Provider settings
+(rails on/off, limits, fees, confirmations, cooling, credit lifetime, sandbox timings, AML rule actions; `settings.write`,
+reason, step-up, audit), Webhook log (received events and the sandbox delivery queue; `audit.read`). Views need
+`users.read`; money and case decisions `users.money` (existing permissions, no role change).
+
+### 26.10 UI (Parlance design)
+
+- `/funds` Transfers: cash, withdrawable, non-withdrawable credits (with expiry), settling, owed, under review; recent
+  transfers with live status; credits. ☰ menu "Deposit & withdraw" and a link on Portfolio.
+- `/funds/deposit` and `/funds/withdraw`: method picker (saved cards / banks / addresses, add card, link bank, crypto,
+  demo funds) → amount (per-method min / max / fee / ETA from `payments/metadata`, withdrawable shown) → review →
+  status (live over the `payments` channel; card challenge inline; `/funds/challenge/:id`).
+- Account › Account & security › **Payment methods**: cards, bank accounts, crypto deposit address, withdrawal addresses
+  (cooling badge); add / remove. Styles in `public/payments.css`, no inline styles (CSP nonces), 390 px clean.
+- Your activity and History show deposits, returns, withdrawals, network fees, reversals and expired credits (chips
+  Deposit / Withdrawal / Credit); Transfers notifications (Settings › Notifications › Transfers: in-app, email, push).
+
+### 26.11 Endpoints (all `/v1`; every route classified in `tests/authz.e2e.test.js`)
+
+| Area | Routes | Who |
+|---|---|---|
+| Generic | `GET|POST users/:uid/deposits`, `GET|POST users/:uid/withdrawals`, `GET users/:uid/withdrawal_times`, `GET users/:uid/payments/metadata`, `GET users/:uid/credit_history`, `GET users/:uid/withdrawal_addresses` | owner |
+| Cards | `GET users/:uid/debit/cards`, `DELETE …/:id`, `POST users/:uid/debit/{payment_session,payment,withdrawal}`, `GET users/:uid/debit/payment_status_web`, `POST users/:uid/debit/payment/:id/challenge`; `POST payments/tokenize/card` | owner; user |
+| Bank | `POST|GET users/:uid/bank_link/accounts`, `DELETE …/:id`, `POST users/:uid/bank_link/{deposit,withdrawal}`, `GET users/:uid/banks/all_accounts`, `POST users/:uid/banks/linked_accounts`, `DELETE …/:id` | owner |
+| Crypto | `GET|PUT users/:uid/crypto/account`, `GET|POST users/:uid/crypto/wallets`, `DELETE …/:id`, `POST users/:uid/crypto/{withdrawal,simulate_deposit}`; `GET payments/supported_networks` | owner; public |
+| Webhooks | `POST payments/webhooks/:provider` | public (HMAC) |
+| Admin | `GET admin/payments/{overview,transactions,reconciliation,aml_cases,ledger_audit}`, `POST admin/payments/reconciliation/{run,:id/resolve}`, `POST admin/payments/aml_cases/:id/:action`, `POST admin/payments/ledger_audit/run`, `POST admin/payments/sandbox/crypto/mine`, `GET|PUT admin/payments/settings`, `GET admin/payments/webhooks` | users.read / users.money / settings.write / audit.read |
+
+Tables: `payment_methods`, `payment_transactions`, `crypto_accounts`, `bank_link_sessions`, `card_payment_sessions`,
+`webhook_events`, `webhook_log`, `aml_cases`, `recon_runs`, `recon_items`, `journal_entries`, `journal_postings`,
+`journal_balances`, `journal_order_credits`, `credit_grants`, `ledger_audits`; provider side `sbx_card_vault`,
+`sbx_bank_accounts`, `sbx_provider_records`, `sbx_provider_jobs`, `sbx_webhook_outbox`. Settings row
+`admin_settings.payments`. WebSocket: private channel `payments`.
+
+### 26.12 Tests (`tests/payments.e2e.test.js`, 9 scenarios)
+
+Card approve / decline / challenge in the browser (live header balance, Transfers notification, Your activity),
+insufficient funds, failed challenge, non-test number refused, closed-loop card payout, 390 px; bank link in the browser,
+ACH pending → settled with unsettled funds tradable but not withdrawable, payout, a return that reverses the credit and
+leaves a debt repaid by the next deposit; crypto address, confirmations 1 → 3, a new address with step-up in the UI and
+a cooling period, the AML hold released in Admin, network fee, withdrawal two-factor; webhooks unsigned / bad signature
+/ stale / replayed refused and logged, a signed event applied once; Idempotency-Key required, replayed, conflicting;
+withdrawal limit, structuring and rapid in-out cases with audit, non-withdrawable credits (spent first, returned on
+cancel, not withdrawable or transferable, expired by the job); reconciliation amount mismatch resolved in Admin (audit
+chain verified), missing-at-provider, ledger audit balanced in the UI and catching a direct balance edit; a pending ACH
+settlement and payout resuming after a restart; no card number in DB, WAL, logs or responses.
+
+**Changes to existing code and tests** (small, exact edits): `engine.js` (journal hooks), `compliance.js` (shared hold
+creation, release listener, withdrawal precheck), `identity.js` (rail routes in the gate), `auth.js` (step-up list),
+`idempotency.js`, `validate.js` (schemas, raw-body paths, `method_id` on the money schema), `history.js` (new ledger kinds,
+rail status), `notify-prefs.js` (rail transfers notify on completion), `ws.js` (`payments` channel), `perps.js` (credits
+stay with predictions), `sports.js` (opening entry for its system account), `security.js` (stylesheets served relative to
+their root, so a checkout under a dot-directory works), `app.js` / `index.js` (wiring). Tests: `authz.e2e.test.js`
+classifies the 44 new routes; `package.json` adds the suite. No existing assertion changed.
+
+### 26.13 Residual risks
+
+- Simulations only: no real processor, ACH network or chain; webhook secrets are derived, not exchanged with a provider;
+  delivery is loopback. A production integration needs the provider's real signature scheme and IP allowlisting.
+- The tokenizer runs inside the exchange process (a real deployment uses the provider's hosted fields, taking card data
+  entirely out of scope); memory is not scrubbed beyond dropping references and zeroing the request buffer.
+- AML rules are three simple hooks, not a monitoring programme (no sanctions screening, no SAR workflow).
+- Credits consumption is conservative (released order funds go back to credits first) and per order, not per grant.
+- Single-process SQLite: the journal, jobs and provider worker assume one server (PLAN §10 RS1, Phase 9).
+- The ledger audit detects inconsistencies; it does not prevent a writer with database access from changing both sides.
 
 ---
 

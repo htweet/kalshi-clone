@@ -14,13 +14,14 @@ const NAV = [
   ['taxes', '/account/taxes', 'Documents', '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M7.5 10h5M7.5 13h5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'],
   ['settings', '/account/settings', 'Settings', '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 2v2.5M10 15.5V18M2 10h2.5M15.5 10H18M4.3 4.3l1.8 1.8M13.9 13.9l1.8 1.8M4.3 15.7l1.8-1.8M13.9 6.1l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'],
 ];
-const SUB = [['security', '/account', 'Security'], ['privacy', '/account/privacy', 'Identity & privacy'], ['profile', '/account/profile', 'Social profile'], ['limits', '/account/limits', 'Account limits'], ['alerts', '/account/alerts', 'Price alerts']];
+const SUB = [['security', '/account', 'Security'], ['privacy', '/account/privacy', 'Identity & privacy'], ['payments', '/account/payments', 'Payment methods'], ['profile', '/account/profile', 'Social profile'], ['limits', '/account/limits', 'Account limits'], ['alerts', '/account/alerts', 'Price alerts']];
 const lazyPanel = (load) => (panel, ctx) => load().then((m) => m.render(panel, ctx));
 const PANELS = {
   activity: lazyPanel(() => import('./account-activity.js')),
   taxes: lazyPanel(() => import('./account-documents.js')),
   settings: lazyPanel(() => import('./account-settings.js')),
   privacy: lazyPanel(() => import('./account-identity.js')),
+  payments: lazyPanel(() => import('./account-payments.js')), // Phase 4 (CLONE_SPEC.md §26)
 };
 
 export async function render({ el, params, navigate, query }) {
@@ -82,6 +83,8 @@ const EVENT_LABELS = {
   docv_handoff_created: 'Phone verification link created', docv_handoff_claimed: 'Phone verification link opened', docv_handoff_refused: 'Phone verification link refused', docv_uploaded: 'ID photo uploaded',
   docv_exited: 'Left identity verification', documents_erased: 'ID photos erased', marketing_sms_opt_in: 'Marketing texts on', marketing_sms_opt_out: 'Marketing texts off',
   security_notifications_on: 'Security notifications on', security_notifications_off: 'Security notifications off', promo_redeemed: 'Promo code redeemed', connected_app_revoked: 'Connected app removed',
+  // Phase 4 (CLONE_SPEC.md §26)
+  payment_method_added: 'Payment method added', payment_method_removed: 'Payment method removed', bank_link_failed: 'Bank sign-in failed',
 };
 const BAD_EVENTS = new Set(['login_fail', 'lockout', 'mfa_fail', 'step_up_fail', 'password_change_fail', 'phone_verify_fail', 'passkey_fail', 'passkey_counter_regression', 'oauth_fail', 'geo_blocked', 'permission_denied', 'docv_handoff_refused']);
 const dur = (sec) => (sec >= 86400 ? `${Math.round(sec / 86400)} days` : sec >= 3600 ? `${Math.round(sec / 3600)} hours` : `${Math.max(1, Math.round(sec / 60))} minutes`);

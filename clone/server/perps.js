@@ -929,6 +929,8 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
       const a = account(uid);
       if (dir === 'to_perps') {
         if (engine.balance(uid) < cents) throw E.conflict('insufficient_balance', 'insufficient balance', `you have $${(engine.balance(uid) / 100).toFixed(2)} of prediction cash`);
+        // Non-withdrawable promotional credits stay with predictions (server/payments.js, CLONE_SPEC.md §26.5).
+        if (engine.transferableCents && engine.transferableCents(uid) < cents) throw E.conflict('credits_not_transferable', 'promotional credits cannot be moved to Perps', `you can move up to $${(engine.transferableCents(uid) / 100).toFixed(2)} of cash`);
         engine.credit(uid, -cents, 'perps_transfer', id, 'Transfer to Perps');
         addAvail(uid, ccAmt);
       } else {

@@ -25,6 +25,7 @@ export function menuHtml() {
     <div class="menu-round"><a href="/social/leaderboard" data-link data-testid="menu-leaderboard"><span class="round-ic">${ICON.trophy}</span>Leaderboard</a><a href="/rewards" data-link data-testid="menu-rewards"><span class="round-ic">${ICON.gift}</span>Rewards</a></div>
     ${ITEMS.map(([href, label, id]) => `<a href="${href}" data-link data-testid="${id}">${esc(label)}</a>`).join('')}
     <a href="/portfolio" data-link>Portfolio</a>
+    <a href="/funds" data-link data-testid="menu-transfers">Deposit &amp; withdraw</a>
     ${staff ? '<a href="/admin" data-link data-testid="admin-link">Admin</a>' : ''}
     <hr>
     ${GROUPS.map(([key, label, links]) => `<details class="menu-group" data-testid="menu-group-${key}"><summary>${esc(label)}</summary>${links.map(([slug, l]) => `<a href="/${esc(key)}/${esc(slug)}" data-link>${esc(l)}</a>`).join('')}</details>`).join('')}

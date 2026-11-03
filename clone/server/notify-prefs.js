@@ -336,7 +336,8 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
   // Transfers: a 201 from the deposit / withdrawal routes (response decorator; the money routes are unchanged).
   v1.use((req, res, next) => {
     const m = req.method === 'POST' && /^\/users\/[^/]+\/(deposits|withdrawals)$/.exec(req.path);
-    if (!m || !req.auth) return next();
+    // A payment-rail request (method_id) notifies when the provider confirms it (server/payments.js), not on 201.
+    if (!m || !req.auth || (req.body && req.body.method_id)) return next();
     const json = res.json.bind(res);
     res.json = (body) => {
       try {

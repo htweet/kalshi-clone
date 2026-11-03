@@ -5,6 +5,7 @@
 const { EventEmitter } = require('node:events');
 const { tx } = require('./db');
 const { nowIso, newId, E, ApiError, ustr } = require('./util');
+const journal = require('./journal'); // double-entry journal: every balance change below is posted there too (CLONE_SPEC.md §26.6)
 
 // Taker fee coefficient (design choice for unknown U3: fee = ceil(0.07 * C * P * (1-P)) dollars), held as an integer number
 // of 1/10,000ths so the fee arithmetic stays exact. Editable at runtime from Admin › Settings (gap G7, server/admin.js);
@@ -99,10 +100,16 @@ class Engine extends EventEmitter {
     };
   }
 
-  credit(userId, cents, kind, ref, memo = '') {
+  // `contra` (optional): the journal account the money comes from / goes to; by default derived from the kind
+  // (server/journal.js contraFor). Payment rails pass their provider clearing / payout accounts.
+  credit(userId, cents, kind, ref, memo = '', { contra } = {}) {
     if (cents === 0) return;
-    this.db.prepare('UPDATE users SET balance_cents = balance_cents + ? WHERE id=?').run(cents, userId);
-    this.db.prepare('INSERT INTO ledger(id,user_id,kind,amount_cents,ref,memo,created_at) VALUES(?,?,?,?,?,?,?)').run(newId('l_'), userId, kind, cents, ref ?? null, memo, nowIso());
+    tx(this.db, () => {
+      const lid = newId('l_');
+      this.db.prepare('UPDATE users SET balance_cents = balance_cents + ? WHERE id=?').run(cents, userId);
+      this.db.prepare('INSERT INTO ledger(id,user_id,kind,amount_cents,ref,memo,created_at) VALUES(?,?,?,?,?,?,?)').run(lid, userId, kind, cents, ref ?? null, memo, nowIso());
+      journal.onCredit(this.db, { userId, cents, kind, ref: ref ?? null, memo, ledgerId: lid, contra });
+    });
   }
 
   balance(userId) {
@@ -189,6 +196,7 @@ class Engine extends EventEmitter {
           .run(id, this.nextSeq(), userId, ticker, side, price, count, count, reserve, 'resting', time_in_force, client_order_id ?? null, ts, ts, source, action === 'sell' ? 'sell' : 'buy', order_type || (time_in_force === 'ioc' ? 'market' : 'limit'), expiration_ts);
       }
       this.db.prepare('UPDATE users SET balance_cents = balance_cents - ? WHERE id=?').run(reserve, userId);
+      journal.onReserve(this.db, userId, id, reserve);
 
       let carry = pl.suffix[0];
       pl.fills.forEach((f, i) => {
@@ -247,7 +255,9 @@ class Engine extends EventEmitter {
   // ledger entry with no balance movement (cost already held in reservation)
   ledgerOnly(userId, cents, kind, ref, memo) {
     if (cents === 0) return;
-    this.db.prepare('INSERT INTO ledger(id,user_id,kind,amount_cents,ref,memo,created_at) VALUES(?,?,?,?,?,?,?)').run(newId('l_'), userId, kind, cents, ref, memo, nowIso());
+    const lid = newId('l_');
+    this.db.prepare('INSERT INTO ledger(id,user_id,kind,amount_cents,ref,memo,created_at) VALUES(?,?,?,?,?,?,?)').run(lid, userId, kind, cents, ref, memo, nowIso());
+    journal.onLedgerOnly(this.db, { userId, cents, kind, ref, memo, ledgerId: lid });
   }
 
   // qty in units; cost = cents actually paid for this fill (taker: ceil share, maker: remainder).

@@ -17,6 +17,8 @@ const { mountChat } = require('./chat');
 const { mountCommunity } = require('./community'); // Phase 2: social and community completion (CLONE_SPEC.md §24)
 const { mountIdentity } = require('./identity'); // Phase 3: accounts, identity, compliance (CLONE_SPEC.md §25)
 const { mountAccountArea } = require('./account-area'); // Phase 3: account area, settings, documents, rewards (§25)
+const { mountPayments } = require('./payments'); // Phase 4: payments, sandbox only (CLONE_SPEC.md §26)
+const journal = require('./journal'); // Phase 4: double-entry journal (CLONE_SPEC.md §26.6)
 const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
 const { createAuth } = require('./auth');
@@ -49,7 +51,8 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions }) {
+  journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
@@ -59,6 +62,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.security = security;
   app.use(security.early);
   app.use(jsonBody()); // JSON bodies with per-route size limits (server/validate.js, PLAN P1.8)
+  // Payment provider webhooks (server/payments.js): server-to-server, authenticated by their HMAC signature over the raw
+  // body, so they run before the session, CSRF and client-token middleware.
+  app.post('/v1/payments/webhooks/:provider', (req, res, next) => (app.locals.payments ? app.locals.payments.webhookRoute(req, res, next) : next(E.notFound())));
 
   // ---------- helpers ----------
   const q = engine.quote.bind(engine);
@@ -89,6 +95,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.use(auth.attach); // req.auth from the session cookie; session CSRF on writes, login CSRF on pre-session endpoints
   app.use('/v1', auth.guard); // step-up verification for sensitive actions; privilege-change session rotation
   app.use(['/v1', '/trade-api'], security.apiGuard); // tiered rate limits; signed client token on /v1 writes (server/bot.js)
+  // Isolated card tokenizer (server/payments.js): its own raw-body parser, outside the /v1 router and its middleware.
+  app.post('/v1/payments/tokenize/card', (req, res, next) => (app.locals.payments ? app.locals.payments.tokenizeRoute(req, res) : next(E.notFound())));
 
   const requireUser = (req, res, next) => {
     if (!req.auth) return next(E.unauthorized());
@@ -112,6 +120,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.identity = mountIdentity({ v1, app, db, engine, auth, admin, security, keyDir, notify: (...a) => feat.notify(...a), options: identityOptions });
   const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent });
   app.use('/v1', feat.sessionMiddleware);
+  // Payments, sandbox only (CLONE_SPEC.md §26): rails, webhooks, limits, AML, reconciliation, ledger audit, Admin › Payments.
+  app.locals.payments = mountPayments({ v1, db, engine, auth, admin, identity: app.locals.identity, security, feat, keyDir, options: paymentsOptions || {} });
   // Phase 2 community: post extras, stickers, mutes, topics, Inner Circle, group chats, notification matrix (§24).
   const community = mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEvent });
   app.locals.rolling = mountRolling({ v1, db, engine, windowSec: admin.rollingWindowSec() ?? rollingWindowSec }); // window editable live (G7)
@@ -279,26 +289,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     res.json({ balance_dollars: dollars(engine.balance(uid)), reserved_dollars: dollars(resting), portfolio_value_dollars: dollars(portfolioValueCents(uid)) });
   });
 
-  const moneyBody = (b) => {
-    const a = Number(b && b.amount_dollars);
-    if (!Number.isFinite(a) || a <= 0 || a > 100000 || Math.round(a * 100) !== a * 100) throw E.badRequest('amount_dollars must be a positive amount with at most 2 decimals, up to 100000');
-    return Math.round(a * 100);
-  };
-  v1.post('/users/:uid/deposits', requireUser, (req, res) => {
-    const cents = moneyBody(req.body);
-    tx(db, () => { feat.checkDeposit(req.auth.user.id, cents); engine.credit(req.auth.user.id, cents, 'deposit', null, 'simulated deposit'); });
-    engine.emit('user_balance', req.auth.user.id, engine.balance(req.auth.user.id));
-    res.status(201).json({ balance_dollars: dollars(engine.balance(req.auth.user.id)) });
-  });
-  v1.post('/users/:uid/withdrawals', requireUser, (req, res) => {
-    const cents = moneyBody(req.body);
-    tx(db, () => {
-      if (engine.balance(req.auth.user.id) < cents) throw E.conflict('insufficient_balance', 'insufficient balance');
-      engine.credit(req.auth.user.id, -cents, 'withdrawal', null, 'simulated withdrawal');
-    });
-    engine.emit('user_balance', req.auth.user.id, engine.balance(req.auth.user.id));
-    res.status(201).json({ balance_dollars: dollars(engine.balance(req.auth.user.id)) });
-  });
+  // POST deposits / withdrawals: with method_id a payment rail, without it the demo-funds method (server/payments.js).
+  v1.post('/users/:uid/deposits', requireUser, (req, res) => app.locals.payments.generic.deposit(req, res));
+  v1.post('/users/:uid/withdrawals', requireUser, (req, res) => app.locals.payments.generic.withdraw(req, res));
 
   // Contract sizes (spec §16.4): `count` (number, ≤2 decimals) or `count_fp` (string); stored as units.
   function parseCount(b) {

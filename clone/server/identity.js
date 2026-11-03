@@ -278,9 +278,16 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
   // ------------------------------------------------------------------ compliance gate (trading, deposits, withdrawals)
   // Re-checked on every such request: location (P3.6), identity verification when enforced (P3.1/P3.5), then fraud
   // scoring with withdrawal holds (P3.7). Runs after authentication, step-up, validation and idempotency.
+  // Payment rails (server/payments.js, CLONE_SPEC.md §26): location and identity here; risk scoring, AML rules and holds
+  // run in the payments handler, which knows the payment method (`ownRisk`; on the generic routes when method_id is set).
+  const rail = { ownRisk: (req) => !!(req.body && req.body.method_id) };
   const GATED = [
-    ['POST', /^\/users\/([^/]+)\/deposits$/, 'deposit'],
-    ['POST', /^\/users\/([^/]+)\/withdrawals$/, 'withdrawal'],
+    ['POST', /^\/users\/([^/]+)\/deposits$/, 'deposit', rail],
+    ['POST', /^\/users\/([^/]+)\/withdrawals$/, 'withdrawal', rail],
+    ['POST', /^\/users\/([^/]+)\/(debit\/payment|bank_link\/deposit)$/, 'deposit', { ownRisk: true }],
+    ['POST', /^\/users\/([^/]+)\/(debit|bank_link|crypto)\/withdrawal$/, 'withdrawal', { ownRisk: true }],
+    ['POST', /^\/users\/([^/]+)\/(debit\/payment_session|bank_link\/accounts|banks\/linked_accounts|crypto\/wallets|crypto\/simulate_deposit)$/, 'deposit', { ownRisk: true }],
+    ['PUT', /^\/users\/([^/]+)\/crypto\/account$/, 'deposit', { ownRisk: true }],
     ['POST', /^\/users\/([^/]+)\/orders$/, 'trade'],
     ['POST', /^\/users\/([^/]+)\/orders\/[^/]+\/amend$/, 'trade'],
     ['POST', /^\/perps\/orders$/, 'trade'],
@@ -310,6 +317,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
         throw e;
       }
     } catch (e) { return next(e); }
+    if (hit[3] && (typeof hit[3].ownRisk === 'function' ? hit[3].ownRisk(req) : hit[3].ownRisk)) { try { compliance.recordDevice(u.id, req); } catch { /* best effort */ } return next(); }
     return compliance.fraudGate(req, res, next, kind);
   }
   v1.use(gate);

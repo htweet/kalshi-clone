@@ -21,7 +21,7 @@ npm run test:e2e     # 180 end-to-end browser scenarios across 22 files (Playwri
 - *bash: cd: clone: No such file or directory*: you are already inside `clone/`. Run `npm install && npm start` there.
 - After `git pull`, run `npm install` again before `npm start`: dependencies change between phases.
 
-**Admin bootstrap (no default password, `../CLONE_SPEC.md` §22.5).** On first start with no admin, the server prints a single-use setup link (`http://localhost:3000/setup?token=…`, valid 60 minutes) where you create the first admin. Alternatives: `ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='…' npm start` (PowerShell: `$env:ADMIN_EMAIL='…'; $env:ADMIN_PASSWORD='…'; npm start`), or `npm run create-admin` with the server stopped (prompts for email and password). Passwords need 12+ characters mixing two character classes, not your name/email, and not a common breached password. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local`) get a random password printed once when the database is seeded, or `DEMO_PASSWORD`. Admins can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page. Account › Security has password change, two-factor login, withdrawal verification, signed-in devices (sign out one / everywhere) and the account's security activity.
+**Admin bootstrap (no default password, `../CLONE_SPEC.md` §22.5).** On first start with no admin, the server prints a single-use setup link (`http://localhost:3000/setup?token=…`, valid 60 minutes) where you create the first admin. Alternatives: `ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='…' npm start` (PowerShell: `$env:ADMIN_EMAIL='…'; $env:ADMIN_PASSWORD='…'; npm start`), or `npm run create-admin` with the server stopped (prompts for email and password). Passwords need 12+ characters mixing two character classes, not your name/email, and not a common breached password. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local`) get a random password printed once when the database is seeded, or `DEMO_PASSWORD`. Admins can pause, resume, close and resolve markets from any event page. New users sign up and deposit through the sandbox rails (☰ → Deposit & withdraw) or demo funds on the Portfolio page. Account › Security has password change, two-factor login, withdrawal verification, signed-in devices (sign out one / everywhere) and the account's security activity.
 
 Port: with `PORT` unset the server tries 3000-3019 and prints the URL it actually bound. With `PORT=8080 npm start` (PowerShell: `$env:PORT=8080; npm start`) it uses exactly that port and exits with a clear message if the port is busy.
 
@@ -45,11 +45,26 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_E
 - Onboarding and identity (`../CLONE_SPEC.md` §13.14-13.16, §25): sign-up → email code → phone code → legal name → birthday → address → "Verifying info…" → document verification (ID front, back, selfie; desktop can continue on a phone through a 10-minute QR link) → result. With `npm start`, trading, deposits, withdrawals and transfers wait for an approved identity. `KYC_REQUIRED=0 npm start` turns that gate off, and an admin can switch it in Admin › Identity. Verification codes go to the dev mailbox at `http://localhost:3000/v1/dev/mailbox` (email and SMS; never registered in production). The identity check is a deterministic sandbox, so use invented data only. The legal last name picks the outcome: `Review` (manual review, Admin › Identity), `Reject`, `Retry`, `Outage`; anything else is approved after the documents step.
 - Account area (☰ menu): Your activity, Documents, Settings (notification matrix, theme and accessible colors, trade mechanics, market preview price type), Account & security (passkeys, sign-in methods, devices), Rewards, promo codes.
 
-Not built yet (PLAN.md Phases 4-9): real payment rails (deposits are simulated), public developer API keys and portal, FIX gateway, referrals and rewards payouts, ballot lookup, AI summaries.
+- Deposit and withdraw (☰ → Deposit & withdraw, `/funds`; `../CLONE_SPEC.md` §26): **sandbox only, no real money.** Pick a method, an amount, review, and follow the status live. Payment methods are under Account & security › Payment methods.
+  - **Debit card** (instant): only these invented test numbers are accepted. Any future expiry date, any 3-digit code. Never type a real card number; the sandbox refuses it and keeps nothing.
+
+    | Number | Result |
+    |---|---|
+    | `4000 9910 0000 0002`, `5500 9910 0000 0004` | approved |
+    | `4000 9920 0000 0000` | declined |
+    | `4000 9930 0000 0008` | declined: insufficient funds |
+    | `4000 9940 0000 0006`, `5500 9940 0000 0008` | asks for a verification step (Approve or Fail on the sandbox issuer screen) |
+
+  - **Bank account** (ACH-like): "Link a bank account", choose any sandbox bank, sign in with `sandbox` / `sandbox-pass`, then pick an account: `••0001` settles normally, `••0002` returns deposits (insufficient funds), `••0003` fails withdrawals. Bank deposits can be traded at once and withdrawn once settled (about 30 s in the sandbox).
+  - **Crypto** (test chain): accept the terms to get a deposit address, then "Simulate transfer" (credited after 3 confirmations, one block every 5 s). Withdraw to an address from `GET /v1/payments/supported_networks` (`example`); a new address needs a password check, has a 24-hour cooling period, and the first withdrawal to it is reviewed in Admin › Payments.
+  - **Demo funds** (outside production): instant simulated deposits and withdrawals, as before (also the Portfolio "Demo funds" box).
+  - Promotional credits (promo codes) can be traded but not withdrawn, and expire after 30 days. Admin › Payments has transactions, reconciliation, AML cases, the double-entry ledger audit, provider settings (limits, fees, sandbox timings) and the webhook log.
+
+Not built yet (PLAN.md Phases 5-9): real payment providers (sandbox rails built, no real money), public developer API keys and portal, FIX gateway, referrals and rewards payouts, ballot lookup, AI summaries.
 
 Perimeter security (`../CLONE_SPEC.md` §21): CSP with per-response nonces and the other security headers, CORS allowlist (`ALLOWED_ORIGINS`), proof-of-work bot challenge for suspicious HTML requests, signed client tokens on `/v1` writes and the WebSocket, honeypot paths, tiered persisted rate limits, Admin › Security event log. Taker fee coefficient, rolling window, rate limits and bot settings are editable live in Admin › Settings & health. Fonts are self-hosted (`public/fonts/`, SIL OFL).
 
-Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1).
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1), `PAYMENTS_DEMO_FUNDS` (`0`/`1`, instant demo funds; default on outside production), `PAYMENTS_SANDBOX` (`0`/`1`, sandbox payment rails; default on outside production).
 
 ## Architecture
 
@@ -62,6 +77,7 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-lim
 | Social, notifications + price targets, account limits, two-factor (TOTP), calendar, categories, daily interest | `server/features.js` | §13, §15 |
 | Perps margin engine: markets, orders, positions, liquidation, funding, TP/SL, transfers | `server/perps.js` | §14 |
 | Rolling Above/Below windows | `server/rolling.js` | §15.5 |
+| Payments (sandbox): rails, webhooks, limits, AML, holds; sandbox providers; double-entry journal + audit; Admin › Payments and reconciliation | `server/payments.js`, `server/payment-providers.js`, `server/journal.js`, `server/payments-admin.js` | §26 |
 | SPA: router, root store, query cache with polling, shared socket with dedup, 5 s subscription timeout, backoff and resubscribe | `public/js/*` | §2, §7.2 |
 
 All state is server-side in SQLite: balances, orders, positions, watchlist, recently viewed and UI settings (theme, chart range, tabs, sort, portfolio view). Only the theme for signed-out visitors and the CSRF token mirror use localStorage.

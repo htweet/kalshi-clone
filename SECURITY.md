@@ -87,9 +87,9 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 | T | Replayed deposit/withdrawal/transfer request | `Idempotency-Key` (24 h, persisted); `client_transfer_id` uniqueness on perps transfers | ✅ P1.9 |
 | T | Malformed amounts (floats, objects, huge values) | `amount_dollars` positive, ≤ 2 decimals, ≤ $100,000; body schema with unknown fields rejected; 1 KB limit | ✅ P1.8 |
 | R | "I never withdrew that" | Ledger entries + security events + idempotency records keyed by user | ✅ |
-| I | Payment data exposure | No real rails; Phase 4 stores provider tokens only, never PAN/bank data | ☐ P4 |
-| D | Deposit-limit abuse | Account deposit limits (`features.js`) | ✅ |
-| E | Bypassing withdrawal holds/AML hooks | Not built (sandbox) | ☐ P4.2 |
+| I | Payment data exposure | Tokens only, never PAN/bank numbers (see §11) | ✅ P4 |
+| D | Deposit-limit abuse | Account deposit limits (`features.js`), counting in-flight rail deposits | ✅ |
+| E | Bypassing withdrawal holds/AML hooks | Every withdrawal path goes through the same precheck, risk score and AML hooks (see §11) | ✅ P4.2 |
 
 ### 4. Admin and CMS
 
@@ -173,11 +173,34 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 | E | Trading/deposits before verification or from blocked regions | Server gate: identity status, simulated location (IP + consented browser fix), fraud holds on withdrawals; A2 lock on passkeys/sign-in methods/API keys | ✅ P3.1, P3.6, P3.7, A2 |
 | R | Disputed consent or closure | Append-only marketing-consent records (text version + hash), PII-free closure audit, export for the owner after step-up | ✅ A6, P3.8 |
 
+### 11. Payment rails, sandbox only (Phase 4, `CLONE_SPEC.md` §26)
+
+Trust boundaries added: payment provider ↔ webhook endpoint (server-to-server, no session), browser ↔ card tokenizer,
+exchange ↔ its own provider simulators (loopback HTTP).
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| S | Forged provider webhook credits an account | HMAC-SHA256 over `t.body` with a per-provider HKDF key, constant-time compare; unsigned / wrong-signature events refused before parsing; applied only by state machine | ✅ (`payments.e2e` webhooks) |
+| T | Replayed or delayed webhook | 5-minute timestamp tolerance; event-id dedupe in the same transaction that applies it (`409 webhook_replayed`) | ✅ |
+| R | "That webhook never arrived / was not ours" | `webhook_log` (accepted / rejected / error, IP) and `security_events` (`webhook_rejected` with the reason); provider outbox with attempts | ✅ |
+| I | Card numbers in the database, logs, errors or responses | Isolated tokenizer route with its own raw parser (outside the shared JSON parser, request logging and the /v1 router), buffer zeroed, fixed error codes; only the documented test numbers accepted (real numbers refused, not kept); token + brand + last 4 + expiry stored; SPA clears the fields | ✅ (DB/WAL/log/response grep) |
+| I | Bank or wallet data exposure | Bank: mask + provider token; sandbox credentials checked, never stored; crypto addresses are public by nature, masked in AML details | ✅ |
+| S | Card testing through the tokenizer | Signed-in user, client token, a short-lived payment session per attempt (5 uses), 10 attempts per 10 minutes | ✅ |
+| E | Withdrawal from a hijacked session to an attacker's destination | Step-up on each new payout destination and each withdrawal (TOTP when withdrawal 2FA is on); security alert on a new destination; 24 h cooling for new crypto addresses; the first withdrawal to one is held (AML hook); card payouts only to a card that paid in | ✅ |
+| T | Double deposit / withdrawal on retry | `Idempotency-Key` **required** on every rail creation; replay returns the stored response | ✅ |
+| E | Withdrawing unsettled ACH funds or promotional credits (bust-out) | Withdrawable = cash − credits − unsettled; credits cannot move to Perps; returns debit cash (negative = debt, withdrawals blocked) | ✅ |
+| E | Structuring, rapid in-and-out, laundering through new addresses | AML rule hooks open audited cases and can hold withdrawals through `withdrawal_holds`; daily and monthly withdrawal limits | ✅ (simple rules, see residual) |
+| T | Ledger drift or tampering between balances and money movements | Double-entry journal for every balance change (central engine hooks); audit job + admin check (balanced entries, cash + credits = balance, reservations, holds, escrow = open interest, pending payouts); reconciliation of provider records vs ledger with an audited resolution queue | ✅ |
+| D | Webhook flooding | Anonymous rate tier, 64 KB raw-body limit, rejection logging throttled per kind and IP | ✅ |
+| E | Staff moving money without trace | Reconciliation adjustments, AML decisions and payment settings need `users.money` / `settings.write`, a reason and step-up; all hash-chain audited | ✅ |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
 - No WAF/CDN in front of the dev server (P9.3); TLS terminates at a reverse proxy in production (P9.1).
-- Payments are not built (Phase 4); KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
+- Payments run on sandbox rails only (Phase 4, `CLONE_SPEC.md` §26.13): simulated providers with loopback webhook delivery
+  and derived secrets, an in-process tokenizer instead of provider-hosted fields, three AML rule hooks rather than a
+  monitoring programme. KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
 - Signed API keys for the public trading API are not built (P7.1).
 - Property-based tests for perps margin/liquidation invariants (P6 gate).
 

@@ -36,6 +36,7 @@ const docvPhoneView = lazy(() => import('./views/docv-phone.js'));
 const identityPagesView = lazy(() => import('./views/identity-pages.js'));
 const rewardsView = lazy(() => import('./views/rewards.js'));
 const placeholderView = lazy(() => import('./views/placeholder.js'));
+const fundsView = lazy(() => import('./views/funds.js')); // Phase 4 deposits / withdrawals, sandbox rails (CLONE_SPEC.md §26)
 
 const routes = [
   [/^\/$/, home],
@@ -76,6 +77,9 @@ const routes = [
   [/^\/oauth-web\/([a-z]+)\/callback$/, identityPagesView, (m) => ({ page: 'oauth', provider: m[1] })],
   [/^\/dev\/mailbox$/, identityPagesView, () => ({ page: 'mailbox' })],
   [/^\/rewards$/, rewardsView],
+  [/^\/funds$/, fundsView, () => ({ mode: 'overview' })],
+  [/^\/funds\/(deposit|withdraw)$/, fundsView, (m) => ({ mode: m[1] })],
+  [/^\/funds\/challenge\/([A-Za-z0-9_-]+)$/, fundsView, (m) => ({ mode: 'challenge', id: m[1] })],
   [/^\/(incentives|docs)$/, placeholderView, (m) => ({ slug: m[1] })],
   [/^\/(trust|research|support)\/([a-z-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })],
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
