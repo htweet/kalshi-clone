@@ -192,7 +192,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     next();
   }
 
-  // Two-factor login (TOTP) routes and the login gate moved to server/auth.js (SEC_IDENTITY_SPEC §22); totp() stays here.
+  // Two-factor login (TOTP) routes and the login gate moved to server/auth.js (CLONE_SPEC §22); totp() stays here.
 
   // ======================= social =======================
   const profile = (uid) => db.prepare('SELECT * FROM social_profiles WHERE user_id=?').get(uid);

@@ -1,5 +1,5 @@
 'use strict';
-// npm run create-admin — create (or re-enable) an admin account from the command line (SEC_IDENTITY_SPEC §22.5).
+// npm run create-admin — create (or re-enable) an admin account from the command line (CLONE_SPEC §22.5).
 // Interactive: prompts for email, display name and password (not echoed). Non-interactive: ADMIN_EMAIL and
 // ADMIN_PASSWORD (and optional ADMIN_NAME) in the environment. Run it while the server is stopped (the database is
 // single-writer and locked by a running server). Uses DB_FILE like the server.

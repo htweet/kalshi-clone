@@ -51,7 +51,7 @@ const routes = [
   [/^\/account\/([a-z-]+)$/, account, (m) => ({ section: m[1] })],
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
-  [/^\/setup$/, auth, () => ({ mode: 'setup' })], // first-admin setup link (SEC_IDENTITY_SPEC §22.5)
+  [/^\/setup$/, auth, () => ({ mode: 'setup' })], // first-admin setup link (CLONE_SPEC §22.5)
   [/^\/admin(?:\/(.*))?$/, adminView, (m) => ({ path: m[1] || '' })],
   [/^\/help\/([a-z0-9-]+)$/, helpView, (m) => ({ slug: m[1] })],
 ];

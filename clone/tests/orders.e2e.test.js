@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end tests for the Resting portfolio tab (COMBOS_FRACTIONAL_SPEC §17.10): limit orders with an Expires
+// End-to-end tests for the Resting portfolio tab (CLONE_SPEC §17.10): limit orders with an Expires
 // option, queue position, decrease (priority kept) and amend (priority lost) with exact reservations, a partial
 // fill by a second user updating the row live, good-til-time expiry releasing the reservation, cancel / cancel
 // market / cancel all, restart persistence and the 390px layout. Real server + SQLite + Chromium.

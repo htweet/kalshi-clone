@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end browser tests for event live chat (CHAT_SPEC.md §20): two users in two browser contexts on the same
+// End-to-end browser tests for event live chat (CLONE_SPEC.md §20): two users in two browser contexts on the same
 // event (live delivery without reload, presence), replies, own-message delete, history across reload + restart,
 // signed-out and no-nickname prompts, XSS payloads rendered inert, validation, CSRF, per-user / per-IP rate limits,
 // slow mode (429 + countdown), moderator delete / mute / pin / lock (live for others), report → admin queue,
@@ -18,7 +18,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-chat-'));
 const DB_FILE = path.join(TMP, 'chat.db');
 const PORT = 4480 + Math.floor(Math.random() * 40);
 const BASE = `http://127.0.0.1:${PORT}`;
-const clientToken = require('./helpers/client-token').clientTokens(BASE); // signed client token for Node-side writes + WS (SEC_PERIMETER_SPEC §21)
+const clientToken = require('./helpers/client-token').clientTokens(BASE); // signed client token for Node-side writes + WS (CLONE_SPEC §21)
 const PW = 'correct-horse-9';
 const EV = 'PLXCOUNCIL-27TRAM';
 const EV_URL = '/markets/plxcouncil/harbor-city-council-vote/plxcouncil-27tram';
@@ -50,7 +50,7 @@ function client() {
     return { status: r.status, body: json, headers: r.headers };
   };
   const c = { call, uid: null };
-  c.preAuth = () => call('GET', '/v1/auth/csrf'); // login CSRF token + cookie (SEC_IDENTITY_SPEC §22.2)
+  c.preAuth = () => call('GET', '/v1/auth/csrf'); // login CSRF token + cookie (CLONE_SPEC §22.2)
   c.signup = async (u) => { await c.preAuth(); const r = await call('POST', '/v1/users', { email: u.email, password: u.password, display_name: u.name }); c.uid = r.body.user.user_id; return r; };
   c.login = async (u) => { await c.preAuth(); const r = await call('POST', '/v1/log_in', { email: u.email, password: u.password }); c.uid = r.body.user.user_id; return r; };
   c.post = (ticker, body, extra = {}) => call('POST', `/v1/users/${c.uid}/chat/${ticker}/messages`, { body, ...extra });

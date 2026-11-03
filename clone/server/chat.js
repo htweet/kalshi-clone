@@ -1,5 +1,5 @@
 'use strict';
-// Event live chat (CHAT_SPEC.md §20). One room per event, created lazily on first write. Everything is persisted in
+// Event live chat (CLONE_SPEC.md §20). One room per event, created lazily on first write. Everything is persisted in
 // the SQLite tables below (CREATE TABLE IF NOT EXISTS; no existing table changes). Sending is REST only, so the
 // session cookie, the x-csrf-token check, the global rate limiter, account locks and posting bans all apply; the
 // `chat` WebSocket channel is receive-only. Moderation reuses the admin role model (permission `social.moderate`),

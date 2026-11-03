@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end tests for the History portfolio tab (COMBOS_FRACTIONAL_SPEC §17.9): one timeline of deposits, orders,
+// End-to-end tests for the History portfolio tab (CLONE_SPEC §17.9): one timeline of deposits, orders,
 // cancels, fills (whole + fractional, buys and sells), netting, a combo built and executed via RFQ, a settlement and
 // interest, with signed amounts; type / market / date filters persisted in the DB across contexts; cursor
 // pagination; CSV export; live prepend; restart. Real server + SQLite + Chromium.

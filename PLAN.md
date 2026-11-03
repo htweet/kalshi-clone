@@ -219,8 +219,8 @@ The project is complete only when **all** of the following hold:
 
 | Phase | Status |
 |---|---|
-| 0 Stabilise | in progress (lock fix and `ws` upgrade done; CI, Dependabot, Windows notes next) |
-| 1 Security foundation | in progress |
+| 0 Stabilise | ✅ done (CI workflow, Dependabot, Windows notes, pre-commit hook). Owner action: enable branch protection on `main` requiring the CI checks |
+| 1 Security foundation | ✅ done (spec §21–23; 140 E2E tests). Residual risks tracked in §21.11/§22 and §10 below |
 | 2 Social completion | live chat done; rest pending |
 | 3 Identity & compliance | pending |
 | 4 Payments (sandbox) | pending |
@@ -230,3 +230,19 @@ The project is complete only when **all** of the following hold:
 | 8 Growth & reach | pending |
 | 9 Production readiness | pending |
 | Research R1–R12 | R4 partly answered by HAR4 (logged-in request headers, spec §13.13); R2/R3 still need logged-in captures of Portfolio (all tabs), Account › Security, deposits/withdrawals and placing an order |
+
+## 10. Residual security items after Phase 1 (tracked)
+
+| ID | Item | Phase |
+|---|---|---|
+| RS1 | Rate-limit and lockout state is per process; move to a shared store before running several instances | 9 (with Postgres/Redis) |
+| RS2 | Targeted lockout of a known email for up to 15 min (accepted trade-off; add CAPTCHA-free proof-of-work on repeated failures) | 3 |
+| RS3 | TOTP code reuse inside its 30 s window; store last-used step per user | 3 |
+| RS4 | Encryption-key rotation (versioned key IDs, re-encrypt job) | 9 |
+| RS5 | Audit-chain head anchoring outside the DB (periodic signed checkpoint to logs/object storage) | 9 |
+| RS6 | Real email/SMS delivery (stubs today) | 3 |
+| RS7 | scrypt cost N=2^16 by default; raise to ≥2^17 in production config | 9 |
+| RS8 | Host-header based origin on local dev (DNS rebinding); require `ALLOWED_ORIGINS` in production | 9 |
+| RS9 | Admin module answers `account_locked` before password check (account-existence signal) | 3 |
+| RS10 | Background polling keeps sessions from idling out; count only user-initiated activity | 3 |
+| RS11 | ZAP baseline first runs in CI (needs Docker); triage its findings | 0/CI |

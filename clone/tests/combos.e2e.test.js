@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end tests for combos (COMBOS_FRACTIONAL_SPEC §17): the /combos builder with a DB-persisted slip, the
+// End-to-end tests for combos (CLONE_SPEC §17): the /combos builder with a DB-persisted slip, the
 // simulated maker's RFQ quote with countdown → Accept → Confirming… → executed through the engine, deterministic
 // idempotent combo markets and leg validation, quote expiry / re-quote / cancel, combo mode on the event page,
 // leg-driven resolution (NO as soon as a leg misses, YES when all hit) with normal settlement, order-book trading

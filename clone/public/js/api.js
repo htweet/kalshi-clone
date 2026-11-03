@@ -19,7 +19,7 @@ export class ApiError extends Error {
     this.retryAfter = e.retry_after_sec ?? null; // chat rate limit / slow mode countdown
     this.mutedUntil = e.muted_until ?? null; // chat mute
     this.details = e.details ?? null;
-    this.methods = e.methods ?? null; // step_up_required: ['password'] | ['totp'] | both (SEC_IDENTITY_SPEC §22.6)
+    this.methods = e.methods ?? null; // step_up_required: ['password'] | ['totp'] | both (CLONE_SPEC §22.6)
   }
 }
 
@@ -53,7 +53,7 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
     err.timeout = e.name === 'AbortError';
     throw err;
   } finally { clearTimeout(timer); }
-  // A rotated session (MFA on, password change, privilege change) comes with a new CSRF token (SEC_IDENTITY_SPEC §22.2).
+  // A rotated session (MFA on, password change, privilege change) comes with a new CSRF token (CLONE_SPEC §22.2).
   const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated);
   if (raw) return res;
   const data = await res.json().catch(() => ({}));
@@ -79,7 +79,7 @@ export const api = {
   session: () => request('GET', '/v1/session'),
   signUp: (b) => request('POST', '/v1/users', b),
   logIn: (b) => request('POST', '/v1/log_in', b),
-  // Identity, sessions and step-up (SEC_IDENTITY_SPEC §22)
+  // Identity, sessions and step-up (CLONE_SPEC §22)
   loginCsrf: () => request('GET', '/v1/auth/csrf'),
   completePasswordChange: (b) => request('POST', '/v1/auth/complete_password_change', b),
   setupStatus: (token) => request('GET', `/v1/auth/setup${qs({ token })}`),
@@ -183,7 +183,7 @@ export const api = {
   historyCsvUrl: (uid, query) => u(uid, `/history.csv${query ? `?${query}` : ''}`),
   confirmQuote: (qid) => request('PUT', `/v1/communications/quotes/${encodeURIComponent(qid)}/confirm`, {}, idem()),
   admin: (ticker, action, body) => request('POST', `/v1/admin/markets/${encodeURIComponent(ticker)}/${action}`, body || {}),
-  // Event live chat (CHAT_SPEC.md §20)
+  // Event live chat (CLONE_SPEC.md §20)
   chat: (t, o) => request('GET', `/v1/events/${encodeURIComponent(t)}/chat${qs(o || {})}`),
   chatPost: (uid, t, b) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages`), b),
   chatDelete: (uid, t, id) => request('DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`)),

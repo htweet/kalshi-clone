@@ -1,4 +1,4 @@
-// Chat moderation (CHAT_SPEC.md §20.7): rooms list with activity, then one room: state (slow mode, lock, read-only
+// Chat moderation (CLONE_SPEC.md §20.7): rooms list with activity, then one room: state (slow mode, lock, read-only
 // after close), pinned message, active mutes, and the latest 200 messages (including deleted ones) with delete / pin /
 // mute actions. Every action is permission-checked server-side (social.moderate) and written to the audit log.
 // All user content is passed through esc() before it reaches the table markup.

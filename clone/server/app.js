@@ -50,7 +50,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
-  // Perimeter (server/security.js, SEC_PERIMETER_SPEC §21): headers + CSP nonce, CORS, honeypots, robots.txt, CSP reports,
+  // Perimeter (server/security.js, CLONE_SPEC §21): headers + CSP nonce, CORS, honeypots, robots.txt, CSP reports,
   // bot challenge verify and client-token bootstrap — before body parsing and the session / CSRF middleware.
   const security = createSecurity({ app, db, rate, parseCookies, options: { ...(securityOptions || {}), dataDir: keyDir } });
   app.locals.security = security;
@@ -80,7 +80,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
 
   const publicUser = (u) => ({ user_id: u.id, email: u.email, display_name: u.display_name, is_admin: !!u.is_admin, created_at: u.created_at });
 
-  // Sessions, login CSRF, step-up, login hardening, two-factor, first-admin setup (server/auth.js, SEC_IDENTITY_SPEC §22).
+  // Sessions, login CSRF, step-up, login hardening, two-factor, first-admin setup (server/auth.js, CLONE_SPEC §22).
   const auth = createAuth({ db, engine, options: authOptions, keyDir });
   app.locals.auth = auth;
   app.use(auth.attach); // req.auth from the session cookie; session CSRF on writes, login CSRF on pre-session endpoints
@@ -112,10 +112,10 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   mountHistory({ v1, db, requireUser });
   const ordersApi = mountOrders({ v1, db, engine, requireUser, notify: feat.notify });
   mountPositions({ v1, db, engine, requireUser });
-  // Simulated live sports (SPORTS_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
+  // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
-  mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify }); // event live chat (CHAT_SPEC.md §20)
+  mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify }); // event live chat (CLONE_SPEC.md §20)
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));

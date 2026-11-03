@@ -1,4 +1,4 @@
-// Event live chat (CHAT_SPEC.md §20): the "● Live chat" pill on the event header, a right-side panel (bottom drawer on
+// Event live chat (CLONE_SPEC.md §20): the "● Live chat" pill on the event header, a right-side panel (bottom drawer on
 // phones) with history (infinite scroll up), live messages over the shared socket (`chat` channel), replies, own-message
 // delete, report, pinned message, online count, slow-mode countdown, read-only / locked states and moderator tools.
 //

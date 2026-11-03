@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end tests for two-sided RFQs between real users (COMBOS_FRACTIONAL_SPEC §17.4-17.8): the rfq_enabled
+// End-to-end tests for two-sided RFQs between real users (CLONE_SPEC §17.4-17.8): the rfq_enabled
 // opt-in, an RFQ from the ticket's "Request quote" mode, the other user's live "Other RFQs" list and quote form
 // (validation), live quotes for the requester, accept → maker confirm ("Confirming…") → execution through the
 // engine with exact DB rows, an accepted quote lapsing unconfirmed, quote deletion, RFQ cancellation, a maker

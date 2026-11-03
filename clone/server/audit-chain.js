@@ -1,5 +1,5 @@
 'use strict';
-// Tamper-evident admin audit log (PLAN P1.14, SEC_IDENTITY_SPEC §22.7).
+// Tamper-evident admin audit log (PLAN P1.14, CLONE_SPEC §22.7).
 // Every admin_audit row carries chain_seq (1, 2, 3, …), prev_hash (the previous row's hash; 64 zeros for the
 // first) and hash = HMAC-SHA256(audit-chain key, canonical row incl. prev_hash). Editing, deleting or re-ordering
 // any row breaks verification from that row on; an HMAC (not a bare hash) means rows cannot be re-chained

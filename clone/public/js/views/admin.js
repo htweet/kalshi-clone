@@ -1,4 +1,4 @@
-// Admin panel shell (ADMIN_SPEC §18): left sidebar, permission-gated sections, friendly 403 page.
+// Admin panel shell (CLONE_SPEC §18): left sidebar, permission-gated sections, friendly 403 page.
 // Sections live in ./admin/*.js and are loaded on demand.
 import { session } from '../store.js';
 import { esc } from '../lib.js';
@@ -19,7 +19,7 @@ export const SECTIONS = [
   ['audit', 'Audit log', 'audit.read', './admin/system.js'],
   ['settings', 'Settings & health', 'settings.write', './admin/system.js'],
   ['security', 'Security', 'audit.read', './admin/security.js'],
-  ['identity', 'Sign-in & audit integrity', 'audit.read', './admin/identity.js'], // SEC_IDENTITY_SPEC §22
+  ['identity', 'Sign-in & audit integrity', 'audit.read', './admin/identity.js'], // CLONE_SPEC §22
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {

@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 6 (2026-11-03):** §21 perimeter security, §22 identity/sessions/login security, §23 assurance, CI and guardrails (PLAN Phase 0–1).
+>
 > **Revision 5 (2026-11-03):** §20 event live chat. Security research of Kalshi's public surfaces and the phased plan are in `PLAN.md`.
 >
 > **Revision 4 (2026-11-02):** §16 fractional contracts, §17 combos with RFQ/quotes and the Positions / Resting / RFQs / Quotes / History portfolio tabs, §18 the admin panel and CMS, §19 sports live data and scoreboards.
@@ -384,9 +386,10 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §18 admin panel and CMS (roles, audit, catalog drafts + CSV import, resolution desk, content, ops, users, moderation, announcements, reports, settings) | yes | tests `admin.e2e.test.js` |
 | §19 sports live data: simulated games in six sports, scoreboards, live odds, auto-settlement, `/sports` hub | yes | tests `sports.e2e.test.js` |
 | §20 event live chat (rooms, slow mode, moderation, reports, presence, XSS-safe rendering, chat rate limits) | yes | tests `chat.e2e.test.js` |
+| §21–23 security foundation: headers/CSP nonces, CORS allowlist, bot challenge + client tokens, honeypots, hashed assets; hashed rotating sessions, login hardening, no default admin, step-up, encrypted MFA secrets, hash-chained audit; CI, lint, validation, idempotency, authz matrix | yes | tests `security-perimeter`, `auth-security`, `authz`, `idempotency` |
 | KYC/identity, real payment rails, AI summaries, GIFs, ballot lookup, public signed API keys, ice hockey league | **no** | deposits are simulated; see §16.x–19.x "not done" notes |
 
-Verification: 103 Playwright scenarios across 13 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 140 Playwright scenarios across 17 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -1581,6 +1584,605 @@ Room shape: `{event_ticker, status, event_active, locked, lock_reason, slow_mode
 9. Restart keeps history, pin, rooms; per-IP bucket across four users → 4th gets 429; 390 px bottom drawer with no horizontal overflow (dark and light, open and closed).
 
 Result at time of writing: `tests/chat.e2e.test.js` 9/9 pass; full `npm run test:e2e` 103/103 pass (94 existing + 9 chat).
+
+---
+
+## 21. Perimeter security
+
+Status 2026-11-03 · PLAN Phase 1A (P1.1, P1.2, P1.3, P1.10, P1.11, P1.12, gaps G7 and G13) · branch `phase-1-security`.
+Evidence ids (S1–S12) are the observations in `PLAN.md` §2. **HAR4** is the sanitised logged-in capture `evidence/web_loggedin_2026-11-03.har` (13 API entries; each lists `_present_security_headers`). Everything else is a Parlance design choice, stated as such.
+Tests: `clone/tests/security-perimeter.e2e.test.js` (12 browser + HTTP tests, run against the production bundle).
+
+### 21.1 Where the controls sit
+
+| Order | Stage | File | What it does |
+|---|---|---|---|
+| 1 | `security.early` | `server/security.js` | Per-response CSP nonce and security headers; CORS; `robots.txt`; honeypots; `POST /v1/csp-report`; `POST /v1/bot/challenge`; `POST /v1/client_token`. Runs before body parsing and before the session / CSRF middleware, so these endpoints never need a session or CSRF token. |
+| 2 | session + CSRF | `server/auth.js` (Phase 1B) | `req.auth`, session CSRF, login CSRF. |
+| 3 | `security.apiGuard` | `server/security.js` → `server/bot.js` | Tiered rate limits on `/v1` and `/trade-api`; signed client token on every `/v1` write and every `/v1/users/*` request. |
+| 4 | routes | `server/app.js` … | Unchanged. |
+| 5 | `security.mountStatic` | `server/security.js` | Explicit static allowlist, hashed immutable assets, SPA page template (nonce + boot proof), bot challenge for suspicious HTML requests, 404 for everything else. |
+| WS | `security.checkUpgrade` | `server/ws.js` | Origin allowlist + client token on the `/v1/ws` upgrade. |
+
+All state is in SQLite: `security_events`, `security_challenges_used`, `rate_buckets`, and the settings rows `security.rate_limits`, `security.bot`, `taker_fee`, `rolling_window` in `admin_settings`. The signing key is an HKDF sub-key (`bot-management:v1`) of the deployment master key in `server/crypto.js` (Phase 1B): `SECRET_KEY`, else `data/secret.key` next to the database, generated with mode 0600 on first run, git-ignored, covered by the `.claude` deny rules, never logged.
+
+### 21.2 Security headers and CSP (P1.1; S5, S6, S12)
+
+| Header | Value | Evidence / choice |
+|---|---|---|
+| `Content-Security-Policy` (HTML) | `default-src 'self'; script-src 'self' 'nonce-N'; style-src 'self' 'nonce-N'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws://H wss://H; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'; manifest-src 'self'; worker-src 'self'; report-uri /v1/csp-report; report-to csp` | S12 (nonces on scripts/styles), S6 (`frame-ancestors`). `H` is the request's own host, validated against a host pattern before it is echoed. No `unsafe-inline`, `unsafe-eval` or wildcards. |
+| `Content-Security-Policy` (everything else) | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` | S5 (API sends `default-src 'none'`). Applied to API, static and 404 responses. |
+| `Reporting-Endpoints` | `csp="<origin>/v1/csp-report"` | Choice: Reporting API plus legacy `report-uri`. |
+| `X-Content-Type-Options` | `nosniff` | S5 |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Choice |
+| `Permissions-Policy` | `accelerometer=(), autoplay=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=(), browsing-topics=()` | Choice: the app uses none of these. Geolocation will be re-enabled for `self` when P3.6 lands. |
+| `Cross-Origin-Opener-Policy` / `-Resource-Policy` | `same-origin` / `same-origin` | Choice |
+| `X-Frame-Options` | `SAMEORIGIN` | Legacy twin of `frame-ancestors` (S6). |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | S5. Only when `NODE_ENV=production`, or behind a trusted proxy (`TRUST_PROXY`) that reports `X-Forwarded-Proto: https`. A spoofed header without trust is ignored (tested). |
+| `Cache-Control` | `no-store` on any response with a session and on `/v1/users/*` | S5. Decided when headers are written, because the session is attached after the header middleware. HTML is also `no-store` (it carries a nonce); the challenge is `private, no-store` (S1). |
+
+The nonce is 16 random bytes (base64) per response. `public/index.html` is a template: the server replaces the nonce placeholders on the stylesheet links and the module script and fills `<meta name="plx-boot">`; the test checks the nonce rotates per response and every `nonce=""` attribute matches the header.
+
+**CSP reports.** `POST /v1/csp-report` accepts `application/csp-report` (legacy) and `application/reports+json` (Reporting API), 16 KB maximum (413 above, 415 for other types), at most 20 stored per IP then one every 5 s (excess answered 204 and dropped). Each report is stored as a `csp_report` security event with query strings stripped from URLs and the sample cut to 80 characters.
+
+### 21.3 Strict style CSP: no inline styles (G13)
+
+All 115 `style="…"` attributes in `public/js/**` were removed (`grep style= public/js` finds none). Two replacements:
+- Static values → utility classes in `public/utilities.css` (`.m-0`, `.mt-8`, `.d-flex`, `.c-yes`, `.center-60` …). They carry `!important` so they keep the precedence the inline attributes had over component rules.
+- Dynamic values (bar widths, series and team colours, depth meters, chart heights) → `data-vars="--name:value"` emitted by `vars()` in `public/js/dynstyle.js`. One `MutationObserver` applies them through the CSSOM (`element.style.setProperty`), which CSP allows, before the next paint. `.v-bg`, `.v-w`, `.v-h`, `.v-flex`, `.v-color` read them. Only `--custom-properties` are accepted; `;` is stripped from values.
+
+The E2E test visits 16 public routes and 15 signed-in/admin routes in Chromium with a `securitypolicyviolation` listener and requires zero violations. A positive control (an injected `style` attribute is reported) proves the detector works. The challenge page itself uses a nonce'd `<style>` and `<script>`.
+
+### 21.4 Self-hosted fonts (P1.2)
+
+Inter (variable, 100–900) and Barlow Condensed 600/700, latin and latin-ext subsets, from `@fontsource-variable/inter@5.3.0` and `@fontsource/barlow-condensed@5.3.0`, in `public/fonts/` with their SIL OFL 1.1 licences (`OFL-Inter.txt`, `OFL-BarlowCondensed.txt`, published at `/fonts/*.txt`). `public/fonts.css` declares them; the Google Fonts links are gone, so the CSP needs no third-party origin. The test checks both families load and every request the page makes is same-origin.
+
+### 21.5 CORS (P1.3; S4)
+
+- Allowed origins: `ALLOWED_ORIGINS` (comma-separated) or `start({ security: { allowedOrigins } })`, plus the server's own origin (from `Host` and the trusted protocol).
+- Preflight from a foreign origin → **403** `origin_not_allowed` (S4), logged as `cors_rejected`. From an allowed origin → **204**, `Access-Control-Allow-Origin: <origin>`, `-Allow-Credentials: true`, `-Allow-Methods: GET, POST, PUT, PATCH, DELETE`, `-Allow-Headers: Content-Type, X-Csrf-Token, Idempotency-Key, X-Client-Token` (S4 list, with our client-token header in place of the WAF header), `-Max-Age: 600`.
+- Actual requests from an allowed origin get `Access-Control-Expose-Headers: X-Csrf-Token, Etag` (S4). Foreign origins get no ACAO. Foreign-origin **writes** (for example a cross-site form post) are refused with 403 before any route runs. Choice: S4 only shows the preflight behaviour.
+- `Vary: Origin` on every response to a request with an `Origin`.
+
+### 21.6 Bot management (P1.10; S1, S2)
+
+**Suspicion score** for HTML requests (choice; thresholds are not observable): automation or crawler User-Agent, or none (+3); `Accept` without `text/html` (+1); no `Accept-Language`, or `*` (+1); not a browser navigation (`Sec-Fetch-Mode: navigate` / `Sec-Fetch-Dest: document`), counted only on potentially trustworthy origins (https, localhost), because browsers send Fetch Metadata only there (+2); Chrome UA without client hints (+1); more than `html_per_minute` HTML pages from one IP in a minute (+3). A score of 3 or more is challenged. Headless Chromium (Playwright) scores 1 (no `Accept-Language`) and passes. `HeadlessChrome` is deliberately not flagged: a JavaScript-capable browser solves the challenge anyway, so challenging it only adds latency.
+
+**Proof-of-work challenge** (S1: 429 + `cache-control: private, no-store` on every HTML route). The response is HTTP 429 with `X-Plx-Mitigated: challenge`, the site CSP, and a page whose nonce'd script finds `n` with `SHA-256(id:n)` having `d` leading zero bits (default 14, about 16k hashes, tens of milliseconds). The SHA-256 is pure JS, because `crypto.subtle` is missing on plain-http origins. The challenge (`id`, time, difficulty, IP+UA binding) is HMAC-signed. `POST /v1/bot/challenge` checks the signature, binding, a 2-minute age limit, the proof and single use (`security_challenges_used`). It then sets `plx_chk` (HttpOnly, SameSite=Lax, 30 min, `__Host-` + `Secure` over https), bound to an HMAC of IP + User-Agent, and the page reloads. Choice: verify answers 200/403, not S1's 708. Challenge modes are `off`, `suspicious` (default) and `all` (attack mode, also the test hook `start({ security: { challengeMode: 'all' } })`), switchable live in Admin › Settings. `robots.txt` is never challenged (S1 challenges it; choice: crawlers must be able to read the policy).
+
+**Signed client token** (S2: `x-aws-waf-token` on API calls, `AwsWafTokenForWebSocket`). Every page the server renders carries a signed boot proof (10 min, bound to IP+UA). A challenged client only gets one after passing. After load, `public/js/security.js` posts it to `/v1/client_token` and receives `{token, expires_in}`: HMAC-signed `{issued, expires, binding}`, 15 min by default, also set as an HttpOnly SameSite=Strict `plx_ct` cookie. The SPA sends it as `X-Client-Token` on **every `/v1` request, reads included** (`api.js`, admin `ui.js`), as `ct=` on the WebSocket URL (`ws.js`), and refreshes it at half-life using the current token. Expired tokens can be exchanged for 12 h, so a sleeping laptop recovers. A 403 `client_token_*` triggers one silent refresh and retry.
+
+Sending versus enforcing follows HAR4:
+- The observed client attaches `x-aws-waf-token` to all 13 API requests, including cached public reads (`/v1/cached/series/…`, `/v1/milestones/{id}/volume`).
+- It attaches `x-csrf-token` to credentialed `/v1` calls, GETs and POSTs alike (`/v1/social/trades`, `/v1/events/`, `/v1/series/`, `POST /v1/users/{id}/metrics/client_event`), but not to cached reads.
+- Plain unauthenticated public reads (`/v1/live_data/count`, `/trade-api/v2/exchange/status`) answer 200 with no token at all.
+
+So the server requires a valid token (header, else cookie; 403 `client_token_required` / `client_token_invalid`) on:
+- every `/v1` POST/PUT/PATCH/DELETE;
+- every request under `/v1/users/*` (authenticated reads such as balance, orders, positions, history and CSV exports — a signed-in session does not replace it);
+- the WebSocket upgrade.
+
+Public unauthenticated reads (`/v1` market, social, live-data and BFF reads, `/v1/session`, and all of `/trade-api/v2/*`) stay open, so third-party API clients and cached reads keep working. The WebSocket upgrade requires an allowed `Origin` (if one is sent; this also blocks cross-site WebSocket hijacking) and a valid token, else `HTTP 403` before the handshake. Rejections are logged (`client_token_rejected`, `ws_rejected`).
+
+**Honeypots** (P1.10/P1.12): any dot-segment except `/.well-known/` (`/.env*`, `/.git/*`, `/.DS_Store` …), `/wp-admin`, `/wp-login.php`, `/xmlrpc`, `/phpmyadmin`, `/cgi-bin`, `/actuator`; `/server/`, `/data/`, `/node_modules/`, `/scripts/`, `/tests/`, `/dist/`; `package(-lock).json`, `secret.key`, config files; extensions `.map .sqlite .db .db-wal .sql .bak .env .key .pem .log .php …`. Paths are percent-decoded first (`/%2e%65nv` is caught). The response is a plain-text 404 (never the SPA page) and a `honeypot` event. Choice: S1 answers these with the challenge; the brief asks for 404.
+
+**`robots.txt`**: disallows 20 AI training / answer-engine crawlers (GPTBot, ClaudeBot, CCBot, Google-Extended, PerplexityBot …) and keeps `/v1/`, `/trade-api/`, `/admin`, `/account`, `/portfolio` out for everyone. It states in the file that it is **advisory only**: well-behaved crawlers honour it, and enforcement is the challenge, tokens and rate limits.
+
+**Tiered rate limits** (replaces the single per-IP bucket; 429 `too_many_requests` with `Retry-After`, spec §5.4 envelope unchanged):
+
+| Tier | Key | Default | Applies to |
+|---|---|---|---|
+| anonymous | IP | `RATE_BURST` / `RATE_PER_SEC` (300 / 150 s⁻¹) | `/v1` + `/trade-api` without a session; the client-token bootstrap |
+| user | account | 2× anonymous | signed-in requests |
+| admin | account | 5× anonymous | staff (admin flag or any admin role) |
+| auth | IP | 60 burst, 1 s⁻¹ | Credential routes of CLONE_SPEC §22.11: every `/v1/auth/*` (login CSRF, first-admin setup, forced password change), `/v1/step_up`, `/v1/log_in`, `/v1/log_in_mfa`, `POST /v1/users` (sign-up), `/v1/users/:uid/password`, plus the bot-challenge verify; on top of the tier |
+| write | account or IP | 300 burst, 30 s⁻¹ | every mutation; on top of the tier |
+
+Token buckets live in memory. Every 2 s, buckets that are not full are written to `rate_buckets`, and full ones are deleted (a full bucket is the default). They are reloaded at boot, so a restart does not reset an attacker's allowance (tested). The flush never runs inside another transaction. Phase 1B's per-account login backoff sits on top of this.
+
+**Security event log** `security_events(ts, kind, ip, ua, method, path, user_id, detail)`. Kinds: `challenge_served`, `challenge_passed`, `challenge_failed`, `honeypot`, `csp_report`, `rate_limited`, `client_token_rejected`, `ws_rejected`, `cors_rejected`. Writes are throttled per kind+IP (20, then one per 3 s), so a flood cannot fill the disk. Retention is 30 days and 200k rows. **Admin › Security** (`/admin/security`, permission `audit.read`, `GET /v1/admin/security/events?kind=&ip=&limit=`) shows 24-hour counts per kind and a filterable table.
+
+### 21.7 Asset hygiene (P1.11; S3)
+
+`npm run build` (`scripts/build.js`, esbuild 0.28.2 pinned as a devDependency) writes `dist/`:
+- `assets/main-<hash>.js` plus `chunk-<hash>.js`: ESM, code-split, minified, no legal comments.
+- `assets/app-<hash>.css`: every stylesheet linked from `index.html`, in order.
+- `<font>-<hash>.woff2`, `index.html` (the template, now referencing the hashed files) and `manifest.json` (source hash, entries, file list).
+
+No `.map` files and no `sourceMappingURL` comments: the build fails if either appears. It builds into a temporary directory and swaps it in. Admin sections now use literal `import()`s so the bundler can split them. Hashed assets are served with `cache-control: public, max-age=31536000, immutable` (S3). In production mode, `/js/*` sources, per-file CSS and `*.map` all answer 404.
+
+Modes: `npm start` (and `NODE_ENV=production`, or `ASSETS=dist`) serves `dist/`, rebuilding first when it is missing or its source hash is stale. `npm run dev` / `ASSETS=src` serves `public/` unbundled (`no-cache`); the existing E2E files use this mode, and the perimeter test uses `dist`. Without dev dependencies (`npm ci --omit=dev`) a stale `dist/` is a startup error, so build before deploying.
+
+### 21.8 Static allowlist (P1.12)
+
+Served: `/assets/*.{js,css,woff2}` (dist), or `/js/**/*.js`, the root `*.css` files that exist and `/fonts/*.woff2` (dev); `/fonts/*.txt` (licences); `/robots.txt`. The SPA page is served only for GET/HEAD on extension-less paths with no dot-segment, outside `/v1` and `/trade-api`. Anything else (`/foo.png`, `/index.html`, `/manifest.json`, `/markets/x/y/z.json`) is a plain 404. `dotfiles: 'deny'` and `redirect: false` on every static mount.
+
+### 21.9 Runtime-editable exchange settings (G7)
+
+Admin › Settings & health has a new **Exchange & perimeter** form (`PUT /v1/admin/settings`, permission `settings.write`). It edits the taker fee coefficient (0–0.25, 4 decimals), the rolling window (5–86,400 s), the burst and per-second rate of every rate-limit tier, and the bot settings (challenge mode, PoW difficulty 4–24, client-token lifetime, challenge-pass lifetime, HTML pages per minute). Validation is per field.
+
+Every save is one audited `settings.update` entry (before/after of the whole settings view, hash-chained by Phase 1B) and takes effect without a restart:
+- The fee is an integer in 1/10,000ths inside `engine.js`, so the arithmetic stays exact. At 0.07 it gives bit-identical results to the old constant (checked over a full price × size × multiplier grid). The next fill uses the new value (tested: 10 contracts at 0.035).
+- `rolling.js` opens the next window on the new grid; open windows keep their stored close time.
+- Rate tiers and bot settings reload in memory.
+
+Persisted values are applied at boot. They take precedence over `ROLLING_WINDOW_SEC` and `RATE_*`, which become defaults.
+
+### 21.10 Tests (`tests/security-perimeter.e2e.test.js`)
+
+1. Headers on HTML / API / static; `no-store` on authenticated and `/v1/users/*` responses; HSTS only behind a trusted https proxy, with a spoofed header ignored.
+2. CSP nonce rotates per response and matches every `nonce=` attribute; no placeholders and no inline styles in the page.
+3. Zero CSP violations on 31 routes in Chromium (with a positive control); fonts self-hosted; all requests same-origin.
+4. CSP reports: both formats, query stripping, truncation, 415/413, flood capped.
+5. CORS: foreign preflight 403, partner 204 with exact headers, expose headers, own origin allowed, foreign write 403 + event.
+6. Challenge: curl / python-requests / no UA / GPTBot get the 429 page; robots.txt is open; wrong PoW, foreign binding and replay are refused; the pass cookie admits curl; the Node helper earns a token; Chromium is not challenged; a forced challenge is solved transparently by Chromium.
+7. Client token: the HAR4 split (public `/v1` and `/trade-api/v2` reads 200 without a token; `/v1/users/*` reads 403 without one, even with a session); missing / forged / tampered / foreign-UA / expired → 403 on writes; WS refused without a token, with a forged or expired token, or with a foreign Origin; an expired token is refreshed; a bad bootstrap is refused; the SPA sends the header on every `/v1` read and write, the `ct` URL parameter and the cookie.
+8. Honeypots → 404 text + events (path, IP, UA); sources and maps 404 in production; no maps built.
+9. Hashed assets: immutable, minified, manifest matches the served entries, fonts hashed.
+10. Rate-limit tiers: auth bucket, user vs anonymous separation, 429 envelope + `Retry-After`, buckets persisted across restart.
+11. G7: admin edits fee / window / tier / PoW in the UI, validation error shown, rows + audit entry written, the next trade pays 0.035, Admin › Security lists and filters events, non-staff get 403.
+12. Restart: events, used challenges, settings (fee and window re-applied), 0600 secret, pre-restart token still valid.
+
+Node-side API clients in other test files obtain tokens through `tests/helpers/client-token.js`, which solves the challenge like any script would. Phase 1C's `tests/lib/client.js` does the same through the boot proof.
+
+### 21.11 Residual risks
+
+- **These controls raise cost; they are not a wall.** A determined script can run a real or headless browser, pass the PoW and replay the boot proof → client token chain. Its value is pricing out bulk HTTP clients and making abuse visible (PLAN §2). Difficulty and attack mode are the levers.
+- IP + UA binding breaks on mobile IP changes (the page's client recovers by refreshing; a challenge pass needs a re-solve). Behind a proxy, `TRUST_PROXY` must be set, or every client shares the proxy's IP for rate limits and bindings.
+- Rate limits and the HTML counter are per process. Several instances would need a shared store (planned with P9.2 PostgreSQL).
+- The own-origin rule trusts `Host`. DNS rebinding against a local dev server could reach unauthenticated endpoints (cookies stay with the real host). A `PUBLIC_ORIGIN` / allowed-hosts check would close it.
+- The taker fee coefficient is process-global (one exchange per process). Admin edits affect only new fills; resting-order fee reserves computed at the old coefficient are not re-priced, though the refund logic returns any unused reserve.
+- `robots.txt` is advisory; the honeypot list is a denylist and cannot be exhaustive. The static allowlist is the real guarantee.
+- The challenge page's PoW can be solved off-page by a script (the helper does exactly that). The signature, binding, 2-minute expiry and single use limit reuse, not solving.
+- CSP reports via the Reporting API are batched by the browser and sent only to trustworthy origins; the legacy `report-uri` covers the rest.
+
+---
+
+## 22. Identity, sessions and login security
+
+Phase 1B of `PLAN.md` (P1.4 sessions, P1.5 login hardening, P1.6 step-up verification, P1.14 auth security log and
+hash-chained audit, P1.15 encryption of secret columns, gap G4). Code: `clone/server/auth.js` (sessions, login CSRF,
+throttling, step-up, routes, first-admin bootstrap), `clone/server/passwords.js` (hashing + policy),
+`clone/server/common-passwords.txt` (bundled breached list), `clone/server/crypto.js` (shared key + AES-GCM helper),
+`clone/server/audit-chain.js` (tamper-evident admin audit), `clone/server/create-admin.js` (CLI). UI:
+`public/js/views/auth.js`, Account › Security in `public/js/views/account.js`, `public/js/views/stepup.js` (modal),
+Admin › Sign-in & audit integrity in `public/js/views/admin/identity.js`. Tests: `clone/tests/auth-security.e2e.test.js`.
+
+### 22.1 Evidence (what Kalshi does) and what stays unknown
+
+| # | Observation | Evidence | Clone |
+|---|---|---|---|
+| S7 | The web client sends credentials with every API call (`withCredentials`) and a CSRF token in a dedicated header (`xsrfHeaderName: CSRF_HEADER_NAME`, sent as `x-csrf-token`), kept in `csrfToken` storage; the API exposes `X-Csrf-Token` to the browser. | JS26:0lt3ma0qstivi (REA `ev_51dfbee8…`); preflight capture 2026-11-03 (PLAN §2 S4) | Session CSRF unchanged (header on every write, compared in constant time). New: **login CSRF** for the pre-session endpoints; rotated tokens are returned in an `X-Csrf-Token` response header that the client stores (§22.2). |
+| S8 | Unauthenticated requests get `401 token_authentication_failure` with no detail about the resource. | capture 2026-11-03 | Kept. Login failures are uniform: `401 invalid_credentials "incorrect email or password"` for unknown email and wrong password alike (§22.3). |
+| S9 | Strong customer authentication: passkeys (`/passkeys/registration`, `/passkeys/authentication`), a 4-digit MFA login code, an `action_verification_mfa` step for sensitive actions, and an `enableWithdrawalMfa` account setting. | JS26:3pds_3l0ju6me, 0bszqignr8pgk; api_callsites | Step-up verification with a `step_up_required` error and modal (§22.6); withdrawal two-factor setting (§22.6). The clone's MFA is TOTP (6 digits, authenticator app) because it needs no SMS/email provider (U20 stays UNKNOWN: Kalshi's code is 4 digits, channel not observed). Passkeys are P3.4. |
+
+Not observable from outside (PLAN §2 last paragraph): Kalshi's session lifetime, idle timeout, lockout thresholds,
+password policy, hashing, admin tooling and audit-log design. Every value below is a **design choice** for the clone,
+recorded with its rationale.
+
+### 22.2 Sessions (P1.4)
+
+- **Cookie.** `__Host-plx_session` with `Path=/; HttpOnly; Secure; SameSite=Lax` when served over HTTPS or with
+  `NODE_ENV=production` / `SECURE_COOKIES=1` (behind a TLS-terminating proxy). Browsers only accept a `__Host-` cookie
+  with `Secure`, which they refuse to set over plain `http://localhost`, so local development uses the unprefixed name
+  `plx_session` with the same attributes minus `Secure`. Both names are accepted on read. Accounts with any admin role
+  get `SameSite=Strict` (PLAN P1.4); the SPA's own requests are same-site, so this only stops cross-site navigations
+  from carrying the admin cookie. `Max-Age` equals the absolute lifetime.
+- **Hashed tokens.** The 256-bit cookie token is never stored: `sessions.token` holds its SHA-256. A leaked database
+  therefore yields no usable session. Each row also has a public id `sid` (`ses_…`) used for the device list,
+  revocation and WebSocket binding. Rows written by earlier builds (plaintext tokens) are hashed in place on start-up,
+  idempotently (`token_hashed` flag), so existing cookies keep working.
+- **Lifetimes.** Absolute 30 days from sign-in (`expires_at`, unchanged column). Sliding idle timeout: **30 minutes for
+  any account with an admin role, 7 days otherwise** (`idle_ms` stored per session at creation; `last_seen_ms` refreshed
+  at most every `min(30 s, idle/10)`). An expired session is deleted when next seen and logged as `session_expired`.
+  Any authenticated HTTP request counts as activity, including an open tab's background polls; a closed or idle tab
+  expires.
+- **Rotation.** A new token is issued: on **log in / sign-up / MFA completion / admin setup** (a brand-new session; the
+  session the request arrived with is deleted first, so a planted cookie can never be upgraded — fixation defence); on
+  **turning two-factor on** and **password change** (same `sid` and device entry, new token and CSRF token); on a
+  **privilege change** — the target's sessions are all revoked (they sign in again with the new rights), and an admin
+  changing their own roles gets a rotated session while their other sessions are revoked.
+- **Metadata.** Created, last seen, IP *prefix* (IPv4 /24, IPv6 /48; full addresses are never stored) and a user-agent
+  *summary* ("Chrome on Linux"; the raw string is not stored).
+- **Account › Security** lists signed-in devices (this device marked) with "Sign out device" per row and **"Sign out
+  everywhere"** (all sessions including this one). Revocation is live: the WebSocket hub closes the revoked sessions'
+  sockets with code **4401** after a `session_revoked` frame, and the client then re-checks `/v1/session` and drops to the
+  signed-out state. The hub also re-validates every socket's session on its 15 s keep-alive tick, so idle/absolute
+  expiry, account locks and admin-side deletions end private channels too.
+- **WebSocket upgrade** uses exactly the HTTP validity rules (hashed token, idle + absolute expiry, account lock) plus
+  the existing `csrfToken` query check (spec §7.2).
+- **Login CSRF.** `GET /v1/auth/csrf` sets a short-lived (60 min) `HttpOnly` cookie `plx_pre` (`__Host-plx_pre` over
+  HTTPS) holding `<nonce>.<expiry>` and returns `csrf_token = HMAC-SHA256(login-csrf key, cookie value)`. `POST
+  /v1/log_in`, `/v1/users`, `/v1/log_in_mfa`, `/v1/auth/setup_admin` and `/v1/auth/complete_password_change` require
+  that token in `x-csrf-token`; otherwise `403 forbidden "missing or invalid login csrf token"`. A cross-site page can
+  neither read the token nor set the cookie, so it cannot sign a victim into an attacker's account. The client fetches
+  a fresh token before every sign-in/sign-up. The session CSRF token (per session, returned at sign-in and by
+  `/v1/session`) still guards every other write.
+
+### 22.3 Login hardening (P1.5)
+
+- **Uniform failures.** Unknown email and wrong password return the same status, body and headers, and both cost one
+  scrypt evaluation (unknown emails are checked against a precomputed dummy hash with the current parameters). Unknown
+  emails are logged only in masked form (`g***@example.test`).
+- **Backoff and lockout (persisted in `auth_throttle`).** Two counters per attempt: the account key
+  (`acct:` + SHA-256 of the normalised email — the same for existing and non-existing accounts, so behaviour reveals
+  nothing) and the client IP. From the 5th failure on an account (20th from one IP) within 60 minutes, sign-in is refused
+  for 30 s, doubling with every further failure up to 15 minutes. While locked, every attempt — even with the right
+  password — gets `429 too_many_attempts` with `retry_after_sec`; the UI shows "Too many sign-in attempts. Try again in
+  N seconds." A success clears the account counter (the IP counter only decays, so a success on an attacker's own
+  account cannot reset it). Failed step-up and password-change checks and wrong MFA codes count as well.
+- **Notification.** The first lockout of an existing account sends an in-app security notification and an email
+  (stub: a row in `email_outbox`, listed in Admin › Sign-in & audit integrity; no mail is sent) and logs `lockout`.
+### 22.4 Password policy and password management (P1.5)
+
+- **Password policy** (sign-up, password change, forced change, admin setup, `ADMIN_PASSWORD`, `create-admin`): at least
+  12 and at most 128 characters; at least two of lowercase / uppercase / digits / symbols; not one repeated character;
+  must not contain the email address, its local part or any ≥4-character part of the email or display name; must not be
+  a known breached password. The breached check uses `server/common-passwords.txt` — 451 SHA-1 hashes (HIBP
+  "Pwned Passwords" style, no network) of the most common breached passwords and their usual long variants — and also
+  tests the de-leeted form (`P@ssw0rd` → `password`) and the alphabetic core (`Summer2025!!` → `summer`). Messages name
+  the rule that failed ("Password must be at least 12 characters.", "…appears in lists of breached passwords…"). Login
+  never applies the policy, so older accounts can still sign in.
+- **Hashing.** scrypt with the parameters stored in every hash: `scrypt2$N$r$p$salt$key`. Default N = 2^16, r = 8,
+  p = 1 (64 MiB, 4× the first build's N = 2^14); `SCRYPT_LOG_N` (14–20) raises it where hardware allows (OWASP's
+  reference is N = 2^17). Hashing runs on the libuv pool (`crypto.scrypt`), not the event loop. A successful login with
+  the legacy `scrypt$salt$key` format or weaker parameters is transparently re-hashed (`password_rehash` event).
+- **Password change** (`PUT /v1/users/:uid/password`): requires the current password **and** step-up; rotates this
+  session and signs out all other sessions; alerts the user.
+- **Admin-forced reset** (`POST /v1/admin/users/:id/force_password_reset`, permission `users.support`, reason
+  required, step-up): sets `must_change_password`, signs the account out everywhere, audits and alerts. At the next
+  sign-in (after the password and, if on, the TOTP code) no session is issued; the response is
+  `{password_change_required, change_token}` (15-minute single-use token, stored hashed) and the UI asks for a new
+  password, then signs in. (A reset-by-email link is P3.1.)
+### 22.5 First admin and demo accounts (P1.5: no default admin password)
+
+- **No default admin password.** The seed no longer creates `admin@parlance.local`. The first admin comes from, in
+  order: `start({ admin: { email, password } })` or `ADMIN_EMAIL` + `ADMIN_PASSWORD` on start (policy-checked; a weak
+  password refuses to start; never overwrites an existing usable password); `npm run create-admin` (interactive prompt
+  with hidden input, or the same env vars; run while the server is stopped); or, when no admin can sign in, a
+  **one-time setup URL** printed to the console (`/setup?token=…`, single use, 60 minutes, stored hashed; a restart
+  invalidates the previous link). Databases from earlier builds: if `admin@parlance.local` still has the old
+  `parlance-admin` password it is disabled at start-up (`!default-password-removed`), so that password no longer works
+  and the setup link appears. All three paths log `admin_bootstrap` and append an `admin.bootstrap` audit row.
+- **Demo accounts.** `maple_quant@`, `harborwatch@`, `rainmaker@parlance.local` keep working in the dev seed with a
+  **generated password printed once** at seed time (`Demo-…-NN`), or the value of `DEMO_PASSWORD` /
+  `start({ demoPassword })` (tests). Old databases where they still have `parlance-demo` get a new password the same
+  way. Choice: keeping them usable keeps the social/moderation demo working, and a per-install random password removes
+  the shared default.
+
+### 22.6 Step-up verification (P1.6)
+
+- Sensitive actions require a password or TOTP check within the last **10 minutes** (a sign-in counts). Otherwise the
+  server answers `403 {error: {code: "step_up_required", message, details, methods: ["password","totp"] | ["password"] |
+  ["totp"], action}}`. `POST /v1/step_up {password} | {code}` records the check on the session (`auth_at`, and
+  `totp_at` for codes); failures count toward the lockout counters and are logged.
+- Guarded, in one central list in `auth.js`: two-factor off, password change, email change, the withdrawal two-factor
+  setting, withdrawals, deposits and perps transfers above **$10,000**, admin role changes and admin-forced password
+  resets. API-key creation joins the list when keys exist (P7.1).
+- **Client.** `api.request()` (and the admin toolkit's `call()`) catches `step_up_required`, opens the "Confirm it's
+  you" modal (password, or the 6-digit code, with a switch when both are allowed), calls `/v1/step_up`, and retries the
+  original request once. Cancel rejects with `step_up_cancelled`, and the action is not performed.
+- **Withdrawal two-factor** (mirrors `enableWithdrawalMfa`): an Account › Security toggle, available once two-factor
+  login is on (changing it needs step-up; turning two-factor off clears it). When on, **every** withdrawal needs a fresh
+  TOTP code (`methods: ["totp"]`; a password does not satisfy it, and a successful withdrawal consumes the
+  verification).
+
+### 22.7 Tamper-evident admin audit log
+
+Every `admin_audit` row (admin panel, chat moderation, admin bootstrap, CLI) is appended through
+`audit-chain.js`: `chain_seq` (1, 2, 3, …), `prev_hash` (the previous row's hash; 64 zeros for the first) and
+`hash = HMAC-SHA256(audit-chain key, [chain_seq, all row fields, prev_hash])`. The newest row is also recorded as a
+MAC-protected chain head in `meta`. `GET /v1/admin/audit/verify` (`audit.read`) recomputes the chain and reports the
+first problem: an edited row ("row contents do not match its hash"), a broken link, a gap, a row without a hash, or
+deleted newest rows. The Admin page's **Verify audit chain** button shows "Chain intact · N entries verified" or
+"Tampering detected at entry #n: …". The key matters: a bare hash chain could be recomputed by anyone with write access
+to the database; an HMAC chain cannot without the server key. Rows written before chaining existed are sealed once at
+start-up, but only those after the last chained row, so a hash cleared in the middle of the chain is reported, not
+silently re-chained.
+
+### 22.8 Encryption at rest (P1.15)
+
+- `server/crypto.js` (shared with the perimeter work): one 32-byte master key from `SECRET_KEY`, else `SECRET_KEY_FILE`,
+  else `secret.key` next to the database (created with mode 0600, never overwritten; git-ignored and in the `.claude`
+  deny rules). Purpose-specific sub-keys via HKDF-SHA256 (`field-encryption:v1`, `login-csrf:v1`, `audit-chain:v1`).
+- **TOTP secrets** (`mfa.secret`) are stored as `enc:v1:<iv>.<tag>.<ciphertext>` (AES-256-GCM, 96-bit random IV) with
+  additional data `mfa.secret:<user id>`, so a ciphertext copied to another user's row does not decrypt. Plaintext rows
+  from earlier builds are encrypted in place on start-up (idempotent). MFA challenge tokens, setup and password-change
+  tokens and session tokens are stored as SHA-256 hashes. No other secret columns exist today (the CSRF token per session
+  is only useful together with the session cookie).
+- Key rotation is not implemented: changing the key makes existing TOTP enrolments unreadable (users re-enrol) and the
+  audit chain unverifiable from the old rows. Recorded as a residual risk.
+
+### 22.9 Security log (P1.14)
+
+`auth_events` (persisted; 400-day retention): `signup`, `login_ok`, `login_fail`, `lockout` (account or IP),
+`logout`, `mfa_on`, `mfa_off`, `mfa_fail`, `step_up`, `step_up_fail`, `password_change`, `password_change_fail`,
+`password_change_required`, `password_reset_forced`, `password_rehash`, `email_change`, `withdrawal_mfa_on/off`,
+`session_revoke`, `sessions_revoke_all`, `sessions_revoked` (privilege change), `session_expired`, `admin_bootstrap`,
+`default_password_removed`. Each row: time, user (or none, with a masked email), IP prefix, device summary, JSON detail.
+Users see their own in **Account › Security › Security activity** (`GET /v1/users/:uid/security_events`); staff with
+`audit.read` see everyone's in **Admin › Sign-in & audit integrity** (`GET /v1/admin/identity/events`, filter by type
+prefix and email), next to the email outbox stub (`GET /v1/admin/identity/outbox`, `users.support`).
+
+### 22.10 G4 — maker trading limit on RFQ confirm
+
+`confirmQuote()` now applies the maker's daily trading limit to the order the confirmation creates (maker bid ×
+size, `trading_limit_exceeded`, nothing executes, the quote stays accepted until it lapses), matching the taker-side
+check on accept.
+
+### 22.11 API summary
+
+| Method + path | Auth | Notes |
+|---|---|---|
+| `GET /v1/auth/csrf` | none | login-CSRF cookie + token |
+| `POST /v1/users`, `/v1/log_in`, `/v1/log_in_mfa` | login CSRF | sign-up / sign-in; `{mfa_required, mfa_token}`, `{password_change_required, change_token}` or `{user, csrf_token}` |
+| `POST /v1/auth/complete_password_change` | login CSRF | after an admin-forced reset |
+| `GET /v1/auth/setup?token=`, `POST /v1/auth/setup_admin` | login CSRF (POST) | one-time first-admin setup |
+| `POST /v1/log_out` | session | deletes this session |
+| `POST /v1/step_up` | session | `{password}` or `{code}` |
+| `GET /v1/users/:uid/security` | session | MFA / withdrawal-MFA state, step-up window, idle timeout, policy |
+| `GET /v1/users/:uid/sessions`, `DELETE …/sessions/:sid`, `DELETE …/sessions` | session | devices, sign out one, sign out everywhere |
+| `GET /v1/users/:uid/security_events` | session | own security activity |
+| `PUT /v1/users/:uid/password`, `PUT …/email`, `PUT …/withdrawal_mfa` | session + step-up | |
+| `GET/POST /v1/users/:uid/mfa[/setup|/enable|/disable]` | session (disable: + step-up) | moved from `features.js`; secrets encrypted |
+| `GET /v1/admin/identity/events`, `GET /v1/admin/audit/verify` | `audit.read` | |
+| `GET /v1/admin/identity/outbox`, `POST /v1/admin/users/:id/force_password_reset` | `users.support` (+ step-up) | `:id` may be an email |
+
+Start options (`server/index.js`): `admin`, `demoPassword`, `auth: { idleMs, adminIdleMs, absoluteMs, stepUpMs,
+accountThreshold, ipThreshold, baseLockMs, maxLockMs, failureWindowMs, largeDepositCents, largeTransferCents,
+secureCookies, … }` (defaults in `auth.js`), `quiet`; the result includes `setupUrl` / `setupPath`.
+
+### 22.12 Tests (`clone/tests/auth-security.e2e.test.js`, 13 browser tests)
+
+Weak / single-class / name-containing / breached passwords refused with their messages; hash format stores cost
+parameters; session token only as SHA-256 in the DB; login rotation; login CSRF missing / bogus / from another browser
+→ 403 on all pre-session endpoints; unknown-email vs wrong-password responses byte-identical with similar timing;
+account and unknown-email lockout, UI message, owner notification + email stub + event, doubling lock, unlock after
+cool-down; device list, sign out one device (the other browser drops to signed-out live), sign out everywhere; MFA-on
+rotation (new cookie and CSRF, same device); step-up modal for password change (wrong then right password) and
+two-factor off (via code), cancel leaves an email change undone; withdrawal two-factor (code only, per withdrawal,
+cancel withdraws nothing); TOTP secret encrypted and key file 0600; maker trading limit on RFQ confirm (G4); privilege
+change revokes the target's sessions, admin role change needs step-up, admin sessions are Strict/30-minute; forced
+password reset with step-up modal and new-password flow; audit chain intact → edited row detected at #1 → restored →
+deleted tail detected; first admin via setup URL (single use, 410 on reuse, weak password refused), legacy
+`parlance-admin` disabled, `ADMIN_EMAIL`/`ADMIN_PASSWORD` (weak refuses to start); restart keeps hashed sessions,
+failure counters, events, encrypted TOTP (plaintext rows migrate and still verify); idle timeout; per-IP lock.
+
+### 22.13 Residual risks and follow-ups
+
+- **Account lockout as denial of service.** Anyone who knows an email can keep it locked for up to 15 minutes at a time;
+  the doubling caps the cost to the victim but does not remove it. A CAPTCHA/proof-of-work step (the perimeter
+  challenge) instead of a hard lock for the account key is the next step.
+- **Admin lock disclosure.** The admin module refuses `POST /v1/log_in` for an admin-locked account with
+  `account_locked` before the password is checked (pre-existing behaviour kept for its tests), which reveals that a
+  locked account exists.
+- **TOTP replay.** A code may be reused within its 30-second window (no last-used-step record); rate limits and the
+  challenge attempt cap bound the risk.
+- **Idle timeout and background polling.** An open tab keeps a session alive through its polls; only a closed or idle
+  tab expires. Distinguishing user activity from polls is not done.
+- **Forced reset still trusts the old password once** to reach the "choose a new password" step; a reset-by-email link
+  (P3.1) is needed when the old password itself is compromised.
+- **No key rotation** for `secret.key` (§22.8); **truncation** of the audit table together with the `meta` head row is
+  only detectable against an external copy of the head (e.g. shipped to logs, P9.4).
+- **Email delivery is a stub** (`email_outbox`); SMTP is P3.1. Passkeys / WebAuthn are P3.4.
+- The scrypt default (N = 2^16) is below OWASP's N = 2^17 reference for latency on small hosts; raise `SCRYPT_LOG_N` in
+  production.
+
+---
+
+## 23. Assurance, CI and guardrails
+
+Scope: PLAN P0.1 (CI), P0.2 (Dependabot), P0.3 (Windows notes), P1.7 (authorization matrix), P1.8 (input/output safety),
+P1.9 (idempotency keys), P1.13 (repository and agent guardrails) and gap G2 (cost-capped orders). Everything here is
+either a check that runs automatically (CI, pre-commit, lint, tests) or a server control proven by an end-to-end test.
+
+### 23.1 Continuous integration (`.github/workflows/ci.yml`)
+
+Runs on every push and pull request; four jobs, each meant to be a required check on `main` (branch protection, PLAN
+P0.1 exit criterion).
+
+| Job | What it does | Fails when |
+|---|---|---|
+| **test** | Node 22, `npm ci` (lockfile only), `npm audit --audit-level=high`, `npm run lint`, bundled secret scan of tracked files, `npm run build --if-present`, `npx playwright install --with-deps chromium`, full `npm run test:e2e`. On failure uploads the test temp directory (SQLite files, `e2e-output.txt`) as an artefact for 14 days. | any high/critical advisory, lint error, undocumented env var, secret finding, build error or failing test |
+| **secrets** | gitleaks 8.30.1 (pinned) over the **full history** (`fetch-depth: 0`) with `.gitleaks.toml`: a secret removed in a later commit is still a leak. | any finding |
+| **codeql** | CodeQL `javascript-typescript`, `security-extended` queries, over `clone/server`, `clone/public`, `scripts`. Results land in the Security tab. | a CodeQL error result |
+| **zap** | Starts the real server (fresh DB, sports off) and runs the OWASP ZAP baseline (passive scan + AJAX spider) against it; `scripts/zap-gate.js` then reads `report_json.json`. | any **High or Medium** alert not accepted in `.zap/rules.tsv`, or any alert whose rule is marked `FAIL` there |
+
+Design choices:
+- **Third-party actions are pinned to full commit SHAs** (tag in a trailing comment). A moved tag cannot change what CI
+  runs; Dependabot (`github-actions` ecosystem) proposes SHA bumps weekly.
+- `permissions: contents: read` at workflow level; only the jobs that need more get it (`security-events: write` for
+  CodeQL, `pull-requests: write` for gitleaks PR comments). `persist-credentials: false` on every checkout.
+- ZAP runs with `fail_action: false` and the gate script decides, because ZAP's own exit code treats every WARN as a
+  failure and cannot distinguish risk levels. `.zap/rules.tsv` has two kinds of entries: **IGNORE** with a written
+  justification (the gate refuses an IGNORE without one) and **FAIL** for perimeter controls that must never regress
+  (CSP, anti-clickjacking, `nosniff`, CORS, cookie flags, `X-Powered-By`). Accepted today: 10202 (no anti-CSRF form
+  token — the SPA posts JSON with a header token), 10035 (HSTS over plain localhost), 10096 (timestamps are public market
+  data), and three informational rules.
+- `concurrency` cancels superseded runs of the same ref.
+- The workflow was validated with `actionlint` 1.7.12 and a YAML parse.
+
+**Dependabot** (`.github/dependabot.yml`): npm in `/clone` and GitHub Actions, weekly (Monday 06:00 UTC); dev-tooling
+minor/patch updates grouped; all actions updates grouped.
+
+### 23.2 Pre-commit hook and secret scanning (`.githooks/pre-commit`)
+
+Installed automatically by `npm install` in `clone/` (`prepare` → `scripts/install-hooks.js` sets
+`git config core.hooksPath .githooks`; skipped outside a git checkout or with `SKIP_GIT_HOOKS=1`). It runs:
+1. `scripts/secret-scan.js` on the **staged** content (the index, not the working tree). Rules: private key blocks, AWS
+   key ids, GitHub/GitLab/Slack/npm/Stripe/Google/Anthropic/OpenAI token formats, JWTs, credentials in URLs, and a
+   generic `secret|password|api_key|token = "…"` rule gated on Shannon entropy ≥ 3.5 (so `password: 'parlance-demo'`
+   style fixtures do not trip it). It also **blocks file types** outright: `.env*` (except `.env.example`), key material
+   (`*.pem`, `*.key`, `*.p12`, `id_rsa*` …) and database files (`clone/data/**`, `*.db`, `*.sqlite`). Findings are printed
+   redacted. A deliberate fixture line can carry `secret-scan:allow`; whole paths can be listed in `.secretscanignore`.
+2. `gitleaks git --pre-commit --staged` when gitleaks is installed (falls back to `gitleaks protect --staged` on older
+   releases) — the same engine CI uses.
+3. `scripts/audit-gate.js`: `npm audit --json --audit-level=high` in `clone/`; blocks on high/critical advisories, but
+   only warns when the registry is unreachable so offline commits stay possible (CI is strict).
+
+`.gitleaks.toml` extends the default gitleaks rules and relaxes only `generic-api-key` under `clone/tests/` (throwaway
+account passwords in E2E fixtures, e.g. the one gitleaks flagged in `auth-security.e2e.test.js`); every token-format rule
+still applies to tests. The bundled scanner applies the same exception to its generic rule.
+
+`git commit --no-verify` bypasses the hook; CI re-runs the same checks, so a bypass only delays the failure.
+
+### 23.3 Agent and repository guardrails (P1.13)
+
+- `.claude/settings.json` — Claude Code `permissions.deny` rules (schema-validated against
+  `json.schemastore.org/claude-code-settings.json`): `Read` of `.env`, `.env.*`, `clone/.env*`, `clone/data/**`
+  (including `secret.key`), `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, SSH keys, `*.db`/`*.sqlite`,
+  `**/secrets/**`, production configs, `~/.aws`, `~/.ssh`, `~/.npmrc`, `~/.config/gh`; `Edit` of `clone/data/**` and
+  `.git/**`; and Bash denies for `cat/less/head/tail/source` of `.env*`, reading `clone/data/*` (`cat`, `sqlite3`,
+  `xxd`, `strings`), dumping keys (`openssl … -in *.key`, `base64 *.pem`), `printenv`/`env`, disabling the hooks
+  (`git config core.hooksPath …`, `git commit --no-verify`/`-n`) and force pushes. Each path appears both in `./…` form
+  (relative to the working directory) and `/…` form (anchored at the repository root), so sessions started in `clone/`
+  are covered too. Read denies also stop Claude Code's Edit/Write tools on those paths.
+  - Trade-off: `Read(./.env.*)` also covers `clone/.env.example`, so agents cannot open or edit the example file with
+    their file tools. That is acceptable: it holds no secrets, humans maintain it, and `scripts/check-env-example.js`
+    (part of `npm run lint`) fails CI whenever a server env var is missing from it.
+  - These rules are guardrails against accidents, not a boundary: a script an agent writes can still open any file. The
+    real protection is that production secrets and real databases never exist on development machines (PLAN §2).
+- `.gitignore`: `.env*` (except `.env.example`), key material, database files, `.claude/settings.local.json`, generated
+  `clone/dist/`, test and ZAP reports. `.gitattributes` keeps hooks and scripts LF on Windows checkouts.
+- `clone/.env.example` documents every variable read under `clone/server/` (checked by `scripts/check-env-example.js`,
+  which understands `process.env.X`, `process.env['X']`, `env('X')`-style readers and destructuring).
+- `.github/CODEOWNERS`: owner review on CI/guardrail files, identity/perimeter/authorization code, the matching engine,
+  perps, combos/RFQ, the ledger, client code that handles tokens or renders user content, and the security tests.
+- `SECURITY.md`: disclosure policy (private advisory, response targets, safe harbour) and the STRIDE threat model for
+  authentication, trading/ledger, payments, admin, social/chat, WebSocket, perps and combos/RFQ, with mitigations mapped
+  to files, PLAN items and the tests that prove them.
+
+### 23.4 Lint: unsafe HTML sinks (P1.8 output encoding)
+
+`clone/eslint.config.js` (flat config, ESLint 10.13.0, exact-pinned devDependencies) — security rules only, no style:
+- **`parlance/no-unescaped-html`** (`clone/eslint-rules/no-unescaped-html.js`, the "equivalent custom rule"). Checks
+  (1) every `${…}` inside any template literal that contains HTML markup, wherever it is written, and (2) every value
+  written to `.innerHTML`, `.outerHTML`, `.srcdoc` or `.insertAdjacentHTML()`. A value is safe when it is a literal, a
+  number/boolean result, `esc()`/`encodeURIComponent()`, number/date formatting, a call to a function declared or
+  imported in the module (an HTML builder whose own templates are checked where they are written), a `const`/`let`
+  whose every assignment is safe, a member of a constant lookup table, an ALL_CAPS module constant, a callback parameter
+  iterating a literal table or an index parameter, or `list.map(safe).join(…)`. Everything else — API data, function
+  parameters, unknown method results — must be wrapped in `esc()` or annotated.
+- Mozilla **`eslint-plugin-no-unsanitized`** 4.1.5 (`no-unsanitized/method`) for the remaining code/markup sinks:
+  dynamic `import()`, `document.write/writeln`, `createContextualFragment`, `setHTMLUnsafe`, `parseHTMLUnsafe`,
+  `DOMParser.parseFromString`. (`no-unsanitized/property` is not used: it cannot follow `esc()` inside a template, which
+  the custom rule does.)
+- `no-eval`, `no-implied-eval`, `no-new-func`, `no-script-url` everywhere.
+- **`parlance/require-disable-justification`**: an `eslint-disable` comment for any of these rules must carry
+  `-- <reason>` (≥ 12 characters).
+
+Findings on introduction: 281 → 0. Of these, ~200 data values (API fields such as sides, statuses, counts, scores,
+tickers, ids; helper parameters such as labels, class names, colours, hrefs) were wrapped in `esc()`; ~25 false
+positives were removed by teaching the rule the patterns above; 11 sites are annotated with a justification because the
+value is markup by contract (`dialog(html)`, `confirmAction({body, extraHtml})`, `section(title, sub, actions)`,
+`formHtml({extra})`, table `rowAttrs`/`render` callbacks, the header menu, `winBar(attrs)`, the order-edit form row, the
+combo leg row, the info-card icon constant, the help-page link substitution on already-escaped text). Two
+double-escaping regressions the first mechanical pass introduced (home info cards, perps fill source) were caught in
+review and fixed by escaping once, at the sink.
+
+`npm run lint` = `eslint .` + `node ../scripts/check-env-example.js`.
+
+### 23.5 Request validation and body limits (`clone/server/validate.js`, P1.8)
+
+- **Per-route JSON body limits** replace the single global `express.json({limit: '64kb'})`: deposits/withdrawals and
+  perps transfers 1 KB; log in/sign up/client token 4 KB; orders, amend/decrease, perps orders/close/exit triggers 4 KB;
+  chat 4 KB; social and RFQ/quotes 8 KB; admin CSV import 256 KB; everything else keeps 64 KB. Over the limit →
+  `413 payload_too_large` with the limit in `details` (previously a 500).
+- **Declarative schemas** for the highest-risk writes (orders, amend/decrease, deposits, withdrawals, perps
+  transfers/orders/close, RFQ accept, social posts/comments/reports, chat messages, admin catalog writes): body must be a
+  JSON object with a bounded number of fields; each known field has allowed types, string length caps, numeric ranges
+  or patterns (e.g. `client_order_id` ≤ 64 chars, `client_transfer_id` `[A-Za-z0-9_.:-]{1,64}`, `time_in_force` one of
+  `gtc`, `ioc`, `fok`, `good_till_canceled`, `immediate_or_cancel`, `fill_or_kill` — the spellings the handlers accept). Money routes
+  (deposits, withdrawals, perps transfers/close) **reject unknown fields**; the others ignore them (Kalshi-style APIs
+  accept optional fields) but still type-check the known ones. Errors are `400 validation_failed` with a `fields` map,
+  the same envelope as the admin validator.
+- Handlers keep their semantic checks and messages; the schemas stop type confusion (`{"amount_dollars": {"$gt": 0}}`,
+  arrays as tickers, objects as post bodies) before handler code runs.
+- Validation runs only for requests that will reach the handler: anonymous requests, another user's `/users/:uid` and
+  non-staff requests on admin routes skip it, so authorization errors keep precedence and reveal nothing.
+- Wired with two lines in `server/app.js`: `app.use(jsonBody())` and `v1.use(validateRoutes(…))` (registered first on
+  the v1 router, so admin-mounted routes are covered).
+
+### 23.6 Idempotency keys (`clone/server/idempotency.js`, P1.9)
+
+- Header `Idempotency-Key: [A-Za-z0-9_.:-]{1,255}` on `POST /users/:uid/orders`, `/deposits`, `/withdrawals`,
+  `POST /perps/orders`, `/perps/transfers`, `/perps/positions/:ticker/close`, and RFQ `…/quotes/:qid/accept` and
+  `…/confirm` (both path forms).
+- Table `idempotency_keys(user_id, idem_key, route, request_hash, status, response, created_ts)`, primary key
+  `(user_id, idem_key)`. `request_hash` = SHA-256 of method, full path and the canonical JSON body (sorted keys).
+- First request: a placeholder row is written, the handler runs, the response status and JSON body are stored.
+  Same key + same hash within 24 h → the stored response is replayed with `Idempotent-Replayed: true` (the handler does
+  not run). Same key + different hash → `409 idempotency_key_conflict`. A request arriving while the first is still
+  running → `409 idempotency_key_in_progress`; a placeholder older than 60 s (crashed request) is discarded.
+- **Not stored:** 5xx, 401, 403 (step-up required, client-token errors), 408, 425, 429 — the operation did not run, so
+  the client's retry with the same key must execute. Business errors (e.g. 409 `insufficient_balance`) are stored, as
+  the operation's outcome.
+- Keys are per user, survive restarts (SQLite), and expire after 24 h (purged lazily, at most once a minute).
+- Runs after authentication and after the admin lock/feature middleware; requests the route will refuse (anonymous,
+  another user's uid) are left to the route.
+- **Client:** `public/js/api.js` generates one key per user action (`crypto.randomUUID()`) for deposits, withdrawals,
+  orders, RFQ accept and quote confirm, and `perps-api.js` for perps orders, transfers and close. The key travels with
+  the request options, so `request()`'s automatic retries (client-token refresh, step-up) resend **the same key**: a
+  retried action executes once. A new click is a new key.
+- CORS already allows the header (`server/security.js` allowlist), matching S4.
+
+### 23.7 Gap G2 — Dollars / target-cost orders never exceed the cap
+
+Cause: `placeOrder(max_cost_cents)` shrank the order one step at a time (at most 1,000 iterations) against a
+*reservation bound* (`R(n)` plus a rounding buffer), and placed the order anyway when the loop ran out or reached the
+minimum size. Each fill's principal and fee are rounded up per maker, so against many small makers the real cost per
+0.01 contract can be several times the nominal price (2¢ vs 0.52¢ at 50¢): reproduced as **$66.31 spent on a $15.00
+Dollars order** across 3,000 makers of 0.01 contracts.
+
+Fix (`server/engine.js`): a cost cap forces IOC with an **exact** reservation (each planned fill's ceil'd principal +
+fee), and the size is the largest multiple of the market's step whose exact planned cost fits the cap, found by binary
+search (planned cost is non-decreasing in size). The per-maker rounding is therefore inside the budget; an amount below
+the smallest fill is `400`; an invariant check refuses any plan above the cap. Whole-contract markets keep whole-contract
+sizing; fills and ledger entries are unchanged otherwise.
+
+Proof: `idempotency.e2e.test.js` › G2 inserts 3,000 resting 0.01-contract makers at the best price and places a $15
+Dollars order: spend ≤ $15, spend = fills' principal + fees, at most one fill's cost left unspent, nothing left reserved.
+The same test fails against the previous engine (spent 6,631¢).
+
+### 23.8 Authorization matrix (`clone/tests/authz.e2e.test.js`, P1.7)
+
+- **Route enumeration at runtime:** the test walks the live Express router stack (`app.router.stack`, recursing into
+  routers listed in `app.locals.routers`, the one-line mount table added to `server/app.js`). An unclassified route, a
+  stale table entry, or a router mounted without a mount-table entry fails the suite — new routes must be classified.
+- **Expectations table** (`EXPECT`): every route is `public`, `user`, `owner` (`/users/:uid`), `staff`, `perm:<p>`
+  (admin permission, `ROLE_PERMS` imported live from `server/admin.js`), `self+perm:<p>` (social-admin) or
+  `legacy-admin` (`users.is_admin`). 252 routes today.
+- **Probes** (> 1,000 per run): anonymous → `401 token_authentication_failure` unless public; a signed-in user → passes
+  the gate on user/owner routes, `403 forbidden` on staff routes; **IDOR** → user B on user A's `/users/:uid/…` is
+  `403` for every such route; each of the six admin roles → allowed exactly when the role has the route's permission,
+  else `403`. Probes go through the real perimeter (client token, CSRF, login CSRF) like the SPA. Destructive probes
+  (log out everywhere) use disposable principals.
+- **Object-level IDOR** through B's own paths with A's object ids: orders (read, queue position, amend, decrease,
+  cancel), perps orders (read, cancel), RFQs (read, cancel), quotes (read, delete, accept, confirm), posts and comments
+  (delete), chat messages (delete), notifications (mark read), price alerts (delete), sessions (revoke) — all refused,
+  and A's rows are verified unchanged.
+- **WebSocket:** anonymous sockets are refused every private channel (`code 9`); a socket with A's cookie but a wrong
+  CSRF token is anonymous; a foreign `Origin` is refused at the upgrade; while A trades and deposits, B's socket
+  (subscribed to all private channels) receives none of A's events; broadcast RFQ events carry no user id or email.
+- Mutation-checked: misclassifying a route (public↔owner, wrong permission, user→admin) makes the matrix fail.
+- Result: **no authorization defect found** in the current route set; all 252 routes behave as classified.
+
+### 23.9 How to run locally
+
+```bash
+cd clone
+npm install                     # also installs the pre-commit hook
+npm audit --audit-level=high    # dependency advisories
+npm run lint                    # ESLint security rules + .env.example coverage
+node ../scripts/secret-scan.js --all     # bundled secret scan of tracked files (or: gitleaks git .)
+npm run test:e2e                # full suite (includes authz + idempotency)
+node --no-warnings --test tests/authz.e2e.test.js tests/idempotency.e2e.test.js   # just these two
+# ZAP baseline (needs Docker):
+npm start &                     # http://localhost:3000
+docker run --rm --network=host -v "$PWD/..:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+  zap-baseline.py -t http://localhost:3000 -c .zap/rules.tsv -J report_json.json -a -j || true
+node ../scripts/zap-gate.js ../report_json.json ../.zap/rules.tsv
+```
 
 ---
 

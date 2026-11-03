@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end tests for fractional contracts (COMBOS_FRACTIONAL_SPEC §16): quantities stored as units (hundredths),
+// End-to-end tests for fractional contracts (CLONE_SPEC §16): quantities stored as units (hundredths),
 // exact conserving cent rounding, fractional Contracts / Dollars / Sell in the ticket, whole-contract markets
 // rejecting fractions, the "Hide fractional shares" order-book setting, fractional settlement, the one-time
 // migration of an old whole-contract database, restart and the 390px layout. Real server + SQLite + Chromium.
@@ -50,7 +50,7 @@ const call = (page, method, url, body) => page.evaluate(async ([m, u, b]) => {
   return { s: r.status, b: await r.json() };
 }, [method, url, body]);
 const bookRows = (page) => page.$$eval('[data-testid=orderbook] .book-row', (rs) => rs.map((r) => [r.children[1].textContent, r.children[2].textContent]));
-// Cash a taker paid for an order: ceil(q·p/100) per fill plus the fee (COMBOS_FRACTIONAL_SPEC §16.2).
+// Cash a taker paid for an order: ceil(q·p/100) per fill plus the fee (CLONE_SPEC §16.2).
 const takerCost = (orderId) => dbq('SELECT count c, price_cents p, fee_cents f FROM fills WHERE order_id=?', orderId).reduce((a, f) => a + Math.ceil((f.c * f.p) / 100) + f.f, 0);
 
 before(async () => { srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 300, admin: { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' } }); browser = await chromium.launch(); });

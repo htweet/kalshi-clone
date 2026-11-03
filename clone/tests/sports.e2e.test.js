@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end browser tests for live sports scoreboards (SPORTS_SPEC.md §19): a game reaching the final whistle
+// End-to-end browser tests for live sports scoreboards (CLONE_SPEC.md §19): a game reaching the final whistle
 // determines its winner markets and pays the holder (DB settlement + notification), the Live page sports sidebar
 // and URL filters, compact card scoreboards that match the DB and advance live over the `live_data` WebSocket,
 // odds that follow the live win probability, tennis sets/tiebreaks, cricket target and run rates, the event page

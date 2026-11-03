@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end tests for the Positions portfolio tab (COMBOS_FRACTIONAL_SPEC §17.11): default tab, summary, holdings
+// End-to-end tests for the Positions portfolio tab (CLONE_SPEC §17.11): default tab, summary, holdings
 // grouped by event with cost / mark / value / P&L / payout / sell value checked against the DB and the book, a live
 // re-mark when another user trades, a partial sell from the Sell sheet returning exactly the estimated cash, a combo
 // position with legs, sort/filter persisted across contexts, settlement moving a position out, restart and 390px.

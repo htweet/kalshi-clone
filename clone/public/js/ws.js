@@ -60,7 +60,7 @@ export class Socket {
       for (const t of this.timers.values()) clearTimeout(t);
       this.timers.clear();
       this.emitState({ connected: false, code: ev.code });
-      if (ev.code === 4401) window.dispatchEvent(new Event('parlance:session-ended')); // session revoked or expired (SEC_IDENTITY_SPEC §22.2)
+      if (ev.code === 4401) window.dispatchEvent(new Event('parlance:session-ended')); // session revoked or expired (CLONE_SPEC §22.2)
       if (this.intentionalClose) return;
       const delay = Math.min(BACKOFF_MAX, BACKOFF_BASE * 2 ** this.backoffExponent) + Math.floor(Math.random() * 500);
       this.backoffExponent += 1;

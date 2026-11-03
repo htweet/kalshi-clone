@@ -1,5 +1,5 @@
 'use strict';
-// Admin panel + CMS (ADMIN_SPEC.md §18). Everything here is persisted in SQLite tables created below with
+// Admin panel + CMS (CLONE_SPEC.md §18). Everything here is persisted in SQLite tables created below with
 // CREATE TABLE IF NOT EXISTS; no existing table's schema is changed.
 //
 // Quantity rule: this module never interprets raw quantity columns itself. Volumes, positions and orders come from
@@ -28,7 +28,7 @@ const ROLE_PERMS = {
 const ROLES = Object.keys(ROLE_PERMS);
 const COMBO_SERIES = 'PLXCOMBO';
 const FLASH_SERIES = 'PLXFLASH';
-// Taker fee coefficient: engine-held, persisted in admin_settings and editable at runtime (gap G7, SEC_PERIMETER_SPEC §21.9).
+// Taker fee coefficient: engine-held, persisted in admin_settings and editable at runtime (gap G7, CLONE_SPEC §21.9).
 const { setTakerFeeCoefficient, takerFeeCoefficient, DEFAULT_TAKER_FEE_COEFFICIENT } = require('./engine');
 const DEFAULT_APY = 0.035;
 const APY_META_KEY = 'setting_interest_apy'; // read by features.js accrueInterest()
@@ -203,7 +203,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     next();
   };
   function audit(req, action, targetType, targetId, before, after, reason = '') {
-    // Tamper-evident: every row is HMAC-chained to the previous one (server/audit-chain.js, SEC_IDENTITY_SPEC §22.7).
+    // Tamper-evident: every row is HMAC-chained to the previous one (server/audit-chain.js, CLONE_SPEC §22.7).
     auditChain.append(db, { actor_id: req.auth?.user.id || null, actor_email: req.auth?.user.email || null, action, target_type: targetType, target_id: targetId, before, after, reason });
   }
 
@@ -869,7 +869,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     audit(req, 'resolution.resolve', 'market', m.ticker, before, after, note);
     res.json({ market: after });
   });
-  // Reversal is only possible before finalization (no money has moved yet). See ADMIN_SPEC §18.4.
+  // Reversal is only possible before finalization (no money has moved yet). See CLONE_SPEC §18.4.
   v1.post(`${A}/resolution/:ticker/reverse`, can('resolution.write'), (req, res) => {
     const m = getMarket(req.params.ticker);
     if (!m) throw E.notFound();

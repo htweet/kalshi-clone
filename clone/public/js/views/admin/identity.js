@@ -1,4 +1,4 @@
-// Admin › Sign-in & audit integrity (SEC_IDENTITY_SPEC §22): verify the hash-chained audit log, the sign-in security
+// Admin › Sign-in & audit integrity (CLONE_SPEC §22): verify the hash-chained audit log, the sign-in security
 // log of every account (logins, failures, lockouts, MFA, step-up, password changes, session revocations), forced
 // password resets, and the email outbox stub that stands in for security emails.
 import { esc, get, post, toast, dataTable, section, fmtTime, badge, confirmAction } from './ui.js';

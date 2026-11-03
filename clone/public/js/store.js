@@ -43,7 +43,7 @@ class SessionStore extends Observable {
     }));
   }
 
-  // Login CSRF (SEC_IDENTITY_SPEC §22.2): pre-session endpoints need a fresh token bound to a short-lived cookie.
+  // Login CSRF (CLONE_SPEC §22.2): pre-session endpoints need a fresh token bound to a short-lived cookie.
   async preAuth() { csrf.set((await api.loginCsrf()).csrf_token); }
 
   // Returns {mfa_token} when a second factor is required, {change_token} when an admin forced a password reset,

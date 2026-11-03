@@ -1,5 +1,5 @@
 'use strict';
-// Password hashing and policy (PLAN P1.5, SEC_IDENTITY_SPEC §22.4).
+// Password hashing and policy (PLAN P1.5, CLONE_SPEC §22.4).
 //
 // Hash format (current):  scrypt2$<N>$<r>$<p>$<salt b64>$<key b64>   (cost parameters stored per hash)
 // Legacy format:          scrypt$<salt b64>$<key b64>                 (N=16384, r=8, p=1 — first build)

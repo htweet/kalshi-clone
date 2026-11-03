@@ -20,7 +20,7 @@ export async function call(method, path, body, stepUpDone = false) {
   const t = csrf.get(); if (t) headers['x-csrf-token'] = t;
   { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; } // signed client token on every /v1 call (PLAN P1.10)
   const res = await fetch(`/v1/admin${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-  const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated); // own role change rotates the session (SEC_IDENTITY_SPEC §22.2)
+  const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated); // own role change rotates the session (CLONE_SPEC §22.2)
   const data = await res.json().catch(() => ({}));
   // Role changes / forced resets need a recent password or code: confirm in the step-up modal, then retry once (§22.6).
   if (!res.ok && data?.error?.code === 'step_up_required' && !stepUpDone) {

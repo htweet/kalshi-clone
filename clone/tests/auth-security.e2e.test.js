@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end tests for identity, sessions and login security (SEC_IDENTITY_SPEC.md §22; PLAN P1.4–P1.6, P1.14,
+// End-to-end tests for identity, sessions and login security (CLONE_SPEC.md §22; PLAN P1.4–P1.6, P1.14,
 // P1.15, G4): password policy, hashed + rotated sessions, login CSRF, uniform login errors, backoff/lockout,
 // device list and sign-out (live over WS), idle timeout, step-up modal, withdrawal two-factor, encrypted TOTP
 // secrets, the maker trading limit on RFQ confirm, first-admin bootstrap without a default password, and the
@@ -128,7 +128,7 @@ test('sessions are stored hashed; login rotates the session; login CSRF is requi
   const page = await newPage();
   await logIn(page, U.p.email);
   const c1 = await sessionCookie(page);
-  assert.equal(c1.name, 'plx_session'); // plain-http localhost: __Host- needs Secure (SEC_IDENTITY_SPEC §22.2)
+  assert.equal(c1.name, 'plx_session'); // plain-http localhost: __Host- needs Secure (CLONE_SPEC §22.2)
   assert.ok(c1.httpOnly); assert.equal(c1.sameSite, 'Lax');
   const rows = dbq('SELECT token, sid, device, ip_prefix FROM sessions WHERE user_id=?', uid(U.p.email));
   assert.ok(rows.length >= 1);

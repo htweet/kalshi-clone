@@ -1,6 +1,6 @@
 'use strict';
 // Perimeter security middleware (PLAN Phase 1A: P1.1 headers + CSP, P1.3 CORS, P1.10 bot management wiring, P1.11 asset
-// hygiene, P1.12 static allowlist; SEC_PERIMETER_SPEC.md §21). Evidence for each control is PLAN §2 S1–S12.
+// hygiene, P1.12 static allowlist; CLONE_SPEC.md §21). Evidence for each control is PLAN §2 S1–S12.
 //
 // Request order (server/app.js):
 //   early()        security headers + per-response CSP nonce, CORS, robots.txt, honeypots, CSP reports, challenge verify,
@@ -33,7 +33,7 @@ function robotsTxt(aiCrawlers) {
   return [
     '# Parlance Exchange crawler policy.',
     '# Advisory only: robots.txt asks well-behaved crawlers to stay away; it is not access control. Enforcement is the',
-    '# bot challenge, client tokens and rate limits (see SEC_PERIMETER_SPEC.md section 21).',
+    '# bot challenge, client tokens and rate limits (see CLONE_SPEC.md section 21).',
     '',
     '# AI training / answer-engine crawlers: no access.',
     ...aiCrawlers.map((n) => `User-agent: ${n}`),

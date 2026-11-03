@@ -1,4 +1,4 @@
-// Account & security (spec §13.6–13.9, SEC_IDENTITY_SPEC §22): social profile, security (password, two-factor, devices,
+// Account & security (spec §13.6–13.9, CLONE_SPEC §22): social profile, security (password, two-factor, devices,
 // activity), account limits, price alerts, appearance.
 import { api } from '../api.js';
 import { session } from '../store.js';
@@ -39,7 +39,7 @@ async function profile(panel) {
   };
 }
 
-// Account › Security (SEC_IDENTITY_SPEC §22): password, two-factor, withdrawal verification, email, signed-in
+// Account › Security (CLONE_SPEC §22): password, two-factor, withdrawal verification, email, signed-in
 // devices with "sign out" / "sign out everywhere", and the account's own security activity log.
 const EVENT_LABELS = {
   signup: 'Account created', login_ok: 'Signed in', login_fail: 'Failed sign-in attempt', lockout: 'Sign-in temporarily blocked', logout: 'Signed out',

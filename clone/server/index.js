@@ -37,7 +37,7 @@ function listen(server, port, fallback) {
   });
 }
 
-// Identity options (SEC_IDENTITY_SPEC §22): `admin: {email, password}` creates the first admin (else ADMIN_EMAIL +
+// Identity options (CLONE_SPEC §22): `admin: {email, password}` creates the first admin (else ADMIN_EMAIL +
 // ADMIN_PASSWORD, else a one-time setup URL is printed and returned as `setupUrl`); `demoPassword` (or DEMO_PASSWORD)
 // sets the seeded demo accounts' password, otherwise a random one is printed once; `auth` overrides session /
 // lockout / step-up timings (server/auth.js DEFAULTS).
@@ -46,7 +46,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
-  // Perimeter (SEC_PERIMETER_SPEC §21): `assets: 'dist'` serves the hashed production bundle, built here when dist/ is
+  // Perimeter (CLONE_SPEC §21): `assets: 'dist'` serves the hashed production bundle, built here when dist/ is
   // missing or stale (P1.11); `security` tunes CORS origins, trust proxy, bot thresholds and rate tiers (server/security.js).
   if (assets === 'dist') await require('../scripts/build').ensureBuilt();
   const db = open(dbFile);

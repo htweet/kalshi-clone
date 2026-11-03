@@ -92,7 +92,7 @@ const CATALOG = [
   ] },
 ];
 
-// Identity (SEC_IDENTITY_SPEC §22.5): no admin is seeded (the first admin comes from ADMIN_EMAIL/ADMIN_PASSWORD,
+// Identity (CLONE_SPEC §22.5): no admin is seeded (the first admin comes from ADMIN_EMAIL/ADMIN_PASSWORD,
 // start({admin}), `npm run create-admin` or the one-time setup URL). The demo traders get `demoPassword`
 // (DEMO_PASSWORD) or a random password printed once here; there is no default password.
 function seed(db, { reset = false, demoPassword = null, quiet = false } = {}) {

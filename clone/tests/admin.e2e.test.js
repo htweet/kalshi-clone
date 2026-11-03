@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end browser tests for the admin panel + CMS (ADMIN_SPEC §18): access control, roles, catalog drafts →
+// End-to-end browser tests for the admin panel + CMS (CLONE_SPEC §18): access control, roles, catalog drafts →
 // publish (+ seeded liquidity), CSV import, resolution desk (settlement + reversal before finalize), content CMS
 // (hero, promo, banner, navigation, news, help) persisting across a restart, user support actions (balance
 // adjustment, lock / unlock), moderation (report → hide, posting ban, verified badge), announcements, reports
@@ -18,7 +18,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-admin-'));
 const DB_FILE = path.join(TMP, 'admin.db');
 const PORT = 4500 + Math.floor(Math.random() * 40);
 const BASE = `http://127.0.0.1:${PORT}`;
-const clientToken = require('./helpers/client-token').clientTokens(BASE); // signed client token for Node-side writes (SEC_PERIMETER_SPEC §21)
+const clientToken = require('./helpers/client-token').clientTokens(BASE); // signed client token for Node-side writes (CLONE_SPEC §21)
 const PW = 'correct-horse-9';
 const ADMIN = { email: 'admin@parlance.local', password: 'Ledger-Keeper-2026!' }; // no default admin password: created by start({ admin })
 const DEMO_PW = 'Seeded-Crowd-2026'; // demo accounts have no default password (start({ demoPassword }))
@@ -48,7 +48,7 @@ function client() {
     if (json && json.csrf_token) csrf = json.csrf_token;
     return { status: r.status, body: json };
   };
-  const preAuth = () => call('GET', '/v1/auth/csrf'); // login CSRF token + cookie (SEC_IDENTITY_SPEC §22.2)
+  const preAuth = () => call('GET', '/v1/auth/csrf'); // login CSRF token + cookie (CLONE_SPEC §22.2)
   return { call, login: async (u) => { await preAuth(); return call('POST', '/v1/log_in', { email: u.email, password: u.password }); }, signup: async (u) => { await preAuth(); return call('POST', '/v1/users', { email: u.email, password: u.password, display_name: u.name }); } };
 }
 

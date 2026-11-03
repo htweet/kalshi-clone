@@ -1,5 +1,5 @@
 'use strict';
-// Simulated live sports (SPORTS_SPEC.md §19): invented leagues, fixtures ("milestones"), a deterministic game
+// Simulated live sports (CLONE_SPEC.md §19): invented leagues, fixtures ("milestones"), a deterministic game
 // engine per sport driven by the engine tick, live win probability, a persisted play-by-play log and box scores,
 // and winner markets that re-quote around the live probability and settle through the normal determine/finalize
 // path at the final whistle. Every piece of state lives in SQLite, so a restart resumes each game from the DB.

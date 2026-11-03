@@ -1,4 +1,4 @@
-// Step-up verification modal (SEC_IDENTITY_SPEC §22.6, mirrors action_verification_mfa): a sensitive request
+// Step-up verification modal (CLONE_SPEC §22.6, mirrors action_verification_mfa): a sensitive request
 // answered with 403 step_up_required opens this dialog; after a successful password / two-factor check the
 // original request is retried once by api.request(). Cancelling rejects with code step_up_cancelled.
 import { api, ApiError } from '../api.js';

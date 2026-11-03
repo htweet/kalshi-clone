@@ -1,5 +1,5 @@
 'use strict';
-// Perimeter security E2E (PLAN Phase 1A; SEC_PERIMETER_SPEC.md §21): security headers + per-response CSP nonce, a strict
+// Perimeter security E2E (PLAN Phase 1A; CLONE_SPEC.md §21): security headers + per-response CSP nonce, a strict
 // style CSP with no violations in a real browser, self-hosted fonts, CORS allowlist, proof-of-work bot challenge, signed
 // client tokens on writes and the WebSocket, honeypots, hashed immutable assets without source maps, tiered + persisted
 // rate limits, runtime-editable taker fee / rolling window / limits (G7) with audit, Admin › Security, restart persistence.

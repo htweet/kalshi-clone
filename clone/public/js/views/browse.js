@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { esc, catFromSlug, catSlug, catLabel, CATEGORIES, ICON } from '../lib.js';
 import { eventCard } from './components.js';
-import { revealSportsLink } from './sports.js'; // "Live scores" link on the Sports category (SPORTS_SPEC §19.6)
+import { revealSportsLink } from './sports.js'; // "Live scores" link on the Sports category (CLONE_SPEC §19.6)
 
 const ORDERS = [['trending', 'Trending'], ['event-volume', 'Volume'], ['newest', 'New'], ['closing-soon', 'Closing soon']];
 const FREQS = [['', 'Frequency'], ['fifteen_min', '15 min'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['one_off', 'One-off']];

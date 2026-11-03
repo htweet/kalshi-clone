@@ -1,4 +1,4 @@
-// Sports (SPORTS_SPEC.md §19.6): the /sports hub and /sports/:league pages (league tabs, sport chips, Live now /
+// Sports (CLONE_SPEC.md §19.6): the /sports hub and /sports/:league pages (league tabs, sport chips, Live now /
 // Upcoming / Results), the event-page scoreboard (full board, play-by-play, box score), and the Live page's sports
 // sidebar (FEATURED leagues with icons, collapsible sports with counts) and URL filter (?sport= / ?league=).
 // Live updates arrive on the `live_data` WebSocket channel; each view falls back to polling while it is down.

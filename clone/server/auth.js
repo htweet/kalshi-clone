@@ -1,5 +1,5 @@
 'use strict';
-// Identity, sessions and login security (PLAN P1.4, P1.5, P1.6, P1.14, P1.15; SEC_IDENTITY_SPEC.md §22).
+// Identity, sessions and login security (PLAN P1.4, P1.5, P1.6, P1.14, P1.15; CLONE_SPEC.md §22).
 //
 // createAuth() is called by createApp() before any route is mounted:
 //   auth.attach      app-level: resolves the session cookie, enforces session CSRF and login CSRF

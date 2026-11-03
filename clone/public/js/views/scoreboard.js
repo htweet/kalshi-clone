@@ -1,4 +1,4 @@
-// Scoreboard components (SPORTS_SPEC.md §19.6): per-sport compact score columns for market cards, a richer game
+// Scoreboard components (CLONE_SPEC.md §19.6): per-sport compact score columns for market cards, a richer game
 // card for the /sports hub, the full event-page scoreboard, win-probability bar, play-by-play and box score, plus
 // the page-wide live patcher that applies `live_data` WebSocket messages (polling fallback) to whatever is shown.
 // Monograms and sport icons are generated here (no logos or photos).

@@ -1,5 +1,5 @@
 // Sign in / sign up (spec §4.7) with the two-factor step (spec §13.9), the forced password change and first-admin
-// setup (SEC_IDENTITY_SPEC §22): credentials → (code) → (new password) → signed in.
+// setup (CLONE_SPEC §22): credentials → (code) → (new password) → signed in.
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { toast, esc } from '../lib.js';
@@ -57,7 +57,7 @@ export async function render({ el, params, query, navigate }) {
     form.onsubmit = run(step);
   }
 
-  // An administrator required a new password (SEC_IDENTITY_SPEC §22.4): no session until it is set.
+  // An administrator required a new password (CLONE_SPEC §22.4): no session until it is set.
   function changeStep(changeToken) {
     form.innerHTML = `<h1>Choose a new password</h1><p class="muted">Parlance support asked you to set a new password before continuing.</p>
       ${passwordField('new_password', 'New password', 'new-password', 'new-password')}${passwordField('confirm', 'Confirm new password', 'new-password', 'confirm-password')}

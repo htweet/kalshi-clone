@@ -1,5 +1,5 @@
 'use strict';
-// Signed client tokens for Node-side API clients in the E2E suite (PLAN P1.10, SEC_PERIMETER_SPEC §21).
+// Signed client tokens for Node-side API clients in the E2E suite (PLAN P1.10, CLONE_SPEC §21).
 // /v1 writes and the WebSocket upgrade need an `X-Client-Token`. Browsers get one transparently (public/js/security.js);
 // a non-browser client has to earn it the same way any script would: fetch an HTML route, solve the proof-of-work
 // challenge it is served, then trade the page's signed boot proof for a token. The token is bound to the client's IP +
