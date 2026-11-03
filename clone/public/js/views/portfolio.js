@@ -6,6 +6,7 @@ import { socket } from '../ws.js';
 import { esc, money, qty, cents, toast, relTime, secsLeft, validQty } from '../lib.js';
 import { renderPerpsPortfolio } from './perps.js';
 import { ocAvatar } from './components.js';
+import { uiPrefs } from '../prefs.js'; // Settings › Market preview price type (PHASE3_SPEC.md §25.8)
 
 // Observed tab set ["position","resting","rfqs","quotes","history"]; data-tab values keep the earlier names.
 const TABS = [['positions', 'Positions'], ['orders', 'Resting'], ['rfqs', 'RFQs'], ['quotes', 'Quotes'], ['history', 'History']];
@@ -84,7 +85,7 @@ export async function render({ el, navigate, query }) {
     const row = (x) => `<tr data-ticker="${esc(x.ticker)}" ${x.is_combo ? `data-combo="${esc(x.ticker)}"` : ''} data-state="${esc(x.state)}">
       <td><a class="pos-outcome" href="${esc(x.link)}" data-link>${ocAvatar({ yes_sub_title: x.is_combo ? '◇' : x.outcome, color_code: x.color_code }, 'sm')}<span>${esc(x.is_combo ? x.market_title : x.outcome)}</span></a>${x.legs ? legChips(x.legs) : ''}</td>
       <td><strong class="c-${esc(x.side)}">${esc(x.side.toUpperCase())}</strong></td><td class="num" data-testid="p-qty">${qty(x.position_fp)}</td>
-      <td class="num">${cents(x.avg_price_dollars)}¢</td><td class="num" data-testid="p-cost">${money(x.cost_basis_dollars)}</td><td class="num" data-testid="p-mark">${cents(x.mark_price_dollars)}¢</td>
+      <td class="num">${cents(x.avg_price_dollars)}¢</td><td class="num" data-testid="p-cost">${money(x.cost_basis_dollars)}</td><td class="num" data-testid="p-mark" data-price-type="${esc(uiPrefs.market_price_type)}">${uiPrefs.market_price_type === 'current_buy' ? (x.buy_price_dollars == null ? '—' : `${cents(x.buy_price_dollars)}¢`) : `${cents(x.mark_price_dollars)}¢`}</td>
       <td class="num" data-testid="p-value">${money(x.market_value_dollars)}</td><td class="num" data-testid="p-upnl">${signed(x.unrealized_pnl_dollars) || money(0)}${x.unrealized_pnl_pct != null ? ` <span class="faint">${esc(x.unrealized_pnl_pct)}%</span>` : ''}</td>
       <td class="num" data-testid="p-rpnl">${signed(x.realized_pnl_dollars) || money(0)}</td><td class="num" data-testid="p-payout">${money(x.payout_if_win_dollars)}</td>
       <td class="num" data-testid="p-sell">${x.state === 'open' ? money(x.sell_value_dollars) : '—'}</td><td class="num" data-testid="p-orders">${esc(x.resting_orders || '')}</td><td>${state(x)}</td>
@@ -94,7 +95,7 @@ export async function render({ el, navigate, query }) {
       <div class="pf-sub"><div class="hist-chips">${PFILTERS.map(([k, l]) => `<button class="chip ${k === posFilter ? 'on' : ''}" data-pfilter="${k}" aria-pressed="${k === posFilter}">${l}</button>`).join('')}</div>
         <span class="faint">Open combos · <span data-testid="open-combo-count">${esc(combos.total_open_combos)}</span></span>
         <label class="book-setting">Sort <select id="pos-sort" data-testid="pos-sort">${PSORTS.map(([k, l]) => `<option value="${k}" ${k === posSort ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
-      ${r.events.length ? `<table class="table positions-table" data-testid="positions-table"><thead><tr><th>Outcome</th><th>Side</th><th class="num">Contracts</th><th class="num">Avg</th><th class="num">Cost incl. fees</th><th class="num">Mark</th><th class="num">Value</th><th class="num">Unrealized</th><th class="num">Realized</th><th class="num">Payout if right</th><th class="num">Sell now</th><th class="num">Orders</th><th>Status</th><th></th></tr></thead><tbody>
+      ${r.events.length ? `<table class="table positions-table" data-testid="positions-table"><thead><tr><th>Outcome</th><th>Side</th><th class="num">Contracts</th><th class="num">Avg</th><th class="num">Cost incl. fees</th><th class="num" data-testid="p-mark-head">${uiPrefs.market_price_type === 'current_buy' ? 'Buy now' : 'Mark'}</th><th class="num">Value</th><th class="num">Unrealized</th><th class="num">Realized</th><th class="num">Payout if right</th><th class="num">Sell now</th><th class="num">Orders</th><th>Status</th><th></th></tr></thead><tbody>
         ${r.events.map((g) => `<tr class="group-row" data-event-group="${esc(g.event_ticker)}"><td colspan="14"><a href="${esc(g.link)}" data-link>${esc(g.title)}</a></td></tr>${g.positions.map(row).join('')}`).join('')}</tbody></table>` : empty}
       ${combos.settled_combos.length ? `<div class="pf-sub"><strong>Settled combos</strong></div><table class="table" data-testid="settled-combos"><thead><tr><th>Combo</th><th>Result</th><th class="num">Cost</th><th class="num">Payout</th></tr></thead><tbody>
       ${combos.settled_combos.map((c) => `<tr data-combo="${esc(c.market_ticker)}"><td><a href="${esc(c.link)}" data-link>${esc(c.title)}</a>${legChips(c.legs)}</td><td>${esc(c.result.toUpperCase())}</td><td class="num">${money(c.cost_dollars)}</td><td class="num">${money(c.payout_dollars)}</td></tr>`).join('')}</tbody></table>` : ''}`;
@@ -409,8 +410,9 @@ export async function render({ el, navigate, query }) {
     const amt = Number($('#f-amount').value);
     if (!(amt > 0)) { err.textContent = 'Enter an amount greater than $0.'; return; }
     try {
-      await (act === 'deposit' ? api.deposit(uid, amt) : api.withdraw(uid, amt));
-      toast(`${act === 'deposit' ? 'Deposited' : 'Withdrew'} ${money(amt)}`);
+      const r = await (act === 'deposit' ? api.deposit(uid, amt) : api.withdraw(uid, amt));
+      // A withdrawal the risk score holds for review answers 202 {status: 'held'} (PHASE3_SPEC.md §25.6).
+      toast(r && r.status === 'held' ? `Withdrawal of ${money(amt)} is under review` : `${act === 'deposit' ? 'Deposited' : 'Withdrew'} ${money(amt)}`);
       $('#f-amount').value = '';
       refresh();
     } catch (e) { err.textContent = e.message; }

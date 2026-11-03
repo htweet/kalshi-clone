@@ -38,12 +38,13 @@ export async function render({ el, params, query, navigate }) {
         <select class="pill-select" id="status" aria-label="Status">${STATUSES.map(([v, l]) => `<option value="${v}" ${v === status ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <div class="seg" role="group" aria-label="Layout"><button data-layout="grid" aria-label="Grid">${ICON.grid}</button><button data-layout="list" aria-label="List">${ICON.list}</button></div>
       </div></div>
-    <div class="faint m-count" id="result-count"></div>
+    ${category ? '<div class="targeted-promos" data-testid="category-promos"></div>' : ''}<div class="faint m-count" id="result-count"></div>
     ${category ? `<div class="chips mb-16" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>All ${esc(catLabel(category))}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}${category === 'Sports' ? '<a class="chip sb-hub-chip" href="/sports" data-link data-testid="sports-hub-link" hidden>Live scores ›</a>' : ''}</div>` : ''}
     <div class="grid" id="results">${'<div class="skeleton"></div>'.repeat(6)}</div>
     <div class="ta-c mt-16"><button class="btn" id="more" hidden>Load more</button></div>`;
 
   const results = el.querySelector('#results');
+  if (category) import('./social2.js').then((m) => m.renderPromos(el.querySelector('[data-testid=category-promos]'), { category })).catch(() => {}); // targeted promos (G8)
   revealSportsLink(el);
   const drawLayout = () => {
     results.classList.toggle('list', layout === 'list');

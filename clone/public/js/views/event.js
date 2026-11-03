@@ -5,12 +5,13 @@ import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON } from '../lib.js';
+import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares } from '../lib.js';
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
 import { mountEventScoreboard } from './sports.js'; // live scoreboard for sports events (CLONE_SPEC §19.6)
 import { mountChat } from './chat.js'; // "● Live chat" pill + panel (CLONE_SPEC §20)
+import { mountEventExtras, renderPromos } from './social2.js'; // follow event, price-move alerts, targeted promos (PHASE2_SPEC.md §24)
 
 const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60], all: [365 * 86400, 1440] };
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
@@ -168,7 +169,7 @@ export async function render({ el, params, query, navigate }) {
       const yesAsk = cents(m.yes_ask_dollars); const noAsk = cents(m.no_ask_dollars);
       const statusNote = tradable ? '' : `<div class="faint">${m.status === 'finalized' || m.status === 'determined' ? 'Resolved ' + esc(m.result.toUpperCase()) : esc(m.status)}</div>`;
       return `<tr data-ticker="${esc(m.ticker)}" class="${m.ticker === state.selected ? 'selected' : ''}">
-        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-18">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${multiplier(m)}</div></div></div></td>
+        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-18">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${showShares() ? `Yes ${cents(m.yes_ask_dollars) ?? '—'}¢ · No ${cents(m.no_ask_dollars) ?? '—'}¢` : multiplier(m)}</div></div></div></td>
         <td class="ta-c nowrap"><span class="prob" data-testid="prob-${esc(m.ticker)}">${p == null ? '—' : p + '%'}</span>${d ? ` <span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</td>
         <td class="ta-r"><button class="yes-btn ${pickOn(m, 'yes') ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${yesAsk ? yesAsk + '¢' : '—'}</button></td>
         <td><button class="no-btn ${pickOn(m, 'no') ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${noAsk ? noAsk + '¢' : '—'}</button></td></tr>`;
@@ -581,6 +582,7 @@ export async function render({ el, params, query, navigate }) {
   const unsubs = [];
   unsubs.push(mountEventScoreboard($('#sports-board'), ev));
   if (!isCombo) unsubs.push(mountChat({ el, ev }));
+  if (!isCombo) { unsubs.push(mountEventExtras({ el, ev, market })); el.querySelector('.ev-header')?.insertAdjacentHTML('afterend', '<div class="targeted-promos" data-testid="event-promos"></div>'); renderPromos(el.querySelector('[data-testid=event-promos]'), { series_ticker: ev.series_ticker }); }
   let pending = null;
   let tradeT = null;
   unsubs.push(socket.subscribe({ channels: ['ticker'] }, (msg) => {

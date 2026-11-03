@@ -109,6 +109,15 @@ const F = {
   time: (optional) => ({ def: optional ? null : undefined, parse: (v) => { if ((v === '' || v == null) && optional) return null; if (!isIso(v)) throw 'must be a date and time'; return iso(v); } }),
   slug: () => ({ parse: (v) => { const s = String(v || '').trim().toLowerCase(); if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(s)) throw 'must be lowercase letters, digits and dashes'; return s; } }),
   ticker: () => ({ parse: (v) => { const s = String(v || '').trim().toUpperCase(); if (!/^[A-Z0-9][A-Z0-9._-]{1,63}$/.test(s)) throw 'must be 2-64 characters: A-Z, 0-9, dot, dash or underscore'; return s; } }),
+  // Targeting lists stored as JSON text: series tickers or site categories (comma-separated string or array). G8 promo targeting.
+  jsonList: (kind, max) => ({ def: '[]', parse: (v) => {
+    if (typeof v === 'string' && v.startsWith('[')) { try { v = JSON.parse(v); } catch { throw 'must be a list'; } }
+    const a = (Array.isArray(v) ? v : String(v ?? '').split(',')).map((x) => String(x).trim()).filter(Boolean);
+    if (a.length > max) throw `at most ${max} entries`;
+    const out = kind === 'series' ? a.map((x) => x.toUpperCase()) : a.map((x) => CATEGORIES.find((c) => c.toLowerCase() === x.toLowerCase()) || x);
+    for (const x of out) if (kind === 'series' ? !/^[A-Z0-9][A-Z0-9._-]{1,63}$/.test(x) : !CATEGORIES.includes(x)) throw kind === 'series' ? `${x} is not a series ticker` : `${x} is not a site category`;
+    return JSON.stringify([...new Set(out)]);
+  } }),
   tags: () => ({ def: [], parse: (v) => { const a = Array.isArray(v) ? v : String(v || '').split(','); const out = a.map((x) => String(x).trim()).filter(Boolean); if (out.length > 10 || out.some((x) => x.length > 30)) throw 'at most 10 tags of up to 30 characters'; return out; } }),
   sources: () => ({ def: [], parse: (v) => {
     const a = Array.isArray(v) ? v : String(v || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [name, url] = l.split('|').map((x) => x.trim()); return { name, url: url || '' }; });
@@ -159,6 +168,11 @@ const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rollingWindowSec = 900 }) {
   db.exec(SCHEMA);
+  // Promo-card targeting (gap G8; spec §13.11 series_ticker_list / preferred_categories / hide_on_explore_page_web_logged_out).
+  { const promoCols = new Set(db.prepare('PRAGMA table_info(cms_promos)').all().map((c) => c.name));
+    if (!promoCols.has('series_tickers')) db.exec("ALTER TABLE cms_promos ADD COLUMN series_tickers TEXT NOT NULL DEFAULT '[]'");
+    if (!promoCols.has('categories')) db.exec("ALTER TABLE cms_promos ADD COLUMN categories TEXT NOT NULL DEFAULT '[]'");
+    if (!promoCols.has('hide_logged_out')) db.exec('ALTER TABLE cms_promos ADD COLUMN hide_logged_out INTEGER NOT NULL DEFAULT 0'); }
   const startedAt = Date.now();
   const getEvent = (t) => db.prepare('SELECT * FROM events WHERE ticker=?').get(t);
   const getSeries = (t) => db.prepare('SELECT * FROM series WHERE ticker=?').get(t);
@@ -248,10 +262,8 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (req.adminInternal) return next();
     // A locked account is signed out everywhere: its sessions are deleted on lock and any surviving cookie is ignored.
     if (req.auth && isLocked(req.auth.user.id)) req.auth = null;
-    if (req.method === 'POST' && req.path === '/log_in') {
-      const u = db.prepare('SELECT id FROM users WHERE email=?').get(String((req.body && req.body.email) || '').trim().toLowerCase());
-      if (u && isLocked(u.id)) return next(lockedError());
-    }
+    // RS9: a locked account is refused by POST /log_in only after its password was verified (server/auth.js), so the
+    // answer to a wrong password is the same for locked, unlocked and unknown accounts (no account-existence signal).
     if (req.method === 'POST' && req.path === '/log_in_mfa') {
       const ch = db.prepare('SELECT user_id FROM mfa_challenges WHERE token=?').get(String((req.body && req.body.mfa_token) || ''));
       if (ch && isLocked(ch.user_id)) return next(lockedError());
@@ -312,7 +324,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   // ---------------------------------------------------------------- CMS decorators (home + combos)
   const windowOk = (r, now = Date.now()) => (!r.starts_at || Date.parse(r.starts_at) <= now) && (!r.ends_at || Date.parse(r.ends_at) > now);
   const nonCombo = (cat) => db.prepare('SELECT * FROM events WHERE category=? AND series_ticker<>? ORDER BY rowid').all(cat, COMBO_SERIES);
-  decorate('GET', /^\/bff\/home$/, (body) => {
+  decorate('GET', /^\/bff\/home$/, (body, req) => {
     const h = body.home;
     if (!h) return;
     const hero = db.prepare('SELECT event_ticker FROM cms_hero ORDER BY position').all();
@@ -324,7 +336,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (hubs.length) {
       h.hubs = hubs.map((x) => { const evs = nonCombo(x.category).map(eventFull); return { category: x.category, title: x.title, dollar_volume: evs.reduce((a, e) => a + e.dollar_volume, 0), events: evs.length }; });
     }
-    const promos = db.prepare('SELECT * FROM cms_promos WHERE active=1 ORDER BY position, created_at').all().filter((r) => windowOk(r));
+    // Home shows untargeted promos; series / category promos appear on those pages (GET /v1/promos, server/social2.js).
+    const promos = db.prepare('SELECT * FROM cms_promos WHERE active=1 ORDER BY position, created_at').all().filter((r) => windowOk(r))
+      .filter((r) => (r.series_tickers || '[]') === '[]' && (r.categories || '[]') === '[]' && !(r.hide_logged_out && !req.auth));
     h.promos = promos.length ? promos.map((p) => ({ id: p.id, overline: p.overline, title: p.title, subtitle: p.subtitle, link: p.link, color: p.color })) : null;
     const info = db.prepare('SELECT * FROM cms_info_cards WHERE active=1 ORDER BY position, created_at').all();
     h.info_cards = info.length ? info.map((c) => ({ id: c.id, title: c.title, subtitle: c.subtitle, link: c.link, icon: c.icon })) : null;
@@ -918,7 +932,8 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   const C = (table, fields, extra = {}) => ({ table, fields, ...extra });
   const COLL = {
     hubs: C('cms_hubs', { title: F.text(1, 60), category: F.category(), position: F.int(0, 9999, 0), active: F.bool(1) }),
-    promos: C('cms_promos', { overline: F.text(0, 30, ''), title: F.text(1, 80), subtitle: F.text(0, 140, ''), link: F.link(), color: F.color('#8f7fff'), starts_at: F.time(true), ends_at: F.time(true), position: F.int(0, 9999, 0), active: F.bool(1) }),
+    promos: C('cms_promos', { overline: F.text(0, 30, ''), title: F.text(1, 80), subtitle: F.text(0, 140, ''), link: F.link(), color: F.color('#8f7fff'), starts_at: F.time(true), ends_at: F.time(true), position: F.int(0, 9999, 0), active: F.bool(1),
+      series_tickers: F.jsonList('series', 20), categories: F.jsonList('category', 10), hide_logged_out: F.bool(0) }), // targeting (G8)
     banners: C('cms_banners', { content: F.text(1, 240), link: F.link(true), visibility: F.oneOf(['all', 'logged_in', 'logged_out'], 'all'), position: F.oneOf(['top', 'bottom'], 'top'), starts_at: F.time(true), ends_at: F.time(true), active: F.bool(1) }),
     info_cards: C('cms_info_cards', { title: F.text(1, 40), subtitle: F.text(0, 80, ''), link: F.link(), icon: F.oneOf(['shield', 'bars', 'clock', 'star', 'info'], 'info'), position: F.int(0, 9999, 0), active: F.bool(1) }),
     news: C('cms_news', { event_ticker: F.ticker(), source: F.text(1, 40), published_at: F.time(), headline: F.text(1, 160), summary: F.text(0, 800, ''), position: F.int(0, 9999, 0), active: F.bool(1) }, { order: 'published_at DESC' }),
@@ -928,6 +943,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const errs = {};
     if ((name === 'promos' || name === 'banners') && v.starts_at && v.ends_at && Date.parse(v.ends_at) <= Date.parse(v.starts_at)) errs.ends_at = 'must be after the start';
     if (name === 'news' && !getEvent(v.event_ticker)) errs.event_ticker = 'no such published event';
+    if (name === 'promos') { const miss = JSON.parse(v.series_tickers || '[]').filter((t) => !getSeries(t)); if (miss.length) errs.series_tickers = `no such series: ${miss.join(', ')}`; }
     if (name === 'help' && db.prepare('SELECT 1 FROM cms_help WHERE slug=? AND id<>?').get(v.slug, id || '')) errs.slug = 'is already used';
     if (Object.keys(errs).length) throw new FieldError(errs);
   };
@@ -1344,9 +1360,11 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   v1.post(`${A}/announcements`, can('announce'), (req, res) => {
     const b = req.body || {};
     const v = check(b, { ...ANN_SPEC, segment: F.oneOf(Object.keys(SEGMENTS), 'all') });
+    // Optional promotional topic (Settings › Notifications › Promotional, PHASE2_SPEC.md §24.5): recipients' channel choices apply.
+    const topic = check(b, { topic: F.oneOf(['', 'breaking_events', 'new_markets', 'politics', 'crypto', 'commodities'], '') }).topic;
     const ids = segmentIds(v.segment);
     const id = newId('ann_');
-    for (const uid of ids) notify(uid, { type: 'announcement', title: v.title, body: v.body, link: v.link });
+    for (const uid of ids) notify(uid, { type: topic ? `promo_${topic}` : 'announcement', title: v.title, body: v.body, link: v.link });
     db.prepare('INSERT INTO ann_announcements(id,title,body,link,segment,recipients,template_id,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
       .run(id, v.title, v.body, v.link, v.segment, ids.length, b.template_id ? String(b.template_id) : null, req.auth.user.id, nowIso());
     audit(req, 'announcements.send', 'announcement', id, null, { ...v, recipients: ids.length });

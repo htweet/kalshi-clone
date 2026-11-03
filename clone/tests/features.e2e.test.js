@@ -12,6 +12,19 @@ const { DatabaseSync } = require('node:sqlite');
 const { start } = require('../server/index.js');
 const { totp } = require('../server/features.js');
 
+// RS3 (PHASE3_SPEC.md §25.11): a TOTP code is accepted once — each accepted code must be for a newer 30-second step than
+// the last one. freshTotp() returns the code for the next unused step inside the server's ±1-step window (waiting for the
+// next step when both are used).
+const usedTotpStep = new Map();
+async function freshTotp(secret) {
+  for (;;) {
+    const now = Math.floor(Date.now() / 30000);
+    const step = Math.max((usedTotpStep.get(secret) ?? -Infinity) + 1, now);
+    if (step <= now + 1) { usedTotpStep.set(secret, step); return totp(secret, step * 30000 + 15000); }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-feat-'));
 const DB_FILE = path.join(TMP, 'feat.db');
 const PORT = 4300 + Math.floor(Math.random() * 40);
@@ -311,7 +324,7 @@ test('two-factor login: set up from Account, log in requires a valid code, turn 
   await page.fill('[data-testid=mfa-input]', '000000' === totp(secret) ? '111111' : '000000');
   await page.click('#mfa-form button[type=submit]');
   await page.waitForSelector('#mfa-error:has-text("not valid")');
-  await page.fill('[data-testid=mfa-input]', totp(secret));
+  await page.fill('[data-testid=mfa-input]', await freshTotp(secret));
   await page.click('#mfa-form button[type=submit]');
   await page.waitForSelector('[data-testid=mfa-status]:has-text("On")');
   assert.equal(dbq('SELECT enabled FROM mfa WHERE user_id=?', uid(erin.email))[0].enabled, 1);
@@ -327,11 +340,11 @@ test('two-factor login: set up from Account, log in requires a valid code, turn 
   await page.fill('[data-testid=mfa-code]', '000000' === totp(secret) ? '111111' : '000000');
   await page.click('button[type=submit]');
   await page.waitForSelector('#auth-error:has-text("not valid")');
-  await page.fill('[data-testid=mfa-code]', totp(secret));
+  await page.fill('[data-testid=mfa-code]', await freshTotp(secret));
   await page.click('button[type=submit]');
   await page.waitForSelector('[data-testid=account-menu]');
   await page.goto(BASE + '/account/security');
-  await page.fill('[data-testid=mfa-input]', totp(secret));
+  await page.fill('[data-testid=mfa-input]', await freshTotp(secret));
   await page.click('#mfa-form button[type=submit]');
   await page.waitForSelector('[data-testid=mfa-status]:has-text("Off")');
   assert.equal(dbq('SELECT COUNT(*) c FROM mfa WHERE user_id=?', uid(erin.email))[0].c, 0);

@@ -21,7 +21,8 @@ const DIST = path.join(__dirname, '..', 'dist');
 const API = /^\/(v1|trade-api)(\/|$)/;
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-const PERMISSIONS = 'accelerometer=(), autoplay=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=(), browsing-topics=()';
+// geolocation=(self): the optional browser location check of the compliance flow (PLAN P3.6, CLONE_SPEC §25); nothing else.
+const PERMISSIONS = 'accelerometer=(), autoplay=(), camera=(), display-capture=(), geolocation=(self), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=(), browsing-topics=()';
 const ALLOW_HEADERS = 'Content-Type, X-Csrf-Token, Idempotency-Key, X-Client-Token';
 const EXPOSE_HEADERS = 'X-Csrf-Token, Etag';
 const HOST_OK = /^[A-Za-z0-9.-]+(:\d{1,5})?$|^\[[0-9A-Fa-f:.]+\](:\d{1,5})?$/;
@@ -291,7 +292,7 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
   }
 
   return {
-    early, apiGuard, mountStatic, mountAdminRoutes, checkUpgrade, bot, assets,
+    early, apiGuard, mountStatic, mountAdminRoutes, checkUpgrade, bot, assets, selfOrigin, clientIp, production, // selfOrigin/clientIp: WebAuthn origin, geo IP (Phase 3)
     settings: () => bot.settings(), validate: (patch) => bot.validate(patch), save: (out, by, at) => bot.save(out, by, at),
     close: () => bot.close(),
   };

@@ -3,7 +3,7 @@ import { vars, watchVars } from './dynstyle.js';
 import { session, queries, applyTheme, localTheme } from './store.js';
 import { socket } from './ws.js';
 import { api } from './api.js';
-import { esc, money, CATEGORIES, catSlug, catLabel, avatar, relTime, ICON, toast } from './lib.js';
+import { esc, money, CATEGORIES, catSlug, catLabel, relTime, ICON, toast } from './lib.js';
 import * as home from './views/home.js';
 import * as browse from './views/browse.js';
 import * as eventView from './views/event.js';
@@ -20,9 +20,22 @@ import * as combos from './views/combos.js';
 import * as sports from './views/sports.js';
 import { startLivePatcher } from './views/scoreboard.js';
 import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
+import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (PHASE3_SPEC.md §25)
+import { menuHtml, wireMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
+// Phase 2 community pages (PHASE2_SPEC.md §24), loaded on demand.
+const groupsView = { render: (ctx) => import('./views/groups.js').then((m) => m.render(ctx)) };
+const socialManageView = { render: (ctx) => import('./views/social-manage.js').then((m) => m.render(ctx)) };
+const notifSettingsView = { render: (ctx) => import('./views/notification-settings.js').then((m) => m.render(ctx)) };
+// Phase 3 views (PHASE3_SPEC.md §25), loaded on demand; literal import()s so the bundler splits them.
+const lazy = (load) => ({ render: (ctx) => load().then((m) => m.render(ctx)) });
+const onboardingView = lazy(() => import('./views/onboarding.js'));
+const docvPhoneView = lazy(() => import('./views/docv-phone.js'));
+const identityPagesView = lazy(() => import('./views/identity-pages.js'));
+const rewardsView = lazy(() => import('./views/rewards.js'));
+const placeholderView = lazy(() => import('./views/placeholder.js'));
 
 const routes = [
   [/^\/$/, home],
@@ -43,12 +56,28 @@ const routes = [
   [/^\/social$/, social, () => ({ tab: 'feed' })],
   [/^\/social\/leaderboard$/, social, () => ({ tab: 'leaderboard' })],
   [/^\/social\/profile\/([^/]+)$/, social, (m) => ({ tab: 'profile', nickname: decodeURIComponent(m[1]) })],
+  [/^\/social\/post\/([A-Za-z0-9_-]+)$/, social, (m) => ({ tab: 'post', id: m[1] })],
+  [/^\/social\/(circle|settings)$/, socialManageView, (m) => ({ tab: m[1] })],
+  [/^\/messages$/, groupsView],
+  [/^\/messages\/([A-Za-z0-9_-]+)$/, groupsView, (m) => ({ id: m[1] })],
+  [/^\/notifications\/settings$/, notifSettingsView],
   [/^\/portfolio$/, portfolio],
   [/^\/portfolio\/perps$/, perps, () => ({ mode: 'portfolio' })],
   [/^\/watchlist$/, watchlist],
   [/^\/notifications$/, notifications],
-  [/^\/account$/, account, () => ({ section: 'profile' })],
+  [/^\/account$/, account, () => ({ section: 'security' })],
   [/^\/account\/([a-z-]+)$/, account, (m) => ({ section: m[1] })],
+  // Identity onboarding and document verification (CLONE_SPEC §13.14–§13.15) — full-screen pages.
+  [/^\/sign-up\/identity$/, onboardingView],
+  [/^\/verify\/m$/, docvPhoneView],
+  [/^\/verify-email$/, identityPagesView, () => ({ page: 'verify-email' })],
+  [/^\/forgot-password$/, identityPagesView, () => ({ page: 'forgot' })],
+  [/^\/reset-password$/, identityPagesView, () => ({ page: 'reset' })],
+  [/^\/oauth-web\/([a-z]+)\/callback$/, identityPagesView, (m) => ({ page: 'oauth', provider: m[1] })],
+  [/^\/dev\/mailbox$/, identityPagesView, () => ({ page: 'mailbox' })],
+  [/^\/rewards$/, rewardsView],
+  [/^\/(incentives|docs)$/, placeholderView, (m) => ({ slug: m[1] })],
+  [/^\/(trust|research|support)\/([a-z-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })],
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
   [/^\/setup$/, auth, () => ({ mode: 'setup' })], // first-admin setup link (CLONE_SPEC §22.5)
@@ -98,6 +127,7 @@ function renderCategoryStrip(url) {
   const current = p.startsWith('/category/') ? p.split('/')[2] : p === '/' ? 'trending' : p === '/browse' && url.searchParams.get('order_by') === 'newest' ? 'new' : p === '/browse' ? 'all' : null;
   // Short labels on the strip; a featured hub sits after Trending (spec §15.1).
   strip.innerHTML = [
+    categoryIndexButton(), // list icon → category index (CLONE_SPEC §13.16)
     `<a href="/" data-link class="${current === 'trending' ? 'active' : ''}">Trending</a>`,
     // Featured tab and category order / labels / visibility come from the CMS (defaults when unconfigured).
     `<a href="${esc(site.nav.featured.href)}" data-link class="featured ${site.nav.featured.color ? 'v-color ' : ''}${p === site.nav.featured.href || (current && site.nav.featured.href === `/category/${current}`) ? 'active' : ''}" data-testid="featured-tab"${vars({ '--color': site.nav.featured.color })}>${esc(site.nav.featured.label)}</a>`,
@@ -157,7 +187,9 @@ function renderAccount() {
   const nick = session.nickname || session.user.display_name;
   el.innerHTML = `<a class="balance-chip" href="/portfolio" data-link title="Cash available"><span class="label">Cash</span><span class="value" data-testid="header-balance">${money(session.balance)}</span></a>
     <div class="menu-wrap"><button class="icon-btn" id="bell-btn" data-menu-btn aria-label="Notifications" data-testid="bell">${ICON.bell}</button></div>
-    <div class="menu-wrap"><button class="icon-btn" id="me-btn" data-menu-btn aria-label="Account menu" data-testid="account-menu">${avatar(nick)}</button></div>
+    <a class="icon-btn messages-btn" href="/messages" data-link aria-label="Group chats" title="Group chats" data-testid="messages-btn">${ICON.chat}</a>
+    <a class="icon-btn trophy-btn" href="/social/leaderboard" data-link aria-label="Leaderboard" title="Leaderboard" data-testid="trophy">${ICON.trophy}</a>
+    <div class="menu-wrap"><button class="icon-btn hamburger-btn" id="me-btn" data-menu-btn aria-label="Menu" aria-haspopup="true" data-testid="account-menu">${ICON.menu}<span class="sr-only">${esc(nick)}</span></button></div>
     <span class="faint" data-testid="header-user" hidden>${esc(session.user.display_name)}</span>`;
   drawBell();
   el.querySelector('#bell-btn').onclick = async (e) => {
@@ -168,24 +200,29 @@ function renderAccount() {
     m.querySelector('#read-all').onclick = async () => { await api.readAll(session.uid); await loadNotifications(); m.querySelector('#notif-items').innerHTML = notifList(notif.items.slice(0, 8)); };
     m.addEventListener('click', (ev) => { const a = ev.target.closest('[data-nid]'); if (a) api.readNotification(session.uid, a.dataset.nid).then(loadNotifications).catch(() => {}); });
   };
+  // ☰ menu (CLONE_SPEC §13.16): Leaderboard / Rewards, the account destinations, Trust / Research / Support groups,
+  // Enter promo code, Log out (views/account-menu.js).
   el.querySelector('#me-btn').onclick = (e) => {
-    const dark = document.documentElement.dataset.theme === 'dark';
-    const m = toggleMenu(e.currentTarget, `<div class="menu-head"><strong>${esc(session.user.display_name)}</strong><div class="faint">${session.nickname ? '@' + esc(session.nickname) : esc(session.user.email)}</div></div><hr>
-      <a href="/portfolio" data-link>Portfolio</a><a href="/watchlist" data-link>Watchlist</a>
-      ${session.nickname ? `<a href="/social/profile/${encodeURIComponent(session.nickname)}" data-link>My profile</a>` : '<a href="/account/profile" data-link>Create social profile</a>'}
-      <a href="/notifications" data-link>Notifications</a><a href="/account" data-link>Account &amp; security</a>
-      ${session.user.is_admin || (session.user.admin_roles || []).length ? '<a href="/admin" data-link data-testid="admin-link">Admin</a>' : ''}
-      <button id="theme-toggle" data-testid="theme-toggle">${dark ? 'Light mode' : 'Dark mode'}</button><hr>
-      <button id="logout-btn">Log out</button>`);
+    const m = toggleMenu(e.currentTarget, menuHtml(), 'hamburger-menu');
     if (!m) return;
-    m.querySelector('#theme-toggle').onclick = () => { session.setProp('theme', dark ? 'light' : 'dark'); closeMenus(); };
-    m.querySelector('#logout-btn').onclick = async () => { closeMenus(); await session.logout(); navigate('/'); };
+    wireMenu(m, { close: closeMenus, navigate, logout: async () => { closeMenus(); await session.logout(); navigate('/'); } });
   };
+}
+
+// Push notifications in this browser (Settings › Notifications › "Push in this browser"): shown only when this browser
+// registered as a push device and the user granted the Notification permission (views/notification-settings.js).
+function showBrowserPush(p) {
+  let id = null;
+  try { id = localStorage.getItem('plx-push-device'); } catch { /* storage unavailable */ }
+  if (!id || !Array.isArray(p.devices) || !p.devices.includes(id)) return;
+  window.dispatchEvent(new CustomEvent('parlance:push', { detail: p }));
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try { const n = new Notification(String(p.title || 'Parlance'), { body: String(p.body || ''), tag: String(p.id || '') }); n.onclick = () => { window.focus(); if (p.link && String(p.link).startsWith('/')) navigate(p.link); }; } catch { /* not supported */ }
 }
 
 // MORE menu (spec §15.1): secondary destinations.
 document.getElementById('more-btn').addEventListener('click', (e) => {
-  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>Calendar</a><a href="/sports" data-link data-testid="more-sports">Sports scores</a><a href="/social" data-link>Social</a><a href="/social/leaderboard" data-link>Leaderboard</a>
+  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>Calendar</a><a href="/sports" data-link data-testid="more-sports">Sports scores</a><a href="/social" data-link>Social</a><a href="/messages" data-link data-testid="more-messages">Group chats</a><a href="/social/circle" data-link>Inner Circle</a><a href="/social/leaderboard" data-link>Leaderboard</a>
     <a href="/watchlist" data-link>Watchlist</a><a href="/browse" data-link>Browse all markets</a><hr><a href="/account/limits" data-link>Responsible trading</a><button id="more-theme">Toggle light / dark</button>`);
   const t = document.getElementById('more-theme');
   if (t) t.onclick = () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; if (session.user) session.setProp('theme', next); else { applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } closeMenus(); };
@@ -220,15 +257,24 @@ session.subscribe(() => {
   if (session.user && !unsubNotif) {
     loadNotifications();
     unsubNotif = socket.subscribe({ channels: ['notifications'] }, (m) => {
-      if (m.type !== 'notification') return;
+      if (m.type !== 'notification' && m.type !== 'push') return;
+      if (m.type === 'push') { showBrowserPush(m.msg); return; } // push channel (server/notify-prefs.js)
       notif.items.unshift(m.msg); notif.unread += 1; drawBell();
-      toast(m.msg.title);
+      if (!m.msg.quiet) toast(m.msg.title); // quiet hours: stored in the inbox without a toast
       window.dispatchEvent(new CustomEvent('parlance:notification', { detail: m.msg }));
     });
   } else if (!session.user && unsubNotif) { unsubNotif(); unsubNotif = null; notif.unread = 0; notif.items = []; }
 });
 
 applyTheme(localTheme());
+initIdentityUi();
+document.getElementById('category-strip').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-category-index]');
+  if (!b) return;
+  e.preventDefault();
+  const m = toggleMenu(b, '<div class="cat-index" data-testid="category-index"><div class="faint">Loading categories…</div></div>', 'cat-index-menu');
+  if (m) api.categories().then((r) => { m.innerHTML = categoryIndexList(r.categories); }).catch(() => { m.innerHTML = '<div class="faint">Categories are unavailable.</div>'; });
+});
 session.subscribe(renderAccount);
 renderAccount();
 Promise.all([session.load(), loadSite()]).then(() => { socket.connect(); render(); });

@@ -2,6 +2,7 @@
 import { api, csrf } from './api.js';
 import { socket } from './ws.js';
 import { toast } from './lib.js';
+import { setUiPrefs, resetUiPrefs } from './prefs.js';
 
 class Observable {
   constructor() { this.subs = new Set(); }
@@ -30,6 +31,7 @@ class SessionStore extends Observable {
     this.nickname = sp.profile ? sp.profile.nickname : null;
     this.props = p.properties || {};
     applyTheme(this.props.theme);
+    setUiPrefs(this.props); // display mode, accessible colours, market preview price (Settings, PHASE3_SPEC.md §25.8)
     this.wsBind();
     this.notify();
   }
@@ -48,13 +50,36 @@ class SessionStore extends Observable {
 
   // Returns {mfa_token} when a second factor is required, {change_token} when an admin forced a password reset,
   // otherwise completes the sign-in.
-  async login(email, password) {
+  // RS2: after repeated failures the server asks for a proof of work instead of locking the account; the browser
+  // solves it (onCheck shows "Checking your browser…") and retries once.
+  async login(email, password, { onCheck } = {}) {
     await this.preAuth();
-    const r = await api.logIn({ email, password });
+    let r;
+    try { r = await api.logIn({ email, password }); } catch (e) {
+      if (e.code !== 'too_many_attempts' || !e.pow) throw e;
+      onCheck?.(true);
+      const { solvePow } = await import('./pow.js');
+      const nonce = await solvePow(e.pow);
+      onCheck?.(false);
+      r = await api.logIn({ email, password, pow: { token: e.pow.token, nonce } });
+    }
+    return this.afterAuth(r);
+  }
+
+  // Any first factor's answer: two-factor step, forced password change, or a session.
+  async afterAuth(r) {
     if (r.mfa_required) return { mfa_token: r.mfa_token };
     if (r.password_change_required) return { change_token: r.change_token };
     await this.finishLogin(r);
     return null;
+  }
+
+  // Passkey sign-in (P3.4): discoverable credential, user verification required.
+  async loginPasskey() {
+    await this.preAuth();
+    const [{ idApi }, { getPasskey }] = await Promise.all([import('./identity-api.js'), import('./webauthn-client.js')]);
+    const cred = await getPasskey(await idApi.passkeyLoginOptions());
+    return this.afterAuth(await idApi.passkeyLogin(cred));
   }
 
   async loginMfa(mfaToken, code) {
@@ -101,6 +126,7 @@ class SessionStore extends Observable {
     this.unsubs = [];
     this.user = null; this.balance = null; this.props = {}; this.nickname = null;
     applyTheme(localTheme());
+    resetUiPrefs();
     queries.clear();
     this.notify();
   }
@@ -112,6 +138,7 @@ class SessionStore extends Observable {
     this.unsubs = [];
     this.user = null; this.balance = null; this.props = {}; this.nickname = null;
     applyTheme(localTheme());
+    resetUiPrefs();
     queries.clear();
     socket.reconnect();
     this.notify();
@@ -124,10 +151,30 @@ class SessionStore extends Observable {
     this.notify();
     if (this.user) await api.setProperties(this.uid, { [key]: value });
   }
+
+  // Settings page preferences (validated server-side by PUT /users/:uid/preferences) applied at once, app-wide.
+  async setPreferences(prefs) {
+    const { idApi } = await import('./identity-api.js');
+    const r = await idApi.setPreferences(this.uid, prefs);
+    this.props = { ...this.props, ...r.preferences };
+    if ('theme' in prefs) { applyTheme(prefs.theme); try { localStorage.setItem('parlance-theme', prefs.theme); } catch { /* ignore */ } }
+    setUiPrefs(this.props);
+    this.notify();
+    return r;
+  }
 }
 
 export function localTheme() { try { return localStorage.getItem('parlance-theme') || 'dark'; } catch { return 'dark'; } }
-export function applyTheme(t) { document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; }
+// Theme: light, dark or "system" (follows the device, CLONE_SPEC §13.16 "System (match device)").
+let themePref = 'dark';
+const systemMql = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: light)') : null;
+systemMql?.addEventListener?.('change', () => { if (themePref === 'system') applyTheme('system'); });
+export function applyTheme(t) {
+  themePref = t === 'system' || t === 'light' ? t : 'dark';
+  const effective = themePref === 'system' ? (systemMql?.matches ? 'light' : 'dark') : themePref;
+  document.documentElement.dataset.theme = effective;
+  document.documentElement.dataset.themePref = themePref;
+}
 
 // Minimal query cache: key -> {data, error, ts, promise}; staleTime & polling while visible.
 class QueryCache {

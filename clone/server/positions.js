@@ -53,6 +53,7 @@ function mountPositions({ v1, db, engine, requireUser }) {
         fractional_trading_enabled: !!p.fractional_trading_enabled,
         side, position_fp: ufp(units), avg_price_dollars: dollars(Math.round((cost * UNITS) / units)), total_cost_dollars: dollars(cost), fees_paid_dollars: dollars(p.fees_paid_cents),
         cost_basis_dollars: dollars(basis), mark_price_dollars: dollars(mark), market_value_dollars: dollars(value),
+        buy_price_dollars: dollars(side === 'yes' ? q.yes_ask : q.no_ask), // "Current buy" market preview price (Settings, PHASE3_SPEC.md §25.8)
         unrealized_pnl_dollars: dollars(value - basis), unrealized_pnl_pct: basis ? Math.round(((value - basis) / basis) * 10000) / 100 : null,
         realized_pnl_dollars: dollars(p.realized_pnl_cents), payout_if_win_dollars: dollars(units),
         sell_value_dollars: dollars(sell.proceeds_cents), sell_fee_dollars: dollars(sell.fee_cents), sell_liquidity_fp: ufp(sell.units), sell_complete: sell.complete,

@@ -75,6 +75,14 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   let salt = db.prepare("SELECT value FROM meta WHERE key='comms_salt'").get()?.value;
   if (!salt) { salt = crypto.randomBytes(16).toString('hex'); db.prepare("INSERT INTO meta(key,value) VALUES('comms_salt',?)").run(salt); }
   const commsId = (uid) => crypto.createHash('sha256').update(salt + uid).digest('hex').slice(0, 24); // pseudonymous (getting_started_rfqs.md)
+  // G3 (PLAN §7, PHASE2_SPEC.md §24.10): obscure_creator_id on RFQs; partial-size quotes and rest_remainder on quotes.
+  { const has = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
+    if (!has('rfqs', 'obscure_creator_id')) db.exec('ALTER TABLE rfqs ADD COLUMN obscure_creator_id INTEGER NOT NULL DEFAULT 0');
+    if (!has('rfqs', 'remainder_order_id')) db.exec('ALTER TABLE rfqs ADD COLUMN remainder_order_id TEXT');
+    if (!has('rfq_quotes', 'rest_remainder')) db.exec('ALTER TABLE rfq_quotes ADD COLUMN rest_remainder INTEGER NOT NULL DEFAULT 0'); }
+  // Docs: other users see the empty-input SHA-256 placeholder until the RFQ executes; the creator always sees the real id.
+  const OBSCURED_ID = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const rfqCreatorId = (r, viewer, revealed = r.status === 'executed') => (r.obscure_creator_id && viewer !== r.user_id && !revealed ? OBSCURED_ID : commsId(r.user_id));
   const lpId = () => db.prepare("SELECT id FROM users WHERE email='liquidity@parlance.local'").get()?.id;
   const userRow = (uid) => db.prepare('SELECT id, is_system FROM users WHERE id=?').get(uid);
   const isSystem = (uid) => !!userRow(uid)?.is_system;
@@ -238,7 +246,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     const vo = { id: r.id, market_ticker: r.market_ticker, market_title: m.title, event_ticker: m.event_ticker, outcome: m.yes_sub_title, is_combo: !!m.mve_collection_ticker,
       contracts_fp: r.contracts_units == null ? null : ufp(r.contracts_units), target_cost_dollars: r.target_cost_cents == null ? null : dollars(r.target_cost_cents),
       rest_remainder: !!r.rest_remainder, status: r.status, closed_reason: r.closed_reason, created_time: iso(r.created_ts), updated_time: iso(r.updated_ts), expires_time: iso(r.expires_ts),
-      creator_id: commsId(r.user_id), is_mine: viewer === r.user_id, link: eventHref(r.market_ticker) };
+      creator_id: rfqCreatorId(r, viewer), obscure_creator_id: !!r.obscure_creator_id, remainder_order_id: viewer === r.user_id ? r.remainder_order_id || null : undefined, is_mine: viewer === r.user_id, link: eventHref(r.market_ticker) };
     if (m.mve_collection_ticker) { vo.mve_collection_ticker = m.mve_collection_ticker; vo.mve_selected_legs = JSON.parse(m.mve_selected_legs || '[]'); }
     return vo;
   }
@@ -253,7 +261,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
       accepted_time: iso(q.accepted_ts), confirm_deadline_time: iso(q.confirm_deadline_ts), confirmed_time: iso(q.confirmed_ts), executed_time: iso(q.executed_ts),
       executed_contracts_fp: q.executed_units == null ? null : ufp(q.executed_units), creator_order_id: q.maker_order_id, rfq_creator_order_id: q.taker_order_id,
       rfq_status: r.status, rfq_contracts_fp: r.contracts_units == null ? null : ufp(r.contracts_units), rfq_target_cost_dollars: r.target_cost_cents == null ? null : dollars(r.target_cost_cents),
-      rfq_creator_id: commsId(r.user_id), creator_id: commsId(q.maker_id), is_system_maker: isSystem(q.maker_id),
+      rfq_creator_id: rfqCreatorId(r, viewer, q.status === 'executed'), creator_id: commsId(q.maker_id), is_system_maker: isSystem(q.maker_id), rest_remainder: !!q.rest_remainder,
       role: viewer === q.maker_id ? 'maker' : viewer === r.user_id ? 'requester' : null, link: eventHref(r.market_ticker) };
   }
   const touchRfq = (id, status, reason = null) => db.prepare('UPDATE rfqs SET status=?, closed_reason=COALESCE(?,closed_reason), updated_ts=? WHERE id=?').run(status, reason, Date.now(), id);
@@ -304,8 +312,8 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
         touchRfq(existing.id, 'cancelled', 'replaced'); closeOpenQuotes(existing.id, 'rfq_cancelled');
       }
       if (db.prepare("SELECT COUNT(*) c FROM rfqs WHERE user_id=? AND status IN ('open','accepted')").get(uid).c >= MAX_OPEN_RFQS) throw E.conflict('too_many_rfqs', `at most ${MAX_OPEN_RFQS} open RFQs`);
-      db.prepare('INSERT INTO rfqs(id,user_id,market_ticker,contracts_units,target_cost_cents,rest_remainder,status,created_ts,updated_ts,expires_ts) VALUES(?,?,?,?,?,?,?,?,?,?)')
-        .run(id, uid, m.ticker, units, target, b.rest_remainder ? 1 : 0, 'open', now, now, now + opt.rfqTtlMs);
+      db.prepare('INSERT INTO rfqs(id,user_id,market_ticker,contracts_units,target_cost_cents,rest_remainder,status,created_ts,updated_ts,expires_ts,obscure_creator_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, uid, m.ticker, units, target, b.rest_remainder ? 1 : 0, 'open', now, now, now + opt.rfqTtlMs, b.obscure_creator_id === true ? 1 : 0);
     });
     if (existing) emitRfq('rfq_deleted', existing.id);
     emitRfq('rfq_created', id);
@@ -331,16 +339,24 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     if (!yb && !nb) throw new ApiError(400, 'invalid_parameters', 'quote at least one side (yes_bid or no_bid above 0)');
     if (yb + nb > 100) throw new ApiError(400, 'invalid_parameters', 'yes_bid + no_bid must not exceed $1.00');
     if (db.prepare("SELECT 1 FROM rfq_quotes WHERE rfq_id=? AND maker_id=? AND status IN ('accepted','confirmed')").get(r.id, makerId)) throw E.conflict('quote_accepted', 'your quote on this RFQ was already accepted');
-    const yesUnits = yb ? sizeFor(r, m, 100 - yb) : 0; // accepting the YES bid: requester buys NO at 100−yes_bid
-    const noUnits = nb ? sizeFor(r, m, 100 - nb) : 0;
+    // Parlance extension (G3): a maker may quote part of a contract-sized RFQ with contracts_fp (≤ the RFQ size).
+    let cap = Infinity;
+    if (b.contracts_fp != null && b.contracts_fp !== '') {
+      if (r.contracts_units == null) throw new ApiError(400, 'invalid_parameters', 'contracts_fp is only valid on RFQs sized in contracts');
+      cap = toUnits(b.contracts_fp);
+      if (cap == null || cap < 1 || cap > r.contracts_units) throw new ApiError(400, 'invalid_parameters', `contracts_fp must be between 0.01 and the RFQ size (${ufp(r.contracts_units)})`);
+      if (cap % UNITS && !m.fractional_trading_enabled) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market', 'quote a whole number of contracts');
+    }
+    const yesUnits = yb ? Math.min(sizeFor(r, m, 100 - yb), cap) : 0; // accepting the YES bid: requester buys NO at 100−yes_bid
+    const noUnits = nb ? Math.min(sizeFor(r, m, 100 - nb), cap) : 0;
     if (!yesUnits && !noUnits) throw new ApiError(400, 'invalid_parameters', 'the target cost buys less than 0.01 contracts at these prices');
     const now = Date.now();
     const id = newId('q_');
     const replaced = db.prepare("SELECT id FROM rfq_quotes WHERE rfq_id=? AND maker_id=? AND status='open'").all(r.id, makerId);
     tx(db, () => {
       for (const o of replaced) touchQuote(o.id, 'cancelled', 'replaced'); // a new quote replaces the maker's previous one
-      db.prepare('INSERT INTO rfq_quotes(id,rfq_id,maker_id,yes_bid_cents,no_bid_cents,yes_units,no_units,status,created_ts,updated_ts,expires_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, r.id, makerId, yb, nb, yesUnits, noUnits, 'open', now, now, Math.min(r.expires_ts, now + opt.quoteTtlMs));
+      db.prepare('INSERT INTO rfq_quotes(id,rfq_id,maker_id,yes_bid_cents,no_bid_cents,yes_units,no_units,status,created_ts,updated_ts,expires_ts,rest_remainder) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, r.id, makerId, yb, nb, yesUnits, noUnits, 'open', now, now, Math.min(r.expires_ts, now + opt.quoteTtlMs), b.rest_remainder === true ? 1 : 0);
     });
     for (const o of replaced) emitQuote('quote_deleted', o.id);
     emitQuote('quote_created', id);
@@ -427,7 +443,19 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
       throw new ApiError(409, 'requester_insufficient_balance', 'the requester no longer has enough balance; the quote was cancelled', e.details || e.message);
     }
     const mo = db.prepare('SELECT * FROM orders WHERE id=?').get(makerOrder.id);
-    if (mo.status === 'resting') { try { engine.cancelOrder(q.maker_id, mo.id); } catch { /* ignore */ } }
+    // The quote's rest_remainder keeps an unfilled maker remainder on the book; otherwise it is canceled.
+    if (mo.status === 'resting' && !q.rest_remainder) { try { engine.cancelOrder(q.maker_id, mo.id); } catch { /* ignore */ } }
+    // The RFQ's rest_remainder (G3): when a partial quote filled less than the RFQ size, the requester's unfilled
+    // remainder rests as a GTC limit order at the executed price (a normal order: limits, reservation, fills apply).
+    let remainder = null; let remainderError = null;
+    const wanted = r.contracts_units;
+    if (r.rest_remainder && wanted != null && takerOrder.filled_count < wanted) {
+      try {
+        if (checkTrading) checkTrading(r.user_id, Math.ceil(((wanted - takerOrder.filled_count) * reqPrice) / UNITS));
+        remainder = engine.placeOrder(r.user_id, { ticker: r.market_ticker, side: reqSide, price: reqPrice, count: wanted - takerOrder.filled_count, time_in_force: 'gtc', source: 'rfq_remainder', order_type: 'limit', allow_fractional: true });
+        db.prepare('UPDATE rfqs SET remainder_order_id=? WHERE id=?').run(remainder.id, r.id);
+      } catch (e) { remainderError = e; }
+    }
     const now = Date.now();
     tx(db, () => {
       db.prepare("UPDATE rfq_quotes SET status='executed', executed_ts=?, executed_units=?, maker_order_id=?, taker_order_id=?, updated_ts=? WHERE id=?").run(now, takerOrder.filled_count, makerOrder.id, takerOrder.id, now, qid);
@@ -437,7 +465,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     emitQuote('quote_executed', qid);
     emitRfq('rfq_deleted', r.id);
     const title = marketRow(r.market_ticker).title;
-    notify(r.user_id, { type: 'rfq_executed', title: `RFQ executed: bought ${ustr(takerOrder.filled_count)} ${reqSide.toUpperCase()} @ ${reqPrice}¢`, body: title, link: eventHref(r.market_ticker) });
+    notify(r.user_id, { type: 'rfq_executed', title: `RFQ executed: bought ${ustr(takerOrder.filled_count)} ${reqSide.toUpperCase()} @ ${reqPrice}¢${remainder ? ` · ${ustr(remainder.remaining_count ?? (wanted - takerOrder.filled_count))} resting` : ''}`, body: remainderError ? `${title} · the remainder could not rest: ${remainderError.message}` : title, link: eventHref(r.market_ticker) });
     if (!isSystem(q.maker_id)) notify(q.maker_id, { type: 'rfq_executed', title: `Quote executed: bought ${ustr(takerOrder.filled_count)} ${makerSide.toUpperCase()} @ ${makerPrice}¢`, body: title, link: '/portfolio?tab=quotes' });
     return quoteRow(qid);
   }

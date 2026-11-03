@@ -14,6 +14,9 @@ const { mountPositions } = require('./positions');
 const { mountSports } = require('./sports');
 const { mountAdmin } = require('./admin');
 const { mountChat } = require('./chat');
+const { mountCommunity } = require('./community'); // Phase 2: social and community completion (PHASE2_SPEC.md §24)
+const { mountIdentity } = require('./identity'); // Phase 3: accounts, identity, compliance (PHASE3_SPEC.md §25)
+const { mountAccountArea } = require('./account-area'); // Phase 3: account area, settings, documents, rewards (§25)
 const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
 const { createAuth } = require('./auth');
@@ -22,7 +25,7 @@ const { createSecurity } = require('./security');
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
 const SESSION_COOKIE = 'plx_session';
 const STATUS_FILTER = { unopened: ['initialized'], open: ['active'], paused: ['inactive'], closed: ['closed', 'determined'], settled: ['finalized'] };
-const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode', 'orderbook_hide_fractional_shares', 'rfq_enabled', 'history_filters', 'positions_sort', 'positions_filter']);
+const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode', 'orderbook_hide_fractional_shares', 'rfq_enabled', 'history_filters', 'positions_sort', 'positions_filter', 'activity_filter']);
 
 function parseCookies(header) {
   const out = {};
@@ -46,7 +49,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions }) {
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
@@ -104,18 +107,25 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   auth.initAuditChain(); // admin_audit exists now: add chain columns, seal pre-chain rows (server/audit-chain.js)
   // Idempotency-Key replay for orders, deposits, withdrawals, transfers, RFQ accept (server/idempotency.js, PLAN P1.9).
   v1.use(idempotency({ db }).middleware);
+  // Identity, onboarding, KYC and compliance (server/identity.js, PHASE3_SPEC.md §25): its gate on trading, deposits and
+  // withdrawals (identity verification, location, fraud holds) runs here, after idempotency; its routes follow.
+  app.locals.identity = mountIdentity({ v1, app, db, engine, auth, admin, security, keyDir, notify: (...a) => feat.notify(...a), options: identityOptions });
   const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent });
   app.use('/v1', feat.sessionMiddleware);
+  // Phase 2 community: post extras, stickers, mutes, topics, Inner Circle, group chats, notification matrix (§24).
+  const community = mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEvent });
   app.locals.rolling = mountRolling({ v1, db, engine, windowSec: admin.rollingWindowSec() ?? rollingWindowSec }); // window editable live (G7)
   mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
   mountCombos({ v1, db, engine, requireUser, notify: feat.notify, eventFull, checkTrading: feat.checkTrading, options: combos });
-  mountHistory({ v1, db, requireUser });
+  const historyApi = mountHistory({ v1, db, requireUser });
+  // Account area: preferences, consent, connected apps, activity, documents, rewards, promo codes (server/account-area.js).
+  app.locals.accountArea = mountAccountArea({ v1, db, engine, auth, admin, identity: app.locals.identity, history: historyApi, requireUser, notify: (...a) => feat.notify(...a), keyDir });
   const ordersApi = mountOrders({ v1, db, engine, requireUser, notify: feat.notify });
   mountPositions({ v1, db, engine, requireUser });
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
-  mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify }); // event live chat (CLONE_SPEC.md §20)
+  community.attachChat(mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify })); // event live chat (CLONE_SPEC.md §20) + reactions / edits (§24)
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));

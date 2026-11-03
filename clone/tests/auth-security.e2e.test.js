@@ -16,6 +16,19 @@ const { start } = require('../server/index.js');
 const { totp } = require('../server/features.js');
 const util = require('../server/util.js');
 
+// RS3 (PHASE3_SPEC.md §25.11): a TOTP code is accepted once — each accepted code must be for a newer 30-second step than
+// the last one. freshTotp() returns the code for the next unused step inside the server's ±1-step window (waiting for the
+// next step when both are used).
+const usedTotpStep = new Map();
+async function freshTotp(secret) {
+  for (;;) {
+    const now = Math.floor(Date.now() / 30000);
+    const step = Math.max((usedTotpStep.get(secret) ?? -Infinity) + 1, now);
+    if (step <= now + 1) { usedTotpStep.set(secret, step); return totp(secret, step * 30000 + 15000); }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-auth-'));
 const DB_FILE = path.join(TMP, 'auth.db');
 const PORT = 5100 + Math.floor(Math.random() * 40);
@@ -187,47 +200,49 @@ test('unknown email and wrong password get identical responses with similar timi
   await page.context().close();
 });
 
-test('backoff: failures lock the account (same for unknown emails), the owner is alerted, the lock doubles, then lifts', async () => {
+// RS2 (PHASE3_SPEC.md §25.11): repeated failures no longer lock the account for a time; each further attempt must carry a
+// proof of work (the browser solves it), so a stranger who knows an email cannot keep its owner out.
+const solvePow = (ch) => { for (let n = 0; ; n++) { const h = crypto.createHash('sha256').update(`${ch.id}:${n}`).digest(); let z = 0; for (const b of h) { if (b === 0) { z += 8; continue; } z += Math.clz32(b) - 24; break; } if (z >= ch.bits) return { token: ch.token, nonce: String(n) }; } };
+test('backoff: failures require a proof of work (same for unknown emails), the owner is alerted, difficulty grows, the browser still signs in', async () => {
   const page = await newPage();
   await apiSignup(page, U.l);
   await call(page, 'POST', '/v1/log_out', {});
-  await page.goto(BASE + '/sign-in');
-  await page.fill('input[name=email]', U.l.email);
-  await page.fill('input[name=password]', PW);
   const statuses = [];
   for (let i = 0; i < 3; i++) statuses.push((await apiLogin(page, U.l.email, 'Not-The-Password-1')).status);
   assert.deepEqual(statuses, [401, 401, 401]);
-  // The UI explains the wait (the form was filled with the right password before the failures).
-  await page.click('button[type=submit]');
-  await page.waitForSelector('#auth-error:has-text("Too many sign-in attempts")');
-  const locked = await apiLogin(page, U.l.email, PW); // even the right password waits
-  assert.equal(locked.status, 429);
-  assert.equal(locked.body.error.code, 'too_many_attempts');
-  assert.ok(locked.body.error.retry_after_sec >= 1 && locked.body.error.retry_after_sec <= 3);
+  const gated = await apiLogin(page, U.l.email, PW); // even the right password needs the check now
+  assert.equal(gated.status, 429);
+  assert.equal(gated.body.error.code, 'too_many_attempts');
+  assert.equal(gated.body.error.retry_after_sec, 0);
+  assert.ok(gated.body.error.pow && gated.body.error.pow.bits >= 12 && gated.body.error.pow.token);
   // An unknown email behaves exactly the same.
   const ghost = `nobody.${stamp}@example.test`;
   for (let i = 0; i < 3; i++) assert.equal((await apiLogin(page, ghost, 'Not-The-Password-1')).status, 401);
   const g = await apiLogin(page, ghost, 'Not-The-Password-1');
-  assert.equal(g.status, 429); assert.deepEqual(Object.keys(g.body.error), Object.keys(locked.body.error));
-  // Notification + email stub + security event for the account owner.
+  assert.equal(g.status, 429); assert.deepEqual(Object.keys(g.body.error), Object.keys(gated.body.error));
+  // Notification + email + security event for the account owner.
   const lid = uid(U.l.email);
-  assert.equal(dbq("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND type='security' AND title='Sign-in temporarily blocked'", lid)[0].c, 1);
-  assert.equal(dbq("SELECT COUNT(*) c FROM email_outbox WHERE to_email=? AND subject LIKE '%Sign-in temporarily blocked%'", U.l.email)[0].c, 1);
+  assert.equal(dbq("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND type='security' AND title='Repeated failed sign-ins'", lid)[0].c, 1);
+  assert.equal(dbq("SELECT COUNT(*) c FROM email_outbox WHERE to_email=? AND subject LIKE '%Repeated failed sign-ins%'", U.l.email)[0].c, 1);
   assert.ok(dbq("SELECT COUNT(*) c FROM auth_events WHERE user_id=? AND type='lockout'", lid)[0].c >= 1);
-  // Cool-down over: the right password works and clears the counter.
-  await sleep(3200);
-  assert.equal((await apiLogin(page, U.l.email, PW)).status, 200);
-  await call(page, 'POST', '/v1/log_out', {});
-  // Exponential: the 4th failure in a row locks for twice as long.
-  for (let i = 0; i < 3; i++) assert.equal((await apiLogin(page, U.l.email, 'Not-The-Password-2')).status, 401);
-  await sleep(3200);
-  assert.equal((await apiLogin(page, U.l.email, 'Not-The-Password-2')).status, 401);
-  const longer = await apiLogin(page, U.l.email, PW);
-  assert.equal(longer.status, 429);
-  assert.ok(longer.body.error.retry_after_sec >= 4, `second lock ${longer.body.error.retry_after_sec}s (doubled)`);
-  await sleep(6300);
-  assert.equal((await apiLogin(page, U.l.email, PW)).status, 200);
+  // A solved proof lets one more guess through (single use); each further failure adds a bit of difficulty.
+  const pre = await preToken(page);
+  const tryWith = (pw, pow) => rawPost(page, '/v1/log_in', { email: U.l.email, password: pw, pow }, pre);
+  const sol = solvePow(gated.body.error.pow);
+  assert.equal((await tryWith('Not-The-Password-2', sol)).status, 401);
+  const again = await tryWith('Not-The-Password-2', sol);
+  assert.equal(again.status, 429, 'a proof is single use');
+  assert.equal(again.body.error.pow.bits, gated.body.error.pow.bits + 1, 'difficulty grows with every failure');
+  // The UI: the owner types the right password and is signed in (the browser solves the check transparently).
+  await page.goto(BASE + '/sign-in');
+  await page.fill('input[name=email]', U.l.email);
+  await page.fill('input[name=password]', PW);
+  await page.click('button[type=submit]');
+  await page.waitForSelector('[data-testid=account-menu]');
+  assert.equal(await whoami(page), U.l.email);
+  assert.equal(dbq('SELECT COUNT(*) c FROM auth_throttle WHERE key=?', `acct:${sha256(U.l.email)}`)[0].c, 0, 'a success clears the account counter');
   assert.ok(dbq("SELECT COUNT(*) c FROM auth_throttle WHERE key LIKE 'ip:%'")[0].c >= 1, 'per-IP counter persisted');
+  assert.deepEqual(page.errors, []);
   await page.context().close();
 });
 
@@ -275,7 +290,7 @@ async function enableMfa(page) {
   await page.goto(BASE + '/account/security');
   await page.click('#mfa-start');
   const secret = (await page.textContent('[data-testid=mfa-secret]')).trim();
-  await page.fill('[data-testid=mfa-input]', totp(secret));
+  await page.fill('[data-testid=mfa-input]', await freshTotp(secret));
   await page.click('#mfa-form button[type=submit]');
   await page.waitForSelector('[data-testid=mfa-status]:has-text("On")');
   return secret;
@@ -321,11 +336,13 @@ test('step-up: password change and turning off two-factor ask to confirm in a mo
   // Turning two-factor off: the code in the form is not enough on its own after the step-up window.
   await sleep(STEP_UP_MS + 300);
   await page.goto(BASE + '/account/security');
-  await page.fill('[data-testid=mfa-input]', totp(miaSecret));
+  // The step-up code is accepted first, then the retried request's code: the form's code must be for a newer step (RS3).
+  const stepUpCode = await freshTotp(miaSecret); const disableCode = await freshTotp(miaSecret);
+  await page.fill('[data-testid=mfa-input]', disableCode);
   await page.click('#mfa-form button[type=submit]');
   await dialog(page).waitFor();
   await page.click('[data-testid=step-up-switch]');
-  await page.fill('[data-testid=step-up-code]', totp(miaSecret));
+  await page.fill('[data-testid=step-up-code]', stepUpCode);
   await page.click('[data-testid=step-up-submit]');
   await page.waitForSelector('[data-testid=mfa-status]:has-text("Off")');
   assert.equal(dbq('SELECT COUNT(*) c FROM mfa WHERE user_id=?', mid)[0].c, 0);
@@ -367,7 +384,7 @@ test('withdrawal two-factor: when on, every withdrawal needs a fresh code (passw
   await page.fill('[data-testid=step-up-code]', totp(wesSecret) === '000000' ? '111111' : '000000');
   await page.click('[data-testid=step-up-submit]');
   await page.waitForSelector('[data-testid=step-up-error]:has-text("not valid")');
-  await page.fill('[data-testid=step-up-code]', totp(wesSecret));
+  await page.fill('[data-testid=step-up-code]', await freshTotp(wesSecret));
   await page.click('[data-testid=step-up-submit]');
   assert.deepEqual(await p, { ok: true, r: { balance_dollars: '45.0000' } });
   // The next withdrawal asks again, even seconds later; cancelling withdraws nothing.
@@ -597,7 +614,7 @@ test('restart: hashed sessions, counters, events and encrypted TOTP persist; pla
     await page.fill('input[name=email]', u.email);
     await page.fill('input[name=password]', pw);
     await page.click('button[type=submit]');
-    await page.fill('[data-testid=mfa-code]', totp(secret));
+    await page.fill('[data-testid=mfa-code]', await freshTotp(secret));
     await page.click('button[type=submit]');
     await page.waitForSelector('[data-testid=account-menu]');
     await page.context().close();

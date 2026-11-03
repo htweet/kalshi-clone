@@ -1,6 +1,6 @@
 // Shared UI pieces: market card (browse grid), outcome rows, rank list, chart, post card.
 import { vars } from '../dynstyle.js';
-import { esc, pct, multiplier, prob, eventHref, deltaCents, qty, cents, catColor, compact, avatar, relTime, ICON } from '../lib.js';
+import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, compact, avatar, relTime, ICON } from '../lib.js';
 import { scoreCols, liveSub, cardMarkets } from './scoreboard.js'; // live sports scores on cards (CLONE_SPEC §19.6)
 export { prob };
 
@@ -41,13 +41,19 @@ export function eventCard(ev) {
   const binary = ev.markets.length === 1;
   const ms = ev.live_data ? cardMarkets(ev) : [...ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0)).slice(0, 2);
   const status = STATUS_LABEL(ev);
+  // Settings › "Browse and manage markets by" (CLONE_SPEC §13.16): payout multiplier + % pill, or Yes/No share prices.
+  const shares = showShares();
   const rows = ms.map((m) => {
-    const p = prob(m);
+    const p = previewPct(m);
     const label = binary ? m.yes_sub_title : m.yes_sub_title;
+    const ya = cents(m.yes_ask_dollars); const na = cents(m.no_ask_dollars);
+    const right = shares
+      ? `<span class="share-prices" data-testid="share-prices"><a class="share-btn yes" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link>Yes ${ya == null ? '—' : `${ya}¢`}</a><a class="share-btn no" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link>No ${na == null ? '—' : `${na}¢`}</a></span>`
+      : `<span class="mult">${multiplier(m)}</span>${scoreCols(ev, m)}
+      <a class="odds pill" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link aria-label="${esc(label)} ${p == null ? 'no price' : p + ' percent'}">${p == null ? '—' : p + '%'}</a>`;
     return `<div class="mrow outcome-row" data-ticker="${esc(m.ticker)}">
       ${ocAvatar(m, 'sm')}${ocName(m, label)}
-      <span class="mult">${multiplier(m)}</span>${scoreCols(ev, m)}
-      <a class="odds pill" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link aria-label="${esc(label)} ${p == null ? 'no price' : p + ' percent'}">${p == null ? '—' : p + '%'}</a>
+      ${right}
     </div>`;
   }).join('');
   const sub = ev.live_data ? liveSub(ev) : ev.is_live ? `<span class="live-dot">Live</span><span>${esc(ev.live_label || '')}</span>` : esc(status || (ev.close_time ? shortDay(ev.close_time) : ''));
@@ -113,19 +119,29 @@ export function lineChart(points, color = 'var(--brand)') {
     <circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="4" fill="${esc(color)}"/></svg>`;
 }
 
-// Social post (spec §13.6).
-export function postCard(p, { showEvent = true } = {}) {
-  return `<article class="post" data-post="${esc(p.id)}" data-testid="post">
-    ${avatar(p.author.nickname)}
-    <div>
-      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a>${p.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified" data-testid="verified-badge">✓</span>' : ''}<span class="faint">${relTime(p.created_time)}</span>
-        ${p.is_mine ? '<button class="btn btn-sm btn-ghost btn-danger ml-auto" data-act="delete">Delete</button>' : `<button class="post-more" data-post-menu="${esc(p.id)}" aria-label="More actions" data-testid="post-menu">⋯</button>`}</div>
-      <div class="post-body" data-testid="post-body">${esc(p.body)}</div>
+// Social post (spec §13.6, §15.4): author (sticker avatar or monogram), badges, age, "edited", circle badge, position tag
+// "Yes · outcome · market", body with "Read more", sticker, actions like / reply / bookmark / share / ⋯ (PHASE2_SPEC §24.2).
+const BADGE_LABEL = { first_trade: 'First trade', ten_trades: '10 trades', profitable_month: 'Profitable month', top_10: 'Top 10', verified: 'Verified' };
+export const badgeChips = (ids = []) => ids.filter((b) => b !== 'verified' && BADGE_LABEL[b]).map((b) => `<span class="badge-chip" data-badge="${esc(b)}" title="${esc(BADGE_LABEL[b])}">${esc(BADGE_LABEL[b])}</span>`).join('');
+export const authorAvatar = (a, cls = '') => (a && a.avatar ? `<img class="avatar sticker-avatar ${esc(cls)}" src="${esc(a.avatar.url)}" alt="" width="36" height="36" data-testid="sticker-avatar">` : avatar(a ? a.nickname : '?', cls));
+export const stickerImg = (s, cls = 'post-sticker') => (s ? `<img class="${esc(cls)}" src="${esc(s.url)}" alt="${esc(s.label)}" title="${esc(s.label)}" width="96" height="96" data-testid="sticker" data-sticker="${esc(s.id)}">` : '');
+const READ_MORE = 280;
+export function postCard(p, { showEvent = true, expanded = false } = {}) {
+  const long = !expanded && (p.body.length > READ_MORE || p.body.split('\n').length > 6);
+  return `<article class="post${p.author_muted ? ' muted-author' : ''}" data-post="${esc(p.id)}" data-testid="post" data-nick="${esc(p.author.nickname)}" data-mine="${p.is_mine ? '1' : '0'}" data-share="${esc(p.share_path || `/social/post/${encodeURIComponent(p.id)}`)}" data-editable-until="${esc(p.editable_until || '')}" data-visibility="${esc(p.visibility || 'public')}">
+    ${authorAvatar(p.author)}
+    <div class="minw-0">
+      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a>${p.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified" data-testid="verified-badge">✓</span>' : ''}${badgeChips(p.author.badges)}<span class="faint">${relTime(p.created_time)}</span>${p.edited ? `<span class="faint post-edited" data-testid="post-edited" title="Edited ${esc(new Date(p.edited_time).toLocaleString())}">· edited${p.edited_by_moderator ? ' by a moderator' : ''}</span>` : ''}${p.visibility === 'circle' ? '<span class="circle-badge" data-testid="circle-badge" title="Only your Inner Circle can see this">Inner Circle</span>' : ''}
+        ${p.is_mine ? '<button class="btn btn-sm btn-ghost btn-danger ml-auto" data-act="delete">Delete</button>' : ''}<button class="post-more${p.is_mine ? '' : ' ml-auto'}" data-post-more="${esc(p.id)}" aria-label="More actions" aria-haspopup="menu" data-testid="post-menu">⋯</button></div>
+      ${p.position ? `<a class="pos-tag pos-${esc(p.position.side)}" href="${esc(p.position.link)}" data-link data-testid="position-tag" title="${p.position.held === 'current' ? 'Holds this position' : 'Held this position'}">${esc(p.position.label)}</a>` : ''}
+      ${p.body ? `<div class="post-body${long ? ' clamped' : ''}" data-testid="post-body">${esc(p.body)}</div>${long ? '<button class="read-more" type="button" data-act="read-more" data-testid="read-more" aria-expanded="false">Read more</button>' : ''}` : ''}
+      ${stickerImg(p.sticker)}
       ${showEvent && p.event ? `<a class="post-event" href="${esc(p.event.link)}" data-link>${esc(p.event.title)}</a><br>` : ''}
       <div class="post-actions">
         <button data-act="like" class="${p.liked ? 'on' : ''}" aria-pressed="${esc(p.liked)}" aria-label="Like">${ICON.heart}<span data-testid="like-count">${esc(p.like_count)}</span></button>
         <button data-act="comments" aria-label="Replies">${ICON.reply}<span data-testid="comment-count">${esc(p.comment_count)}</span></button>
         <button data-act="bookmark" class="bm ${p.bookmarked ? 'on' : ''}" aria-pressed="${esc(p.bookmarked)}" aria-label="Bookmark">${ICON.bookmark}</button>
+        <button data-act="share" aria-label="Share" data-testid="post-share">${ICON.share}</button>
       </div>
       <div class="comments" hidden></div>
     </div>

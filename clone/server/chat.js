@@ -77,6 +77,9 @@ function cleanBody(raw) {
 
 function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
   db.exec(SCHEMA);
+  // Extension points for server/chat-extras.js (gap G10, P2.1/P2.2): reactions / sticker / edit time on the message
+  // shape, sticker messages, and the viewer's mutes on history reads.
+  const hooks = { vo: [], beforeMessage: null, afterMessage: null, historyFilter: null };
   const env = (k, d) => { const n = Number(process.env[k]); return Number.isFinite(n) && n > 0 ? n : d; };
   // Stricter than the global limiter (300 burst / 150 per s per IP): per user and per IP, chat writes only.
   const limits = { userBurst: env('CHAT_USER_BURST', 8), userPerSec: env('CHAT_USER_PER_SEC', 0.5), ipBurst: env('CHAT_IP_BURST', 30), ipPerSec: env('CHAT_IP_PER_SEC', 3) };
@@ -132,12 +135,13 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
       const p = db.prepare('SELECT id, nickname, body, deleted FROM chat_messages WHERE id=?').get(id);
       if (!p || p.deleted) return { id, deleted: true };
       const chars = [...p.body];
-      return { id: p.id, nickname: p.nickname, excerpt: chars.length > 90 ? chars.slice(0, 90).join('') + '…' : p.body, deleted: false };
+      return { id: p.id, nickname: p.nickname, excerpt: !chars.length ? '[sticker]' : chars.length > 90 ? chars.slice(0, 90).join('') + '…' : p.body, deleted: false };
     };
     return (r, viewerId) => {
       const vo = { id: r.id, event_ticker: r.room, body: r.body, created_time: new Date(r.created_ts).toISOString(), edited: !!r.edited_ts,
         author: { nickname: r.nickname, verified: verified(r.user_id) }, reply_to: replyVo(r.reply_to) };
       if (viewerId !== undefined) vo.is_mine = !!viewerId && viewerId === r.user_id;
+      for (const h of hooks.vo) h(vo, r, viewerId);
       return vo;
     };
   }
@@ -220,7 +224,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
     const viewer = req.auth ? req.auth.user.id : null;
     const room = roomRow(t);
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ room: roomVo(t, room), messages: rows.slice(0, limit).reverse().map((r) => vo(r, viewer)), has_more: rows.length > limit, viewer: viewerVo(req.auth?.user, t, room) });
+    res.json({ room: roomVo(t, room), messages: rows.slice(0, limit).reverse().filter((r) => !hooks.historyFilter || hooks.historyFilter(r, viewer)).map((r) => vo(r, viewer)), has_more: rows.length > limit, viewer: viewerVo(req.auth?.user, t, room) });
   });
 
   // ------------------------------------------------------------ member writes
@@ -231,7 +235,8 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
     if (!nick) throw E.conflict('social_profile_required', 'pick a nickname before chatting', 'create a social profile (nickname) first');
     const t = tickerParam(req.params.ticker);
     const b = req.body || {};
-    const body = cleanBody(b.body);
+    const ext = hooks.beforeMessage ? hooks.beforeMessage(req) : null; // sticker messages (server/chat-extras.js)
+    const body = ext && ext.allowEmptyBody && (b.body == null || (typeof b.body === 'string' && !b.body.trim())) ? '' : cleanBody(b.body);
     let replyTo = null;
     if (b.reply_to != null && b.reply_to !== '') {
       if (typeof b.reply_to !== 'string') throw E.badRequest('reply_to must be a message id');
@@ -258,6 +263,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
     tx(db, () => {
       ensureRoom(t);
       db.prepare('INSERT INTO chat_messages(id,room,user_id,nickname,body,reply_to,created_ts) VALUES(?,?,?,?,?,?,?)').run(m.id, t, u.id, nick, body, replyTo, m.created_ts);
+      if (hooks.afterMessage) hooks.afterMessage(m.id, ext);
     });
     const row = msgById(m.id);
     publish(t, 'chat_message', makeVo()(row));
@@ -461,7 +467,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
     } catch (e) { console.error('chat lifecycle', e); }
   });
 
-  return { roomVo, limits };
+  return { roomVo, limits, hooks, makeVo, msgById, tickerParam, roomRow, roomStatus, eventActive, muteRow, isMod, publish, guardWriter, cleanBody };
 }
 
 module.exports = { mountChat, cleanBody, MAX_LEN };

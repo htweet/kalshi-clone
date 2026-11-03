@@ -4,7 +4,7 @@ import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { queries, session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, eventHref, cents, multiplier, prob, catSlug, catLabel, toast } from '../lib.js';
+import { esc, eventHref, cents, multiplier, prob, previewPct, catSlug, catLabel, toast } from '../lib.js';
 import { eventCard, rankList, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 
 const INFO = [
@@ -79,7 +79,7 @@ export async function render({ el, navigate }) {
       <div class="minw-0"><a href="${eventHref(ev)}" data-link><h2 data-testid="hero-title">${esc(ev.title)}</h2></a>
         <div class="hero-table"><span class="h">Market</span><span class="h">Pays out</span><span class="h ta-c">Odds</span>
         ${ms.map((m) => `<span class="outcome-row d-flex gap-14 ai-center minw-0" data-ticker="${esc(m.ticker)}">${ocAvatar(m)}<span class="oc-name"><span>${esc(m.yes_sub_title)}</span><span class="oc-bar v-w v-bg"${vars({ '--w': `${Math.max(8, prob(m) ?? 0)}%`, '--bg': seriesColor(m, ms.indexOf(m)) })}></span></span></span>
-          <span class="mult">${multiplier(m)}</span><a class="odds pill" href="${eventHref(ev)}?side=yes&amp;market=${esc(m.ticker)}" data-link data-ticker-pill="${esc(m.ticker)}">${prob(m) == null ? '—' : prob(m) + '%'}</a>`).join('')}</div>
+          <span class="mult">${multiplier(m)}</span><a class="odds pill" href="${eventHref(ev)}?side=yes&amp;market=${esc(m.ticker)}" data-link data-ticker-pill="${esc(m.ticker)}">${previewPct(m) == null ? '—' : previewPct(m) + '%'}</a>`).join('')}</div>
         <div class="d-flex jc-between mt-18"><span class="num muted">${money0(ev.dollar_volume)} vol</span><a href="${eventHref(ev)}" data-link class="muted">Trade</a></div>
         ${ev.news ? `<div class="news"><strong>News</strong> · ${esc(ev.news)}</div>` : ''}</div>
       <div class="minw-0"><div class="legend">${ms.map((m, i) => `<span><i class="v-bg"${vars({ '--bg': seriesColor(m, i) })}></i>${esc(m.yes_sub_title)} <b>${prob(m) ?? '—'}%</b></span>`).join('')}<span class="watermark">Parlance</span></div>

@@ -1,5 +1,6 @@
 // Shared helpers: escaping, formatting, local storage with expiry (spec §8.2 pattern).
 import { vars } from './dynstyle.js';
+import { uiPrefs } from './prefs.js';
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const cents = (dollarStr) => (dollarStr == null ? null : Math.round(Number(dollarStr) * 100));
 export const pct = (dollarStr) => (dollarStr == null ? '—' : `${cents(dollarStr)}%`);
@@ -18,6 +19,13 @@ export function prob(m) {
   if (m.yes_bid_dollars != null && m.yes_ask_dollars != null) return Math.round((cents(m.yes_bid_dollars) + cents(m.yes_ask_dollars)) / 2);
   return null;
 }
+// Market preview price (Settings › Market preview price type, PHASE3_SPEC.md §25.8): the last traded price (default) or
+// the current price to buy Yes (best ask). Used for the % pill on cards and the home hero.
+export function previewPct(m) {
+  if (uiPrefs.market_price_type === 'current_buy') { const a = cents(m.yes_ask_dollars); return a == null ? prob(m) : a; }
+  return prob(m);
+}
+export const showShares = () => uiPrefs.display_mode === 'shares';
 // Payout multiplier (U2 design choice): 1 / yes_ask.
 export function multiplier(m) {
   const a = cents(m.yes_ask_dollars);
@@ -82,7 +90,14 @@ export const ICON = {
   heart: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 14s-5.5-3.3-5.5-7.2A3 3 0 018 5a3 3 0 015.5 1.8C13.5 10.7 8 14 8 14z" fill="currentColor"/></svg>',
   reply: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
   bookmark: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M4 2.5h8v11l-4-3-4 3z" fill="currentColor"/></svg>',
+  share: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 2v8M5 4.8L8 2l3 2.8M3 8.5V13h10V8.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  chat: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3.5 4.5h13v8h-7l-4 3v-3h-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
   star: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" fill="currentColor"/></svg>',
   grid: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z" fill="currentColor"/></svg>',
   list: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 3h12v2H2zM2 7h12v2H2zM2 11h12v2H2z" fill="currentColor"/></svg>',
+  // Header icons (CLONE_SPEC §13.16): trophy (leaderboard), ☰ menu, category index; own line art.
+  trophy: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6 3h8v4a4 4 0 01-8 0V3zM6 5H3.5v1a3 3 0 003 3M14 5h2.5v1a3 3 0 01-3 3M10 11v3M7 17h6M8 14h4v3H8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+  menu: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  catIndex: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M2 3.5h1.5M2 8h1.5M2 12.5h1.5M5.5 3.5H14M5.5 8H14M5.5 12.5H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  gift: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 8h14v3H3zM4 11h12v6H4zM10 8v9M10 8c-1-3-5-4-5-1.5S8 8 10 8zm0 0c1-3 5-4 5-1.5S12 8 10 8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
 };

@@ -8,7 +8,7 @@ const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat']);
-const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications']);
+const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups']);
 
 function attachWs(server, { engine, auth, security }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 }); // inbound frame cap (clients only send small commands)
@@ -23,7 +23,7 @@ function attachWs(server, { engine, auth, security }) {
     let userId = null; let sessionId = null;
     // Same validity rules as HTTP (hashed token, idle + absolute expiry, account lock; server/auth.js), and the CSRF
     // token in the query must match the session (spec §7.2).
-    const a = auth.fromCookieHeader(req.headers.cookie);
+    const a = auth.fromCookieHeader(req.headers.cookie, { touch: false }); // a (re)connect is not user activity (RS10)
     if (a && a.session.csrf_token === url.searchParams.get('csrfToken')) { userId = a.user.id; sessionId = a.session.sid; }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, userId, sessionId));
   });
@@ -108,6 +108,8 @@ function attachWs(server, { engine, auth, security }) {
   engine.on('user_order', (uid, o) => publish('user_orders', o.market_ticker, 'user_order', orderVo(o), uid));
   engine.on('fill', (uid, f) => publish('fill', f.market_ticker, 'fill', fillVo(f), uid));
   engine.on('notification', (uid, n) => publish('notifications', null, 'notification', n, uid));
+  engine.on('push', (uid, p) => publish('notifications', null, 'push', p, uid)); // push channel: the user's registered browsers (server/notify-prefs.js)
+  engine.on('group', (uid, type, msg) => publish('groups', null, type, msg, uid)); // group chats: current members only (server/groups.js)
   // RFQ / quote events (spec §17.5): uid null = every authenticated subscriber (rfq_created / rfq_deleted).
   engine.on('communications', (uid, type, msg) => publish('communications', null, type, msg, uid));
   // Perps channels (PERPS_SPEC_SECTION.md): public ticker/book/trades, private orders/positions/collateral.

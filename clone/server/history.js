@@ -11,10 +11,20 @@ const GROUPS = {
   orders: ['order', 'cancel'],
   settlements: ['settlement'],
   combos: ['combo', 'rfq', 'quote', 'rfq_execution'],
-  cash: ['deposit', 'withdrawal', 'interest', 'perps_transfer'],
+  cash: ['deposit', 'withdrawal', 'interest', 'perps_transfer', 'credit', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout'],
+};
+// Account › Your activity chips (CLONE_SPEC §13.16: All · Deposit · Withdrawal · Order · Trade · Settlement · Credit).
+const ACTIVITY = {
+  deposit: ['deposit'],
+  withdrawal: ['withdrawal', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout'],
+  order: ['order', 'cancel', 'rfq', 'quote', 'combo'],
+  trade: ['fill', 'netting', 'rfq_execution'],
+  settlement: ['settlement'],
+  credit: ['credit', 'interest'],
 };
 const GROUP_OF = Object.fromEntries(Object.entries(GROUPS).flatMap(([g, ks]) => ks.map((k) => [k, g])));
-const TYPE_LABEL = { fill: 'Trade', netting: 'Pairs redeemed', order: 'Order', cancel: 'Canceled', settlement: 'Settlement', combo: 'Combo', rfq: 'RFQ', quote: 'Quote', rfq_execution: 'RFQ executed', deposit: 'Deposit', withdrawal: 'Withdrawal', interest: 'Interest', perps_transfer: 'Perps transfer' };
+const TYPE_LABEL = { fill: 'Trade', netting: 'Pairs redeemed', order: 'Order', cancel: 'Canceled', settlement: 'Settlement', combo: 'Combo', rfq: 'RFQ', quote: 'Quote', rfq_execution: 'RFQ executed', deposit: 'Deposit', withdrawal: 'Withdrawal', interest: 'Interest', perps_transfer: 'Perps transfer',
+  credit: 'Credit', withdrawal_hold: 'Withdrawal (under review)', withdrawal_hold_reversal: 'Withdrawal returned', closure_payout: 'Closing payout' };
 
 // Every source projected onto: id, ts, prio (tie-break within the same ms), kind, market, side, action, otype,
 // price, qty, filled, amount, fee, status, role, extra (kind-specific number), memo.
@@ -34,7 +44,7 @@ const UNION = `
     FROM settlements s WHERE s.user_id=:uid
   UNION ALL
   SELECT 'ledger:'||l.id, ${ms('l.created_at')}, 2, l.kind, CASE WHEN l.kind='netting' THEN l.ref END, NULL, NULL, NULL, NULL, NULL, NULL, l.amount_cents, NULL, 'done', NULL, NULL, l.memo
-    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting')
+    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting','credit','withdrawal_hold','withdrawal_hold_reversal','closure_payout')
   UNION ALL
   SELECT 'combo:'||c.combo_ticker, c.created_ts, 0, 'combo', c.combo_ticker, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'created', NULL, NULL, ''
     FROM combo_creations c WHERE c.user_id=:uid
@@ -70,13 +80,16 @@ function mountHistory({ v1, db, requireUser }) {
       return t;
     };
     const market = String(q.market || '').trim().slice(0, 80);
-    return { type, market, from: day(q.from, 'from', false), to: day(q.to, 'to', true) };
+    const activity = q.activity == null || q.activity === '' ? null : String(q.activity);
+    if (activity && activity !== 'all' && !ACTIVITY[activity]) throw E.badRequest('activity must be one of all, deposit, withdrawal, order, trade, settlement, credit');
+    return { type, market, from: day(q.from, 'from', false), to: day(q.to, 'to', true), ...(activity ? { activity } : {}) };
   }
 
   function query(uid, f, { limit, cursor }) {
     const where = [];
     const args = { uid };
     if (f.type !== 'all') { where.push(`h.kind IN (${GROUPS[f.type].map((k) => `'${k}'`).join(',')})`); }
+    if (f.activity && f.activity !== 'all') { where.push(`h.kind IN (${ACTIVITY[f.activity].map((k) => `'${k}'`).join(',')})`); }
     if (f.market) { where.push("(h.market LIKE :mk ESCAPE '\\' OR m.title LIKE :mk ESCAPE '\\')"); args.mk = `%${f.market.replace(/[\\%_]/g, (c) => `\\${c}`)}%`; }
     if (f.from != null) { where.push('h.ts >= :from'); args.from = f.from; }
     if (f.to != null) { where.push('h.ts < :to'); args.to = f.to; }
@@ -137,6 +150,10 @@ function mountHistory({ v1, db, requireUser }) {
     res.setHeader('Content-Disposition', 'attachment; filename="parlance-history.csv"');
     res.send(lines.join('\n') + '\n');
   });
+
+  // Used by Account › Your activity (server/account-area.js): same timeline, chip filters, same CSV columns.
+  const csvOf = (rows) => [COLS.join(','), ...rows.map((r) => [r.time, r.type, r.market_title || r.market_ticker || '', r.description, r.side || '', r.action || '', r.quantity_fp || '', two(r.price_dollars), two(r.amount_dollars), two(r.fee_dollars), r.status || ''].map(esc).join(','))].join('\n') + '\n';
+  return { parseFilters, query, rowVo, csvOf, ACTIVITY };
 }
 
-module.exports = { mountHistory, GROUPS };
+module.exports = { mountHistory, GROUPS, ACTIVITY };

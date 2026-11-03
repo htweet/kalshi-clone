@@ -13,6 +13,7 @@ const { ApiError } = require('./util');
 // First match wins; paths are the full request path. Anything not listed keeps the previous global limit.
 const DEFAULT_LIMIT = '64kb';
 const BODY_LIMITS = [
+  [/^\/v1\/(users\/[^/]+\/docv\/documents|docv\/handoff\/documents)$/, '9mb'], // one ID photo, base64 (Phase 3, server/docv.js)
   [/^\/v1\/users\/[^/]+\/(deposits|withdrawals)$/, '1kb'],
   [/^\/v1\/perps\/transfers$/, '1kb'],
   [/^\/v1\/(log_in|log_in_mfa|log_out|client_token)$/, '4kb'],
@@ -22,6 +23,7 @@ const BODY_LIMITS = [
   [/^\/v1\/communications\//, '8kb'],
   [/^\/v1\/users\/[^/]+\/chat\//, '4kb'],
   [/^\/v1\/users\/[^/]+\/social\//, '8kb'],
+  [/^\/v1\/users\/[^/]+\/groups\b/, '8kb'], // group chats (Phase 2, server/groups.js)
   [/^\/v1\/users\/[^/]+\/(mfa|notifications)\b/, '4kb'],
   [/^\/v1\/admin\/catalog\/import$/, '256kb'], // CSV import: a few hundred rows
   [/^\/v1\/admin\//, '64kb'],
@@ -122,9 +124,10 @@ const SCHEMAS = {
   },
   perpsClose: { percent: { type: ['number', 'string'], maxLen: 16 } },
   rfqAccept: { accepted_side: S(8) },
-  socialPost: { body: { type: 'string', maxLen: 2000, required: true }, event_ticker: { ...S(64), nullable: true } },
-  socialComment: { body: { type: 'string', maxLen: 2000, required: true } },
-  chatMessage: { body: { type: 'string', maxLen: 2000, required: true }, reply_to: { ...S(64), nullable: true } },
+  // A post, reply or chat message may be a sticker alone (PLAN P2.2): the handlers require a body or a sticker_id.
+  socialPost: { body: { type: 'string', maxLen: 2000, nullable: true }, event_ticker: { ...S(64), nullable: true }, sticker_id: { ...S(40), nullable: true }, position: { type: 'object', nullable: true }, visibility: S(16) },
+  socialComment: { body: { type: 'string', maxLen: 2000, nullable: true }, sticker_id: { ...S(40), nullable: true } },
+  chatMessage: { body: { type: 'string', maxLen: 2000, nullable: true }, reply_to: { ...S(64), nullable: true }, sticker_id: { ...S(40), nullable: true } },
   report: { kind: S(16), id: S(64), reason: { type: 'string', maxLen: 1000 } },
   // Admin catalog has its own per-field validator (admin.js check()/FieldError); this only bounds the shape.
   adminCatalog: {},

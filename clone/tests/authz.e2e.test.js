@@ -158,6 +158,61 @@ const EXPECT = {
   'POST /v1/perps/admin/markets/:ticker/index': { who: 'legacy-admin' },
   'POST /v1/perps/admin/markets/:ticker/simulation': { who: 'legacy-admin' },
   'POST /v1/perps/admin/markets/:ticker/funding': { who: 'legacy-admin' },
+  // ---- Phase 2 social and community completion (PHASE2_SPEC.md §24)
+  'GET /v1/social/badges': P, 'GET /v1/search/social_profiles': P, 'GET /v1/social/timeline_count': P, 'GET /v1/social/stickers': P,
+  'GET /v1/social/stickers/:file': P, 'GET /v1/promos': P, 'GET /v1/social/gifs/search': U,
+  'GET /v1/users/:uid/social/position_tags': O, 'PUT /v1/users/:uid/social/profile/avatar': O, 'PUT /v1/users/:uid/social/posts/:pid': O,
+  'GET /v1/users/:uid/social/mutes': O, 'POST /v1/users/:uid/social/mutes': O, 'DELETE /v1/users/:uid/social/mutes': O,
+  'GET /v1/users/:uid/social/topics': O, 'POST /v1/users/:uid/social/topics': O, 'DELETE /v1/users/:uid/social/topics': O,
+  'GET /v1/users/:uid/social/circle': O, 'POST /v1/users/:uid/social/circle/requests': O, 'POST /v1/users/:uid/social/circle/requests/:rid/accept': O,
+  'POST /v1/users/:uid/social/circle/requests/:rid/decline': O, 'DELETE /v1/users/:uid/social/circle/requests/:rid': O, 'DELETE /v1/users/:uid/social/circle/members': O,
+  'GET /v1/users/:uid/notifications/preferences': O, 'PUT /v1/users/:uid/notifications/preferences': O, 'PUT /v1/users/:uid/notifications/settings/:type': O,
+  'GET /v1/users/:uid/notifications/push_devices': O, 'POST /v1/users/:uid/notifications/push_devices': O, 'DELETE /v1/users/:uid/notifications/push_devices/:id': O,
+  'GET /v1/users/:uid/notifications/deliveries': O,
+  'GET /v1/users/:uid/notifications/price_movement_subscriptions': O, 'POST /v1/users/:uid/notifications/price_movement_subscriptions': O, 'DELETE /v1/users/:uid/notifications/price_movement_subscriptions': O,
+  'GET /v1/users/:uid/notifications/social_account_subscriptions': O, 'POST /v1/users/:uid/notifications/social_account_subscriptions': O, 'DELETE /v1/users/:uid/notifications/social_account_subscriptions': O,
+  'GET /v1/users/:uid/groups': O, 'POST /v1/users/:uid/groups': O, 'GET /v1/users/:uid/groups/candidates': O, 'GET /v1/users/:uid/groups/:gid': O, 'PUT /v1/users/:uid/groups/:gid': O,
+  'POST /v1/users/:uid/groups/:gid/members': O, 'POST /v1/users/:uid/groups/:gid/leave': O, 'DELETE /v1/users/:uid/groups/:gid/members/:nickname': O,
+  'POST /v1/users/:uid/groups/:gid/messages': O, 'DELETE /v1/users/:uid/groups/:gid/messages/:mid': O, 'POST /v1/users/:uid/groups/:gid/messages/:mid/report': O, 'PUT /v1/users/:uid/groups/:gid/read': O,
+  'PUT /v1/users/:uid/chat/:ticker/messages/:id/reactions/:reaction': O, 'DELETE /v1/users/:uid/chat/:ticker/messages/:id/reactions/:reaction': O, 'PUT /v1/users/:uid/chat/:ticker/messages/:id': O,
+  'PUT /v1/users/:uid/social/social-admin/determine_profile_image/:id': { who: 'self+perm:social.moderate' },
+  'PUT /v1/users/:uid/social/social-admin/posts/:pid/market_status': { who: 'self+perm:social.moderate' },
+  'PUT /v1/users/:uid/social/social-admin/posts/:pid/post_subtype': { who: 'self+perm:social.moderate' },
+  'PUT /v1/users/:uid/social/social-admin/posts/:pid/update': { who: 'self+perm:social.moderate' },
+  'GET /v1/admin/moderation/posts/:pid': perm('social.moderate'), 'GET /v1/admin/stickers': perm('social.moderate'), 'PUT /v1/admin/stickers/:id': perm('social.moderate'),
+  'GET /v1/admin/groups': perm('social.moderate'), 'GET /v1/admin/groups/:gid': perm('social.moderate'), 'POST /v1/admin/groups/:gid/:action': perm('social.moderate'),
+  'GET /v1/admin/chat/messages/:id/edits': perm('social.moderate'), 'GET /v1/admin/notifications/deliveries': perm('users.support'),
+  // ---- Phase 3: accounts, identity, compliance, account area (PHASE3_SPEC.md §25)
+  // Pre-session and handoff endpoints are public by design: login CSRF, signed single-use tokens, the docv capture
+  // cookie + CSRF value, or the mock OIDC provider's own checks protect them. /v1/dev/* exists outside production only
+  // and answers loopback clients only.
+  'GET /v1/identity/config': P, 'GET /v1/identity/countries': P, 'POST /v1/verify_email': P,
+  'POST /v1/passwords/reset': P, 'GET /v1/passwords/reset/:token': P, 'PUT /v1/passwords/reset/:token/confirm': P,
+  'POST /v1/oauth/:provider/start': P, 'POST /v1/oauth/:provider/callback': P, 'POST /v1/oauth/link': P,
+  'POST /v1/passkeys/authentication/options': P, 'POST /v1/passkeys/authentication': P,
+  'POST /v1/docv/handoff/claim': P, 'GET /v1/docv/handoff': P, 'POST /v1/docv/handoff/documents': P, 'POST /v1/docv/handoff/submit': P,
+  'GET /v1/dev/mailbox': P, 'GET /v1/dev/sms': P,
+  'GET /mock-oidc/:provider/authorize': P, 'POST /mock-oidc/:provider/authorize': P, 'POST /mock-oidc/:provider/token': P, 'GET /mock-oidc/:provider/jwks': P,
+  'POST /v1/resume_sign_up': U, 'GET /v1/address/suggest': U, 'POST /v1/passkeys/step_up/options': U, 'POST /v1/passkeys/step_up': U,
+  'GET /v1/rewards/new_user_checklist': U,
+  'GET /v1/users/:uid/sign_up': O, 'POST /v1/users/:uid/sign_up/skip': O, 'POST /v1/users/:uid/verify_phone/send': O, 'POST /v1/users/:uid/verify_phone': O,
+  'PUT /v1/users/:uid/sign_up/name': O, 'PUT /v1/users/:uid/sign_up/birthday': O, 'PUT /v1/users/:uid/sign_up/address': O, 'POST /v1/users/:uid/sign_up/submit': O,
+  'POST /v1/users/:uid/email_verification': O, 'GET /v1/users/:uid/identity': O, 'POST /v1/users/:uid/data_export': O, 'POST /v1/users/:uid/close_account': O,
+  'GET /v1/users/:uid/sign_in_methods': O, 'GET /v1/users/:uid/api_keys': O, 'POST /v1/users/:uid/oauth/:provider/link': O, 'GET /v1/users/:uid/oauth': O,
+  'DELETE /v1/users/:uid/oauth/:provider': O, 'POST /v1/users/:uid/passkeys/registration/options': O, 'POST /v1/users/:uid/passkeys/registration': O,
+  'GET /v1/users/:uid/passkeys': O, 'DELETE /v1/users/:uid/passkeys/:id': O,
+  'GET /v1/users/:uid/docv': O, 'POST /v1/users/:uid/docv/sessions': O, 'POST /v1/users/:uid/docv/documents': O, 'POST /v1/users/:uid/docv/submit': O,
+  'POST /v1/users/:uid/docv/exit': O, 'GET /v1/users/:uid/geolocation': O, 'POST /v1/users/:uid/geolocation': O, 'GET /v1/users/:uid/withdrawal_holds': O,
+  'GET /v1/users/:uid/preferences': O, 'PUT /v1/users/:uid/preferences': O, 'GET /v1/users/:uid/marketing_consent': O, 'POST /v1/users/:uid/marketing_consent': O,
+  'GET /v1/users/:uid/connected_apps': O, 'DELETE /v1/users/:uid/connected_apps/:id': O, 'GET /v1/users/:uid/activity': O, 'GET /v1/users/:uid/activity.csv': O,
+  'GET /v1/users/:uid/tax_documents': O, 'GET /v1/users/:uid/tax_documents/:year/transactions.csv': O, 'GET /v1/users/:uid/tax_documents/:year/:form.csv': O,
+  'GET /v1/users/:uid/tax_documents/:year/:form.pdf': O, 'GET /v1/users/:uid/promo_codes': O, 'POST /v1/users/:uid/promo_codes': O,
+  'GET /v1/admin/identity/users/:id': perm('users.read'), 'POST /v1/admin/identity/users/:id/unmask': perm('users.support'),
+  'GET /v1/admin/compliance/settings': perm('settings.write'), 'PUT /v1/admin/compliance/settings': perm('settings.write'),
+  'GET /v1/admin/kyc/queue': perm('users.read'), 'POST /v1/admin/kyc/:userId/decision': perm('users.support'),
+  'GET /v1/admin/kyc/:userId/documents': perm('users.read'), 'POST /v1/admin/kyc/:userId/documents/:docId/view': perm('users.support'),
+  'GET /v1/admin/fraud/overview': perm('users.read'), 'POST /v1/admin/fraud/holds/:id/:action': perm('users.money'),
+  'GET /v1/admin/promo_codes': perm('users.money'), 'POST /v1/admin/promo_codes': perm('users.money'), 'PUT /v1/admin/promo_codes/:id': perm('users.money'),
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };
@@ -340,7 +395,7 @@ async function until(fn, ms = 5000) {
 }
 
 test('WebSocket channel authorization: private channels need a session; another user\'s private events are never delivered', async () => {
-  const PRIVATE = ['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications'];
+  const PRIVATE = ['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups'];
   // Anonymous socket: every private channel refused (code 9); public channels allowed.
   const a0 = anon.socket();
   await a0.opened;

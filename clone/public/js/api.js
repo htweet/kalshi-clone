@@ -20,8 +20,36 @@ export class ApiError extends Error {
     this.mutedUntil = e.muted_until ?? null; // chat mute
     this.details = e.details ?? null;
     this.methods = e.methods ?? null; // step_up_required: ['password'] | ['totp'] | both (CLONE_SPEC §22.6)
+    // Phase 3 (PHASE3_SPEC.md §25): per-field validation errors, compliance details, sign-in proof of work, code attempts.
+    this.fields = e.fields ?? null;
+    this.identityStatus = e.identity_status ?? null;
+    this.action = e.action ?? null;
+    this.countryName = e.country_name ?? null;
+    this.pow = e.pow ?? null;
+    this.attemptsLeft = e.attempts_left ?? null;
+    this.supportAction = e.support_action ?? null;
   }
 }
+
+// Fraud signals (P3.7): a random per-browser device ID (no fingerprinting), sent as X-Device-Id; the server keeps only
+// an HMAC of it. RS10: X-Plx-Idle tells the server how long ago the user last interacted, so background polls do not
+// keep an idle session alive.
+const DEVICE_KEY = 'plx-device-id';
+function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY);
+    if (!id || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+      const b = new Uint8Array(18); crypto.getRandomValues(b);
+      id = btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  } catch { return null; }
+}
+let lastInteraction = Date.now();
+if (typeof window !== 'undefined') for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) window.addEventListener(ev, () => { lastInteraction = Date.now(); }, { capture: true, passive: true });
+export const markInteraction = () => { lastInteraction = Date.now(); };
+const COMPLIANCE = new Set(['identity_verification_required', 'geo_restricted', 'account_closed']);
 
 export const csrf = {
   get: () => getLocalWithExpiry(CSRF_KEY),
@@ -34,7 +62,7 @@ export const csrf = {
 export const newIdempotencyKey = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`);
 const idem = () => ({ idempotencyKey: newIdempotencyKey() });
 
-export async function request(method, url, body, { raw = false, timeoutMs = 15000, stepUpDone = false, idempotencyKey = null } = {}, retried = false) {
+export async function request(method, url, body, { raw = false, timeoutMs = 15000, stepUpDone = false, idempotencyKey = null, quietCompliance = false } = {}, retried = false) {
   const headers = { Accept: 'application/json' };
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -42,7 +70,11 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
   if (t) headers['x-csrf-token'] = t;
   // Signed client token on every /v1 request, reads included (PLAN P1.10; HAR4 shows the WAF token on every API call).
   // The server enforces it on writes and /v1/users/* reads; the HttpOnly cookie copy covers a missing header.
-  if (/^\/v1\//.test(url)) { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; }
+  if (/^\/v1\//.test(url)) {
+    const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct;
+    const dev = deviceId(); if (dev) headers['X-Device-Id'] = dev;
+    headers['X-Plx-Idle'] = String(Math.max(0, Math.floor((Date.now() - lastInteraction) / 1000)));
+  }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   let res;
@@ -57,14 +89,16 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
   const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated);
   if (raw) return res;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok && !retried && isClientTokenError(res.status, data)) { await refreshClientToken(true); return request(method, url, body, { raw, timeoutMs, stepUpDone, idempotencyKey }, true); }
+  if (!res.ok && !retried && isClientTokenError(res.status, data)) { await refreshClientToken(true); return request(method, url, body, { raw, timeoutMs, stepUpDone, idempotencyKey, quietCompliance }, true); }
   // Sensitive action: confirm with password / two-factor code in a modal, then retry once (§22.6).
   if (!res.ok && data?.error?.code === 'step_up_required' && !stepUpDone) {
     const { stepUp } = await import('./views/stepup.js');
     await stepUp(new ApiError(res.status, data));
-    return request(method, url, body, { raw, timeoutMs, stepUpDone: true, idempotencyKey }, retried);
+    return request(method, url, body, { raw, timeoutMs, stepUpDone: true, idempotencyKey, quietCompliance }, retried);
   }
   if (res.status === 401 && data?.error?.code === 'token_authentication_failure') window.dispatchEvent(new Event('parlance:session-ended'));
+  // Identity verification / location / closed account (PHASE3_SPEC.md §25): one shared explanation dialog.
+  if (!res.ok && COMPLIANCE.has(data?.error?.code) && !quietCompliance) window.dispatchEvent(new CustomEvent('parlance:compliance', { detail: data.error }));
   if (!res.ok) throw new ApiError(res.status, data);
   return data;
 }
@@ -189,4 +223,56 @@ export const api = {
   chatDelete: (uid, t, id) => request('DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`)),
   chatReport: (uid, t, id, reason) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/report`), { reason }),
   chatMod: (t, action, b) => request('POST', `/v1/admin/chat/rooms/${encodeURIComponent(t)}/${encodeURIComponent(action)}`, b || {}),
+  // Phase 2 community (PHASE2_SPEC.md §24): post extras, stickers, mutes, topics, search, Inner Circle, group chats,
+  // notification preferences, price-movement and trade-alert subscriptions, push devices, chat reactions / edits.
+  post: (pid) => request('GET', `/v1/social/posts/${encodeURIComponent(pid)}`),
+  editPost: (uid, pid, body) => request('PUT', u(uid, `/social/posts/${encodeURIComponent(pid)}`), { body }),
+  commentWith: (uid, pid, b) => request('POST', u(uid, `/social/posts/${encodeURIComponent(pid)}/comments`), b),
+  stickers: () => request('GET', '/v1/social/stickers'),
+  positionTags: (uid) => request('GET', u(uid, '/social/position_tags')),
+  mutes: (uid) => request('GET', u(uid, '/social/mutes')),
+  mute: (uid, nickname) => request('POST', u(uid, '/social/mutes'), { nickname }),
+  unmute: (uid, nickname) => request('DELETE', u(uid, `/social/mutes${qs({ nickname })}`)),
+  topics: (uid) => request('GET', u(uid, '/social/topics')),
+  followTopic: (uid, kind, value) => request('POST', u(uid, '/social/topics'), { kind, value }),
+  unfollowTopic: (uid, kind, value) => request('DELETE', u(uid, `/social/topics${qs({ kind, value })}`)),
+  searchProfiles: (query) => request('GET', `/v1/search/social_profiles${qs({ query })}`),
+  timelineCount: (o) => request('GET', `/v1/social/timeline_count${qs(o)}`),
+  badges: (nickname) => request('GET', `/v1/social/badges${qs({ nickname })}`),
+  setAvatar: (uid, stickerId) => request('PUT', u(uid, '/social/profile/avatar'), { sticker_id: stickerId }),
+  promos: (o) => request('GET', `/v1/promos${qs(o)}`),
+  circle: (uid) => request('GET', u(uid, '/social/circle')),
+  circleRequest: (uid, nickname) => request('POST', u(uid, '/social/circle/requests'), { nickname }),
+  circleAccept: (uid, rid) => request('POST', u(uid, `/social/circle/requests/${encodeURIComponent(rid)}/accept`), {}),
+  circleDecline: (uid, rid) => request('POST', u(uid, `/social/circle/requests/${encodeURIComponent(rid)}/decline`), {}),
+  circleCancel: (uid, rid) => request('DELETE', u(uid, `/social/circle/requests/${encodeURIComponent(rid)}`)),
+  circleRemove: (uid, nickname) => request('DELETE', u(uid, `/social/circle/members${qs({ nickname })}`)),
+  groups: (uid) => request('GET', u(uid, '/groups')),
+  groupCandidates: (uid) => request('GET', u(uid, '/groups/candidates')),
+  group: (uid, gid, o) => request('GET', u(uid, `/groups/${encodeURIComponent(gid)}${qs(o || {})}`)),
+  createGroup: (uid, b) => request('POST', u(uid, '/groups'), b),
+  renameGroup: (uid, gid, name) => request('PUT', u(uid, `/groups/${encodeURIComponent(gid)}`), { name }),
+  addGroupMembers: (uid, gid, nicknames) => request('POST', u(uid, `/groups/${encodeURIComponent(gid)}/members`), { nicknames }),
+  removeGroupMember: (uid, gid, nickname) => request('DELETE', u(uid, `/groups/${encodeURIComponent(gid)}/members/${encodeURIComponent(nickname)}`)),
+  leaveGroup: (uid, gid) => request('POST', u(uid, `/groups/${encodeURIComponent(gid)}/leave`), {}),
+  groupSend: (uid, gid, b) => request('POST', u(uid, `/groups/${encodeURIComponent(gid)}/messages`), b),
+  groupDelete: (uid, gid, mid) => request('DELETE', u(uid, `/groups/${encodeURIComponent(gid)}/messages/${encodeURIComponent(mid)}`)),
+  groupReport: (uid, gid, mid, reason) => request('POST', u(uid, `/groups/${encodeURIComponent(gid)}/messages/${encodeURIComponent(mid)}/report`), { reason }),
+  groupRead: (uid, gid, messageId) => request('PUT', u(uid, `/groups/${encodeURIComponent(gid)}/read`), messageId ? { message_id: messageId } : {}),
+  notifPrefs: (uid) => request('GET', u(uid, '/notifications/preferences')),
+  setNotifPrefs: (uid, b) => request('PUT', u(uid, '/notifications/preferences'), b),
+  setNotifType: (uid, type, b) => request('PUT', u(uid, `/notifications/settings/${encodeURIComponent(type)}`), b),
+  deliveries: (uid) => request('GET', u(uid, '/notifications/deliveries')),
+  pushDevices: (uid) => request('GET', u(uid, '/notifications/push_devices')),
+  addPushDevice: (uid, label) => request('POST', u(uid, '/notifications/push_devices'), { label }),
+  removePushDevice: (uid, id) => request('DELETE', u(uid, `/notifications/push_devices/${encodeURIComponent(id)}`)),
+  moveSubs: (uid, ticker) => request('GET', u(uid, `/notifications/price_movement_subscriptions${qs({ market_ticker: ticker })}`)),
+  addMoveSub: (uid, b) => request('POST', u(uid, '/notifications/price_movement_subscriptions'), b),
+  deleteMoveSub: (uid, id) => request('DELETE', u(uid, `/notifications/price_movement_subscriptions${qs({ id })}`)),
+  accountSubs: (uid) => request('GET', u(uid, '/notifications/social_account_subscriptions')),
+  addAccountSub: (uid, nickname) => request('POST', u(uid, '/notifications/social_account_subscriptions'), { nickname }),
+  removeAccountSub: (uid, nickname) => request('DELETE', u(uid, `/notifications/social_account_subscriptions${qs({ nickname })}`)),
+  chatPostWith: (uid, t, b) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages`), b),
+  chatEdit: (uid, t, id, body) => request('PUT', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`), { body }),
+  chatReact: (uid, t, id, reaction, on) => request(on ? 'PUT' : 'DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/reactions/${encodeURIComponent(reaction)}`), on ? {} : undefined),
 };

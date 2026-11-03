@@ -221,7 +221,7 @@ The project is complete only when **all** of the following hold:
 |---|---|
 | 0 Stabilise | ✅ done; CI green on `main` (tests, lint, audit, gitleaks, CodeQL, ZAP). Owner action: enable branch protection on `main` requiring the CI checks |
 | 1 Security foundation | ✅ done (spec §21–23; 140 E2E tests). Residual risks tracked in §21.11/§22 and §10 below |
-| 2 Social completion | paused by the user (partial work kept on `phase-2-3-stopped-wip`, not merged); scope now includes §11 A6 notifications, A11 |
+| 2 Social completion | ✅ built on `phase-2-3` (PHASE2_SPEC.md §24): P2.1–P2.4, A6 notification matrix, A11 (Inner Circle, Group chats, position / trade / leaderboard alerts), G3, G8, G10; `social2.e2e` + `groupchat.e2e` suites |
 | 3 Identity & compliance | paused by the user (partial work kept on `phase-2-3-stopped-wip`, not merged); scope now includes §11 A1–A6, A12 |
 | 4 Payments (sandbox) | pending |
 | 5 Markets & content | pending |

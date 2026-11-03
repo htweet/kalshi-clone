@@ -9,6 +9,7 @@ import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { relTime, toast } from '../lib.js';
+import { REACTIONS, openStickerPicker, mutedNicks } from './social2.js'; // reactions, stickers, mutes (PHASE2_SPEC.md §24.8)
 
 const MAX = 280;
 const PAGE = 40;
@@ -16,6 +17,7 @@ const SLOW = [[0, 'Off'], [5, '5s'], [10, '10s'], [30, '30s'], [60, '1m'], [120,
 const REPORT_REASONS = [['Spam or scam', 'spam'], ['Harassment or hate', 'abuse'], ['Off-topic', 'offtopic']];
 const MUTES = [[10, '10 min'], [60, '1 hour'], [1440, '24 hours']];
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
+const EDIT_MS = 5 * 60 * 1000; // own messages can be edited for 5 minutes (server/chat-extras.js)
 
 // Tiny DOM builder: attributes come from code, children strings become text nodes (never parsed as HTML).
 function h(tag, attrs = {}, ...kids) {
@@ -67,7 +69,8 @@ export function mountChat({ el, ev }) {
   const T = ev.event_ticker;
   const actions = el.querySelector('.ev-actions');
   if (!actions || !T) return () => {};
-  const st = { room: null, viewer: null, ids: new Set(), oldest: null, hasMore: false, loadingOlder: false, open: false, replyTo: null, unseen: 0, unreadClosed: 0, coolUntil: 0, footMode: '', menu: null, wasDown: false };
+  const st = { room: null, viewer: null, ids: new Set(), oldest: null, hasMore: false, loadingOlder: false, open: false, replyTo: null, unseen: 0, unreadClosed: 0, coolUntil: 0, footMode: '', menu: null, wasDown: false, muted: new Set() };
+  mutedNicks().then((m) => { st.muted = m; }).catch(() => {});
   const timers = [];
 
   // ---------------- entry points: header pill (+ compact entry under a sports scoreboard)
@@ -117,6 +120,7 @@ export function mountChat({ el, ev }) {
     const acts = h('div', { class: 'chat-acts' });
     if (st.viewer?.signed_in) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'reply', 'data-testid': 'chat-reply', title: 'Reply' }, 'Reply'));
     if (mine || isMod()) acts.append(h('button', { class: 'chat-act danger', type: 'button', 'data-act': 'delete', 'data-testid': 'chat-del', title: 'Delete' }, 'Delete'));
+    if (mine && Date.now() - Date.parse(m.created_time) < EDIT_MS) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'edit', 'data-testid': 'chat-edit', title: 'Edit' }, 'Edit'));
     if ((st.viewer?.signed_in && !mine) || isMod()) acts.append(h('button', { class: 'chat-act more', type: 'button', 'data-act': 'more', 'data-testid': 'chat-more', 'aria-haspopup': 'menu', 'aria-label': 'More actions' }, '⋯'));
     row.append(h('div', { class: 'chat-meta' },
       h('span', { class: 'chat-nick', 'data-testid': 'chat-nick' }, `@${m.author.nickname}`),
@@ -124,11 +128,28 @@ export function mountChat({ el, ev }) {
       h('time', { class: 'chat-time', datetime: m.created_time, title: new Date(m.created_time).toLocaleString() }, relTime(m.created_time)), acts));
     const body = h('div', { class: 'chat-body', 'data-testid': 'chat-body' });
     linkify(body, m.body);
+    if (m.edited) body.append(h('span', { class: 'chat-edited faint', 'data-testid': 'chat-edited', title: m.edited_time ? new Date(m.edited_time).toLocaleString() : '' }, ' (edited)'));
     row.append(body);
+    if (m.sticker) row.append(h('img', { class: 'chat-sticker', src: m.sticker.url, alt: m.sticker.label, title: m.sticker.label, width: '72', height: '72', 'data-testid': 'chat-sticker' }));
+    row.dataset.created = m.created_time;
+    row.append(reactionsEl(m));
     return row;
+  }
+  // Reactions row: one chip per reaction with a count; mine are highlighted; "+" opens the picker (signed in only).
+  function reactionsEl(m) {
+    const box = h('div', { class: 'chat-reactions', 'data-testid': 'chat-reactions' });
+    const mine = new Set(m.my_reactions || []);
+    for (const [k, emoji, label] of REACTIONS) {
+      const n = (m.reactions || {})[k] || 0;
+      if (!n) continue;
+      box.append(h('button', { class: `chat-react${mine.has(k) ? ' on' : ''}`, type: 'button', 'data-react': k, 'aria-pressed': String(mine.has(k)), 'aria-label': `${label} (${n})`, 'data-testid': `chat-react-${k}` }, `${emoji} `, h('span', { 'data-testid': 'chat-react-count' }, String(n))));
+    }
+    if (st.viewer?.signed_in) box.append(h('button', { class: 'chat-react add', type: 'button', 'data-react-add': '', 'aria-label': 'Add a reaction', 'data-testid': 'chat-react-add' }, '+'));
+    return box;
   }
   function add(m, { prepend = false } = {}) {
     if (st.ids.has(m.id)) return false;
+    if (m.author && st.muted.has(String(m.author.nickname).toLowerCase())) return false; // muted by me: hidden for me only
     st.ids.add(m.id);
     const node = msgEl(m);
     if (prepend) msgsBox.prepend(node); else msgsBox.append(node);
@@ -245,7 +266,9 @@ export function mountChat({ el, ev }) {
     } else {
       const input = h('textarea', { class: 'chat-input', 'data-input': '', rows: '1', placeholder: 'Say something…', 'aria-label': 'Chat message', 'data-testid': 'chat-input', enterkeyhint: 'send', spellcheck: 'true' });
       const send = h('button', { class: 'btn btn-primary btn-sm chat-send', type: 'submit', 'data-send': '', 'data-testid': 'chat-send', disabled: true }, 'Send');
-      const form = h('form', { class: 'chat-form', 'data-form': '' }, input, send);
+      const stickerBtn = h('button', { class: 'btn btn-sm btn-ghost chat-sticker-btn', type: 'button', 'data-sticker-btn': 'chat', 'data-testid': 'chat-sticker-btn', 'aria-label': 'Send a sticker' }, '☺');
+      stickerBtn.onclick = (e) => openStickerPicker(e.currentTarget, (sk) => submit({ sticker_id: sk.id }));
+      const form = h('form', { class: 'chat-form', 'data-form': '' }, stickerBtn, input, send);
       foot.append(
         h('div', { class: 'chat-replying', 'data-reply': '', 'data-testid': 'chat-replying', hidden: true }, h('span', { class: 'chat-replying-text' }, 'Replying to ', h('b', { 'data-reply-nick': '' })),
           h('button', { class: 'chat-act', type: 'button', 'data-reply-cancel': '', 'aria-label': 'Cancel reply' }, '✕')),
@@ -286,13 +309,13 @@ export function mountChat({ el, ev }) {
     if (m) { box.querySelector('[data-reply-nick]').textContent = `@${m.nickname}`; $('[data-input]')?.focus(); }
   }
   const showErr = (msg) => { const e = $('[data-err]'); if (e) e.textContent = msg; };
-  async function submit() {
+  async function submit(extra = null) {
     const input = $('[data-input]');
     const body = input.value.trim();
-    if (!body || chars(body) > MAX || st.sending || Date.now() < st.coolUntil) return;
+    if ((!body && !extra) || chars(body) > MAX || st.sending || Date.now() < st.coolUntil) return;
     st.sending = true; updateComposer(); showErr('');
     try {
-      const r = await api.chatPost(session.uid, T, { body, reply_to: st.replyTo?.id || null });
+      const r = extra ? await api.chatPostWith(session.uid, T, { ...extra, body: body || null, reply_to: st.replyTo?.id || null }) : await api.chatPost(session.uid, T, { body, reply_to: st.replyTo?.id || null });
       add(r.message); toBottom();
       input.value = ''; autosize(input); setReply(null);
       if (r.slow_mode_sec && !isMod()) startCooldown(r.slow_mode_sec);
@@ -336,6 +359,12 @@ export function mountChat({ el, ev }) {
     const act = e.target.closest('[data-act]')?.dataset.act;
     try {
       if (act === 'reply') { setReply({ id, nickname: row.dataset.nick }); return; }
+      if (act === 'edit') { startEdit(row); return; }
+      const rx = e.target.closest('[data-react]');
+      if (rx) { const on = rx.getAttribute('aria-pressed') !== 'true'; const r = await api.chatReact(session.uid, T, id, rx.dataset.react, on); applyReactions(id, r.reactions, r.my_reactions); return; }
+      if (e.target.closest('[data-react-add]')) { openReactionPicker(row); return; }
+      const pick = e.target.closest('[data-react-pick]');
+      if (pick) { closeMenu(); const r = await api.chatReact(session.uid, T, id, pick.dataset.reactPick, true); applyReactions(id, r.reactions, r.my_reactions); return; }
       if (act === 'delete') { await api.chatDelete(session.uid, T, id); removeMsg(id); toast('Message deleted'); return; }
       if (act === 'more') { if (st.menu && st.menu.parentElement === row) closeMenu(); else openMenu(row, e.target); return; }
       const rep = e.target.closest('[data-report]');
@@ -351,6 +380,37 @@ export function mountChat({ el, ev }) {
       if (mute) { closeMenu(); const r = await api.chatMod(T, 'mute', { message_id: id, minutes: Number(mute.dataset.mute), reason: 'muted from the event chat' }); toast(`@${r.nickname} muted until ${clock(r.muted_until)}`); }
     } catch (ex) { closeMenu(); toast(ex.message, 'error'); }
   });
+  function openReactionPicker(row) {
+    closeMenu();
+    const menu = h('div', { class: 'chat-menu chat-react-menu', role: 'menu', 'data-testid': 'chat-react-menu' }, ...REACTIONS.map(([k, emoji, label]) => h('button', { type: 'button', role: 'menuitem', 'data-react-pick': k, 'aria-label': label, 'data-testid': `chat-react-pick-${k}` }, emoji)));
+    row.append(menu); st.menu = menu;
+  }
+  // Server counts are authoritative; my own selection is kept from the REST answer (live frames carry counts only).
+  function applyReactions(id, reactions, myReactions) {
+    const row = panel.querySelector(`.chat-msg[data-id="${CSS.escape(id)}"]`);
+    if (!row) return;
+    const prev = row.querySelector('[data-testid=chat-reactions]');
+    const mineNow = myReactions || [...row.querySelectorAll('.chat-react.on[data-react]')].map((b) => b.dataset.react);
+    prev.replaceWith(reactionsEl({ reactions, my_reactions: mineNow }));
+  }
+  function startEdit(row) {
+    if (row.querySelector('[data-edit-form]')) return;
+    const bodyEl = row.querySelector('[data-testid=chat-body]');
+    const input = h('input', { class: 'chat-edit-input', maxlength: String(MAX * 2), 'aria-label': 'Edit message', 'data-testid': 'chat-edit-input' });
+    input.value = [...bodyEl.childNodes].filter((n) => !(n.classList && n.classList.contains('chat-edited'))).map((n) => n.textContent).join('');
+    const form = h('form', { class: 'chat-edit', 'data-edit-form': '' }, input, h('button', { class: 'btn btn-sm btn-primary', type: 'submit', 'data-testid': 'chat-edit-save' }, 'Save'), Object.assign(h('button', { class: 'btn btn-sm', type: 'button' }, 'Cancel'), { onclick: () => { form.remove(); bodyEl.hidden = false; } }));
+    bodyEl.hidden = true; bodyEl.after(form); input.focus();
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      try { const r = await api.chatEdit(session.uid, T, row.dataset.id, input.value); replaceMsg(r.message); } catch (ex) { toast(ex.code === 'edit_window_closed' ? 'Messages can be edited for 5 minutes.' : ex.message, 'error'); }
+    };
+  }
+  function replaceMsg(m) {
+    const row = panel.querySelector(`.chat-msg[data-id="${CSS.escape(m.id)}"]`);
+    if (!row) return;
+    const keepMine = [...row.querySelectorAll('.chat-react.on[data-react]')].map((b) => b.dataset.react);
+    row.replaceWith(msgEl({ ...m, my_reactions: m.my_reactions || keepMine }));
+  }
   list.addEventListener('scroll', () => {
     if (list.scrollTop < 60) loadOlder();
     if (nearBottom()) st.unseen = 0;
@@ -369,7 +429,7 @@ export function mountChat({ el, ev }) {
     try { const r = await api.chatMod(T, lock ? 'lock' : 'unlock', { reason: lock ? 'locked from the event chat' : '' }); st.room = { ...st.room, ...r.room }; drawRoom(); toast(lock ? 'Chat locked' : 'Chat unlocked'); } catch (ex) { toast(ex.message, 'error'); }
   };
   document.addEventListener('click', onDocClick);
-  function onDocClick(e) { if (st.menu && !e.target.closest('.chat-menu') && !e.target.closest('[data-act=more]')) closeMenu(); }
+  function onDocClick(e) { if (st.menu && !e.target.closest('.chat-menu') && !e.target.closest('[data-act=more]') && !e.target.closest('[data-react-add]')) closeMenu(); }
 
   // ---------------- open / close
   function setOpen(open) {
@@ -431,6 +491,10 @@ export function mountChat({ el, ev }) {
       if (st.room) { st.room.pinned = msg.pinned; drawPinned(); }
     } else if (m.type === 'chat_room_state') {
       st.room = msg; drawRoom();
+    } else if (m.type === 'chat_reactions') {
+      applyReactions(msg.id, msg.reactions, null);
+    } else if (m.type === 'chat_edited') {
+      replaceMsg(msg);
     }
   }
   const unsub = socket.subscribe({ channels: ['chat'], event_tickers: [T] }, onSocket);

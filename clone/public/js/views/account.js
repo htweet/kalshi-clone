@@ -1,20 +1,44 @@
-// Account & security (spec §13.6–13.9, CLONE_SPEC §22): social profile, security (password, two-factor, devices,
-// activity), account limits, price alerts, appearance.
+// Account area frame (CLONE_SPEC §13.16; PHASE3_SPEC.md §25.7): content on the left, a right-hand card nav with icons —
+// Account & security · Your activity · Documents · Settings. "Account & security" keeps the earlier sections (spec
+// §13.6–13.9, CLONE_SPEC §22) as sub-tabs: Security (password, two-factor, devices, activity), Identity & privacy
+// (verification status, sign-in methods, passkeys, data export, account closure), Social profile, Account limits and
+// Price alerts. The old /account/appearance moved into Settings (theme).
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { esc, money, toast, relTime } from '../lib.js';
 import { PASSWORD_RULES, authMessage } from './auth.js';
 
-const SECTIONS = [['profile', 'Social profile'], ['security', 'Security'], ['limits', 'Account limits'], ['alerts', 'Price alerts'], ['appearance', 'Appearance']];
+const NAV = [
+  ['security', '/account', 'Account & security', '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 2.5l6 2.5v4.5c0 4-2.6 6.8-6 8-3.4-1.2-6-4-6-8V5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'],
+  ['activity', '/account/activity', 'Your activity', '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2.5 10h3l2-5 4 10 2-5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'],
+  ['taxes', '/account/taxes', 'Documents', '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M7.5 10h5M7.5 13h5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'],
+  ['settings', '/account/settings', 'Settings', '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 2v2.5M10 15.5V18M2 10h2.5M15.5 10H18M4.3 4.3l1.8 1.8M13.9 13.9l1.8 1.8M4.3 15.7l1.8-1.8M13.9 6.1l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'],
+];
+const SUB = [['security', '/account', 'Security'], ['privacy', '/account/privacy', 'Identity & privacy'], ['profile', '/account/profile', 'Social profile'], ['limits', '/account/limits', 'Account limits'], ['alerts', '/account/alerts', 'Price alerts']];
+const lazyPanel = (load) => (panel, ctx) => load().then((m) => m.render(panel, ctx));
+const PANELS = {
+  activity: lazyPanel(() => import('./account-activity.js')),
+  taxes: lazyPanel(() => import('./account-documents.js')),
+  settings: lazyPanel(() => import('./account-settings.js')),
+  privacy: lazyPanel(() => import('./account-identity.js')),
+};
 
-export async function render({ el, params, navigate }) {
+export async function render({ el, params, navigate, query }) {
   if (!session.user) { navigate('/sign-in?next=' + encodeURIComponent(location.pathname), { replace: true }); return; }
-  const section = SECTIONS.some(([k]) => k === params.section) ? params.section : 'profile';
-  document.title = 'Account · Parlance';
-  el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Account</h1></div>
-    <div class="account-layout"><nav class="side-nav">${SECTIONS.map(([k, l]) => `<a href="/account/${k}" data-link class="${k === section ? 'on' : ''}">${l}</a>`).join('')}</nav><div id="panel"></div></div>`;
+  if (params.section === 'appearance') { navigate('/account/settings', { replace: true }); return; }
+  const known = [...SUB.map(([k]) => k), 'activity', 'taxes', 'settings'];
+  const section = known.includes(params.section) ? params.section : 'security';
+  const top = SUB.some(([k]) => k === section) ? 'security' : section;
+  const title = NAV.find(([k]) => k === top)[2];
+  document.title = `${title} · Parlance`;
+  el.innerHTML = `<div class="acct" data-testid="account-frame" data-section="${esc(section)}">
+    <div class="acct-main"><h1 class="typ-title-x10 acct-title" data-testid="account-title">${esc(title)}</h1>
+      ${top === 'security' ? `<nav class="acct-sub chips" aria-label="Account and security sections" data-testid="account-subnav">${SUB.map(([k, href, l]) => `<a class="chip ${k === section ? 'on' : ''}" href="${href}" data-link data-sub="${esc(k)}">${esc(l)}</a>`).join('')}</nav>` : ''}
+      <div id="panel"></div></div>
+    <nav class="acct-nav card" aria-label="Account" data-testid="account-nav">${NAV.map(([k, href, l, icon]) => `<a href="${href}" data-link class="${k === top ? 'on' : ''}" data-nav-item="${esc(k)}"${k === top ? ' aria-current="page"' : ''}><span class="acct-ic">${icon}</span><span>${esc(l)}</span></a>`).join('')}</nav></div>`;
   const panel = el.querySelector('#panel');
-  await ({ profile, security, limits, alerts, appearance })[section](panel);
+  const fn = PANELS[section] || { security, profile, limits, alerts }[section];
+  return fn(panel, { navigate, query });
 }
 
 async function profile(panel) {
@@ -48,8 +72,18 @@ const EVENT_LABELS = {
   password_rehash: 'Password storage upgraded', email_change: 'Email address changed', session_revoke: 'Device signed out', sessions_revoke_all: 'Signed out everywhere',
   sessions_revoked: 'Sessions ended (role change)', session_expired: 'Session expired', withdrawal_mfa_on: 'Withdrawal verification on', withdrawal_mfa_off: 'Withdrawal verification off',
   admin_bootstrap: 'Admin account set up', default_password_removed: 'Default password removed',
+  // Phase 3 (PHASE3_SPEC.md §25)
+  phone_code_sent: 'Phone code sent', phone_verified: 'Phone number verified', phone_changed: 'Phone number changed', phone_verify_fail: 'Wrong phone code', phone_code_limited: 'Phone code request limited',
+  email_verified: 'Email verified', password_reset_requested: 'Password reset requested', password_reset: 'Password reset by email link', passkey_added: 'Passkey added', passkey_removed: 'Passkey removed',
+  passkey_used: 'Signed in with a passkey', passkey_fail: 'Passkey check failed', passkey_counter_regression: 'Passkey refused (possible copy)', oauth_linked: 'Sign-in provider linked',
+  oauth_unlinked: 'Sign-in provider unlinked', oauth_fail: 'Provider sign-in failed', identity_submitted: 'Identity submitted', identity_approved: 'Identity verified', identity_review: 'Identity under review',
+  identity_rejected: 'Identity not verified', identity_retry: 'Identity check needs another try', identity_documents_required: 'ID photos requested', identity_viewed_by_staff: 'Support viewed your identity details',
+  geo_blocked: 'Blocked by location', withdrawal_held: 'Withdrawal held for review', data_export: 'Data exported', permission_denied: 'Locked setting refused (verify identity first)',
+  docv_handoff_created: 'Phone verification link created', docv_handoff_claimed: 'Phone verification link opened', docv_handoff_refused: 'Phone verification link refused', docv_uploaded: 'ID photo uploaded',
+  docv_exited: 'Left identity verification', documents_erased: 'ID photos erased', marketing_sms_opt_in: 'Marketing texts on', marketing_sms_opt_out: 'Marketing texts off',
+  security_notifications_on: 'Security notifications on', security_notifications_off: 'Security notifications off', promo_redeemed: 'Promo code redeemed', connected_app_revoked: 'Connected app removed',
 };
-const BAD_EVENTS = new Set(['login_fail', 'lockout', 'mfa_fail', 'step_up_fail', 'password_change_fail']);
+const BAD_EVENTS = new Set(['login_fail', 'lockout', 'mfa_fail', 'step_up_fail', 'password_change_fail', 'phone_verify_fail', 'passkey_fail', 'passkey_counter_regression', 'oauth_fail', 'geo_blocked', 'permission_denied', 'docv_handoff_refused']);
 const dur = (sec) => (sec >= 86400 ? `${Math.round(sec / 86400)} days` : sec >= 3600 ? `${Math.round(sec / 3600)} hours` : `${Math.max(1, Math.round(sec / 60))} minutes`);
 
 async function security(panel) {
@@ -175,11 +209,4 @@ async function alerts(panel) {
     <table class="table"><thead><tr><th>Market</th><th>When Yes is</th><th>Status</th><th></th></tr></thead><tbody>
     ${list.map((t) => `<tr data-alert="${esc(t.id)}"><td>${esc(t.market_title)}</td><td>${esc(t.direction)} ${Math.round(Number(t.price_dollars) * 100)}¢</td><td>${t.triggered_time ? `Triggered ${relTime(t.triggered_time)}` : 'Active'}</td><td><button class="btn btn-sm" data-del>Delete</button></td></tr>`).join('') || '<tr><td colspan="4" class="faint">No price alerts yet.</td></tr>'}</tbody></table></section>`;
   for (const b of panel.querySelectorAll('[data-del]')) b.onclick = async () => { await api.deletePriceTarget(session.uid, b.closest('[data-alert]').dataset.alert); toast('Alert deleted'); alerts(panel); };
-}
-
-async function appearance(panel) {
-  const cur = document.documentElement.dataset.theme;
-  panel.innerHTML = `<section class="card panel"><h2>Appearance</h2><p class="muted">Saved to your account and applied on every device.</p>
-    <div class="seg"><button data-theme-set="light" class="${cur === 'light' ? 'on' : ''}">Light</button><button data-theme-set="dark" class="${cur === 'dark' ? 'on' : ''}">Dark</button></div></section>`;
-  for (const b of panel.querySelectorAll('[data-theme-set]')) b.onclick = async () => { await session.setProp('theme', b.dataset.themeSet); appearance(panel); };
 }

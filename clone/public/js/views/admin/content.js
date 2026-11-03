@@ -4,6 +4,8 @@ import { vars } from '../../dynstyle.js';
 import { esc, get, post, put, del, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, subTabs, badge, fmtTime } from './ui.js';
 import { CATEGORIES, catLabel } from '../../lib.js';
 
+// Promo targeting lists are stored as JSON arrays; the form edits them as comma-separated text.
+const listText = (v) => { try { return (Array.isArray(v) ? v : JSON.parse(v || '[]')).join(', '); } catch { return ''; } };
 const TABS = [['hero', 'Hero carousel'], ['hubs', 'Hubs'], ['promos', 'Promo cards'], ['banners', 'Site banner'], ['nav', 'Navigation'], ['info_cards', 'Info cards'], ['news', 'News items'], ['help', 'Help pages']];
 const active = (r) => (r.active ? badge('active', 'ok') : badge('off'));
 const windowText = (r) => (r.starts_at || r.ends_at ? `${r.starts_at ? fmtTime(r.starts_at) : '…'} → ${r.ends_at ? fmtTime(r.ends_at) : '…'}` : 'Always');
@@ -15,8 +17,13 @@ const COLL = {
     fields: (r) => [{ name: 'overline', label: 'Overline', value: r.overline }, { name: 'title', label: 'Title', required: true, value: r.title }, { name: 'subtitle', label: 'Subtitle', value: r.subtitle, span: true },
       { name: 'link', label: 'Link', required: true, value: r.link, placeholder: '/category/sports' }, { name: 'color', label: 'Colour', type: 'color', value: r.color || '#8f7fff' },
       { name: 'starts_at', label: 'Starts (optional)', type: 'datetime', value: r.starts_at }, { name: 'ends_at', label: 'Ends (optional)', type: 'datetime', value: r.ends_at },
-      { name: 'position', label: 'Order', type: 'number', value: r.position ?? 0 }, { name: 'active', label: 'Active', type: 'checkbox', value: r.active ?? true }],
-    cols: [{ key: 'position', label: '#', num: true }, { key: 'title', label: 'Title', render: (r) => `<i class="adm-swatch v-bg"${vars({ '--bg': r.color })}></i>${r.overline ? `<span class="faint">${esc(r.overline)} · </span>` : ''}${esc(r.title)}` }, { key: 'link', label: 'Link' }, { key: 'starts_at', label: 'Window', render: (r) => esc(windowText(r)) }, { key: 'active', label: 'State', render: active }] },
+      { name: 'position', label: 'Order', type: 'number', value: r.position ?? 0 }, { name: 'active', label: 'Active', type: 'checkbox', value: r.active ?? true },
+      // Targeting (gap G8, spec §13.11): untargeted cards show on home; series / category cards on those pages.
+      { name: 'series_tickers', label: 'Show on series (tickers, comma-separated)', value: listText(r.series_tickers), placeholder: 'PLXCOUNCIL, PLXSTATE', span: true, hint: 'Event pages of these series show the card instead of home.' },
+      { name: 'categories', label: 'Show on categories (comma-separated)', value: listText(r.categories), placeholder: 'Politics, Crypto', span: true, hint: 'Category pages show the card instead of home.' },
+      { name: 'hide_logged_out', label: 'Hide from signed-out visitors', type: 'checkbox', value: !!r.hide_logged_out }],
+    cols: [{ key: 'position', label: '#', num: true }, { key: 'title', label: 'Title', render: (r) => `<i class="adm-swatch v-bg"${vars({ '--bg': r.color })}></i>${r.overline ? `<span class="faint">${esc(r.overline)} · </span>` : ''}${esc(r.title)}` }, { key: 'link', label: 'Link' },
+      { key: 'series_tickers', label: 'Targeting', render: (r) => esc([listText(r.series_tickers), listText(r.categories), r.hide_logged_out ? 'signed-in only' : ''].filter(Boolean).join(' · ') || 'Home') }, { key: 'starts_at', label: 'Window', render: (r) => esc(windowText(r)) }, { key: 'active', label: 'State', render: active }] },
   banners: { noun: 'banner', hint: 'A message bar in the site shell (spec §13.5 manual banner: content, visibility, position). The newest active banner per position is shown.',
     fields: (r) => [{ name: 'content', label: 'Text', required: true, value: r.content, span: true }, { name: 'link', label: 'Link (optional)', value: r.link },
       { name: 'visibility', label: 'Visible to', type: 'select', options: [['all', 'Everyone'], ['logged_in', 'Signed-in users'], ['logged_out', 'Signed-out visitors']], value: r.visibility || 'all' },

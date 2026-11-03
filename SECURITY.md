@@ -115,13 +115,17 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 | I | Private profile/holdings leaks | Only public profile fields serialised | ✅ |
 | D | Spam / flooding | Chat per-user and per-IP buckets, slow mode, mutes, posting bans, body size limits | ✅ |
 | E | Banned or muted user still posting | Ban/mute checked on every write | ✅ |
+| I | Circle-only posts or private group chats leaking | One visibility rule for single post, replies, likes, feeds, counts, links and notifications (404 for others); group paths 404 for non-members; `groups` WS channel published per current member; moderator group views audited (PHASE2_SPEC §24.6–24.7) | ✅ Phase 2 |
+| T | Edits rewriting history | 10-minute post / 5-minute chat edit windows; every edit kept (`post_edits`, `chat_message_edits`) and shown to moderators; moderator edits marked and audited | ✅ Phase 2 |
+| D | Harassment through circle requests, group adds, notifications | Mutes drop notifications caused by the muted user; 24 h cool-off after a declined request; adds limited to mutual follows / circle with a uniform refusal; per-user / per-IP buckets on every new write; email / push capped per hour | ✅ Phase 2 |
+| S | Malicious media in stickers / GIFs | Only Parlance's own SVG stickers, served by id with `default-src 'none'` + `sandbox`; external GIF adapter off (server-side proxy with host allowlist when enabled) | ✅ Phase 2 |
 
 ### 6. WebSocket (`/v1/ws`)
 
 | STRIDE | Threat | Mitigation | Status |
 |---|---|---|---|
 | S | Cross-site WebSocket hijacking | Upgrade needs the session cookie **and** the matching CSRF token in the URL, plus the signed client token (`ct`) and an allowed `Origin` | ✅ (ws.js, security.js) |
-| I | Receiving another user's private data | Private channels (`user_balance`, `user_orders`, `fill`, `notifications`, `perp_*`, `communications`) refused without auth (`code 9`) and published only to the owning user id; matrix test subscribes as user B while user A trades | ✅ P1.7 |
+| I | Receiving another user's private data | Private channels (`user_balance`, `user_orders`, `fill`, `notifications`, `perp_*`, `communications`, `groups`) refused without auth (`code 9`) and published only to the owning user id; matrix test subscribes as user B while user A trades | ✅ P1.7 |
 | D | Oversized frames / subscription floods | 64 KB `maxPayload`, chat filter capped at 20 tickers, keep-alive reaping | ✅ |
 | T | Forged server messages | Server → client only; client commands limited to subscribe/unsubscribe | ✅ |
 
@@ -141,7 +145,7 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 |---|---|---|---|
 | S | Accepting a quote on someone else's RFQ / confirming someone else's quote | `acceptQuote` requires the RFQ owner, `confirmQuote` the quote's maker (404 otherwise); IDOR probes | ✅ P1.7 |
 | T | Accept/confirm replayed → two executions | Quote state machine (`open → accepted → confirmed → executed`) plus `Idempotency-Key` on accept/confirm | ✅ P1.9 |
-| I | Requester identity exposed to makers | Opaque `communications_id`, not user ids; `obscure_creator_id` option not implemented | ◑ G3 |
+| I | Requester identity exposed to makers | Opaque `communications_id`, not user ids; `obscure_creator_id` shows others the empty-input SHA-256 placeholder until execution (PHASE2_SPEC §24.10) | ✅ G3 |
 | E | Maker bypassing daily trading limits through quote confirmation | Limit checked on confirm (G4) | ✅ |
 | D | RFQ spam | At most N open RFQs per user, TTLs on RFQs and quotes | ✅ |
 
@@ -154,11 +158,26 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 | T | Unsafe code merged | CodeQL (security-extended), ESLint security rules, ZAP baseline, full E2E suite as required checks; CODEOWNERS on security-sensitive files | ✅ (branch protection on `main` to enable) |
 | I | Coding agent reading secrets during development | `.claude/settings.json` deny rules; no real secrets on dev machines | ✅ (guardrail only) |
 
+### 10. Identity, personal data and compliance (Phase 3, `PHASE3_SPEC.md` §25)
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| I | Database theft exposes identity data | Per-user AES-256-GCM data keys wrapped by an HKDF sub-key of the master key; AAD binds each ciphertext to its field and user; national ID as keyed hash + last digits only; no plaintext PII at rest (tested by a full DB dump) | ✅ P3.1a |
+| I | Staff browsing PII / ID photos | Masked admin views; reveal and document view need support/admin, a reason, are hash-chain audited and shown to the customer; national ID never revealable | ✅ P3.1a, P3.5 |
+| T/I | Malicious or metadata-laden ID photo uploads | Type sniffing, container rewrite dropping all metadata and trailing bytes, size/dimension caps, canvas re-encode in the browser, encrypted storage, no public URL, erasure at the decision | ✅ A1 (no server-side re-encode: residual) |
+| S | QR handoff hijack | 256-bit token in the URL fragment, hash-only storage, single use, 10 min, bound to the desktop session; capture cookie HttpOnly/SameSite=Strict + CSRF value | ✅ A1 |
+| S | Account takeover via SIM swap, provider linking, reset links | Phone change needs step-up; OAuth linking of an existing email needs the password; PKCE + state + nonce; reset links single use, fingerprinted to the password hash, sessions revoked | ✅ P3.2–P3.3 |
+| S | Cloned or replayed passkeys / TOTP | Challenge single use + binding, origin and rpId checks, signature counter; TOTP last-step record (RS3) | ✅ P3.4, RS3 |
+| D | Lockout of a known email by a stranger | Proof of work instead of a timed account lock (RS2); per-IP hard backoff | ✅ RS2 |
+| I | Account-existence signals | Uniform login (RS9) and reset answers | ✅ RS9 |
+| E | Trading/deposits before verification or from blocked regions | Server gate: identity status, simulated location (IP + consented browser fix), fraud holds on withdrawals; A2 lock on passkeys/sign-in methods/API keys | ✅ P3.1, P3.6, P3.7, A2 |
+| R | Disputed consent or closure | Append-only marketing-consent records (text version + hash), PII-free closure audit, export for the owner after step-up | ✅ A6, P3.8 |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
 - No WAF/CDN in front of the dev server (P9.3); TLS terminates at a reverse proxy in production (P9.1).
-- Payments, KYC, geolocation and fraud signals are simulated or not built (Phases 3–4).
+- Payments are not built (Phase 4); KYC, geolocation and fraud signals are simulations (Phase 3, `PHASE3_SPEC.md` §25.14).
 - Signed API keys for the public trading API are not built (P7.1).
 - Property-based tests for perps margin/liquidation invariants (P6 gate).
 
