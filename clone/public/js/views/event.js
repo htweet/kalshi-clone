@@ -388,10 +388,16 @@ export async function render({ el, params, query, navigate }) {
     });
   }
 
+  // Only the newest render may write the panel: a slow earlier fetch (e.g. the initial load racing a tab click)
+  // must not replace newer content or wipe a post the user has started typing.
+  let drawSeq = 0;
   async function drawBottom() {
+    const seq = ++drawSeq;
     const box = $('#bottom');
     const m = market();
     const tab = state.bottomTab;
+    const stale = () => seq !== drawSeq || state.bottomTab !== tab;
+    box.dataset.tab = tab;
     if (tab === 'rules') {
       box.innerHTML = `<div class="card rules p-20" data-testid="rules"><p>${esc(m.rules_primary)}</p><p>${esc(series.rules)}</p>
         <p class="faint">Settlement source: ${series.settlement_sources.map((s) => esc(s.name)).join(', ')} · Closes ${shortDate(m.close_time)} · Market ${esc(m.ticker)}</p></div>`;
@@ -413,24 +419,28 @@ export async function render({ el, params, query, navigate }) {
     } else if (tab === 'trades') {
       try {
         const r = await api.socialTrades({ event_ticker: ev.event_ticker });
-        if (state.bottomTab !== 'trades') return;
+        if (stale()) return;
         box.innerHTML = `<div class="card p-4-18"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
           ${r.trades.slice(0, 25).map((t) => { const px = t.taker_side === 'yes' ? cents(t.price_dollars) : 100 - cents(t.price_dollars); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : '<span class="faint">Anonymous</span>'}</td><td>${esc(t.outcome)}</td><td><strong class="c-${esc(t.taker_side)}">${esc(t.taker_side.toUpperCase())}</strong></td><td class="num">${px}¢</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
       } catch (e) { box.innerHTML = `<p class="faint">${esc(e.tooManyRequests ? 'Too many requests, try again shortly.' : e.message)}</p>`; }
     } else if (tab === 'ideas') {
       const r = await api.posts({ event_ticker: ev.event_ticker });
-      if (state.bottomTab !== 'ideas') return;
+      if (stale()) return;
+      const draft = box.querySelector('#composer textarea')?.value || '';
       box.innerHTML = `${composer(ev.event_ticker)}<div class="card mt-10" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || '<div class="empty" data-testid="no-ideas">No posts yet. Be the first to share your view.</div>'}</div>`;
       wirePosts(box.querySelector('#ev-posts'), { navigate });
       wireComposer(box, (post) => { const list = box.querySelector('#ev-posts'); list.querySelector('[data-testid=no-ideas]')?.remove(); list.insertAdjacentHTML('afterbegin', postCard(post, { showEvent: false })); });
+      const ta = box.querySelector('#composer textarea');
+      if (ta && draft) { ta.value = draft; ta.dispatchEvent(new Event('input')); }
     } else {
       const r = await api.topHolders(m.ticker);
-      if (state.bottomTab !== 'holders') return;
+      if (stale()) return;
       const col = (title, rows, side) => `<div><h4 class="c-${esc(side)}">${esc(title)}</h4>${rows.map((h, i) => `<a class="rank-row rank-3" href="/social/profile/${encodeURIComponent(h.nickname)}" data-link><span class="faint">${i + 1}</span><span class="t">@${esc(h.nickname)}</span><span class="num">${qty(h.position_fp)}</span></a>`).join('') || '<p class="faint">No public holders yet.</p>'}</div>`;
       box.innerHTML = `<div class="card p-20" data-testid="holders"><div class="faint mb-8">${esc(m.yes_sub_title)}</div><div class="book">${col('Yes holders', r.yes, 'yes')}${col('No holders', r.no, 'no')}</div></div>`;
     }
   }
   function selectTab(tab) {
+    if (tab === state.bottomTab && $('#bottom').dataset.tab === tab) return; // already showing (or loading) this tab
     state.bottomTab = tab;
     for (const x of el.querySelectorAll('[data-tab]')) x.classList.toggle('on', x.dataset.tab === tab);
     if (session.user) session.setProp('event_bottom_tab', tab).catch(() => {});

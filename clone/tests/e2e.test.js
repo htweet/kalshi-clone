@@ -72,6 +72,8 @@ test('public pages: home carousel, categories, search, 404, no console errors', 
 
   await page.click('.category-strip >> text=Sports');
   await page.waitForURL(BASE + '/category/sports');
+  // Wait for the category page itself (the previous page's cards stay in the DOM until it renders).
+  await page.waitForSelector('[data-testid=subcategories]');
   await page.waitForSelector('[data-testid=event-card]');
   const cats = await page.$$eval('[data-testid=event-card] .ev-meta span:last-child', (els) => els.map((e) => e.textContent));
   assert.ok(cats.length >= 2 && cats.every((c) => c === 'Sports'), `sports only: ${cats}`);
