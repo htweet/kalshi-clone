@@ -220,7 +220,7 @@ The project is complete only when **all** of the following hold:
 | Phase | Status |
 |---|---|
 | 0 Stabilise | ✅ done; CI green on `main` (tests, lint, audit, gitleaks, CodeQL, ZAP). Owner action: enable branch protection on `main` requiring the CI checks |
-| 1 Security foundation | ✅ done (spec §21–23; 140 E2E tests at the time; 180 across 22 files after Phases 2–3). Residual risks tracked in §21.11/§22 and §10 below |
+| 1 Security foundation | ✅ done (spec §21–23; 140 E2E tests at the time; 182 across 22 files after Phases 2–3). Residual risks tracked in §21.11/§22 and §10 below |
 | 2 Social completion | ✅ built on `phase-2-3` (CLONE_SPEC.md §24): P2.1–P2.4, A6 notification matrix, A11 (Inner Circle, Group chats, position / trade / leaderboard alerts), G3, G8, G10; `social2.e2e` + `groupchat.e2e` suites |
 | 3 Identity & compliance | ✅ built on `phase-2-3` (CLONE_SPEC.md §25): onboarding (email/phone codes, name, birthday, address), KYC sandbox + admin review queue, document verification with phone QR hand-off, encrypted per-user PII, mock Google/Apple sign-in, passkeys, A1–A6 (A2 403 lock), promo codes from A12, location blocking and fraud holds (simulated), data export and account closure, RS2/RS3/RS6/RS9/RS10; `onboarding` + `identity2` + `account-area` suites. Residual: simulated KYC/geo/fraud, no server-side image re-encode, no master-key rotation |
 | 4 Payments (sandbox) | pending |

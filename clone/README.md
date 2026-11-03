@@ -11,12 +11,13 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 180 end-to-end browser scenarios across 22 files (Playwright + node:test)
+npm run test:e2e     # 182 end-to-end browser scenarios across 22 files (Playwright + node:test)
 ```
 
 **If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
 - *Node … is too old*: install Node 22.5 or newer (`node -v` to check). The database layer is `node:sqlite`.
-- *Another Parlance server (process N) is already using …*: one is already running. Use that one, stop it (Ctrl+C in its terminal), or start a second copy on its own database: `DB_FILE=data/second.db npm start`.
+- *Another Parlance server (process N) is already using …*: one really is running, because the lock is an OS file lock that is released whenever a server exits, even after a crash. Use that one, stop it (Ctrl+C in its terminal), or start a second copy on its own database: `DB_FILE=data/second.db npm start`.
+- *npm warn install-scripts … esbuild*: harmless. esbuild ships its binary as a platform package, and the build works without the postinstall step.
 - *Port … is busy*: only with an explicit `PORT`. Leave `PORT` unset to take the next free port (3000-3019).
 - *bash: cd: clone: No such file or directory*: you are already inside `clone/`. Run `npm install && npm start` there.
 - After `git pull`, run `npm install` again before `npm start`: dependencies change between phases.

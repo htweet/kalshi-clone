@@ -298,19 +298,50 @@ function migrate(db) {
 
 // One server per database file. A second process (e.g. a second `npm start` that fell back to port 3001)
 // would otherwise contend for SQLite's write lock and fail with "database is locked".
-const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+//
+// Ownership is an operating-system file lock, not a process id: `<db>.instance` is a small SQLite file on which the
+// owner holds an EXCLUSIVE transaction for its whole life. The OS drops that lock when the process ends for any
+// reason (Ctrl+C, crash, closed terminal, reboot), so a leftover file never blocks the next start. A pid check alone
+// misfires after a crash because process ids are reused (on Windows a low id such as 492 is soon a system service).
+// `<db>.lock` only records the owner's pid for the error message; it never decides anything.
+const lockBusy = (e) => e && (e.errcode === 5 || e.errcode === 6 || /database is locked|database table is locked|SQLITE_BUSY/i.test(e.message || ''));
 function acquireLock(file) {
-  const lock = `${file}.lock`;
-  try {
-    const other = Number(fs.readFileSync(lock, 'utf8').trim());
-    if (other && other !== process.pid && pidAlive(other)) {
-      const e = new Error(`Another Parlance server (process ${other}) is already using ${file}. Stop it first (Ctrl+C in its terminal, or end that node process), or start this one with a different DB_FILE.`);
-      e.code = 'DB_IN_USE';
+  const info = `${file}.lock`;
+  const instFile = `${file}.instance`;
+  let inst = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      inst = new DatabaseSync(instFile); // no busy timeout: a held lock answers at once
+      inst.exec('PRAGMA locking_mode = EXCLUSIVE');
+      inst.exec('BEGIN EXCLUSIVE');
+      break;
+    } catch (e) {
+      try { inst?.close(); } catch { /* ignore */ }
+      inst = null;
+      if (lockBusy(e)) {
+        let other = 0;
+        try { other = Number(fs.readFileSync(info, 'utf8').trim()) || 0; } catch { /* no info file */ }
+        const who = other ? `Another Parlance server (process ${other})` : 'Another Parlance server';
+        const err = new Error(`${who} is already using ${file}. Stop it first (Ctrl+C in its terminal, or end that node process), or start this one with a different DB_FILE.`);
+        err.code = 'DB_IN_USE';
+        throw err;
+      }
+      // Not a lock file we can use (e.g. damaged): replace it once, then give up with the real error.
+      if (attempt === 0) { try { fs.unlinkSync(instFile); } catch { /* ignore */ } continue; }
       throw e;
     }
-  } catch (e) { if (e.code === 'DB_IN_USE') throw e; /* no lock file or unreadable: take it */ }
-  fs.writeFileSync(lock, String(process.pid));
-  const release = () => { try { if (Number(fs.readFileSync(lock, 'utf8').trim()) === process.pid) fs.unlinkSync(lock); } catch { /* already gone */ } };
+  }
+  try { fs.writeFileSync(info, String(process.pid)); } catch { /* informational only */ }
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    process.removeListener('exit', release);
+    try { if (Number(fs.readFileSync(info, 'utf8').trim()) === process.pid) fs.unlinkSync(info); } catch { /* already gone */ }
+    // The instance file stays: deleting it would let a waiting process lock a different file than the next one.
+    try { inst.exec('ROLLBACK'); } catch { /* ignore */ }
+    try { inst.close(); } catch { /* ignore */ }
+  };
   process.once('exit', release);
   return release;
 }
