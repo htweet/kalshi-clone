@@ -16,7 +16,7 @@ const { nowIso, newId, token, ApiError, E } = require('./util');
 const pw = require('./passwords');
 const kc = require('./crypto');
 const auditChain = require('./audit-chain');
-const { verifyTotp, b32encode } = require('./features');
+const { totp, b32encode } = require('./features');
 const { ROLE_PERMS } = require('./admin');
 
 const MIN = 60000;
@@ -37,6 +37,8 @@ const DEFAULTS = {
   mfaChallengeMs: 5 * MIN,
   setupTokenMs: 60 * MIN,
   changeTokenMs: 15 * MIN,
+  powBaseBits: 12, // RS2: proof-of-work difficulty at the threshold (≈4k hashes), +1 bit per further failure
+  powMaxBits: 18, // ≈262k hashes, well under a second in the browser
   secureCookies: null, // null = Secure + __Host- names when NODE_ENV=production, SECURE_COOKIES=1 or the request is HTTPS
 };
 
@@ -49,7 +51,11 @@ CREATE TABLE IF NOT EXISTS auth_tokens (hash TEXT PRIMARY KEY, purpose TEXT NOT 
 CREATE TABLE IF NOT EXISTS auth_user_security (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, withdrawal_mfa INTEGER NOT NULL DEFAULT 0, must_change_password INTEGER NOT NULL DEFAULT 0,
   password_changed_at TEXT, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS email_outbox (id TEXT PRIMARY KEY, user_id TEXT, to_email TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS login_pow_used (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
 `;
+// RS2 (PLAN §10): after `accountThreshold` failures an account is not hard-locked; each further sign-in attempt must carry
+// a proof of work (SHA-256(id:nonce) with `bits` leading zero bits), growing by one bit per failure up to powMaxBits.
+const POW_TTL_MS = 2 * 60000;
 
 // Seeded demo accounts and the passwords the first builds gave them (removed: see bootstrap()).
 const LEGACY_DEFAULTS = [['admin@parlance.local', 'parlance-admin'], ['maple_quant@parlance.local', 'parlance-demo'], ['harborwatch@parlance.local', 'parlance-demo'], ['rainmaker@parlance.local', 'parlance-demo']];
@@ -90,14 +96,23 @@ class ThrottleError extends ApiError {
   constructor(sec) { super(429, 'too_many_attempts', 'too many sign-in attempts', `try again in ${sec} seconds`); this.retry = sec; }
   toJSON() { return { error: { code: this.code, message: this.message, details: this.details, retry_after_sec: this.retry } }; }
 }
+// RS2: same code and fields as ThrottleError (retry_after_sec 0) plus the challenge, so old clients see "too many attempts".
+class PowRequiredError extends ApiError {
+  constructor(challenge) { super(429, 'too_many_attempts', 'too many sign-in attempts', 'solve the sign-in check to continue'); this.challenge = challenge; }
+  toJSON() { return { error: { code: this.code, message: this.message, details: this.details, retry_after_sec: 0, pow: this.challenge } }; }
+}
 const invalidCredentials = () => new ApiError(401, 'invalid_credentials', 'incorrect email or password');
 const lockedError = () => new ApiError(403, 'account_locked', 'this account is locked', 'contact support to restore access');
 const policyError = (bad) => new ApiError(400, bad.code, 'password does not meet the requirements', bad.message);
 
 function createAuth({ db, engine, options = {}, keyDir }) {
   const opt = { ...DEFAULTS, ...Object.fromEntries(Object.entries(options || {}).filter(([, v]) => v !== undefined)) };
-  const keys = { enc: kc.deriveKey('field-encryption:v1', { dir: keyDir }), csrf: kc.deriveKey('login-csrf:v1', { dir: keyDir }) };
-  const events = new EventEmitter(); // 'revoked' (sids[]) — the WebSocket hub drops those connections
+  const keys = { enc: kc.deriveKey('field-encryption:v1', { dir: keyDir }), csrf: kc.deriveKey('login-csrf:v1', { dir: keyDir }), pow: kc.deriveKey('login-pow:v1', { dir: keyDir }) };
+  // 'revoked' (sids[]) — the WebSocket hub drops those connections; 'signup' / 'login' / 'email_change' ({user, req, …})
+  // — identity onboarding, email verification and passkey policy hooks (server/identity.js, server/webauthn.js).
+  const events = new EventEmitter();
+  const hooks = { mailer: null, stepUpExtras: () => [], preSession: [] }; // set by server/identity.js and server/webauthn.js
+  let beginLogin = null; // defined in mountRoutes (needs the user serializer)
   let notify = () => {};
   let rolesOf = (u) => (u && u.is_admin ? ['admin'] : []);
   let publicUser = (u) => ({ user_id: u.id, email: u.email, display_name: u.display_name, is_admin: !!u.is_admin, created_at: u.created_at });
@@ -111,6 +126,8 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     if (!sc.has(c)) db.exec(`ALTER TABLE sessions ADD COLUMN ${c} ${def}`);
   }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_sid ON sessions(sid); CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)');
+  // RS3: the last accepted TOTP time step per user; a code for that step (or an earlier one) is never accepted again.
+  if (!cols('mfa').has('last_step')) db.exec('ALTER TABLE mfa ADD COLUMN last_step INTEGER NOT NULL DEFAULT 0');
   const hasTable = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t);
   const isPrivileged = (u) => !!u.is_admin || (hasTable('admin_roles') && !!db.prepare('SELECT 1 FROM admin_roles WHERE user_id=? LIMIT 1').get(u.id));
   tx(db, () => {
@@ -146,13 +163,29 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     return { ...r, secret };
   }
   const mfaEnabled = (uid) => !!mfaRaw(uid)?.enabled;
+  // RS3 (TOTP replay): a code is accepted at most once. Steps −1/0/+1 around now (clock-skew window) that are newer than
+  // the last accepted step match; the matched step is recorded with a conditional update, so two concurrent requests with
+  // the same code cannot both succeed.
+  function verifyTotpOnce(uid, secret, code) {
+    if (!/^\d{6}$/.test(String(code ?? ''))) return false;
+    const now = Math.floor(Date.now() / 30000);
+    const last = mfaRaw(uid)?.last_step || 0;
+    for (const w of [-1, 0, 1]) {
+      const step = now + w;
+      if (step <= last || !kc.safeEqual(totp(secret, step * 30000), String(code))) continue;
+      return db.prepare('UPDATE mfa SET last_step=? WHERE user_id=? AND last_step<?').run(step, uid, step).changes === 1;
+    }
+    return false;
+  }
 
   function logEvent(userId, type, req, detail = {}) {
     db.prepare('INSERT INTO auth_events(id,ts,user_id,type,ip_prefix,device,detail) VALUES(?,?,?,?,?,?,?)')
       .run(newId('ae_'), Date.now(), userId || null, type, req ? ipPrefix(ipOf(req)) : '', req ? deviceOf(req.get?.('user-agent')) : 'server', JSON.stringify(detail));
   }
-  // Email stub: messages are written to the email_outbox table (shown in Admin › Identity). No mail is sent.
+  // Email goes through the messaging provider (server/messaging.js: dev outbox or SMTP, RS6) once identity.js sets the
+  // hook; before that (and in unit use) messages are written to the email_outbox table.
   function sendEmail(user, subject, body, to = user.email) {
+    if (hooks.mailer) { hooks.mailer({ userId: user.id, to, subject, text: body }); return; }
     db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,created_at) VALUES(?,?,?,?,?,?)').run(newId('em_'), user.id, to, subject, body, nowIso());
   }
   function alertUser(user, title, body) {
@@ -190,7 +223,8 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   }
 
   // ------------------------------------------------------------------ sessions
-  function check(s, { touch = true } = {}) {
+  function check(s, o = {}) {
+    const touch = o.touch !== false;
     if (!s) return null;
     const now = Date.now();
     if (Date.parse(s.expires_at) <= now || (s.idle_ms > 0 && now - s.last_seen_ms > s.idle_ms)) {
@@ -200,7 +234,11 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     }
     const u = getUser(s.user_id);
     if (!u || isLocked(u.id)) return null;
-    if (touch && now - s.last_seen_ms > Math.min(30000, s.idle_ms / 10)) { db.prepare('UPDATE sessions SET last_seen_ms=? WHERE token=?').run(now, s.token); s.last_seen_ms = now; }
+    // RS10: only user-initiated activity extends the idle window. The SPA reports the seconds since the last real user
+    // interaction (`X-Plx-Idle`, sent on every request including background polls), so the session is touched at
+    // "now − idle", never later; clients that do not send it (API scripts) count every request as activity.
+    const seen = now - Math.min(Math.max(0, Number(o.idleSec) || 0) * 1000, s.idle_ms || 0);
+    if (touch && seen - s.last_seen_ms > Math.min(30000, s.idle_ms / 10)) { db.prepare('UPDATE sessions SET last_seen_ms=? WHERE token=?').run(seen, s.token); s.last_seen_ms = seen; }
     return { session: s, user: u };
   }
   const fromRaw = (raw, o) => (raw && raw.length <= 128 ? check(db.prepare('SELECT * FROM sessions WHERE token=?').get(kc.sha256hex(raw)), o) : null);
@@ -258,11 +296,15 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     return Number.isFinite(exp) && exp > Date.now() && kc.safeEqual(req.get('x-csrf-token') || '', preToken(v));
   }
   const PRE_SESSION = new Set(['/v1/log_in', '/v1/users', '/v1/log_in_mfa', '/v1/auth/setup_admin', '/v1/auth/complete_password_change']);
+  // Further pre-session endpoints registered by identity modules: [method, RegExp on the full path] (password reset,
+  // passkey sign-in, OAuth callback / link — server/identity.js, server/webauthn.js, server/oauth.js).
+  const isPreSession = (req) => (req.method === 'POST' && PRE_SESSION.has(req.path)) || hooks.preSession.some(([m, re]) => m === req.method && re.test(req.path));
 
   function attach(req, res, next) {
-    req.auth = fromCookieHeader(req.headers.cookie);
+    const idle = req.headers['x-plx-idle'];
+    req.auth = fromCookieHeader(req.headers.cookie, idle != null ? { idleSec: Number(idle) } : {});
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-      if (req.method === 'POST' && PRE_SESSION.has(req.path)) {
+      if (isPreSession(req)) {
         if (!checkLoginCsrf(req)) return next(E.forbidden('missing or invalid login csrf token'));
       } else if (req.auth && !kc.safeEqual(req.get('x-csrf-token') || '', req.auth.session.csrf_token)) {
         return next(E.forbidden('missing or invalid x-csrf-token'));
@@ -295,12 +337,51 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     const a = bump(acctKey(email), 'account', opt.accountThreshold);
     const i = bump(ipKey(ipOf(req)), 'ip', opt.ipThreshold);
     if (a.lockMs) {
-      logEvent(user?.id, 'lockout', req, { scope: 'account', seconds: Math.round(a.lockMs / 1000), failures: a.failures, after: kind, ...(user ? {} : { email: maskEmail(email) }) });
-      if (user && a.failures === opt.accountThreshold) alertUser(user, 'Sign-in temporarily blocked', `We blocked sign-in to your account for ${Math.max(1, Math.round(a.lockMs / 60000))} minute(s) after ${a.failures} failed attempts.`);
+      // RS2: sign-in for the account now needs a proof of work (no hard lock a stranger could hold); step-up and password
+      // change from an existing session still back off for `seconds`.
+      logEvent(user?.id, 'lockout', req, { scope: 'account', mode: 'proof_of_work', pow_bits: powBits(a.failures), seconds: Math.round(a.lockMs / 1000), failures: a.failures, after: kind, ...(user ? {} : { email: maskEmail(email) }) });
+      if (user && a.failures === opt.accountThreshold) alertUser(user, 'Repeated failed sign-ins', `There were ${a.failures} failed attempts to sign in to your account. Further attempts now need an extra automatic check in the browser.`);
     }
     if (i.lockMs && i.failures === opt.ipThreshold) logEvent(null, 'lockout', req, { scope: 'ip', seconds: Math.round(i.lockMs / 1000), failures: i.failures });
   }
   const clearFailures = (email) => db.prepare('DELETE FROM auth_throttle WHERE key=?').run(acctKey(email));
+
+  // ------------------------------------------------------------------ RS2: proof of work instead of an account lock
+  const powBits = (failures) => Math.min(opt.powMaxBits, opt.powBaseBits + Math.max(0, failures - opt.accountThreshold));
+  const powBinding = (email) => acctKey(email).slice(5, 21);
+  const powMac = (payload) => kc.hmacHex(keys.pow, payload).slice(0, 43);
+  function leadingZeroBits(buf) {
+    let n = 0;
+    for (const b of buf) { if (b === 0) { n += 8; continue; } n += Math.clz32(b) - 24; break; }
+    return n;
+  }
+  function powChallenge(email, bits) {
+    const id = token(12);
+    const payload = Buffer.from(JSON.stringify({ id, k: powBinding(email), b: bits, t: Date.now() })).toString('base64url');
+    return { token: `${payload}.${powMac(payload)}`, id, bits, algorithm: 'sha256-leading-zero-bits', input: 'id:nonce' };
+  }
+  // Returns the difficulty proven by a valid, unexpired, unused solution bound to this email, else 0.
+  function powProven(email, pow) {
+    if (!pow || typeof pow !== 'object' || typeof pow.token !== 'string' || typeof pow.nonce !== 'string' || pow.token.length > 300 || !/^\d{1,16}$/.test(pow.nonce)) return 0;
+    const [payload, mac] = pow.token.split('.');
+    if (!payload || !mac || !kc.safeEqual(mac, powMac(payload))) return 0;
+    let o; try { o = JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return 0; }
+    if (!o || o.k !== powBinding(email) || !(Date.now() - o.t <= POW_TTL_MS)) return 0;
+    if (leadingZeroBits(crypto.createHash('sha256').update(`${o.id}:${pow.nonce}`).digest()) < o.b) return 0;
+    db.prepare('DELETE FROM login_pow_used WHERE expires_at<?').run(Date.now());
+    if (db.prepare('INSERT INTO login_pow_used(id,expires_at) VALUES(?,?) ON CONFLICT(id) DO NOTHING').run(String(o.id), Date.now() + POW_TTL_MS).changes !== 1) return 0; // single use
+    return o.b;
+  }
+  // Below the threshold: nothing. At or above: a solved challenge of the current difficulty is required, otherwise 429 with
+  // a fresh challenge. Same behaviour for existing and unknown emails.
+  function powGate(req, email) {
+    const r = db.prepare('SELECT failures, last_failure FROM auth_throttle WHERE key=?').get(acctKey(email));
+    const failures = r && Date.now() - r.last_failure <= opt.failureWindowMs ? r.failures : 0;
+    if (failures < opt.accountThreshold) return;
+    const need = powBits(failures);
+    if (powProven(email, req.body && req.body.pow) >= need) return;
+    throw new PowRequiredError(powChallenge(email, need));
+  }
 
   // ------------------------------------------------------------------ step-up guard
   const amountCents = (b) => { const a = Number(b && b.amount_dollars); return Number.isFinite(a) ? Math.round(a * 100) : 0; };
@@ -317,6 +398,27 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     ['PUT', /^\/admin\/roles\/[^/]+$/, 'admin_role_change'],
     ['POST', /^\/admin\/users\/[^/]+\/force_password_reset$/, 'admin_force_password_reset'],
   ];
+  // Accepted step-up methods: password (+ two-factor code when on) plus any registered by identity modules (passkey).
+  const stepUpMethods = (uid) => [...(mfaEnabled(uid) ? ['password', 'totp'] : ['password']), ...hooks.stepUpExtras(uid)];
+  // For handlers that decide sensitivity themselves (data export, account closure, phone change, passkey and OAuth
+  // linking — server/identity.js and friends): same freshness rule and error as the central list.
+  function assertFresh(req, action) {
+    if (!req.auth) throw E.unauthorized();
+    if (Date.now() - req.auth.session.auth_at > opt.stepUpMs) throw new StepUpError(stepUpMethods(req.auth.user.id), action);
+  }
+  // A verification done elsewhere (passkey assertion) refreshes the step-up window of this session.
+  const markStepUp = (sid) => db.prepare('UPDATE sessions SET auth_at=? WHERE sid=?').run(Date.now(), sid);
+  // Password check with the same throttling as step-up (per-IP and per-account backoff, failure logging).
+  async function checkPassword(req, user, password, kind = 'password_check') {
+    assertOpen([acctKey(user.email), ipKey(ipOf(req))]);
+    if (!(await pw.verifyPassword(String(password ?? ''), user.password_hash))) {
+      recordFailure(req, user.email, user, kind);
+      logEvent(user.id, 'step_up_fail', req, { method: 'password', at: kind });
+      throw new ApiError(400, 'invalid_password', 'that password is not correct');
+    }
+    clearFailures(user.email);
+  }
+
   function guard(req, res, next) {
     if (!req.auth) return next();
     const hit = SENSITIVE.find(([m, re, , when]) => req.method === m && re.test(req.path) && (!when || when(req)));
@@ -325,7 +427,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       const hasMfa = mfaEnabled(uid);
       const totpOnly = hit[2] === 'withdrawal' && hasMfa && !!secRow(uid).withdrawal_mfa;
       const fresh = totpOnly ? now - s.totp_at <= opt.stepUpMs : now - s.auth_at <= opt.stepUpMs;
-      if (!fresh) return next(new StepUpError(totpOnly ? ['totp'] : hasMfa ? ['password', 'totp'] : ['password'], hit[2]));
+      if (!fresh) return next(new StepUpError(totpOnly ? ['totp'] : stepUpMethods(uid), hit[2]));
       // Withdrawal two-factor is per withdrawal: a successful one consumes the code verification.
       if (totpOnly) res.on('finish', () => { if (res.statusCode < 400) db.prepare('UPDATE sessions SET totp_at=0 WHERE sid=?').run(s.sid); });
     }
@@ -368,8 +470,21 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       }
       const { sid } = createSession(req, res, u, { totpVerified });
       logEvent(u.id, 'login_ok', req, { method, session: sid });
+      events.emit('login', { user: u, req, method, sid });
       return res.json({ user: userBody(u), csrf_token: res.getHeader('X-Csrf-Token') });
     }
+    // Sign-in after a first factor verified elsewhere (passkey, OAuth, OAuth account linking): the TOTP step when two-factor
+    // is on (unless the factor already satisfies it, e.g. a user-verified passkey), forced password change, else a session.
+    beginLogin = (req, res, u, { method, mfaSatisfied = false }) => {
+      if (isLocked(u.id)) throw lockedError();
+      if (!mfaSatisfied && mfaEnabled(u.id)) {
+        const t = token(24);
+        db.prepare('DELETE FROM mfa_challenges WHERE user_id=? OR expires_at<?').run(u.id, nowIso());
+        db.prepare('INSERT INTO mfa_challenges(token,user_id,expires_at) VALUES(?,?,?)').run(kc.sha256hex(t), u.id, new Date(Date.now() + opt.mfaChallengeMs).toISOString());
+        return res.json({ mfa_required: true, mfa_token: t });
+      }
+      return finish(req, res, u, { method, totpVerified: mfaSatisfied });
+    };
 
     v1.get('/auth/csrf', (req, res) => {
       const v = `${token(16)}.${Date.now() + opt.preCsrfMs}`;
@@ -399,6 +514,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       const u = getUser(id);
       const { sid } = createSession(req, res, u);
       logEvent(id, 'signup', req, { session: sid });
+      events.emit('signup', { user: u, req, sid });
       res.status(201).json({ user: userBody(u), csrf_token: res.getHeader('X-Csrf-Token') });
     });
 
@@ -406,7 +522,8 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     v1.post('/log_in', async (req, res) => {
       const b = req.body || {};
       const email = normEmail(b.email);
-      assertOpen([acctKey(email), ipKey(ipOf(req))]);
+      assertOpen([ipKey(ipOf(req))]); // per-IP backoff stays a hard limit; per account it is proof of work (RS2)
+      powGate(req, email);
       const u = email ? db.prepare('SELECT * FROM users WHERE email=? AND is_system=0').get(email) : null;
       const ok = await pw.verifyOrDummy(String(b.password ?? ''), u ? u.password_hash : null);
       if (!ok) {
@@ -436,7 +553,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       if (!u || isLocked(u.id)) throw lockedError();
       if (ch.attempts >= 5) { db.prepare('DELETE FROM mfa_challenges WHERE token=?').run(ch.token); throw new ApiError(401, 'mfa_challenge_expired', 'too many attempts, please log in again'); }
       const m = mfaOf(u.id);
-      if (!m || !m.enabled || !verifyTotp(m.secret, b.code)) {
+      if (!m || !m.enabled || !verifyTotpOnce(u.id, m.secret, b.code)) {
         db.prepare('UPDATE mfa_challenges SET attempts=attempts+1 WHERE token=?').run(ch.token);
         bump(acctKey(u.email), 'account', opt.accountThreshold);
         logEvent(u.id, 'mfa_fail', req, { at: 'login' });
@@ -485,7 +602,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       if (b.code != null && b.code !== '') {
         const m = mfaOf(u.id);
         if (!m || !m.enabled) throw E.conflict('mfa_not_enabled', 'two-factor login is off; confirm with your password');
-        if (!verifyTotp(m.secret, b.code)) { recordFailure(req, u.email, u, 'step_up'); logEvent(u.id, 'step_up_fail', req, { method: 'totp' }); throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid'); }
+        if (!verifyTotpOnce(u.id, m.secret, b.code)) { recordFailure(req, u.email, u, 'step_up'); logEvent(u.id, 'step_up_fail', req, { method: 'totp' }); throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid'); }
         method = 'totp';
       } else {
         if (!(await pw.verifyPassword(String(b.password ?? ''), u.password_hash))) { recordFailure(req, u.email, u, 'step_up'); logEvent(u.id, 'step_up_fail', req, { method: 'password' }); throw new ApiError(400, 'invalid_password', 'that password is not correct'); }
@@ -570,6 +687,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       logEvent(u.id, 'email_change', req, { from: maskEmail(u.email), to: maskEmail(em) });
       sendEmail(u, 'Parlance security alert: your email address was changed', `The email on your Parlance account was changed to ${maskEmail(em)}. If this wasn't you, contact support.`, u.email);
       alertUser({ ...u, email: em }, 'Email address changed', `Your account email is now ${em}.`);
+      events.emit('email_change', { user: getUser(u.id), req });
       res.json({ user: userBody(getUser(u.id)) });
     });
     v1.put('/users/:uid/withdrawal_mfa', requireUser, (req, res) => {
@@ -597,7 +715,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       const u = req.auth.user;
       const m = mfaOf(u.id);
       if (!m) throw E.conflict('mfa_not_set_up', 'start two-factor setup first');
-      if (!verifyTotp(m.secret, req.body && req.body.code)) { logEvent(u.id, 'mfa_fail', req, { at: 'enable' }); throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid'); }
+      if (!verifyTotpOnce(u.id, m.secret, req.body && req.body.code)) { logEvent(u.id, 'mfa_fail', req, { at: 'enable' }); throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid'); }
       db.prepare('UPDATE mfa SET enabled=1 WHERE user_id=?').run(u.id);
       const now = Date.now();
       const csrf = rotate(req, res, req.auth.session, u, { authAt: now, totpAt: now }); // privilege of the session changed: new token
@@ -609,7 +727,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       const u = req.auth.user;
       const m = mfaOf(u.id);
       if (!m || !m.enabled) throw E.conflict('mfa_not_enabled', 'two-factor login is off');
-      if (!verifyTotp(m.secret, req.body && req.body.code)) { logEvent(u.id, 'mfa_fail', req, { at: 'disable' }); throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid'); }
+      if (!verifyTotpOnce(u.id, m.secret, req.body && req.body.code)) { logEvent(u.id, 'mfa_fail', req, { at: 'disable' }); throw new ApiError(400, 'invalid_mfa_code', 'that code is not valid'); }
       db.prepare('DELETE FROM mfa WHERE user_id=?').run(u.id);
       setSec(u.id, { withdrawal_mfa: 0 });
       logEvent(u.id, 'mfa_off', req, {});
@@ -741,6 +859,9 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   return {
     attach, guard, mountRoutes, bootstrap, events, fromCookieHeader, sessionAlive, revokeAll, logEvent, usableAdminExists,
     initAuditChain: () => auditChain.init(db, { keyDir }), options: opt,
+    // Identity-module hooks (Phase 3, CLONE_SPEC §25): mailer, step-up methods, pre-session paths, shared checks.
+    hooks, assertFresh, markStepUp, checkPassword, clearSessionCookie, alertUser, isLocked, mfaEnabled,
+    beginLogin: (...a) => beginLogin(...a),
   };
 }
 

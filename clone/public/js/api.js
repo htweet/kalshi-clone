@@ -1,6 +1,7 @@
 // Transport layer (spec §2): one method per endpoint, cookie session + x-csrf-token header.
 import { getLocalWithExpiry, setLocalWithExpiry, removeLocal } from './lib.js';
 import { refreshClientToken, isClientTokenError } from './security.js';
+import { deviceId, idleSeconds } from './device.js';
 
 export const CSRF_KEY = 'csrfToken';
 export const FE_SESSION_KEY = 'fe-session-id';
@@ -20,6 +21,8 @@ export class ApiError extends Error {
     this.mutedUntil = e.muted_until ?? null; // chat mute
     this.details = e.details ?? null;
     this.methods = e.methods ?? null; // step_up_required: ['password'] | ['totp'] | both (CLONE_SPEC §22.6)
+    this.pow = e.pow ?? null; // too_many_attempts on sign-in: proof-of-work challenge (RS2, CLONE_SPEC §25)
+    this.fields = e.fields ?? null; // validation_failed: per-field messages
   }
 }
 
@@ -43,6 +46,9 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
   // Signed client token on every /v1 request, reads included (PLAN P1.10; HAR4 shows the WAF token on every API call).
   // The server enforces it on writes and /v1/users/* reads; the HttpOnly cookie copy covers a missing header.
   if (/^\/v1\//.test(url)) { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; }
+  // Fraud signal + idle accounting (CLONE_SPEC §25): random per-browser ID, and seconds since the last real user
+  // interaction so background polls do not extend an idle session (RS10).
+  if (/^\/v1\//.test(url)) { headers['X-Device-Id'] = deviceId(); headers['X-Plx-Idle'] = String(idleSeconds()); }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   let res;
@@ -65,6 +71,9 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
     return request(method, url, body, { raw, timeoutMs, stepUpDone: true, idempotencyKey }, retried);
   }
   if (res.status === 401 && data?.error?.code === 'token_authentication_failure') window.dispatchEvent(new Event('parlance:session-ended'));
+  // Compliance refusals (identity verification required, location blocked, account closed) get one shared explanation
+  // dialog (views/onboarding.js); the caller still receives the error.
+  if (!res.ok && ['identity_verification_required', 'geo_restricted', 'passkey_required'].includes(data?.error?.code)) window.dispatchEvent(new CustomEvent('parlance:compliance', { detail: data.error }));
   if (!res.ok) throw new ApiError(res.status, data);
   return data;
 }
@@ -189,4 +198,28 @@ export const api = {
   chatDelete: (uid, t, id) => request('DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`)),
   chatReport: (uid, t, id, reason) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/report`), { reason }),
   chatMod: (t, action, b) => request('POST', `/v1/admin/chat/rooms/${encodeURIComponent(t)}/${encodeURIComponent(action)}`, b || {}),
+  // Social and community completion (PHASE2_SPEC.md §24)
+  chatEdit: (uid, t, id, body) => request('PUT', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`), { body }),
+  chatReact: (uid, t, id, key, on) => request(on ? 'PUT' : 'DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/reactions/${encodeURIComponent(key)}`), on ? {} : undefined),
+  stickers: () => request('GET', '/v1/social/stickers'),
+  post: (pid) => request('GET', `/v1/social/posts/${encodeURIComponent(pid)}`),
+  editPost: (uid, pid, body) => request('PUT', u(uid, `/social/posts/${encodeURIComponent(pid)}`), { body }),
+  commentWith: (uid, pid, b) => request('POST', u(uid, `/social/posts/${encodeURIComponent(pid)}/comments`), b),
+  positionTags: (uid) => request('GET', u(uid, '/social/position_tags')),
+  mutes: (uid) => request('GET', u(uid, '/social/mutes')),
+  mute: (uid, nickname) => request('POST', u(uid, '/social/mutes'), { nickname }),
+  unmute: (uid, nickname) => request('DELETE', u(uid, `/social/mutes${qs({ nickname })}`)),
+  topics: (uid) => request('GET', u(uid, '/social/topics')),
+  followTopic: (uid, kind, value) => request('POST', u(uid, '/social/topics'), { kind, value }),
+  unfollowTopic: (uid, kind, value) => request('DELETE', u(uid, `/social/topics${qs({ kind, value })}`)),
+  searchProfiles: (query) => request('GET', `/v1/search/social_profiles${qs({ query, limit: 8 })}`),
+  timelineCount: (o) => request('GET', `/v1/social/timeline_count${qs(o)}`),
+  badges: (nickname) => request('GET', `/v1/social/badges${qs({ nickname })}`),
+  setAvatar: (uid, stickerId) => request('PUT', u(uid, '/social/profile/avatar'), { sticker_id: stickerId }),
+  notifPrefs: (uid) => request('GET', u(uid, '/notifications/preferences')),
+  saveNotifPrefs: (uid, b) => request('PUT', u(uid, '/notifications/preferences'), b),
+  moveSubs: (uid, ticker) => request('GET', u(uid, `/notifications/price_movement_subscriptions${qs({ market_ticker: ticker })}`)),
+  addMoveSub: (uid, b) => request('POST', u(uid, '/notifications/price_movement_subscriptions'), b),
+  deleteMoveSub: (uid, id) => request('DELETE', u(uid, `/notifications/price_movement_subscriptions${qs({ id })}`)),
+  promos: (o) => request('GET', `/v1/promos${qs(o)}`),
 };

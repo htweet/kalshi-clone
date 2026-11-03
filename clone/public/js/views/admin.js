@@ -20,6 +20,9 @@ export const SECTIONS = [
   ['settings', 'Settings & health', 'settings.write', './admin/system.js'],
   ['security', 'Security', 'audit.read', './admin/security.js'],
   ['identity', 'Sign-in & audit integrity', 'audit.read', './admin/identity.js'], // CLONE_SPEC §22
+  ['kyc', 'Identity reviews', 'users.read', './admin/compliance.js'], // CLONE_SPEC §25 (P3.5)
+  ['fraud', 'Fraud & holds', 'users.read', './admin/compliance.js'], // P3.7
+  ['compliance', 'Compliance settings', 'settings.write', './admin/compliance.js'], // P3.6, P3.4 admin passkeys, P3.2 SMS limits
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -27,8 +30,23 @@ const LOADERS = {
   './admin/content.js': () => import('./admin/content.js'), './admin/ops.js': () => import('./admin/ops.js'), './admin/users.js': () => import('./admin/users.js'),
   './admin/community.js': () => import('./admin/community.js'), './admin/chat.js': () => import('./admin/chat.js'), './admin/reports.js': () => import('./admin/reports.js'),
   './admin/system.js': () => import('./admin/system.js'), './admin/security.js': () => import('./admin/security.js'),
-  './admin/identity.js': () => import('./admin/identity.js'),
+  './admin/identity.js': () => import('./admin/identity.js'), './admin/compliance.js': () => import('./admin/compliance.js'),
 };
+
+// Admin passkey policy (CLONE_SPEC §25): the session must have been signed in, or confirmed, with a passkey.
+function passkeyRequired(el, e, retry) {
+  document.title = 'Admin · Parlance';
+  el.innerHTML = `<div class="card empty adm-forbidden" role="alert" data-testid="admin-passkey-required"><h1 class="typ-title-x20">Confirm with your passkey</h1>
+    <p class="muted">Staff must use a passkey for the admin panel. ${esc(e.details || '')}</p><p class="form-error" data-err></p>
+    <div class="d-flex gap-8 jc-center"><button class="btn btn-primary" data-pk data-testid="admin-passkey-confirm">Use my passkey</button><a class="btn" href="/account/privacy" data-link>Manage passkeys</a></div></div>`;
+  el.querySelector('[data-pk]').onclick = async () => {
+    try {
+      const [{ idApi }, { getPasskey }] = await Promise.all([import('../identity-api.js'), import('../webauthn-client.js')]);
+      await idApi.passkeyStepUp(await getPasskey(await idApi.passkeyStepUpOptions()));
+      retry();
+    } catch (ex) { el.querySelector('[data-err]').textContent = ex.message; }
+  };
+}
 
 function forbidden(el, signedIn) {
   document.title = 'Admin · Parlance';
@@ -40,7 +58,11 @@ function forbidden(el, signedIn) {
 export async function render({ el, params, query, navigate }) {
   if (!session.user) { forbidden(el, false); return; }
   let me;
-  try { me = await get('/me'); } catch (e) { if (e instanceof AdminError && (e.status === 403 || e.status === 401)) { forbidden(el, e.status === 403); return; } throw e; }
+  try { me = await get('/me'); } catch (e) {
+    if (e instanceof AdminError && e.code === 'passkey_required') { passkeyRequired(el, e, () => render({ el, params, query, navigate })); return; }
+    if (e instanceof AdminError && (e.status === 403 || e.status === 401)) { forbidden(el, e.status === 403); return; }
+    throw e;
+  }
   const perms = new Set(me.permissions);
   const allowed = SECTIONS.filter(([, , p]) => perms.has(p));
   const parts = String(params.path || '').split('/').filter(Boolean).map(decodeURIComponent);

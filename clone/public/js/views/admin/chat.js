@@ -2,7 +2,7 @@
 // after close), pinned message, active mutes, and the latest 200 messages (including deleted ones) with delete / pin /
 // mute actions. Every action is permission-checked server-side (social.moderate) and written to the audit log.
 // All user content is passed through esc() before it reaches the table markup.
-import { esc, get, post, toast, dataTable, confirmAction, section, statusBadge, badge, fmtTime } from './ui.js';
+import { esc, get, post, toast, dataTable, confirmAction, section, statusBadge, badge, fmtTime, dialog } from './ui.js';
 
 const SLOW = [[0, 'Off'], [5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute'], [120, '2 minutes'], [300, '5 minutes']];
 const STATE_KIND = { open: 'ok', read_only: '', locked: 'bad' };
@@ -49,7 +49,7 @@ async function renderRoom(el, ticker, navigate) {
       cols: [
         { key: 'created_time', label: 'Time', render: (m) => esc(fmtTime(m.created_time)) },
         { key: 'nickname', label: 'Author', sort: (m) => m.author.nickname, render: (m) => `@${esc(m.author.nickname)}${m.author.verified ? ' <span class="verified-badge" title="Verified">✓</span>' : ''}` },
-        { key: 'body', label: 'Message', render: (m) => `${m.reply_to ? `<div class="faint">↪ ${m.reply_to.deleted ? 'deleted message' : `@${esc(m.reply_to.nickname)}: ${esc(m.reply_to.excerpt)}`}</div>` : ''}<div class="adm-note">${esc(m.body)}</div>` },
+        { key: 'body', label: 'Message', render: (m) => `${m.reply_to ? `<div class="faint">↪ ${m.reply_to.deleted ? 'deleted message' : `@${esc(m.reply_to.nickname)}: ${esc(m.reply_to.excerpt)}`}</div>` : ''}<div class="adm-note">${esc(m.body)}</div>${m.sticker ? `<div class="faint">[sticker: ${esc(m.sticker.label)}]</div>` : ''}${m.edited ? `${badge('edited', 'warn')} <button class="btn btn-sm btn-ghost" data-history="${esc(m.id)}" data-testid="chat-history">History</button>` : ''}` },
         { key: 'mod_state', label: 'State', render: (m) => (m.deleted ? badge(m.mod_state === 'author_deleted' ? 'deleted by author' : 'removed', m.mod_state === 'author_deleted' ? '' : 'bad') : statusBadge('active')) },
         { key: '_a', label: '', sort: false, render: (m) => (m.deleted ? '' : `<span class="adm-actions"><button class="btn btn-sm btn-ghost btn-danger" data-del="${esc(m.id)}">Delete</button><button class="btn btn-sm" data-pin="${esc(m.id)}">Pin</button><button class="btn btn-sm" data-mute="${esc(m.id)}">Mute…</button></span>`) }],
       searchText: (m) => `${m.author.nickname} ${m.body}` });
@@ -67,6 +67,14 @@ async function renderRoom(el, ticker, navigate) {
       const ok = await confirmAction({ title: 'Lock this chat room?', body: 'Everyone can still read it, but nobody can send messages until it is unlocked.', confirm: 'Lock room', danger: true, reason: true });
       if (ok) act('lock', { reason: ok.reason }, 'Room locked');
     } else if (b.matches('[data-unpin]')) act('unpin', {}, 'Unpinned');
+    else if (b.dataset.history) {
+      // Edit history (PHASE2_SPEC.md §24.7): every earlier text of the message, oldest first.
+      try {
+        const r = await get(`/chat/messages/${encodeURIComponent(b.dataset.history)}/edits`);
+        const d = dialog(`<h3>Edit history</h3><p class="faint">@${esc(r.message.nickname)} · sent ${esc(fmtTime(r.message.created_time))}</p><ol class="adm-list" data-testid="chat-edit-history">${r.edits.map((x) => `<li><div class="faint">${esc(fmtTime(x.edited_time))}</div><div><s>${esc(x.previous_body)}</s></div><div>→ ${esc(x.new_body)}</div></li>`).join('')}</ol><div class="adm-form-actions"><button class="btn" data-close>Close</button></div>`, { testid: 'chat-history-dialog' });
+        d.querySelector('[data-close]').onclick = () => d.close();
+      } catch (ex) { toast(ex.message, 'error'); }
+    }
     else if (b.dataset.unmute) act('unmute', { nickname: b.dataset.unmute }, 'Unmuted');
     else if (b.dataset.pin) act('pin', { message_id: b.dataset.pin }, 'Pinned');
     else if (b.dataset.del) {

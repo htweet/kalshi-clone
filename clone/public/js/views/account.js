@@ -5,7 +5,9 @@ import { session } from '../store.js';
 import { esc, money, toast, relTime } from '../lib.js';
 import { PASSWORD_RULES, authMessage } from './auth.js';
 
-const SECTIONS = [['profile', 'Social profile'], ['security', 'Security'], ['limits', 'Account limits'], ['alerts', 'Price alerts'], ['appearance', 'Appearance']];
+const SECTIONS = [['profile', 'Social profile'], ['security', 'Security'], ['privacy', 'Identity & privacy'], ['limits', 'Account limits'], ['alerts', 'Price alerts'], ['appearance', 'Appearance']];
+// Identity & privacy (CLONE_SPEC §25) lives in its own module.
+const privacy = (panel) => import('./account-identity.js').then((m) => m.render(panel));
 
 export async function render({ el, params, navigate }) {
   if (!session.user) { navigate('/sign-in?next=' + encodeURIComponent(location.pathname), { replace: true }); return; }
@@ -14,7 +16,7 @@ export async function render({ el, params, navigate }) {
   el.innerHTML = `<div class="page-head"><h1 class="typ-title-x10">Account</h1></div>
     <div class="account-layout"><nav class="side-nav">${SECTIONS.map(([k, l]) => `<a href="/account/${k}" data-link class="${k === section ? 'on' : ''}">${l}</a>`).join('')}</nav><div id="panel"></div></div>`;
   const panel = el.querySelector('#panel');
-  await ({ profile, security, limits, alerts, appearance })[section](panel);
+  await ({ profile, security, privacy, limits, alerts, appearance })[section](panel);
 }
 
 async function profile(panel) {
@@ -48,6 +50,13 @@ const EVENT_LABELS = {
   password_rehash: 'Password storage upgraded', email_change: 'Email address changed', session_revoke: 'Device signed out', sessions_revoke_all: 'Signed out everywhere',
   sessions_revoked: 'Sessions ended (role change)', session_expired: 'Session expired', withdrawal_mfa_on: 'Withdrawal verification on', withdrawal_mfa_off: 'Withdrawal verification off',
   admin_bootstrap: 'Admin account set up', default_password_removed: 'Default password removed',
+  // Phase 3 (CLONE_SPEC §25)
+  phone_code_sent: 'Phone code sent', phone_verified: 'Phone number verified', phone_changed: 'Phone number changed', phone_verify_fail: 'Wrong phone code', phone_code_limited: 'Phone code request limited',
+  email_verified: 'Email verified', password_reset_requested: 'Password reset requested', password_reset: 'Password reset by email link', passkey_added: 'Passkey added', passkey_removed: 'Passkey removed',
+  passkey_used: 'Signed in with a passkey', passkey_fail: 'Passkey check failed', passkey_counter_regression: 'Passkey refused (possible copy)', oauth_linked: 'Sign-in provider linked',
+  oauth_unlinked: 'Sign-in provider unlinked', oauth_fail: 'Provider sign-in failed', identity_submitted: 'Identity submitted', identity_approved: 'Identity verified', identity_review: 'Identity under review',
+  identity_rejected: 'Identity not verified', identity_retry: 'Identity check needs another try', identity_viewed_by_staff: 'Support viewed your identity details', geo_blocked: 'Blocked by location',
+  withdrawal_held: 'Withdrawal held for review', data_export: 'Data exported',
 };
 const BAD_EVENTS = new Set(['login_fail', 'lockout', 'mfa_fail', 'step_up_fail', 'password_change_fail']);
 const dur = (sec) => (sec >= 86400 ? `${Math.round(sec / 86400)} days` : sec >= 3600 ? `${Math.round(sec / 3600)} hours` : `${Math.max(1, Math.round(sec / 60))} minutes`);

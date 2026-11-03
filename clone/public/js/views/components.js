@@ -113,23 +113,40 @@ export function lineChart(points, color = 'var(--brand)') {
     <circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="4" fill="${esc(color)}"/></svg>`;
 }
 
-// Social post (spec §13.6).
-export function postCard(p, { showEvent = true } = {}) {
-  return `<article class="post" data-post="${esc(p.id)}" data-testid="post">
-    ${avatar(p.author.nickname)}
-    <div>
-      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a>${p.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified" data-testid="verified-badge">✓</span>' : ''}<span class="faint">${relTime(p.created_time)}</span>
-        ${p.is_mine ? '<button class="btn btn-sm btn-ghost btn-danger ml-auto" data-act="delete">Delete</button>' : `<button class="post-more" data-post-menu="${esc(p.id)}" aria-label="More actions" data-testid="post-menu">⋯</button>`}</div>
-      <div class="post-body" data-testid="post-body">${esc(p.body)}</div>
+// Social post (spec §13.6, §15.4; Phase 2 extras PHASE2_SPEC.md §24): avatar (monogram or a sticker the author picked),
+// nickname + verified + earned badges, age, "edited", position tag ("Yes · outcome · market", links to the market),
+// body with "Read more" for long posts, sticker, actions (like, reply, bookmark, share) and the ⋯ menu.
+const BADGE_ICON = { first_trade: '1', ten_trades: '10', profitable_month: '$', top_10: '★', verified: '✓' };
+const BADGE_LABEL = { first_trade: 'First trade', ten_trades: '10 trades', profitable_month: 'Profitable month', top_10: 'Top 10 trader', verified: 'Verified' };
+export function badgeChips(badges = []) {
+  return badges.filter((b) => BADGE_ICON[b] && b !== 'verified').map((b) => `<span class="badge-chip" data-badge="${esc(b)}" title="${esc(BADGE_LABEL[b])}" aria-label="${esc(BADGE_LABEL[b])}">${esc(BADGE_ICON[b])}</span>`).join('');
+}
+export function authorAvatar(author, cls = '') {
+  return author.avatar ? `<img class="avatar sticker-av ${esc(cls)}" src="${esc(author.avatar.url)}" alt="" width="36" height="36" aria-hidden="true">` : avatar(author.nickname, cls);
+}
+export const stickerImg = (s, cls = 'sticker') => (s ? `<img class="${esc(cls)}" src="${esc(s.url)}" alt="${esc(s.label)}" title="${esc(s.label)}" width="96" height="96" loading="lazy" data-testid="sticker" data-sticker="${esc(s.id)}">` : '');
+const LONG_POST = 280;
+export function postCard(p, { showEvent = true, expanded = false } = {}) {
+  const long = !expanded && (p.body.length > LONG_POST || p.body.split('\n').length > 5);
+  return `<article class="post${p.author_muted ? ' muted-author' : ''}" data-post="${esc(p.id)}" data-nick="${esc(p.author.nickname)}" data-mine="${p.is_mine ? '1' : ''}" data-editable-until="${esc(p.editable_until || '')}" data-share="${esc(p.share_path || `/social/post/${encodeURIComponent(p.id)}`)}" data-testid="post">
+    ${authorAvatar(p.author)}
+    <div class="minw-0">
+      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a>${p.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified" data-testid="verified-badge">✓</span>' : ''}${badgeChips(p.author.badges)}<a class="faint post-time" href="${esc(p.share_path || `/social/post/${encodeURIComponent(p.id)}`)}" data-link>${relTime(p.created_time)}</a>${p.edited ? `<span class="faint" data-testid="post-edited" title="Edited ${esc(new Date(p.edited_time).toLocaleString())}">· ${p.edited_by_moderator ? 'edited by a moderator' : 'edited'}</span>` : ''}${p.subtype && p.subtype !== 'standard' ? `<span class="subtype-chip" data-testid="post-subtype">${esc(p.subtype)}</span>` : ''}
+        <span class="ml-auto d-flex ai-center gap-4">${p.is_mine ? '<button class="btn btn-sm btn-ghost btn-danger" data-act="delete">Delete</button>' : ''}<button class="post-more" data-post-more="${esc(p.id)}" aria-label="More actions" aria-haspopup="menu" data-testid="post-menu">⋯</button></span></div>
+      ${p.position ? `<a class="pos-tag pos-${esc(p.position.side)}" href="${esc(p.position.link)}" data-link data-testid="position-tag" title="${p.position.held === 'current' ? 'Holds this position' : 'Held this position'}">${esc(p.position.label)}</a>` : ''}
+      ${p.body ? `<div class="post-body${long ? ' clamp' : ''}" data-testid="post-body">${esc(p.body)}</div>${long ? '<button class="read-more" type="button" data-act="read-more" data-testid="read-more" aria-expanded="false">Read more</button>' : ''}` : ''}
+      ${stickerImg(p.sticker)}
       ${showEvent && p.event ? `<a class="post-event" href="${esc(p.event.link)}" data-link>${esc(p.event.title)}</a><br>` : ''}
       <div class="post-actions">
         <button data-act="like" class="${p.liked ? 'on' : ''}" aria-pressed="${esc(p.liked)}" aria-label="Like">${ICON.heart}<span data-testid="like-count">${esc(p.like_count)}</span></button>
         <button data-act="comments" aria-label="Replies">${ICON.reply}<span data-testid="comment-count">${esc(p.comment_count)}</span></button>
         <button data-act="bookmark" class="bm ${p.bookmarked ? 'on' : ''}" aria-pressed="${esc(p.bookmarked)}" aria-label="Bookmark">${ICON.bookmark}</button>
+        <button data-act="share" aria-label="Share" data-testid="post-share">${SHARE_ICON}</button>
       </div>
       <div class="comments" hidden></div>
     </div>
   </article>`;
 }
+const SHARE_ICON = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 2v8M5 5l3-3 3 3M3 9v4h10V9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 export { deltaCents, cents, qty };

@@ -14,6 +14,9 @@ const { mountPositions } = require('./positions');
 const { mountSports } = require('./sports');
 const { mountAdmin } = require('./admin');
 const { mountChat } = require('./chat');
+const { mountIdentity } = require('./identity');
+const { mountSocial2 } = require('./social2');
+const { mountChatExtras } = require('./chat-extras');
 const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
 const { createAuth } = require('./auth');
@@ -46,7 +49,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, social: social2Options, chatExtras: chatExtrasOptions, identity: identityOptions }) {
   const app = express();
   app.set('trust proxy', false);
   app.disable('x-powered-by');
@@ -104,7 +107,13 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   auth.initAuditChain(); // admin_audit exists now: add chain columns, seal pre-chain rows (server/audit-chain.js)
   // Idempotency-Key replay for orders, deposits, withdrawals, transfers, RFQ accept (server/idempotency.js, PLAN P1.9).
   v1.use(idempotency({ db }).middleware);
+  // Accounts, identity and compliance (server/identity.js, Phase 3, CLONE_SPEC §25): the compliance gate on trading, deposits
+  // and withdrawals (identity verification, location, fraud holds) runs here, after idempotency; its routes follow.
+  app.locals.identity = mountIdentity({ v1, app, db, engine, auth, admin, security, keyDir, notify: (...a) => feat.notify(...a), options: identityOptions });
+  // Phase 2 social completion (server/social2.js, PHASE2_SPEC.md §24): mounted ahead of the feature routes, hooks attached after.
+  const social2 = mountSocial2({ v1, db, engine, requireUser, can: admin.can, rolesOf: admin.rolesOf, notify: (...a) => feat.notify(...a), getEvent, options: social2Options });
   const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent });
+  social2.attachFeatures(feat);
   app.use('/v1', feat.sessionMiddleware);
   app.locals.rolling = mountRolling({ v1, db, engine, windowSec: admin.rollingWindowSec() ?? rollingWindowSec }); // window editable live (G7)
   mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
@@ -115,7 +124,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
-  mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify }); // event live chat (CLONE_SPEC.md §20)
+  const chat = mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify }); // event live chat (CLONE_SPEC.md §20)
+  mountChatExtras({ v1, db, chat, social: social2, requireUser, can: admin.can, options: chatExtrasOptions }); // reactions, edits, stickers (§24.7)
 
   // ======================= Trade API v2 (public market data) =======================
   v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));

@@ -9,6 +9,7 @@ import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { relTime, toast } from '../lib.js';
+import { REACTIONS, REACTION_EMOJI, openStickerPicker, mutedNicks } from './social2.js'; // reactions, stickers, mutes (PHASE2_SPEC.md §24.7)
 
 const MAX = 280;
 const PAGE = 40;
@@ -16,6 +17,7 @@ const SLOW = [[0, 'Off'], [5, '5s'], [10, '10s'], [30, '30s'], [60, '1m'], [120,
 const REPORT_REASONS = [['Spam or scam', 'spam'], ['Harassment or hate', 'abuse'], ['Off-topic', 'offtopic']];
 const MUTES = [[10, '10 min'], [60, '1 hour'], [1440, '24 hours']];
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
+const EDIT_MS = 5 * 60 * 1000; // own messages can be edited for 5 minutes (server-enforced)
 
 // Tiny DOM builder: attributes come from code, children strings become text nodes (never parsed as HTML).
 function h(tag, attrs = {}, ...kids) {
@@ -67,7 +69,7 @@ export function mountChat({ el, ev }) {
   const T = ev.event_ticker;
   const actions = el.querySelector('.ev-actions');
   if (!actions || !T) return () => {};
-  const st = { room: null, viewer: null, ids: new Set(), oldest: null, hasMore: false, loadingOlder: false, open: false, replyTo: null, unseen: 0, unreadClosed: 0, coolUntil: 0, footMode: '', menu: null, wasDown: false };
+  const st = { room: null, viewer: null, ids: new Set(), oldest: null, hasMore: false, loadingOlder: false, open: false, replyTo: null, unseen: 0, unreadClosed: 0, coolUntil: 0, footMode: '', menu: null, wasDown: false, mine: new Map(), muted: new Set() };
   const timers = [];
 
   // ---------------- entry points: header pill (+ compact entry under a sports scoreboard)
@@ -116,19 +118,57 @@ export function mountChat({ el, ev }) {
     if (m.reply_to) row.append(quoteEl(m.reply_to));
     const acts = h('div', { class: 'chat-acts' });
     if (st.viewer?.signed_in) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'reply', 'data-testid': 'chat-reply', title: 'Reply' }, 'Reply'));
+    if (st.viewer?.signed_in) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'react', 'data-testid': 'chat-react', title: 'React', 'aria-label': 'Add a reaction', 'aria-haspopup': 'menu' }, '☺+'));
+    if (mine && Date.now() - Date.parse(m.created_time) < EDIT_MS) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'edit', 'data-testid': 'chat-edit', title: 'Edit' }, 'Edit'));
     if (mine || isMod()) acts.append(h('button', { class: 'chat-act danger', type: 'button', 'data-act': 'delete', 'data-testid': 'chat-del', title: 'Delete' }, 'Delete'));
     if ((st.viewer?.signed_in && !mine) || isMod()) acts.append(h('button', { class: 'chat-act more', type: 'button', 'data-act': 'more', 'data-testid': 'chat-more', 'aria-haspopup': 'menu', 'aria-label': 'More actions' }, '⋯'));
     row.append(h('div', { class: 'chat-meta' },
       h('span', { class: 'chat-nick', 'data-testid': 'chat-nick' }, `@${m.author.nickname}`),
       m.author.verified ? h('span', { class: 'verified-badge', title: 'Verified profile', 'aria-label': 'Verified', 'data-testid': 'chat-verified' }, '✓') : null,
-      h('time', { class: 'chat-time', datetime: m.created_time, title: new Date(m.created_time).toLocaleString() }, relTime(m.created_time)), acts));
-    const body = h('div', { class: 'chat-body', 'data-testid': 'chat-body' });
+      h('time', { class: 'chat-time', datetime: m.created_time, title: new Date(m.created_time).toLocaleString() }, relTime(m.created_time)),
+      h('span', { class: 'faint chat-edited', 'data-testid': 'chat-edited', hidden: !m.edited, title: m.edited_time ? `Edited ${new Date(m.edited_time).toLocaleString()}` : 'Edited' }, '(edited)'), acts));
+    const body = h('div', { class: 'chat-body', 'data-testid': 'chat-body', hidden: !m.body });
     linkify(body, m.body);
     row.append(body);
+    if (m.sticker) row.append(h('img', { class: 'sticker sticker-sm', src: m.sticker.url, alt: m.sticker.label, title: m.sticker.label, width: '72', height: '72', 'data-testid': 'chat-sticker', 'data-sticker': m.sticker.id }));
+    if (m.my_reactions) st.mine.set(m.id, new Set(m.my_reactions));
+    row.append(h('div', { class: 'chat-reacts', 'data-reacts': '', 'data-testid': 'chat-reacts' }));
+    drawReacts(row, m.reactions || {});
     return row;
+  }
+  function drawReacts(row, counts) {
+    const box = row.querySelector('[data-reacts]');
+    const mine = st.mine.get(row.dataset.id) || new Set();
+    box.replaceChildren(...REACTIONS.filter(([k]) => counts[k] > 0).map(([k, e, label]) => h('button', { type: 'button', class: `chat-reaction${mine.has(k) ? ' on' : ''}`, 'data-react': k, 'data-count': counts[k], 'aria-pressed': String(mine.has(k)), 'aria-label': `${label}: ${counts[k]}`, 'data-testid': `chat-reaction-${k}` }, `${e} ${counts[k]}`)));
+    row.dataset.reactions = JSON.stringify(counts);
+  }
+  function editInPlace(row) {
+    if (row.querySelector('[data-edit-form]')) return;
+    const body = row.querySelector('[data-testid=chat-body]');
+    const input = h('input', { class: 'chat-input', maxlength: String(MAX * 2), 'aria-label': 'Edit message', 'data-testid': 'chat-edit-input' });
+    input.value = body.textContent;
+    const form = h('form', { class: 'chat-edit-form', 'data-edit-form': '' }, input, h('button', { class: 'btn btn-sm btn-primary', type: 'submit', 'data-testid': 'chat-edit-save' }, 'Save'), h('button', { class: 'btn btn-sm', type: 'button', 'data-edit-cancel': '' }, 'Cancel'));
+    body.hidden = true;
+    body.after(form);
+    input.focus();
+    const done = () => { form.remove(); body.hidden = !body.textContent; };
+    form.querySelector('[data-edit-cancel]').onclick = done;
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      try { const r = await api.chatEdit(session.uid, T, row.dataset.id, input.value); applyEdit(r.message); done(); } catch (ex) { toast(ex.code === 'edit_window_closed' ? 'Messages can only be edited for 5 minutes.' : ex.message, 'error'); }
+    };
+  }
+  function applyEdit(m) {
+    const row = panel.querySelector(`.chat-msg[data-id="${CSS.escape(m.id)}"]`);
+    if (!row) return;
+    const body = row.querySelector('[data-testid=chat-body]');
+    body.replaceChildren(); linkify(body, m.body); body.hidden = !m.body || !!row.querySelector('[data-edit-form]');
+    const ed = row.querySelector('[data-testid=chat-edited]'); ed.hidden = !m.edited; if (m.edited_time) ed.title = `Edited ${new Date(m.edited_time).toLocaleString()}`;
+    for (const q of panel.querySelectorAll(`[data-quote="${CSS.escape(m.id)}"]`)) q.replaceWith(quoteEl({ id: m.id, nickname: m.author.nickname, excerpt: [...m.body].length > 90 ? [...m.body].slice(0, 90).join('') + '…' : m.body || '[sticker]' }));
   }
   function add(m, { prepend = false } = {}) {
     if (st.ids.has(m.id)) return false;
+    if (st.muted.has(String(m.author.nickname).toLowerCase())) return false; // muted by this viewer (PHASE2_SPEC.md §24.2)
     st.ids.add(m.id);
     const node = msgEl(m);
     if (prepend) msgsBox.prepend(node); else msgsBox.append(node);
@@ -245,7 +285,9 @@ export function mountChat({ el, ev }) {
     } else {
       const input = h('textarea', { class: 'chat-input', 'data-input': '', rows: '1', placeholder: 'Say something…', 'aria-label': 'Chat message', 'data-testid': 'chat-input', enterkeyhint: 'send', spellcheck: 'true' });
       const send = h('button', { class: 'btn btn-primary btn-sm chat-send', type: 'submit', 'data-send': '', 'data-testid': 'chat-send', disabled: true }, 'Send');
-      const form = h('form', { class: 'chat-form', 'data-form': '' }, input, send);
+      const stk = h('button', { class: 'btn btn-sm btn-ghost chat-sticker-btn', type: 'button', 'data-sticker-btn': 'chat', 'data-testid': 'chat-sticker-btn', 'aria-label': 'Send a sticker', title: 'Stickers' }, '◎');
+      const form = h('form', { class: 'chat-form', 'data-form': '' }, input, stk, send);
+      stk.onclick = () => openStickerPicker(stk, (s) => submit({ sticker_id: s.id }));
       foot.append(
         h('div', { class: 'chat-replying', 'data-reply': '', 'data-testid': 'chat-replying', hidden: true }, h('span', { class: 'chat-replying-text' }, 'Replying to ', h('b', { 'data-reply-nick': '' })),
           h('button', { class: 'chat-act', type: 'button', 'data-reply-cancel': '', 'aria-label': 'Cancel reply' }, '✕')),
@@ -286,13 +328,13 @@ export function mountChat({ el, ev }) {
     if (m) { box.querySelector('[data-reply-nick]').textContent = `@${m.nickname}`; $('[data-input]')?.focus(); }
   }
   const showErr = (msg) => { const e = $('[data-err]'); if (e) e.textContent = msg; };
-  async function submit() {
+  async function submit(extra = {}) {
     const input = $('[data-input]');
     const body = input.value.trim();
-    if (!body || chars(body) > MAX || st.sending || Date.now() < st.coolUntil) return;
+    if ((!body && !extra.sticker_id) || chars(body) > MAX || st.sending || Date.now() < st.coolUntil) return;
     st.sending = true; updateComposer(); showErr('');
     try {
-      const r = await api.chatPost(session.uid, T, { body, reply_to: st.replyTo?.id || null });
+      const r = await api.chatPost(session.uid, T, { body, reply_to: st.replyTo?.id || null, ...extra });
       add(r.message); toBottom();
       input.value = ''; autosize(input); setReply(null);
       if (r.slow_mode_sec && !isMod()) startCooldown(r.slow_mode_sec);
@@ -316,6 +358,8 @@ export function mountChat({ el, ev }) {
     if (st.viewer?.signed_in && !mine) {
       menu.append(h('div', { class: 'chat-menu-head' }, 'Report'));
       for (const [label, code] of REPORT_REASONS) menu.append(h('button', { type: 'button', role: 'menuitem', 'data-report': code, 'data-testid': `chat-report-${code}` }, label));
+      menu.append(h('div', { class: 'chat-menu-head' }, 'For me'));
+      menu.append(h('button', { type: 'button', role: 'menuitem', 'data-user-mute': row.dataset.nick, 'data-testid': 'chat-user-mute' }, `Mute @${row.dataset.nick}`));
     }
     if (isMod()) {
       menu.append(h('div', { class: 'chat-menu-head' }, 'Moderate'));
@@ -338,6 +382,25 @@ export function mountChat({ el, ev }) {
       if (act === 'reply') { setReply({ id, nickname: row.dataset.nick }); return; }
       if (act === 'delete') { await api.chatDelete(session.uid, T, id); removeMsg(id); toast('Message deleted'); return; }
       if (act === 'more') { if (st.menu && st.menu.parentElement === row) closeMenu(); else openMenu(row, e.target); return; }
+      if (act === 'edit') { editInPlace(row); return; }
+      if (act === 'react') {
+        if (st.menu && st.menu.parentElement === row && st.menu.dataset.kind === 'react') { closeMenu(); return; }
+        closeMenu();
+        const menu = h('div', { class: 'chat-menu chat-react-menu', role: 'menu', 'data-kind': 'react', 'data-testid': 'chat-react-menu' }, ...REACTIONS.map(([k, em, label]) => h('button', { type: 'button', role: 'menuitem', 'data-react-pick': k, 'aria-label': label, title: label, 'data-testid': `chat-react-pick-${k}` }, em)));
+        row.append(menu); st.menu = menu; menu.querySelector('button').focus();
+        return;
+      }
+      const pick = e.target.closest('[data-react-pick],[data-react]');
+      if (pick) {
+        const key = pick.dataset.reactPick || pick.dataset.react;
+        if (!st.viewer?.signed_in) return;
+        closeMenu();
+        const on = !(st.mine.get(id) || new Set()).has(key);
+        const r = await api.chatReact(session.uid, T, id, key, on);
+        st.mine.set(id, new Set(r.my_reactions));
+        drawReacts(row, r.reactions);
+        return;
+      }
       const rep = e.target.closest('[data-report]');
       if (rep) {
         const label = REPORT_REASONS.find(([, c]) => c === rep.dataset.report)[0];
@@ -346,6 +409,8 @@ export function mountChat({ el, ev }) {
         toast('Thanks. A moderator will review this message.');
         return;
       }
+      const um = e.target.closest('[data-user-mute]');
+      if (um) { closeMenu(); const { toggleMute } = await import('./social2.js'); await toggleMute(um.dataset.userMute, true); return; }
       if (e.target.closest('[data-pin]')) { closeMenu(); const r = await api.chatMod(T, 'pin', { message_id: id }); st.room.pinned = r.room.pinned; drawPinned(); toast('Message pinned'); return; }
       const mute = e.target.closest('[data-mute]');
       if (mute) { closeMenu(); const r = await api.chatMod(T, 'mute', { message_id: id, minutes: Number(mute.dataset.mute), reason: 'muted from the event chat' }); toast(`@${r.nickname} muted until ${clock(r.muted_until)}`); }
@@ -369,7 +434,7 @@ export function mountChat({ el, ev }) {
     try { const r = await api.chatMod(T, lock ? 'lock' : 'unlock', { reason: lock ? 'locked from the event chat' : '' }); st.room = { ...st.room, ...r.room }; drawRoom(); toast(lock ? 'Chat locked' : 'Chat unlocked'); } catch (ex) { toast(ex.message, 'error'); }
   };
   document.addEventListener('click', onDocClick);
-  function onDocClick(e) { if (st.menu && !e.target.closest('.chat-menu') && !e.target.closest('[data-act=more]')) closeMenu(); }
+  function onDocClick(e) { if (st.menu && !e.target.closest('.chat-menu') && !e.target.closest('[data-act=more]') && !e.target.closest('[data-act=react]')) closeMenu(); }
 
   // ---------------- open / close
   function setOpen(open) {
@@ -431,6 +496,11 @@ export function mountChat({ el, ev }) {
       if (st.room) { st.room.pinned = msg.pinned; drawPinned(); }
     } else if (m.type === 'chat_room_state') {
       st.room = msg; drawRoom();
+    } else if (m.type === 'chat_reactions') {
+      const row = panel.querySelector(`.chat-msg[data-id="${CSS.escape(msg.id)}"]`);
+      if (row) drawReacts(row, msg.reactions || {});
+    } else if (m.type === 'chat_edited') {
+      applyEdit(msg);
     }
   }
   const unsub = socket.subscribe({ channels: ['chat'], event_tickers: [T] }, onSocket);
@@ -443,13 +513,18 @@ export function mountChat({ el, ev }) {
     if (st.coolUntil && Date.now() < st.coolUntil + 1000) updateComposer();
     if (st.viewer?.muted_until && block() !== 'muted' && st.footMode === 'block:muted') drawFoot(); // mute expired
   }, 250));
-  loadLatest().catch((e) => { pill.title = e.message; });
+  // The viewer's muted traders (server filters history; live frames carry nicknames only, so they are filtered here).
+  const loadMutes = () => mutedNicks().then((set) => { st.muted = set; for (const node of [...msgsBox.children]) if (set.has(String(node.dataset.nick).toLowerCase())) removeMsg(node.dataset.id); });
+  const onMutes = () => loadMutes().then(() => { if (st.ids.size === 0) loadLatest({ merge: true }).catch(() => {}); });
+  window.addEventListener('parlance:mutes-changed', onMutes);
+  loadMutes().finally(() => loadLatest().catch((e) => { pill.title = e.message; }));
 
   return () => {
     unsub(); offState();
     for (const t of timers) clearInterval(t);
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('click', onDocClick);
+    window.removeEventListener('parlance:mutes-changed', onMutes);
     document.body.classList.remove('chat-open');
     panel.remove(); backdrop.remove(); pill.remove(); sbEntry?.remove();
   };

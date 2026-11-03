@@ -1,0 +1,85 @@
+/* Social and community completion (PHASE2_SPEC.md §24): post extras, stickers, badges, menus, settings pages,
+   chat reactions / edits. Uses the app.css tokens, so dark (default) and light themes both work. */
+.gap-4 { gap: 4px !important; }
+.p-8 { padding: 8px !important; }
+
+/* post card extras */
+.post .post-head { align-items: center; }
+.post-head > .ml-auto { position: relative; }
+.post-time { font-weight: 400 !important; }
+.post-body.clamp { display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.read-more { border: 0; background: none; padding: 0; margin: -4px 0 8px; color: var(--brand); font-weight: 600; font-size: 14px; cursor: pointer; }
+.pos-tag { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin: 4px 0 2px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pos-tag.pos-yes { color: var(--yes); border-color: color-mix(in srgb, var(--yes) 45%, transparent); }
+.pos-tag.pos-no { color: var(--no); border-color: color-mix(in srgb, var(--no) 45%, transparent); }
+.sticker { display: block; width: 96px; height: 96px; margin: 4px 0 8px; border-radius: 18px; }
+.sticker.sticker-sm { width: 72px; height: 72px; border-radius: 14px; }
+.comment .sticker.sticker-sm { width: 56px; height: 56px; }
+.sticker-av { object-fit: cover; background: var(--fill-x30); }
+.badge-chip { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; margin-left: 4px; border-radius: 9px; background: color-mix(in srgb, var(--brand) 22%, transparent); color: var(--brand); font-size: 11px; font-weight: 700; line-height: 1; }
+.profile-badges { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+.profile-badges:empty { display: none; }
+.subtype-chip { margin-left: 4px; padding: 1px 8px; border-radius: 999px; background: var(--fill-x30); color: var(--text-x20); font-size: 12px; text-transform: capitalize; }
+.post.muted-author { opacity: .6; }
+.muted-note { padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
+.post-edit textarea { width: 100%; min-height: 72px; border: 1px solid var(--line); border-radius: var(--rounded-x20); background: transparent; padding: 8px 10px; font-size: 15px; resize: vertical; }
+.post-menu { right: 0; left: auto; }
+.new-posts-btn { display: block; margin: 8px auto; padding: 6px 14px; border-radius: 999px; border: 0; background: var(--brand); color: #fff; font-weight: 600; cursor: pointer; }
+.post-page { max-width: 720px; margin: 0 auto; }
+
+/* composer extras */
+.composer-extras { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0 8px 42px; }
+.composer-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.composer-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+.composer-chip img { border-radius: 6px; }
+.chip-x { border: 0; background: none; color: var(--text-x30); width: 22px; height: 22px; border-radius: 50%; cursor: pointer; }
+.chip-x:hover { background: var(--fill-x30); }
+.pos-picker { display: grid; gap: 4px; margin: 0 0 8px 42px; padding: 8px; border: 1px solid var(--line); border-radius: var(--rounded-x30); max-height: 240px; overflow: auto; }
+.pos-opt { text-align: left; border: 0; background: none; padding: 8px; border-radius: var(--rounded-x20); font-size: 14px; overflow-wrap: anywhere; cursor: pointer; }
+.pos-opt:hover { background: var(--fill-x30); }
+.pos-opt.pos-yes { color: var(--yes); }
+.pos-opt.pos-no { color: var(--no); }
+
+/* sticker picker */
+.sticker-picker { position: absolute; z-index: 60; display: grid; grid-template-columns: repeat(5, 56px); gap: 6px; padding: 8px; margin-top: 6px; background: var(--surface-x10); border: 1px solid var(--line); border-radius: var(--rounded-x30); box-shadow: var(--shadow-pop); max-width: calc(100vw - 32px); }
+.sticker-opt { border: 0; padding: 0; background: none; border-radius: 12px; cursor: pointer; line-height: 0; }
+.sticker-opt:hover, .sticker-opt:focus-visible { outline: 2px solid var(--brand); }
+.composer-extras, .inline-form[data-reply], .chat-form { position: relative; }
+@media (max-width: 480px) { .sticker-picker { grid-template-columns: repeat(4, 56px); left: 0; } .composer-extras { padding-left: 0; } .pos-picker { margin-left: 0; } }
+
+/* profile search + settings */
+.profile-search { position: relative; margin-bottom: 12px; }
+.search-results { display: grid; }
+.search-hit { padding: 8px 4px; border-radius: var(--rounded-x20); overflow-wrap: anywhere; }
+.search-hit:hover { background: var(--fill-x30); }
+.settings-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.avatar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.avatar-opt { display: grid; justify-items: center; gap: 4px; padding: 8px 4px; border: 1px solid var(--line); border-radius: var(--rounded-x30); background: none; font-size: 12px; cursor: pointer; text-align: center; }
+.avatar-opt img { border-radius: 50%; }
+.avatar-opt.on { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.prefs-table input[type=checkbox] { width: 18px; height: 18px; }
+.prefs-table td, .prefs-table th { padding: 8px 6px; }
+.prefs-table { width: 100%; }
+
+/* targeted promos */
+.promo-card { display: grid; gap: 2px; padding: 12px 14px; margin-bottom: 12px; position: relative; overflow: hidden; }
+.promo-card .overline { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-x30); }
+.promo-dot { position: absolute; right: 12px; top: 12px; width: 10px; height: 10px; border-radius: 50%; }
+.cat-promos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.cat-promos:empty { display: none; }
+
+/* chat reactions, edits, stickers */
+.chat-reacts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chat-reacts:empty { display: none; }
+.chat-reaction { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 1px 8px; font-size: 13px; cursor: pointer; }
+.chat-reaction.on { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 18%, transparent); }
+.chat-react-menu { display: flex; gap: 2px; min-width: 0; }
+.chat-react-menu button { font-size: 18px; width: 34px; height: 34px; justify-content: center; padding: 0; }
+.chat-edit-form { display: flex; gap: 6px; margin-top: 4px; }
+.chat-edit-form .chat-input { flex: 1; min-width: 0; }
+.chat-edited { font-size: 12px; }
+.chat-sticker-btn { flex: none; }
+.chat-form .sticker-picker { bottom: 100%; right: 0; margin: 0 0 6px; grid-template-columns: repeat(4, 56px); }
+.chat-react-menu { flex-direction: row; flex-wrap: wrap; }
+.composer-extras > .sticker-picker { top: 100%; left: 0; }
+.new-posts-btn[hidden], .chat-body[hidden], .chat-edited[hidden], .read-more[hidden], .post-body[hidden] { display: none !important; }

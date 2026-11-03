@@ -86,7 +86,7 @@ export function newsItemsHtml(ev) {
 // ---------------------------------------------------------------- report menu on posts / replies
 let menu = null;
 const closeMenu = () => { menu?.remove(); menu = null; };
-function reportDialog(kind, id) {
+export function reportDialog(kind, id) { // also used by the post ⋯ menu (views/social2.js)
   const d = document.createElement('dialog');
   d.className = 'adm-dialog';
   d.dataset.testid = 'report-dialog';

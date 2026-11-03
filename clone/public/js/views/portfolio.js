@@ -409,8 +409,9 @@ export async function render({ el, navigate, query }) {
     const amt = Number($('#f-amount').value);
     if (!(amt > 0)) { err.textContent = 'Enter an amount greater than $0.'; return; }
     try {
-      await (act === 'deposit' ? api.deposit(uid, amt) : api.withdraw(uid, amt));
-      toast(`${act === 'deposit' ? 'Deposited' : 'Withdrew'} ${money(amt)}`);
+      const r = await (act === 'deposit' ? api.deposit(uid, amt) : api.withdraw(uid, amt));
+      // A withdrawal the risk score holds for review answers 202 {status: 'held'} (CLONE_SPEC §25).
+      toast(r && r.status === 'held' ? `Withdrawal of ${money(amt)} is under review` : `${act === 'deposit' ? 'Deposited' : 'Withdrew'} ${money(amt)}`);
       $('#f-amount').value = '';
       refresh();
     } catch (e) { err.textContent = e.message; }

@@ -40,12 +40,17 @@ const dayKey = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10); // 
 const dayStartMs = (ms = Date.now()) => Date.parse(dayKey(ms) + 'T00:00:00Z');
 
 function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
+  // Extension points used by server/social2.js (PLAN Phase 2): serializer decorators, the feed filter, post / reply
+  // creation (stickers, position tags, topic notifications) and the notification gate (preferences, quiet hours, mutes).
+  const hooks = { postVo: [], commentVo: [], profileVo: [], feeds: [], feedFilter: null, beforePost: null, afterPost: null, beforeComment: null, afterComment: null, commentFilter: null, notifyGate: null };
   // ======================= notifications =======================
   const notifVo = (n) => ({ id: n.id, type: n.type, title: n.title, body: n.body, link: n.link, read: !!n.read_at, created_time: new Date(n.created_ts).toISOString() });
-  function notify(userId, { type, title, body = '', link = '' }) {
+  function notify(userId, { type, title, body = '', link = '', actor = null }) {
+    const gate = hooks.notifyGate ? hooks.notifyGate(userId, { type, title, body, link, actor }) : null; // social2.js: prefs, quiet hours, mutes
+    if (gate && !gate.store) return;
     const n = { id: newId('n_'), user_id: userId, type, title, body, link, read_at: null, created_ts: Date.now() };
     db.prepare('INSERT INTO notifications(id,user_id,type,title,body,link,read_at,created_ts) VALUES(?,?,?,?,?,?,?,?)').run(n.id, userId, type, title, body, link, null, n.created_ts);
-    engine.emit('notification', userId, notifVo(n));
+    if (!gate || gate.push) engine.emit('notification', userId, notifVo(n));
   }
   const isSystem = (uid) => !!db.prepare('SELECT is_system FROM users WHERE id=?').get(uid)?.is_system;
   const eventLink = (ticker) => {
@@ -201,7 +206,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     const c = (sql, ...a) => db.prepare(sql).get(...a).c;
     const pnl = db.prepare('SELECT COALESCE(SUM(realized_pnl_cents),0) c FROM positions WHERE user_id=?').get(p.user_id).c;
     const vol = db.prepare('SELECT COALESCE(SUM(count),0) c FROM fills WHERE user_id=?').get(p.user_id).c;
-    return {
+    const vo = {
       nickname: p.nickname, bio: p.bio, share_trades: !!p.share_trades, joined_time: p.created_at,
       followers: c('SELECT COUNT(*) c FROM follows WHERE followee_id=?', p.user_id),
       following: c('SELECT COUNT(*) c FROM follows WHERE follower_id=?', p.user_id),
@@ -210,6 +215,8 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
       is_me: viewer === p.user_id,
       metrics: { realized_pnl_dollars: dollars(pnl), volume_fp: ufp(vol), trades: c('SELECT COUNT(*) c FROM fills WHERE user_id=?', p.user_id) },
     };
+    for (const h of hooks.profileVo) h(vo, p, viewer);
+    return vo;
   }
   v1.get('/users/:uid/social/profile', requireUser, (req, res) => {
     const p = profile(req.auth.user.id);
@@ -245,7 +252,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   const postVo = (p, viewer) => {
     const author = profile(p.user_id);
     const ev = p.event_ticker ? getEvent(p.event_ticker) : null;
-    return {
+    const vo = {
       id: p.id, body: p.body, created_time: new Date(p.created_ts).toISOString(),
       author: { nickname: author ? author.nickname : 'unknown' },
       event: ev ? { event_ticker: ev.ticker, title: ev.title, link: eventLink(ev.ticker) } : null,
@@ -255,17 +262,20 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
       bookmarked: viewer ? !!db.prepare('SELECT 1 FROM post_bookmarks WHERE post_id=? AND user_id=?').get(p.id, viewer) : false,
       is_mine: viewer === p.user_id,
     };
+    for (const h of hooks.postVo) h(vo, p, viewer);
+    return vo;
   };
   v1.get('/social/posts', (req, res) => {
     const viewer = req.auth?.user.id || null;
     const feed = String(req.query.feed || 'all');
-    if (!['all', 'following', 'bookmarks'].includes(feed)) throw E.badRequest('feed must be all, following or bookmarks');
+    if (!['all', 'following', 'bookmarks', ...hooks.feeds].includes(feed)) throw E.badRequest(`feed must be ${['all', 'following', 'bookmarks', ...hooks.feeds].join(', ')}`);
     if (feed !== 'all' && !viewer) throw E.unauthorized();
     const where = []; const args = [];
     if (feed === 'following') { where.push('p.user_id IN (SELECT followee_id FROM follows WHERE follower_id=?)'); args.push(viewer); }
     if (feed === 'bookmarks') { where.push('p.id IN (SELECT post_id FROM post_bookmarks WHERE user_id=?)'); args.push(viewer); }
     if (req.query.event_ticker) { where.push('p.event_ticker=?'); args.push(String(req.query.event_ticker)); }
     if (req.query.nickname) { const pr = byNick(req.query.nickname); where.push('p.user_id=?'); args.push(pr ? pr.user_id : '-'); }
+    if (hooks.feedFilter) hooks.feedFilter({ feed, viewer, where, args, req }); // mutes, topic feed (social2.js)
     const cur = decCursor(req.query.cursor);
     const off = cur ? cur.o : 0;
     const rows = db.prepare(`SELECT p.* FROM posts p ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY p.created_ts DESC, p.rowid DESC LIMIT 21 OFFSET ?`).all(...args, off);
@@ -285,13 +295,17 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   };
   v1.post('/users/:uid/social/posts', requireUser, (req, res) => {
     const me = requireProfile(req.auth.user.id);
-    const body = textBody(req.body, 500);
+    const ext = hooks.beforePost ? hooks.beforePost(req, me) : null; // sticker + verified position tag (social2.js)
+    const body = ext && ext.allowEmptyBody && !String((req.body && req.body.body) || '').trim() ? '' : textBody(req.body, 500);
     const et = req.body.event_ticker ? String(req.body.event_ticker) : null;
     if (et && !getEvent(et)) throw E.notFound();
     const id = newId('p_');
-    db.prepare('INSERT INTO posts(id,user_id,event_ticker,body,created_ts) VALUES(?,?,?,?,?)').run(id, req.auth.user.id, et, body, Date.now());
+    tx(db, () => {
+      db.prepare('INSERT INTO posts(id,user_id,event_ticker,body,created_ts) VALUES(?,?,?,?,?)').run(id, req.auth.user.id, et, body, Date.now());
+      if (hooks.afterPost) hooks.afterPost(db.prepare('SELECT * FROM posts WHERE id=?').get(id), ext, me);
+    });
     for (const f of db.prepare('SELECT follower_id FROM follows WHERE followee_id=?').all(req.auth.user.id)) {
-      notify(f.follower_id, { type: 'social_post', title: `@${me.nickname} posted`, body: body.slice(0, 120), link: '/social' });
+      notify(f.follower_id, { type: 'social_post', title: `@${me.nickname} posted`, body: (body || 'Sticker').slice(0, 120), link: `/social/post/${encodeURIComponent(id)}`, actor: req.auth.user.id });
     }
     res.status(201).json({ post: postVo(db.prepare('SELECT * FROM posts WHERE id=?').get(id), req.auth.user.id) });
   });
@@ -310,7 +324,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     const p = ownPost(req);
     const r = db.prepare('INSERT INTO post_likes(post_id,user_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(p.id, req.auth.user.id, nowIso());
     const me = profile(req.auth.user.id);
-    if (r.changes && p.user_id !== req.auth.user.id) notify(p.user_id, { type: 'social_like', title: `${me ? '@' + me.nickname : 'Someone'} liked your post`, body: p.body.slice(0, 120), link: '/social' });
+    if (r.changes && p.user_id !== req.auth.user.id) notify(p.user_id, { type: 'social_like', title: `${me ? '@' + me.nickname : 'Someone'} liked your post`, body: p.body.slice(0, 120), link: `/social/post/${encodeURIComponent(p.id)}`, actor: req.auth.user.id });
     res.json({ post: postVo(p, req.auth.user.id) });
   });
   v1.delete('/users/:uid/social/posts/:pid/unlike', requireUser, (req, res) => {
@@ -328,18 +342,27 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     db.prepare('DELETE FROM post_bookmarks WHERE post_id=? AND user_id=?').run(p.id, req.auth.user.id);
     res.json({ post: postVo(p, req.auth.user.id) });
   });
-  const commentVo = (c, viewer) => ({ id: c.id, body: c.body, created_time: new Date(c.created_ts).toISOString(), author: { nickname: profile(c.user_id)?.nickname || 'unknown' }, is_mine: viewer === c.user_id });
+  const commentVo = (c, viewer) => {
+    const vo = { id: c.id, body: c.body, created_time: new Date(c.created_ts).toISOString(), author: { nickname: profile(c.user_id)?.nickname || 'unknown' }, is_mine: viewer === c.user_id };
+    for (const h of hooks.commentVo) h(vo, c, viewer);
+    return vo;
+  };
   v1.get('/social/posts/:pid/comments', (req, res) => {
     const p = ownPost(req);
-    res.json({ comments: db.prepare('SELECT * FROM comments WHERE post_id=? ORDER BY created_ts, rowid').all(p.id).map((c) => commentVo(c, req.auth?.user.id)) });
+    const viewer = req.auth?.user.id;
+    res.json({ comments: db.prepare('SELECT * FROM comments WHERE post_id=? ORDER BY created_ts, rowid').all(p.id).filter((c) => !hooks.commentFilter || hooks.commentFilter(c, viewer)).map((c) => commentVo(c, viewer)) });
   });
   v1.post('/users/:uid/social/posts/:pid/comments', requireUser, (req, res) => {
     const me = requireProfile(req.auth.user.id);
     const p = ownPost(req);
-    const body = textBody(req.body, 300);
+    const ext = hooks.beforeComment ? hooks.beforeComment(req, me) : null; // sticker (social2.js)
+    const body = ext && ext.allowEmptyBody && !String((req.body && req.body.body) || '').trim() ? '' : textBody(req.body, 300);
     const id = newId('c_');
-    db.prepare('INSERT INTO comments(id,post_id,user_id,body,created_ts) VALUES(?,?,?,?,?)').run(id, p.id, req.auth.user.id, body, Date.now());
-    if (p.user_id !== req.auth.user.id) notify(p.user_id, { type: 'social_comment', title: `@${me.nickname} replied to your post`, body: body.slice(0, 120), link: '/social' });
+    tx(db, () => {
+      db.prepare('INSERT INTO comments(id,post_id,user_id,body,created_ts) VALUES(?,?,?,?,?)').run(id, p.id, req.auth.user.id, body, Date.now());
+      if (hooks.afterComment) hooks.afterComment(id, ext);
+    });
+    if (p.user_id !== req.auth.user.id) notify(p.user_id, { type: 'social_comment', title: `@${me.nickname} replied to your post`, body: (body || 'Sticker').slice(0, 120), link: `/social/post/${encodeURIComponent(p.id)}`, actor: req.auth.user.id });
     res.status(201).json({ comment: commentVo(db.prepare('SELECT * FROM comments WHERE id=?').get(id), req.auth.user.id) });
   });
   v1.delete('/users/:uid/social/posts/:pid/comments/:cid', requireUser, (req, res) => {
@@ -355,7 +378,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     if (!t) throw E.notFound();
     if (t.user_id === req.auth.user.id) throw E.badRequest('you cannot follow yourself');
     const r = db.prepare('INSERT INTO follows(follower_id,followee_id,created_at) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(req.auth.user.id, t.user_id, nowIso());
-    if (r.changes) notify(t.user_id, { type: 'social_follow', title: `@${me.nickname} followed you`, link: `/social/profile/${me.nickname}` });
+    if (r.changes) notify(t.user_id, { type: 'social_follow', title: `@${me.nickname} followed you`, link: `/social/profile/${me.nickname}`, actor: req.auth.user.id });
     res.json({ profile: profileVo(t, req.auth.user.id) });
   });
   v1.delete('/users/:uid/social/follow', requireUser, (req, res) => {
@@ -464,7 +487,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     res.json({ apy: String(apyNow()), total_dollars: dollars(rows.reduce((a, r) => a + r.amount_cents, 0)), accruals: rows.map((r) => ({ day: r.day, base_dollars: dollars(r.base_cents), amount_dollars: dollars(r.amount_cents) })) });
   });
 
-  return { notify, checkDeposit, checkTrading, sessionMiddleware, CATEGORIES };
+  return { notify, checkDeposit, checkTrading, sessionMiddleware, CATEGORIES, hooks, postVo, commentVo };
 }
 
 module.exports = { mountFeatures, totp, verifyTotp, b32encode, CATEGORIES };

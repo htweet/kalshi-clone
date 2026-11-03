@@ -48,9 +48,30 @@ class SessionStore extends Observable {
 
   // Returns {mfa_token} when a second factor is required, {change_token} when an admin forced a password reset,
   // otherwise completes the sign-in.
-  async login(email, password) {
+  // After repeated failures the server asks for a proof of work instead of locking the account (RS2): solve it in the
+  // browser and retry once. `onCheck(true)` lets the form show that a check is running.
+  async login(email, password, { onCheck } = {}) {
     await this.preAuth();
-    const r = await api.logIn({ email, password });
+    let r;
+    try { r = await api.logIn({ email, password }); } catch (e) {
+      if (e.code !== 'too_many_attempts' || !e.pow) throw e;
+      onCheck?.(true);
+      const { solvePow } = await import('./pow.js');
+      try { r = await api.logIn({ email, password, pow: await solvePow(e.pow) }); } finally { onCheck?.(false); }
+    }
+    return this.afterAuth(r);
+  }
+
+  // Passkey sign-in (CLONE_SPEC §25): discoverable credential, user verification required; counts as two factors.
+  async loginPasskey() {
+    await this.preAuth();
+    const [{ idApi }, { getPasskey }] = await Promise.all([import('./identity-api.js'), import('./webauthn-client.js')]);
+    const cred = await getPasskey(await idApi.passkeyLoginOptions());
+    return this.afterAuth(await idApi.passkeyLogin(cred));
+  }
+
+  // Shared ending of every sign-in path (password, passkey, OAuth): second factor, forced password change, or session.
+  async afterAuth(r) {
     if (r.mfa_required) return { mfa_token: r.mfa_token };
     if (r.password_change_required) return { change_token: r.change_token };
     await this.finishLogin(r);

@@ -3,6 +3,8 @@
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { toast, esc } from '../lib.js';
+import { idApi } from '../identity-api.js';
+import { passkeysSupported } from '../webauthn-client.js';
 
 export const PASSWORD_RULES = 'At least 12 characters, mixing at least two of: lowercase, uppercase, digits, symbols. Not your name or email, and not a common breached password.';
 
@@ -32,10 +34,13 @@ export async function render({ el, params, query, navigate }) {
     ${signUp ? rules : ''}
     <div class="form-error" id="auth-error" role="alert"></div>
     ${submit(signUp ? 'Sign up' : 'Log in')}
+    ${signUp ? '' : '<p class="auth-forgot"><a href="/forgot-password" data-link class="c-brand" data-testid="forgot-link">Forgot password?</a></p>'}
+    <div class="auth-alt" data-auth-alt hidden></div>
     <p class="faint ta-c mt-14">${signUp ? 'Already have an account? <a href="/sign-in" data-link class="c-brand">Log in</a>' : 'New here? <a href="/sign-up" data-link class="c-brand">Create an account</a>'}</p>
   </form>`;
   const form = el.querySelector('#auth-form');
-  const done = () => { toast(signUp ? 'Account created' : 'Logged in'); navigate(next, { replace: true }); };
+  // After sign-in or sign-up: identity onboarding first when verification gates trading (CLONE_SPEC §25).
+  const done = async () => { toast(signUp ? 'Account created' : 'Logged in'); const { afterSignIn } = await import('./identity-pages.js'); await afterSignIn(navigate, next); };
   const run = (fn) => async (e) => {
     e.preventDefault();
     const err = form.querySelector('#auth-error');
@@ -73,8 +78,22 @@ export async function render({ el, params, query, navigate }) {
   form.onsubmit = run(async () => {
     const f = new FormData(form);
     if (signUp) { await session.signup({ display_name: f.get('display_name'), email: f.get('email'), password: f.get('password') }); done(); return; }
-    after(await session.login(f.get('email'), f.get('password')));
+    const err = form.querySelector('#auth-error');
+    after(await session.login(f.get('email'), f.get('password'), { onCheck: (on) => { err.textContent = on ? 'Checking your browser…' : ''; err.dataset.state = on ? 'checking' : ''; } }));
   });
+
+  // Passkey and provider sign-in (CLONE_SPEC §25).
+  const alt = form.querySelector('[data-auth-alt]');
+  const cfg = await idApi.config().catch(() => null);
+  const buttons = [];
+  if (!signUp && passkeysSupported() && cfg?.passkeys) buttons.push('<button type="button" class="btn w-full h-44" data-passkey data-testid="passkey-login">Log in with a passkey</button>');
+  for (const p of cfg?.oauth_providers || []) buttons.push(`<button type="button" class="btn w-full h-44" data-oauth="${esc(p.id)}" data-testid="oauth-${esc(p.id)}">Continue with ${esc(p.label)}${p.mock ? ' <span class="faint">(test)</span>' : ''}</button>`);
+  if (buttons.length) {
+    alt.innerHTML = `<div class="auth-or"><span>or</span></div>${buttons.join('')}`;
+    alt.hidden = false;
+    alt.querySelector('[data-passkey]')?.addEventListener('click', run(async () => after(await session.loginPasskey())));
+    for (const b of alt.querySelectorAll('[data-oauth]')) b.addEventListener('click', run(async () => { await session.preAuth(); location.assign((await idApi.oauthStart(b.dataset.oauth)).authorization_url); }));
+  }
 }
 
 // First-admin setup from the one-time URL printed at start-up (no default admin password exists).

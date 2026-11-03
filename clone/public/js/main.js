@@ -18,7 +18,10 @@ import * as pro from './views/pro.js';
 import * as perps from './views/perps.js';
 import * as combos from './views/combos.js';
 import * as sports from './views/sports.js';
+import { renderPostPage, renderSocialSettings, renderNotifSettings } from './views/social2.js'; // Phase 2 (PHASE2_SPEC.md §24)
 import { startLivePatcher } from './views/scoreboard.js';
+import * as onboarding from './views/onboarding.js'; // identity onboarding, banner, compliance dialog (CLONE_SPEC §25)
+import * as identityPages from './views/identity-pages.js';
 import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
@@ -43,6 +46,9 @@ const routes = [
   [/^\/social$/, social, () => ({ tab: 'feed' })],
   [/^\/social\/leaderboard$/, social, () => ({ tab: 'leaderboard' })],
   [/^\/social\/profile\/([^/]+)$/, social, (m) => ({ tab: 'profile', nickname: decodeURIComponent(m[1]) })],
+  [/^\/social\/post\/([A-Za-z0-9_-]+)$/, { render: renderPostPage }, (m) => ({ id: m[1] })],
+  [/^\/social\/settings$/, { render: renderSocialSettings }],
+  [/^\/notifications\/settings$/, { render: renderNotifSettings }],
   [/^\/portfolio$/, portfolio],
   [/^\/portfolio\/perps$/, perps, () => ({ mode: 'portfolio' })],
   [/^\/watchlist$/, watchlist],
@@ -52,6 +58,13 @@ const routes = [
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
   [/^\/setup$/, auth, () => ({ mode: 'setup' })], // first-admin setup link (CLONE_SPEC §22.5)
+  // Phase 3 (CLONE_SPEC §25; spec §4.7 call sites /sign-up/identity and /oauth-web/{provider}/callback)
+  [/^\/sign-up\/identity$/, onboarding],
+  [/^\/verify-email$/, identityPages, () => ({ page: 'verify-email' })],
+  [/^\/forgot-password$/, identityPages, () => ({ page: 'forgot' })],
+  [/^\/reset-password$/, identityPages, () => ({ page: 'reset' })],
+  [/^\/oauth-web\/([a-z]+)\/callback$/, identityPages, (m) => ({ page: 'oauth', provider: m[1] })],
+  [/^\/dev\/mailbox$/, identityPages, () => ({ page: 'mailbox' })],
   [/^\/admin(?:\/(.*))?$/, adminView, (m) => ({ path: m[1] || '' })],
   [/^\/help\/([a-z0-9-]+)$/, helpView, (m) => ({ slug: m[1] })],
 ];
@@ -76,6 +89,7 @@ async function render() {
   }
   renderCategoryStrip(url);
   markNav(url);
+  onboarding.refreshIdentityBanner();
   const gated = match && featureGate(url.pathname); // admin feature switches (views/admin/site.js)
   if (gated) { view.innerHTML = gated; return; }
   if (!match) {
@@ -230,6 +244,7 @@ session.subscribe(() => {
 
 applyTheme(localTheme());
 session.subscribe(renderAccount);
+onboarding.initIdentityUi();
 renderAccount();
 Promise.all([session.load(), loadSite()]).then(() => { socket.connect(); render(); });
 window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

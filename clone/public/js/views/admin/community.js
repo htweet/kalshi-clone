@@ -2,13 +2,14 @@
 // (broadcast notifications to a segment, templates, history).
 import { esc, get, post, del, toast, dataTable, formHtml, wireForm, confirmAction, section, subTabs, statusBadge, badge, fmtTime } from './ui.js';
 
-const MTABS = [['reports', 'Report queue'], ['profiles', 'Profiles & bans'], ['hidden', 'Hidden content']];
+const MTABS = [['reports', 'Report queue'], ['profiles', 'Profiles & bans'], ['hidden', 'Hidden content'], ['posts', 'Post tools'], ['stickers', 'Stickers']];
 
 export async function render({ el, section: sec, parts }) {
   if (sec === 'announcements') return renderAnnouncements(el);
   const tab = MTABS.some(([k]) => k === parts[0]) ? parts[0] : 'reports';
   el.innerHTML = section('Moderation', 'Reports from users about posts and replies. Hiding removes content from every feed but keeps it for review; deleting removes it permanently.') + subTabs(MTABS, tab, '/admin/moderation') + '<div id="mod"></div>';
   const host = el.querySelector('#mod');
+  if (tab === 'posts' || tab === 'stickers') return (await import('./social2.js')).render({ el: host, tab, parts }); // PHASE2_SPEC.md §24
   if (tab === 'reports') {
     host.innerHTML = '<div class="adm-toolbar"><div class="seg" role="tablist" data-st>' + ['open', 'actioned', 'dismissed', 'all'].map((s, i) => `<button data-status="${s}" class="${i ? '' : 'on'}">${esc(s[0].toUpperCase() + s.slice(1))}</button>`).join('') + '</div></div><div data-list></div>';
     let status = 'open'; let rows = [];

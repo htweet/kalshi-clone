@@ -23,7 +23,7 @@ function attachWs(server, { engine, auth, security }) {
     let userId = null; let sessionId = null;
     // Same validity rules as HTTP (hashed token, idle + absolute expiry, account lock; server/auth.js), and the CSRF
     // token in the query must match the session (spec §7.2).
-    const a = auth.fromCookieHeader(req.headers.cookie);
+    const a = auth.fromCookieHeader(req.headers.cookie, { touch: false }); // a (re)connect is not user activity (RS10)
     if (a && a.session.csrf_token === url.searchParams.get('csrfToken')) { userId = a.user.id; sessionId = a.session.sid; }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, userId, sessionId));
   });

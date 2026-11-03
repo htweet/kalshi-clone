@@ -1,0 +1,117 @@
+/* Identity onboarding and account identity pages (CLONE_SPEC §13.14 observed layout, §25). Parlance's own styling:
+   a full-screen page with only the wordmark, a three-segment progress bar, floating-label fields, four single-digit
+   code boxes, the "Verifying info…" spinner and the outcome screens. No inline styles (strict style CSP). */
+
+/* full-screen mode: no site navigation (observed) */
+body.ob-mode .topbar, body.ob-mode .footer, body.ob-mode .id-banner, body.ob-mode #conn-banner { display: none !important; }
+body.ob-mode main { padding: 0; max-width: none; }
+.ob { min-height: 100vh; display: flex; flex-direction: column; background: var(--surface-x10); }
+.ob-top { padding: 16px 16px 0; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.ob-progress { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: min(520px, 100%); }
+.ob-seg { height: 4px; border-radius: 4px; background: var(--fill-x40); overflow: hidden; display: block; }
+.ob-seg > i { display: block; height: 100%; background: var(--brand); border-radius: 4px; transition: width .35s ease; }
+.ob-brand { display: flex; justify-content: center; }
+.ob-wordmark { font-family: var(--font-display); font-weight: 700; font-size: 26px; letter-spacing: .02em; color: var(--text-x10); }
+.ob-body { flex: 1; display: flex; justify-content: center; padding: 28px 16px 48px; }
+.ob-form, .ob-outcome, .ob-verifying { width: min(440px, 100%); }
+.ob-title { font-size: 28px; line-height: 1.15; margin: 8px 0 8px; font-weight: 700; }
+.ob-sub { color: var(--text-x20); margin: 0 0 18px; font-size: 15px; }
+.ob-fine { color: var(--text-x30); font-size: 13px; margin: 6px 0; }
+.ob-learn { background: none; border: 0; padding: 0; color: var(--text-x20); text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; font: inherit; }
+.ob-learn:hover { color: var(--text-x10); }
+.ob-links { color: var(--text-x30); font-size: 13px; margin-top: 14px; text-align: center; }
+
+/* floating labels inside rounded fields */
+.ob-float { position: relative; display: block; margin: 10px 0; }
+.ob-float input, .ob-float select { width: 100%; height: 56px; padding: 22px 14px 6px; border-radius: var(--rounded-x20); border: 1px solid var(--line); background: var(--surface-x20); color: var(--text-x10); font-size: 16px; }
+.ob-float select { appearance: none; padding-right: 32px; }
+.ob-float > span { position: absolute; left: 15px; top: 18px; color: var(--text-x30); font-size: 15px; pointer-events: none; transition: top .15s, font-size .15s; }
+.ob-float input:focus + span, .ob-float input:not(:placeholder-shown) + span, .ob-float select + span { top: 7px; font-size: 12px; }
+.ob-float input:focus, .ob-float select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.ob-float input[aria-invalid="true"] { border-color: var(--no); }
+.ob-phone-row { display: flex; gap: 8px; }
+.ob-phone-row .ob-cc { flex: 0 0 150px; }
+.ob-phone-row .grow { flex: 1; }
+.ob-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ob-two .ob-float { margin: 10px 0; }
+
+/* four single-digit code boxes */
+.ob-code { display: grid; grid-template-columns: repeat(4, 56px); gap: 10px; margin: 18px 0 8px; }
+.ob-digit { height: 64px; text-align: center; font-size: 26px; font-weight: 700; border-radius: var(--rounded-x20); border: 1px solid var(--line); background: var(--surface-x20); color: var(--text-x10); }
+.ob-digit:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+
+/* birthday MM · DD · Year */
+.ob-dob { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 8px; }
+.ob-notices { margin: 14px 0 6px; padding-left: 18px; color: var(--text-x20); font-size: 13px; }
+.ob-notices li { margin: 4px 0; }
+
+.ob-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.ob-cta { height: 50px; border-radius: 999px; font-size: 16px; width: 100%; }
+.ob-pill { height: 44px; border-radius: 999px; align-self: center; padding: 0 22px; }
+.ob-note { background: var(--fill-x30); border: 1px solid var(--line); border-radius: var(--rounded-x20); padding: 10px 12px; font-size: 13px; color: var(--text-x20); margin: 10px 0; }
+.ob-note.warn { border-color: var(--warn); color: var(--text-x10); }
+
+/* address autocomplete */
+.ob-suggest-wrap { position: relative; }
+.ob-suggest { position: absolute; z-index: 20; left: 0; right: 0; top: 62px; margin: 0; padding: 4px; list-style: none; background: var(--surface-x20); border: 1px solid var(--line); border-radius: var(--rounded-x20); box-shadow: var(--shadow-pop); }
+.ob-suggest li { padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.ob-suggest li:hover, .ob-suggest li:focus { background: var(--fill-x40); outline: none; }
+
+/* "Verifying info…": a spinner around the wordmark */
+.ob-verifying { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; margin-top: 12vh; color: var(--text-x20); }
+.ob-spin { position: relative; width: 168px; height: 168px; display: flex; align-items: center; justify-content: center; }
+.ob-spin::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--fill-x40); border-top-color: var(--brand); animation: ob-rot 1s linear infinite; }
+@keyframes ob-rot { to { transform: rotate(360deg); } }
+
+/* outcome screens */
+.ob-outcome { text-align: center; margin-top: 8vh; }
+.ob-badge { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 12px; background: var(--fill-x40); position: relative; }
+.ob-badge::after { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; }
+.ob-outcome.ok .ob-badge { background: var(--yes-x20); }
+.ob-outcome.ok .ob-badge::after { content: "✓"; color: var(--yes); }
+.ob-outcome.wait .ob-badge::after { content: "…"; color: var(--text-x20); }
+.ob-outcome.warn .ob-badge { background: var(--fill-x40); }
+.ob-outcome.warn .ob-badge::after { content: "!"; color: var(--warn); }
+.ob-outcome.bad .ob-badge { background: var(--no-x20); }
+.ob-outcome.bad .ob-badge::after { content: "×"; color: var(--no); }
+
+/* dialogs (learn more, compliance) */
+.ob-dialog { border: 1px solid var(--line); border-radius: var(--rounded-x30); background: var(--surface-x20); color: var(--text-x10); padding: 22px; width: min(420px, calc(100vw - 32px)); }
+.ob-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.ob-dialog h2 { margin: 0 0 8px; font-size: 20px; }
+.ob-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* banner: "finish verifying" (after Not now) */
+.id-banner { background: var(--brand-x20); color: var(--text-x10); text-align: center; padding: 8px 16px; font-size: 13px; font-weight: 600; }
+.id-banner a { color: var(--brand); margin-left: 6px; text-decoration: underline; }
+
+/* sign-in alternatives */
+.auth-forgot { text-align: right; margin: 8px 0 0; font-size: 13px; }
+.auth-alt { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.auth-or { display: flex; align-items: center; gap: 10px; color: var(--text-x30); font-size: 12px; text-transform: uppercase; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* account › identity & privacy */
+.id-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 10px 0; font-size: 14px; }
+.id-facts dt { color: var(--text-x30); }
+.id-facts dd { margin: 0; overflow-wrap: anywhere; }
+.id-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.id-row > span:first-child { flex: 1; font-weight: 600; }
+.id-danger { border-color: var(--no-x20); }
+
+/* dev mailbox */
+.dev-mailbox { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+.dev-mail { border-top: 1px solid var(--line); padding: 10px 0; }
+.dev-mail h3 { margin: 4px 0; font-size: 15px; }
+.dev-mail-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; color: var(--text-x20); margin: 0; font-family: inherit; }
+
+@media (max-width: 640px) {
+  .ob-title { font-size: 24px; }
+  .ob-code { grid-template-columns: repeat(4, minmax(0, 56px)); gap: 8px; }
+  .ob-phone-row { flex-direction: column; gap: 0; }
+  .ob-phone-row .ob-cc { flex: none; }
+  .ob-two { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .dev-mailbox { grid-template-columns: minmax(0, 1fr); }
+  .id-facts { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .ob-spin::before { animation: none; } }
