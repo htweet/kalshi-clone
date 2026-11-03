@@ -355,7 +355,7 @@ Per user: profile, properties (key/value), notification settings, trading limits
 
 ## 11. UNKNOWN register (to be resolved by design choice in the clone)
 
-U13 is resolved for Calendar and Browse by §13.4 and §13.2.
+U13 is resolved for Calendar and Browse by §13.4 and §13.2. U16 is resolved by a design choice in §29.4.
 
 U1 logged-in header contents · U2 exact odds/multiplier formulas · U3 fee coefficient · U4 password-login endpoint path · U5 sign-up branch conditions · U6 event page layout · U7 portfolio layout and columns · U8 CSV columns · U9 WS backoff constants · U10 HTTP status for `MARKET_INACTIVE` · U11 empty/error state copy · U12 BFF feed paging params · U13 calendar/browse/category layouts · U14 whether watchlist syncs to server when logged in (endpoints exist for favorited series).
 U15 exact hex values behind the current design tokens (`surface-x10`, `text-x10`, `fill-x30…x50`) and the type-scale metrics (CSS not captured) · U16 how `event_limits` groups are expanded in the calendar UI · U17 fractional-contract order entry UX · U18 contents and ranking of the `/ideas/feed` Social feed (loaded client-side, not in HAR3) · U19 name of the push channel for notifications · U20 delivery channel of the 4-digit MFA code (email or SMS).
@@ -375,7 +375,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §4.3 + §13.5 event page: outcomes, chart with 1H/1D/1W change, order book, ticket, rules, Activity (trades with nicknames), Ideas, Top holders, price alerts | yes | book and ticker are pushed over WS instead of 4 s polling |
 | §4.4 lifecycle initialized → active → closed → determined → finalized, `MARKET_INACTIVE` | yes | admin endpoint drives determination |
 | §4.5 + §13.2 browse: 24 per page, sort, status, category, grid/list (persisted) | yes | |
-| §13.4 calendar: live section, date sections, category counts with live counts | yes | `event_limits` collapsing not implemented (U16) |
+| §13.4 calendar: live section, date sections, category counts with live counts | yes | `event_limits` per section with a "+N more" expander (U16 design choice, §29.4) |
 | §4.6 portfolio: balance, positions, resting orders (cancel), fills, settlements, CSV | yes | |
 | §4.7 + §13.9 auth: sign up, log in, log out, two-factor login | yes | TOTP 6-digit authenticator code instead of a 4-digit message code (U20) |
 | §4.8 watchlist (server-persisted, U14 resolved to "yes") | yes | |
@@ -390,15 +390,16 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §16 fractional contracts (0.01-contract units, conserving cent rounding, per-market flag, migration) | yes | tests `fractional.e2e.test.js` |
 | §17 combos (multivariate markets), two-sided RFQ/quotes, portfolio tabs Positions · Resting · RFQs · Quotes · History | yes | tests `combos`, `rfq`, `orders`, `positions`, `history` |
 | §18 admin panel and CMS (roles, audit, catalog drafts + CSV import, resolution desk, content, ops, users, moderation, announcements, reports, settings) | yes | tests `admin.e2e.test.js` |
-| §19 sports live data: simulated games in six sports, scoreboards, live odds, auto-settlement, `/sports` hub | yes | tests `sports.e2e.test.js` |
+| §19 sports live data: simulated games in seven sports (ice hockey added in §29.3), scoreboards, live odds, auto-settlement, `/sports` hub | yes | tests `sports.e2e.test.js` |
 | §20 event live chat (rooms, slow mode, moderation, reports, presence, XSS-safe rendering, chat rate limits) | yes | tests `chat.e2e.test.js` |
 | §21–23 security foundation: headers/CSP nonces, CORS allowlist, bot challenge + client tokens, honeypots, hashed assets; hashed rotating sessions, login hardening, no default admin, step-up, encrypted MFA secrets, hash-chained audit; CI, lint, validation, idempotency, authz matrix | yes | tests `security-perimeter`, `auth-security`, `authz`, `idempotency` |
 | §24 social completion: position-tagged posts, stickers, mute, edit window, follows/topics, profile search, badges, full notification matrix + push/email channels, Inner Circle, group chats, RFQ rest-remainder/obscured creator, chat reactions/edits | yes | tests `social2`, `groupchat` |
 | §25 identity: onboarding (phone code → name → DOB → address/ID → document verification with QR phone handoff), encrypted PII, KYC sandbox + review, email verification/reset, OAuth (mock provider), passkeys, geo/fraud simulation, export/closure, account area (activity, documents, settings), promo codes, checklist | yes | tests `onboarding`, `identity2`, `account-area` |
 | §26 payments, sandbox only: observed funds routes (cards, bank link, crypto, deposits/withdrawals, withdrawal_times, metadata, credit_history), card tokenizer (no PAN stored), ACH pending → settled / returns, crypto confirmations, signed webhooks with replay protection, double-entry journal + audit, reconciliation queue, limits, AML hooks, holds, withdrawal 2FA, non-withdrawable credits, Admin › Payments | yes (sandbox) | tests `payments`; UI is a Parlance design (screens not observed) |
-| Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
+| §29 markets and content (Phase 5B): sports spreads and totals settled from the final score, ice-hockey league, running clocks and live header label (G9), calendar `event_limits`, ballot lookup on invented jurisdictions (no address stored), AI news summaries + timeline (offline extractive default with citations, optional external adapter, cache, cost caps, injection handling, admin hide/regenerate), Liquidity Incentive Program (A13, journaled payouts), hub widgets: Senate map, Fed funds outlook, forecast history (A15) | yes | tests `markets-content`; civic data, rates and news invented; accrual formula is a design choice |
+| Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 196 Playwright scenarios across 24 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 204 Playwright scenarios across 25 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -3231,6 +3232,249 @@ Values the screenshots do not give (sizes, weights, spacing, control heights) ar
 - Page titles stay in the condensed display face (rule 2, matching §15.1).
 - Header nav 13px semibold uppercase with 0.06em tracking; category strip 14px medium.
 - Market-card titles 16px semibold; other sizes as listed in §27.2.
+
+---
+
+## 29. Markets and content (Phase 5B)
+
+PLAN.md Phase 5 items P5.2 (non-scalar parts), P5.3 and P5.4, gap G9, and scope items A13 and A15. Conventions as in §19:
+**OBSERVED** (seen in evidence), **INFERRED** (follows from evidence), **design choice** (Parlance's own decision),
+**UNKNOWN** (not established; a design choice stands in). All leagues, teams, places, postcodes, rates, news and copy are
+invented. Code: `server/sports.js` + `server/sports-lines.js` (§29.2–29.3), `server/calendar-limits.js` (§29.4),
+`server/markets-content.js` mounting `ballot.js` + `civic-data.js` (§29.5), `ai-summary.js` + `ai-providers.js` (§29.6),
+`incentives.js` (§29.7) and `hubs.js` (§29.8); views `event.js`, `scoreboard.js`, `sports.js`, `calendar.js`,
+`ai-summary.js`, `hubs.js`, `incentives.js`, `admin/content5b.js`; styles `public/markets5b.css`.
+
+### 29.1 Evidence vs design choice
+
+| Fact | Source | Status |
+|---|---|---|
+| Sports markets beyond the winner exist on the live site as separate events (spreads, totals) | PLAN P5.2 wording; series naming in captured calendars | INFERRED; lines, steps and pricing are design choices |
+| `event_limits[]` caps recurring families per calendar section: `{event_tickers:[…], max_count:3}` (15-minute families), `max_count:2` (daily temperature) | §13.4, HAR3#10 | OBSERVED (shape); how the UI expands them is UNKNOWN (U16) |
+| `/incentives` page: left PREDICTIONS nav, Terms link, region banner, month + lifetime rewards with ⟲ history, ACTIVE · UPCOMING tabs, search, table Market (N markets ⌄) · Start · End (time zone) · Competition (Low/High) · Reward ↓ | §13.17, SHOT5:lip | OBSERVED |
+| `GET /v1/incentive_programs/?page_size&status&type` → `{incentive_programs:[…]}`, empty where not offered | §13.19, HAR5 | OBSERVED (shape); item fields INFERRED from the public docs page name `get-incentives` |
+| How incentive rewards accrue | §13.17 | **UNKNOWN** (design choice in §29.7) |
+| `/api-app/midterms/senate-map`, `/api-app/fed-funds/outlook`, `GET /v1/series/{s}/events/{e}/forecast_history`; `/api-app/ai-summary/timeline-points` on market pages | §13.19, §13.5, Appendix A | OBSERVED (paths only); payloads UNKNOWN |
+| Ballot lookup ("What's on your ballot?"), AI summaries with citations, hockey, running clocks, live header label | PLAN P5.3, P5.4, G9 | requirement; everything else design choice |
+
+### 29.2 Sports derivatives: spreads and totals (P5.2)
+
+- **One extra event per game**: `{game event}-LINES` ("Home vs Away: Spread & Total", `mutually_exclusive = 0`, same
+  league series), linked in `sports_line_events (event_ticker, milestone_id, game_event_ticker)`; markets in
+  `sports_lines (market_ticker, milestone_id, event_ticker, kind spread|total, side home|away|'', line, fair, quoted_cents,
+  quoted_ts, priced_ts)`. Four markets: the favourite's spread at the median pre-game margin, the underdog's spread at the
+  sport's minimum, a main total at the median total and an alternate total one step higher. Every line is a half point,
+  so nothing can push. Units and steps per sport: goals (soccer min 0.5 / step 1, hockey 1.5 / 1), points (basketball
+  1.5 / 10, football 1.5 / 7), games (tennis 1.5 / 3), runs (cricket 4.5 / 20), rounds (esports 2.5 / 6). Copy: "Frostport
+  Narwhals by over 1.5", "Over 5.5 goals"; tickers `…-LINES-SPFPN15`, `…-LINES-TOT55`.
+- **Fair value (design choice):** Monte Carlo over the game's own deterministic model. The persisted state is cloned
+  `lineSims` times (default 120) with independent PRNG streams seeded from the game id and the current game time, each
+  clone played to the end with the same `resolve()/next()` that drives the live game; P(YES) is the share of paths that
+  cover (Laplace-smoothed). Re-priced at most every `linesMs` (4 s) per game, at most two games per engine tick, and
+  quoted by the liquidity account exactly like the winner markets (§19.5: reference print, bid one cent below, offer one
+  above).
+- **Settlement:** at the final whistle the winner markets and every line go through `engine.determine` together; a line
+  is YES when, on the final measures (score, games, runs or rounds per side), `side − other > line` (spread) or
+  `home + away > line` (total), then finalizes through the normal path (settlements, ledger, notifications).
+- **UI:** the game's event page shows a **Spread and Total** card (Spread / Total groups, live % via `ticker`, Yes / No
+  open the lines event with that market selected); the lines event page shows the game's scoreboard, the live header
+  label and a link back to the moneyline. Lines events carry `sports_lines` (not `live_data`), so cards stay plain market
+  cards and the calendar does not show two scoreboards for one game. `GET /v1/sports/events/{t}` accepts either ticker
+  and adds `lines: {event_ticker, game_event_ticker, markets:[{market_ticker, kind, side, line, fair_probability}]}`.
+
+### 29.3 Ice hockey, running clocks and the live header label (G9)
+
+- **Icebound Hockey League** (`IHL`, `hockey_game`, four invented teams; inserted into existing databases as well):
+  3 × 20-minute periods, one segment per 30–60 s of play, Poisson goals from team strength, shots / saves / hits /
+  faceoffs, minor penalties (2:00 power play ×2.4 for the team with the advantage, ×0.25 short-handed, ended early by a
+  power-play goal), 5-minute 3-on-3 sudden-death overtime (×1.7), then a best-of-3 shootout with sudden death (the
+  winner is credited one goal). Win probability: Poisson over the remaining regulation time plus an OT / shootout split.
+  Labels `P2 13:58`, `2nd intermission`, `OT 3:12`, `Shootout · 2-1`; details add `power_play {team,
+  remaining_seconds}`, `home_shots`, `away_shots`, `shootout`. Box score: shots, power plays (PPG/PP), penalty minutes,
+  hits, faceoffs, saves. Seeded fixtures: one live (2nd period), one upcoming, one final.
+- **Running clocks:** every `live_data.details` carries `game_clock {name, seconds, running, direction up|down, format
+  mmss|minute|hmmss|none, cap?, rate, as_of}`: the countdown for basketball, football and hockey, the match minute for
+  soccer, the **match time** for tennis and the **map time** for esports (cricket counts overs). The client advances
+  every `[data-gclock]` element four times a second at `rate` game seconds per second until the next `live_data`
+  message replaces it (`scoreboard.js tickClocks`), so clocks run between server updates and after a WebSocket drop.
+- **Live header label:** the event header shows `● Live · Q3 4:12` / `Set 2 · 3-2 · 1:12:05` / `Final 2-1` / the start
+  time from the game's live data, patched in place by the page-wide `live_data` patcher (part `evlabel`); card
+  subtitles and hub cards use the same running label.
+
+### 29.4 Calendar `event_limits` (§13.4, U16)
+
+`GET /v1/calendar` adds `event_limits[]` to every section in the observed shape. Design choice: a family is one series;
+`fifteen_min` and `hourly` series are capped at 3, `daily` at 2; sports fixtures are never capped (they are distinct
+games, not a recurring family). The page shows the first `max_count` events of a family in section order and a
+**"+N more · {series}"** card after the last one; it expands in place ("Show less" collapses). The `npm start` demo data
+adds a daily temperature family of five invented cities so the cap is visible (§29.8).
+
+### 29.5 Ballot lookup (P5.3)
+
+- **Data (invented):** 12 states on a 3 × 4 tile map (`civic-data.js STATES`), two Harbor State districts and three
+  cities, each with five-digit "ZIP-like" ranges inside 90100–98999 and the contests it votes on (event tickers: the
+  Harbor State governor and senate races, the Harbor City mayoral race and the tram measure, the seven `PLXSENATE` races of
+  the demo data). Stored in `ballot_jurisdictions` (upserted from code at boot).
+- **Lookup:** `POST /v1/ballot/lookup {address}` (≤ 200 characters, strict schema; public; 20 a minute per user and 120 per
+  IP, hashed keys in `content_rate_limits`). A five-digit code picks the most specific place whose range contains it,
+  otherwise a whole-word match on place names. Answer: `{jurisdiction:{id, kind, name, chain[]}, contests:[{event_ticker,
+  title, office, kind race|measure, level, jurisdiction, markets[], leader}], matched_by zip|name}`; contests whose
+  event is missing or not trading are left out; no match → `jurisdiction: null`.
+- **Privacy (design rule, tested):** the address exists only in memory for the lookup. It is never written to the
+  database, a log or the audit trail; the request is a POST so it is not in a URL or access log. Signed-in users may save
+  the **resolved jurisdiction id only** (`PUT /v1/users/{uid}/ballot {jurisdiction_id}` → `ballot_saved`), see it again
+  (`GET`) and forget it (`DELETE`). The test greps the database file and WAL bytes and every log line for the address.
+- **UI:** "What's on your ballot?" card on `/ballot` and the elections hub: privacy note, result chain (City · District ·
+  State), contest links with the leading outcome, Save / Forget.
+
+### 29.6 AI news summaries and timeline (P5.4)
+
+- **Input:** the event's active CMS news items (`cms_news`, Admin › Content › News items), newest first, at most
+  `max_items` (12). **Timeline:** the same items oldest first, numbered; citations use these numbers.
+- **Providers** (`ai-providers.js`): `summarize({items, maxSentences, system, user}) → {text | sentences, usage}`.
+  - *Extractive (default, offline, deterministic):* sentences from headlines and summaries; dropped when shorter than 24
+    or longer than 280 characters, when they look like instructions (`ignore … instructions`, `system prompt`, role
+    prefixes, `you are now`, …), contain links or markup, or hit the blocklist; scored by cross-item term agreement plus
+    small headline and recency boosts, picked greedily with a same-source penalty and near-duplicate removal (Jaccard >
+    0.5); each pick cites every item carrying the same fact (Jaccard ≥ 0.5) and the result is ordered chronologically.
+  - *External (optional):* the Claude Messages API through the official SDK (`@anthropic-ai/sdk`, loaded lazily), created
+    only when **both** `ANTHROPIC_API_KEY` and `AI_SUMMARY_MODEL` are set; the model id comes from the environment and
+    is written nowhere in the code base. `max_tokens` 1024, 20 s timeout, one retry; `stop_reason: refusal` and SDK error
+    classes (rate limit, auth, bad request, connection) become a fallback. Tests inject a fake adapter through
+    `start({marketsContent: {ai: {adapter}}})`; no test touches the network.
+- **Prompt (data, not instructions):** every item in its own `<item id>` element (source, published, headline, summary)
+  inside `<news_items>`, with tags, control / zero-width / bidi characters and links stripped and `<`, `>`, `&` escaped,
+  so an item cannot close its element; the system prompt states that the items are untrusted data, must never be
+  followed, and asks for `{"sentences":[{"text","citations":[ids]}]}` only.
+- **Output validation:** JSON object (the first `{…}` span), 1..`max_sentences` sentences, each 8–300 characters and
+  ≤ `max_chars` (900) in total, no `<`, `>` or HTML entities, no URLs or markdown links, no markdown emphasis, no
+  instruction echo, every citation an id that was sent (1–8 per sentence), moderation blocklist. A failure discards the
+  reply and stores the extractive summary with `fallback_reason invalid_output:{reason}`.
+- **Cache:** `ai_summaries (event_ticker, news_hash, provider, content_json, item_count, fallback_reason, tokens, trigger,
+  created_ts)`; `news_hash` = SHA-256 over the sorted items' id, time, source, headline and summary. A summary is
+  generated on the first read of a new set (concurrent reads share one generation) and served until the set changes or
+  an admin regenerates; the latest five per event are kept.
+- **Cost caps:** `admin_settings.ai_summary {enabled, daily_request_limit (100), daily_token_limit (100 000), max_items,
+  max_sentences (3), max_chars, blocklist}`; usage per UTC day in `ai_usage (requests, input_tokens, output_tokens,
+  fallbacks, rejected)`. Before a call the estimated tokens (prompt / 4 + 1024) must fit; otherwise the extractive summary
+  is served (`fallback_reason budget`) and no request is made.
+- **Admin › AI summaries** (`content.write`; settings `settings.write`): per event the provider, fallback reason and
+  state; **Hide** / **Unhide** (per event, survives new news) and **Regenerate** (6 per 10 minutes per admin), each with
+  a reason and a hash-chained audit row (`ai_summary.hide|unhide|regenerate|settings`); usage today; budget and
+  blocklist form. Changes push `event_content {event_ticker, kind:'ai_summary'}` on the public `event_content` channel.
+- **UI:** "Summary" card above News on the event page: sentences with numbered citation chips (jump to and highlight the
+  news item), provider badge, "from N news items", a caution line, and the Timeline; hidden → "The summary for this event
+  is not available".
+- `GET /v1/events/{t}/ai_summary` → `{event_ticker, summary: {id, provider, provider_label, generated_time, news_hash,
+  item_count, fallback_reason, sentences:[{text, citations:[{id, n}]}]} | null, hidden, timeline:[{n, id, date, source,
+  headline}]}` (this also serves the role of the observed `timeline-points` call).
+
+### 29.7 Liquidity Incentive Program (A13)
+
+- **Programs** (`incentive_programs`): event, optional market subset, title, `incentive_type liquidity`, start / end,
+  reward pool, competition (`auto` | low | high; auto = High with ≥ 3 earners at the last snapshot), target size,
+  spread window (cents), discount factor, payout mode (`cash` | `credits`), status `scheduled → active → ended → paid`
+  (or `canceled`).
+- **Accrual formula (design choice; the public docs describe a pool shared by resting orders near the best price, but
+  the weighting, cadence and caps are UNKNOWN):** every snapshot (`snapshotMs`, 60 s), for each active program
+  `pool_slice = reward_pool × Δt / (end − start)` (Δt capped at two intervals, so an outage is not back-filled) is split
+  equally between the program's market sides (YES bids and NO bids of each market). On a side the best resting price `b`
+  comes from the whole book; each enrolled, eligible, non-system user scores
+  `min(target_size, Σ remaining_units × discount^(b − price))` over orders with `b − price ≤ spread window`, and receives
+  `side_slice × score / Σ scores`. Accruals are kept in micro-cents (`incentive_accruals`, 1 ¢ = 10⁶) so nothing is lost
+  to rounding; a side with no qualifying order is not distributed; snapshots are logged in `incentive_snapshots`.
+- **Eligibility:** users enrol by accepting the terms (`incentive_enrollments`, terms version, country) from an eligible
+  region: the simulated geolocation of §25.6 (blocked countries, IP table, browser fix) plus the program's
+  `blocked_regions` (Admin › Liquidity incentives; default CU, IR, KP, SY). Every visit re-checks it and an ineligible
+  check suspends accrual. Where not eligible the list is empty and the page shows "Incentive programs are not available
+  in your region" (observed).
+- **Payout (journaled):** at the end (auto, on by default) or by an admin (**Pay out**: `users.money`, reason, step-up),
+  each user receives the whole cents accrued and not yet paid: cash → `engine.credit(…, 'incentive', program, …,
+  {contra: 'house:incentives'})` (ledger kind `incentive`, "Liquidity reward" in History / Your activity); credits →
+  a `credit` entry (contra `house:promotions`, expiring grant, non-withdrawable). Rows in `incentive_rewards`; a
+  `market_reward` notification (the existing Market rewards row of the notification matrix) and `user_balance`; the
+  ledger audit (§26.6) covers both accounts.
+- **Page `/incentives`:** observed layout (§13.17); stats are this month's paid rewards, lifetime rewards (⟲ history with
+  per-program accruals) and "accruing, not yet paid"; enrolment card with the terms checkbox; `/incentives/terms`.
+  Live: public `incentives` channel (program changes), private `incentive_rewards` (own accruals and payouts).
+- **Admin › Liquidity incentives** (`markets.ops`): create / edit / cancel programs (reason, audit), run a snapshot,
+  pay out (`users.money` + step-up), eligibility settings (`settings.write`).
+- **API:** `GET /v1/incentive_programs?status=active|upcoming|ended|all&type=liquidity&page_size=` →
+  `{incentive_programs:[{id, incentive_type, event_ticker, title, event_title, event_sub_title, series_ticker, category,
+  markets[], start_date, end_date, period_reward_dollars, competition, target_size_fp, max_spread_cents,
+  discount_factor_bps, payout_mode, status, paid_out, participants, accrued_dollars, paid_dollars}], region}`;
+  `GET /v1/incentive_programs/terms`; `GET /v1/users/{uid}/incentives`; `POST|DELETE /v1/users/{uid}/incentives/enrollment`.
+
+### 29.8 Hub data widgets (A15)
+
+- **Senate map** (`GET /v1/hubs/senate_map`): the 12 invented states with grid positions, seats not up (`seated`), and for
+  each state with a race the Blue / Red probabilities (last trade, normalised), lean (≥ 0.8 safe, ≥ 0.6 lean, else
+  toss-up) and leader; chamber 24, majority 13; expected seats = held + Σ P(Blue), projected = held + races led; and the
+  hourly expected-Blue-seat history for 7 days. Page `/hubs/elections` ("Harbor 2026 hub", linked from the home rail and
+  MORE): seat bar with the majority mark, tile map (colours from the data palette, not the brand), seat history, the
+  governor race's forecast history and the ballot card. Party colours use `--line-a` / `--line-b`.
+- **Fed funds outlook** (`GET /v1/hubs/fed_funds_outlook`): every open event of the central-bank series (`PLXRATE`,
+  outcomes Cut / Hold / Hike), normalised probabilities, implied change `25 bp × (P(hike) − P(cut))` and the implied
+  midpoint path from an invented current range of 4.25–4.50 %. Page `/hubs/economics` ("Rates outlook"): meeting table,
+  implied path chart, the next meeting's implied-change history and outcome odds.
+- **Event forecast history** (`GET /v1/series/{s}/events/{e}/forecast_history?days=1..30&period=60|240|1440`):
+  `{kind probability|rate_decision, normalized, period_minutes, outcomes[], points:[{ts, values:{ticker: %},
+  implied_change_bps?}]}` from the last trade at each period end (normalised to 100 % for mutually exclusive events).
+- Widgets re-read their endpoint when a price they depend on changes (`ticker` channel, debounced).
+- **Demo data** (`marketsContent.seedHubs`, on for `npm start`, off for programmatic test servers unless asked; meta key
+  `hubs_seed_v1`): seven `PLXSENATE` races, central-bank meetings `PLXRATE-27JAN` / `-27MAR`, the daily temperature
+  family `PLXTEMP` (five cities, renewed daily), five news items and two incentive programs (one active, one upcoming).
+  Liquidity is placed through the engine, so the journal stays balanced.
+
+### 29.9 Endpoints, tables, WebSocket, options
+
+| Area | Routes (`/v1`; every one classified in `tests/authz.e2e.test.js`) | Who |
+|---|---|---|
+| Ballot | `POST ballot/lookup`, `GET ballot/jurisdictions/:id`; `GET|PUT|DELETE users/:uid/ballot` | public; owner |
+| AI summaries | `GET events/:ticker/ai_summary`; `GET admin/ai_summaries`, `POST admin/ai_summaries/:ticker/{hide,unhide,regenerate}`; `GET|PUT admin/ai_summaries/settings` | public; content.write; settings.write |
+| Incentives | `GET incentive_programs`, `GET incentive_programs/terms`; `GET users/:uid/incentives`, `POST|DELETE users/:uid/incentives/enrollment`; `GET|POST admin/incentives/programs`, `PUT …/:id`, `POST admin/incentives/snapshot`; `POST …/:id/payout`; `GET|PUT admin/incentives/settings` | public; owner; markets.ops; users.money; settings.write |
+| Hubs | `GET hubs/senate_map`, `GET hubs/fed_funds_outlook`, `GET series/:s/events/:e/forecast_history` | public |
+
+Bodies are checked with `validate.js check()` schemas inside the handlers (unknown fields rejected). Tables (`CREATE TABLE
+IF NOT EXISTS`, no existing table changed): `sports_line_events`, `sports_lines`, `ballot_jurisdictions`,
+`ballot_saved`, `content_rate_limits`, `ai_summaries`, `ai_summary_flags`, `ai_usage`, `incentive_programs`,
+`incentive_enrollments`, `incentive_accruals`, `incentive_snapshots`, `incentive_rewards`; settings rows
+`admin_settings.ai_summary` and `.incentives`. WebSocket: public `event_content` (filtered by `event_tickers`) and
+`incentives`, private `incentive_rewards`. Options: `start({ sports: { lineSims, linesMs }, marketsContent: { seedHubs,
+ai: { adapter, regeneratePer10Min }, incentives: { snapshotMs }, ballot: { ballotPerMinute, ballotPerIpMinute } } })`.
+
+### 29.10 Security, verification, residual risks
+
+- Security gate (PLAN §6): admin-only content management with reasons and hash-chained audit; prompt-injection handling
+  and output validation (§29.6); cost caps; ballot privacy and rate limits; regeneration rate limit; strict body schemas;
+  the authz matrix covers the 27 new routes; incentive payouts behind `users.money` and step-up; all output escaped; no
+  inline styles (dynamic values through `dynstyle.js`). Threat rows: SECURITY.md §12.
+- Verification: `clone/tests/markets-content.e2e.test.js` (8 scenarios, real server + SQLite + Chromium): a total bought
+  through the event page and a spread via the API settle from the final score (results = `covers()` on the DB score,
+  settlements and payouts); hockey header label counting down in the browser and matching the DB, hockey box score and
+  live data, tennis and esports clocks running; the calendar cap (2 of 5) and its expander; ballot lookup by code and by
+  name, saved jurisdiction only, no address in the DB file, WAL or any log line, validation and the per-user rate limit;
+  extractive summary with valid citations and the injected item dropped (no script runs), the fake adapter's prompt
+  delimited and escaped, its malicious reply rejected, the request budget falling back with no provider call, admin
+  hide (live on the open page) / unhide / regenerate with audit, non-staff refused, regeneration rate limited; an admin
+  program created in the UI, enrolment, accrual from a resting bid (system liquidity earns nothing), payout in the UI
+  posting `house:incentives` → user cash, the ledger audit balanced, month / lifetime rewards live, region gating
+  (banner, empty list, enrolment refused, accrual stopped); Senate tiles, expected seats and Fed meeting rows equal to
+  values computed from DB trades, a trade moving a tile live, forecast history normalised; and a restart that keeps the
+  cached summary (same id), the saved ballot area, rewards, programs and settled lines, with no horizontal overflow at
+  390 px in dark and light on the new pages. `sports.e2e` now expects seven sport groups (hockey).
+- Shared-file edits (small, exact-string): `server/app.js` (one mount line + an option), `server/index.js` (option
+  pass-through, `seedHubs` for `npm start`), `server/features.js` (`event_limits` per calendar section),
+  `server/ws.js` (three channels), `server/history.js` (ledger kind `incentive`), `server/notify-prefs.js`
+  (`market_reward` → Market rewards), `server/sports.js` (hockey, clocks, lines), `public/js/main.js` (routes, MORE
+  links), `public/index.html` (stylesheet), `public/js/views/{event,calendar,scoreboard,sports,home,admin}.js`,
+  `admin/site.js` (news anchors), `package.json` (the suite; `@anthropic-ai/sdk` pinned, loaded only when configured),
+  `.env.example`.
+- Residual risks: the injection patterns and blocklist are heuristics (validation is the control); the external
+  adapter has no streaming or structured-output mode (short JSON, validated); no wash-trading / self-match detection for
+  incentive rewards; incentive and ballot limits are per process (PLAN §10 RS1); the accrual formula is a design choice
+  until the real one is confirmed; lines are priced by a 120-path simulation (± a few cents of noise, smoothed by
+  re-quoting at most every 4 s); the saved ballot area is not yet included in the data export (§25.10).
 
 ---
 

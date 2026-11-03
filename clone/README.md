@@ -11,7 +11,7 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 196 end-to-end browser scenarios across 24 files (Playwright + node:test)
+npm run test:e2e     # 204 end-to-end browser scenarios across 25 files (Playwright + node:test)
 ```
 
 **If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
@@ -38,7 +38,7 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_E
 - Fractional contracts: sizes down to 0.01 contract on enabled markets; Dollars mode buys fractional amounts; "Hide fractional shares" order-book setting.
 - Combos (`/combos`, ◇ COMBO on market pages and Live): 2–6 legs from different events, priced by request-for-quote; other users can quote too (opt in under Portfolio › RFQs).
 - Portfolio: Positions · Resting (edit, decrease, cancel all, queue position, expiry) · RFQs · Quotes · History (filters + CSV), plus the Perps tab.
-- Sports (`/sports`, Live page sidebar): simulated live games in six sports with scoreboards, play-by-play, live odds and automatic settlement.
+- Sports (`/sports`, Live page sidebar): simulated live games in seven sports (including the invented Icebound Hockey League: periods, power plays, overtime and shootouts) with scoreboards, play-by-play, live odds and automatic settlement. Clocks run live on every board and in the event header (game clock, match time for tennis, map time for esports). Each game also has a **Spread & Total** event (favourite and underdog spreads, a main and an alternate total), listed under "Spread and Total" on the game's page, priced from the game's own simulation and settled from the final score.
 - Admin (`/admin`, admins only): roles and audit log, catalog drafts and CSV import, resolution desk, homepage/banner/nav/news/help content, market and perps ops, users, moderation, announcements, reports, settings.
 - Live chat on events (● Live chat on the event header): slow mode, replies, reports, moderator delete/mute/pin/lock (Admin › Chat).
 - Also: Social, Notifications, Watchlist, Account (profile, two-factor login, limits, alerts, appearance).
@@ -61,11 +61,17 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_E
   - **Demo funds** (outside production): instant simulated deposits and withdrawals, as before (also the Portfolio "Demo funds" box).
   - Promotional credits (promo codes) can be traded but not withdrawn, and expire after 30 days. Admin › Payments has transactions, reconciliation, AML cases, the double-entry ledger audit, provider settings (limits, fees, sandbox timings) and the webhook log.
 
-Not built yet (PLAN.md Phases 5-9; payments: sandbox rails built, no real money): public developer API keys and portal, FIX gateway, referrals and rewards payouts, ballot lookup, AI summaries.
+- Hubs (`../CLONE_SPEC.md` §29): **Harbor 2026 hub** (`/hubs/elections`, MORE menu and the home rail) with a Senate map of invented states driven by the race markets, the expected-seat history and the governor race's forecast history; **Rates outlook** (`/hubs/economics`) with the implied path from the central-bank decision markets. All states, places, rates and news are invented.
+- **What's on your ballot?** (`/ballot` and the elections hub): type an address or a 5-digit code from the invented ranges (for example `90142` or "Harbor City") to see the contests that have markets. Your address is used once and never stored or logged; signed-in users can save the matched area (only the area id is kept) and forget it again.
+- **AI summaries**: event pages with news items (Admin › Content › News items) show a short summary with numbered citations to the news and a timeline. By default an offline, deterministic extractive summarizer writes it; nothing leaves the server. To use an external model instead, set **both** `ANTHROPIC_API_KEY` and `AI_SUMMARY_MODEL` (the model id you want) before `npm start`; without both, the external adapter is off. Daily request and token budgets, the moderation blocklist, and hide / regenerate (with a reason, audited) are in Admin › AI summaries; when the budget is used up or a reply fails validation, the extractive summary is shown instead.
+- **Liquidity rewards** (`/incentives`, ☰ → Liquidity Rewards): programs per event with start, end, competition and reward pool (Active / Upcoming, search, sort by reward). Accept the terms to take part; resting orders near the best price earn a share of the pool (formula in `../CLONE_SPEC.md` §29.7), shown as this month's and lifetime rewards. Payouts arrive as cash or credits (simulated funds). Admin › Liquidity incentives creates programs, runs snapshots, pays out and sets blocked regions.
+- The calendar caps recurring families (for example the daily temperature markets) per date with a "+N more" button.
+
+Not built yet (PLAN.md Phases 6-9; payments: sandbox rails built, no real money): public developer API keys and portal, FIX gateway, referrals payouts.
 
 Perimeter security (`../CLONE_SPEC.md` §21): CSP with per-response nonces and the other security headers, CORS allowlist (`ALLOWED_ORIGINS`), proof-of-work bot challenge for suspicious HTML requests, signed client tokens on `/v1` writes and the WebSocket, honeypot paths, tiered persisted rate limits, Admin › Security event log. Taker fee coefficient, rolling window, rate limits and bot settings are editable live in Admin › Settings & health. Fonts are self-hosted (`public/fonts/`, SIL OFL).
 
-Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1), `PAYMENTS_DEMO_FUNDS` (`0`/`1`, instant demo funds; default on outside production), `PAYMENTS_SANDBOX` (`0`/`1`, sandbox payment rails; default on outside production).
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1), `PAYMENTS_DEMO_FUNDS` (`0`/`1`, instant demo funds; default on outside production), `PAYMENTS_SANDBOX` (`0`/`1`, sandbox payment rails; default on outside production), `ANTHROPIC_API_KEY` + `AI_SUMMARY_MODEL` (optional external AI summarizer; both must be set, see above).
 
 ## Styling
 

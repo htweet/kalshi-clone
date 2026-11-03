@@ -194,6 +194,23 @@ exchange ↔ its own provider simulators (loopback HTTP).
 | D | Webhook flooding | Anonymous rate tier, 64 KB raw-body limit, rejection logging throttled per kind and IP | ✅ |
 | E | Staff moving money without trace | Reconciliation adjustments, AML decisions and payment settings need `users.money` / `settings.write`, a reason and step-up; all hash-chain audited | ✅ |
 
+### 12. Markets and content (Phase 5B, `CLONE_SPEC.md` §29)
+
+Trust boundaries added: CMS news text → summarizer (and, when configured, → an external model API and back); browser →
+ballot lookup (a postal address); resting orders → incentive rewards → the journal.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| T | **Prompt injection** in a news item steers the summary ("ignore previous instructions…", links, markup) | News text is data: tags, control and bidi characters and links are stripped, `<`, `>`, `&` escaped, and each item sits in its own `<item id>` element inside `<news_items>`; the system prompt says the items are untrusted and asks for JSON only. The extractive summarizer drops instruction-like, linked or marked-up sentences | ✅ (`markets-content` AI test: prompt shape, injected item) |
+| T | A compromised or confused model reply (HTML, links, instructions, invented sources) | Output validated before use: JSON shape, 1..N sentences, ≤ 300 characters each and a total cap, no `<`/`>`/entities, no URLs or markdown links, no instruction echo, every sentence cites only ids that were sent, moderation blocklist; anything else is discarded and the extractive summary is served (`fallback_reason invalid_output:*`), counted in `ai_usage.rejected`. Rendered with `esc()` only | ✅ (fake adapter returns a link + unknown id → rejected) |
+| D / $ | Runaway model spend (many events, repeated regeneration) | Daily request and token budgets in Admin › AI summaries (estimate checked before each call; over budget → extractive, no call); cache keyed by the news-set hash, so a summary is generated once per set; concurrent requests for the same set share one call; admin regeneration limited to 6 per 10 minutes per admin (SQLite-backed, hashed keys); SDK timeout 20 s, one retry | ✅ (cost-cap and rate-limit tests) |
+| I | API key or model choice leaking | Key only from `ANTHROPIC_API_KEY`, never logged or returned; the adapter exists only when both variables are set; no model id in code; `.env.example` documents empty values | ✅ |
+| R / E | Unaccountable summary moderation | Hide / unhide / regenerate / settings need `content.write` (settings `settings.write`), a reason, and write a hash-chained audit row; hides apply per event and survive new news | ✅ (audit rows asserted) |
+| I | **Ballot lookup** stores or leaks home addresses | The address is used once in memory to resolve an invented jurisdiction and never written to the DB, logs or audit; lookups are POST (no address in URLs or access logs); only a jurisdiction id is saved, by explicit choice, and can be forgotten | ✅ (DB file + WAL byte grep and log grep) |
+| D | Address enumeration / scraping of the lookup | 20 lookups a minute per user and 120 per IP (hashed keys), 200-character cap, strict body schema | ✅ |
+| T / E | Gaming incentive rewards (self-match, system liquidity, ineligible regions) | Only enrolled users from an eligible region accrue (re-checked on each visit; ineligible → suspended); system accounts never score; per-side score capped at the target size; rewards accrue in micro-cents and pay whole cents once; payouts need `users.money`, a reason and step-up, and post balanced journal entries (`house:incentives` or `house:promotions`); the ledger audit covers them | ✅ (payout + ledger audit test). Wash-trading detection is a residual |
+| T | Spread / total settled against the wrong score | Lines resolve from the persisted final state of the same deterministic simulation that drives the scoreboard, through the normal determine → finalize path; half-point lines cannot push | ✅ |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -203,5 +220,8 @@ exchange ↔ its own provider simulators (loopback HTTP).
   monitoring programme. KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
 - Signed API keys for the public trading API are not built (P7.1).
 - Property-based tests for perps margin/liquidation invariants (P6 gate).
+- Phase 5B (`CLONE_SPEC.md` §29.10): the injection filter and moderation blocklist are heuristics; output validation is
+  the real control. No wash-trading or self-matching detection for incentive rewards yet. The ballot rate limit and
+  the summary budget are per process (PLAN §10 RS1). A saved ballot area is not yet part of the data export.
 
 Review this document whenever a phase passes the §6 security gate in `PLAN.md`.
