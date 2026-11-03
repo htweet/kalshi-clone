@@ -175,3 +175,55 @@ All research follows the ground rules (logged-out public surfaces and docs only;
 - Audit logging for new privileged actions.
 - No secrets, real data or credentials committed; `.claude` deny rules cover any new sensitive paths.
 - Spec section updated with evidence and design choices; full E2E suite green.
+
+---
+
+## 7. Known gaps carried from shipped work (must close for 100%)
+
+Each item is tracked to a phase; none may be silently dropped.
+
+| ID | Gap (source) | Phase |
+|---|---|---|
+| G1 | Sub-cent fee accumulator per the fixed-point docs (fees currently round up to whole cents) (§16) | 5 (with P5.1 sub-cent grids) |
+| G2 | Dollars / target-cost orders filled across many makers can exceed the cap by 1–2¢ (§16) | 1 (P1.9 idempotency & order safety pass) |
+| G3 | RFQ `rest_remainder` stored but not acted on; `obscure_creator_id` not implemented (§17) | 2 |
+| G4 | Daily trading limit not checked for the maker on quote confirm (§17) | 1 |
+| G5 | Batch cancel by order-ID list (§17.10) | 7 (with batch orders) |
+| G6 | Resolution reversal after settlement (ledger clawback with audit) (§18) | 5 |
+| G7 | Taker fee coefficient editable at runtime; rolling window and rate limits editable live (§18) | 1 (settings) |
+| G8 | Four `PUT social-admin/...` moderation endpoints; promo-card targeting (§18) | 2 |
+| G9 | Sports: ice-hockey league, live-updating event header label, running clocks for tennis/esports (§19) | 5 |
+| G10 | Chat reactions and message editing (§20) | 2 |
+| G11 | Perps: amend/decrease, order groups, subaccounts, trailing stops, size-tiered margin, portfolio maintenance margin, fractional perps, collateral APY, rewards/waitlist (§14) | 6 |
+| G12 | Combo markets on a finer price grid; combos HVM 3 s confirm window option (§17) | 5 |
+| G13 | Inline `style=""` attributes across views block a strict style CSP | 1 (P1.1, tracked refactor) |
+| G14 | Logged-in screens verified against real screenshots (Positions/Resting/RFQs/Quotes/History, Account/Security, Deposits) | Research R2–R3, then fixes in the owning phase |
+
+## 8. Definition of "100% complete"
+
+The project is complete only when **all** of the following hold:
+
+1. **Feature parity:** every row of `CLONE_SPEC.md` §12 is "yes" or an explicitly accepted, documented exclusion (real-money payments and real KYC stay simulated/sandboxed by design, since this is a clone, not a licensed exchange). Every §7 gap above is closed.
+2. **Spec closure:** every UNKNOWN in §11 and §13–§20 is either resolved by evidence (research R1–R12) or recorded as a design choice with rationale; no "TODO" in the spec.
+3. **Logged-in views verified:** screens built against the user-supplied logged-in screenshots (R2, R3) match structure and behaviour; differences documented.
+4. **Security:** Phase 1 complete; every phase passed the §6 gate; `SECURITY.md` threat model current; external-style DAST (ZAP) clean of high/medium; dependency and secret scans clean; authz matrix covers 100% of routes.
+5. **Quality:** full E2E suite green in CI on every push; no page errors; 390px phone layout clean on every route; light and dark themes; WCAG 2.2 AA audit with no critical issues.
+6. **Data:** 100% DB-persistent; migrations forward-only and tested from every released schema; backup/restore drill passes.
+7. **Operations:** deployable from a clean checkout with one documented command; health checks, logs, metrics and alerts in place; runbooks for incidents and restore.
+8. **Documentation:** README (run, configure, admin bootstrap, Windows notes), `CLONE_SPEC.md`, `PLAN.md` progress table, `SECURITY.md`, API docs.
+
+## 9. Progress tracker
+
+| Phase | Status |
+|---|---|
+| 0 Stabilise | in progress (lock fix and `ws` upgrade done; CI, Dependabot, Windows notes next) |
+| 1 Security foundation | in progress |
+| 2 Social completion | live chat done; rest pending |
+| 3 Identity & compliance | pending |
+| 4 Payments (sandbox) | pending |
+| 5 Markets & content | pending |
+| 6 Perps completion | pending |
+| 7 Public API | pending |
+| 8 Growth & reach | pending |
+| 9 Production readiness | pending |
+| Research R1–R12 | R2/R3 waiting on logged-in screenshots from the user |
