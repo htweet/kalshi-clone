@@ -148,7 +148,7 @@ test('Live page: FEATURED leagues + collapsible sports with counts, live cards w
   assert.deepEqual(feat.map((f) => f.id), ['GPL', 'CGA', 'CHL', 'CHW', 'CPL']);
   assert.ok(feat.every((f) => f.icon), 'sport icons');
   const groups = await page.$$eval('[data-testid=sport-group]', (els) => els.map((e) => ({ sport: e.dataset.sport, text: e.querySelector('[data-testid=sport-count]').textContent, open: e.open })));
-  assert.equal(groups.length, 6);
+  assert.equal(groups.length, 7); // six sports + ice hockey (Phase 5B, PLAN G9)
   for (const g of groups) {
     const n = dbq("SELECT COUNT(*) c FROM sports_milestones WHERE sport=? AND status IN ('live','scheduled')", g.sport)[0].c;
     assert.match(g.text, new RegExp(`\\(${n}\\)$`), `${g.sport} count`);

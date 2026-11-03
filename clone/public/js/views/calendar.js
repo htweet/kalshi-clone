@@ -25,6 +25,28 @@ function spark(prices, target) {
   return `<svg viewBox="0 0 ${W} ${H}" class="w-full v-h"${vars({ '--h': `${H}px` })} aria-hidden="true"><line x1="0" x2="${W}" y1="${y(target)}" y2="${y(target)}" stroke="var(--text-x30)" stroke-dasharray="2 4"/><path d="${d}" fill="none" stroke="#f59f00" stroke-width="2"/><circle cx="${W}" cy="${y(vs[vs.length - 1])}" r="3.5" fill="#f59f00"/></svg>`;
 }
 
+// Recurring families capped per section (`event_limits`, CLONE_SPEC.md §13.4 / §29.4; U16 design choice): the first
+// `max_count` events of a family are shown in section order, the rest sit behind a "+N more" toggle after the last
+// shown one.
+function cappedCards(sec, liveSection = false) {
+  const evs = liveSection ? sec.events.filter((e) => !e.series_ticker.startsWith('PLXFLASH')) : sec.events;
+  const hide = new Map(); const lastShown = new Map();
+  for (const lim of sec.event_limits || []) {
+    const fam = evs.filter((e) => lim.event_tickers.includes(e.event_ticker));
+    if (fam.length <= lim.max_count) continue;
+    const key = fam[0].series_ticker;
+    fam.slice(lim.max_count).forEach((e) => hide.set(e.event_ticker, key));
+    lastShown.set(fam[lim.max_count - 1].event_ticker, { key, n: fam.length - lim.max_count, title: fam[0].series_title || key });
+  }
+  return evs.map((e) => {
+    const card = eventCard(e);
+    const h = hide.get(e.event_ticker);
+    const out = h ? `<div class="cal-capped" data-family="${esc(h)}" data-testid="cal-capped" hidden>${card}</div>` : card;
+    const more = lastShown.get(e.event_ticker);
+    return more ? `${out}<button class="card cal-more" data-more="${esc(more.key)}" data-testid="cal-more" aria-expanded="false" data-n="${esc(more.n)}" data-title="${esc(more.title)}">+${esc(more.n)} more · ${esc(more.title)}</button>` : out;
+  }).join('');
+}
+
 export async function render({ el, params, query, navigate }) {
   const liveOnly = !!params.live;
   document.title = liveOnly ? 'Live · Parlance' : 'Calendar · Parlance';
@@ -45,14 +67,23 @@ export async function render({ el, params, query, navigate }) {
     <div class="minw-0">
       <h1 class="live-title" data-testid="live-title">LIVE · ${liveSec ? liveSec.events.length : 0}</h1>
       <div id="flash"></div>
-      ${liveSec ? `<section class="cal-section" data-testid="cal-section" data-date="${esc(liveSec.date)}" data-live="true"><div class="grid grid-1col">${liveSec.events.filter((e) => !e.series_ticker.startsWith('PLXFLASH')).map(eventCard).join('')}</div></section>` : '<div class="card empty">Nothing is live right now.</div>'}
+      ${liveSec ? `<section class="cal-section" data-testid="cal-section" data-date="${esc(liveSec.date)}" data-live="true"><div class="grid grid-1col">${cappedCards(liveSec, true)}</div></section>` : '<div class="card empty">Nothing is live right now.</div>'}
       ${liveOnly ? '' : dated.map((s) => `<section class="cal-section" data-testid="cal-section" data-date="${esc(s.date)}" data-live="false">
           <h2 class="cal-date">${esc(fmtDate(s.date))}<span class="faint">${s.events.length}</span></h2>
-          <div class="grid">${s.events.map(eventCard).join('')}</div></section>`).join('')}
+          <div class="grid">${cappedCards(s)}</div></section>`).join('')}
     </div>
     <aside class="live-rail"><a class="combo-btn" href="/combos" data-link data-testid="combo-rail-btn" aria-label="Build a combo">◇ COMBO</a><div id="determined"></div></aside>
   </div>`;
   drawSportsNav(el, query);
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-more]');
+    if (!b) return;
+    const sec = b.closest('[data-testid=cal-section]');
+    const open = b.getAttribute('aria-expanded') !== 'true';
+    for (const c of sec.querySelectorAll(`[data-family="${CSS.escape(b.dataset.more)}"]`)) c.hidden = !open;
+    b.setAttribute('aria-expanded', String(open));
+    b.textContent = open ? 'Show less' : `+${b.dataset.n} more · ${b.dataset.title}`;
+  });
   for (const b of el.querySelectorAll('[data-cat]')) b.onclick = () => navigate(b.dataset.cat ? `${location.pathname}?category=${encodeURIComponent(b.dataset.cat)}` : location.pathname, { replace: true });
 
   // Rolling Above/Below card (observed "BTC 15 MIN" pattern; our underlying is the invented PLX index).

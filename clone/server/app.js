@@ -19,6 +19,7 @@ const { mountIdentity } = require('./identity'); // Phase 3: accounts, identity,
 const { mountAccountArea } = require('./account-area'); // Phase 3: account area, settings, documents, rewards (§25)
 const { mountPayments } = require('./payments'); // Phase 4: payments, sandbox only (CLONE_SPEC.md §26)
 const journal = require('./journal'); // Phase 4: double-entry journal (CLONE_SPEC.md §26.6)
+const { mountMarketsContent } = require('./markets-content'); // Phase 5B: ballot, AI summaries, incentives, hubs (§29)
 const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
 const { createAuth } = require('./auth');
@@ -51,7 +52,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -132,6 +133,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.accountArea = mountAccountArea({ v1, db, engine, auth, admin, identity: app.locals.identity, history: historyApi, requireUser, notify: (...a) => feat.notify(...a), keyDir });
   const ordersApi = mountOrders({ v1, db, engine, requireUser, notify: feat.notify });
   mountPositions({ v1, db, engine, requireUser });
+  app.locals.marketsContent = mountMarketsContent({ v1, db, engine, auth, admin, identity: app.locals.identity, feat, security, requireUser, eventFull, getEvent, options: marketsContent || {} });
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });

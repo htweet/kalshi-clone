@@ -80,7 +80,7 @@ export const helpView = {
 
 // ---------------------------------------------------------------- event news items
 export function newsItemsHtml(ev) {
-  return (ev.news_items || []).map((n) => `<div class="news-item" data-testid="news-item"><div class="src"><span class="news-src">${esc(n.source.toUpperCase())}</span> · ${esc(new Date(n.published_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}</div><b>${esc(n.headline)}</b>${n.summary ? `<span class="muted">${esc(n.summary)}</span>` : ''}</div>`).join('');
+  return (ev.news_items || []).map((n) => `<div class="news-item" data-testid="news-item" id="news-${esc(n.id)}" data-news-id="${esc(n.id)}"><div class="src"><span class="news-src">${esc(n.source.toUpperCase())}</span> · ${esc(new Date(n.published_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}</div><b>${esc(n.headline)}</b>${n.summary ? `<span class="muted">${esc(n.summary)}</span>` : ''}</div>`).join('');
 }
 
 // ---------------------------------------------------------------- report menu on posts / replies

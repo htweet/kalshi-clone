@@ -231,6 +231,19 @@ const EXPECT = {
   'GET /v1/admin/payments/ledger_audit': perm('users.read'), 'POST /v1/admin/payments/ledger_audit/run': perm('users.money'),
   'GET /v1/admin/payments/settings': perm('settings.write'), 'PUT /v1/admin/payments/settings': perm('settings.write'),
   'GET /v1/admin/payments/webhooks': perm('audit.read'), 'POST /v1/admin/payments/sandbox/crypto/mine': perm('users.money'),
+  // ---- Phase 5B: markets and content (CLONE_SPEC.md §29). Ballot lookup and hub widgets are public reads (lookup is a
+  // rate-limited POST so the address never sits in a URL); saved ballot areas and incentive enrolment are the owner's;
+  // AI-summary moderation needs content.write (settings: settings.write); incentive programs markets.ops, payouts
+  // users.money, eligibility settings settings.write.
+  'POST /v1/ballot/lookup': P, 'GET /v1/ballot/jurisdictions/:id': P, 'GET /v1/users/:uid/ballot': O, 'PUT /v1/users/:uid/ballot': O, 'DELETE /v1/users/:uid/ballot': O,
+  'GET /v1/events/:ticker/ai_summary': P, 'GET /v1/admin/ai_summaries': perm('content.write'), 'POST /v1/admin/ai_summaries/:ticker/hide': perm('content.write'),
+  'POST /v1/admin/ai_summaries/:ticker/unhide': perm('content.write'), 'POST /v1/admin/ai_summaries/:ticker/regenerate': perm('content.write'),
+  'GET /v1/admin/ai_summaries/settings': perm('settings.write'), 'PUT /v1/admin/ai_summaries/settings': perm('settings.write'),
+  'GET /v1/incentive_programs': P, 'GET /v1/incentive_programs/terms': P, 'GET /v1/users/:uid/incentives': O, 'POST /v1/users/:uid/incentives/enrollment': O, 'DELETE /v1/users/:uid/incentives/enrollment': O,
+  'GET /v1/admin/incentives/programs': perm('markets.ops'), 'POST /v1/admin/incentives/programs': perm('markets.ops'), 'PUT /v1/admin/incentives/programs/:id': perm('markets.ops'),
+  'POST /v1/admin/incentives/programs/:id/payout': perm('users.money'), 'POST /v1/admin/incentives/snapshot': perm('markets.ops'),
+  'GET /v1/admin/incentives/settings': perm('settings.write'), 'PUT /v1/admin/incentives/settings': perm('settings.write'),
+  'GET /v1/hubs/senate_map': P, 'GET /v1/hubs/fed_funds_outlook': P, 'GET /v1/series/:s/events/:e/forecast_history': P,
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };

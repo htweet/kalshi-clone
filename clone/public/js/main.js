@@ -37,6 +37,8 @@ const identityPagesView = lazy(() => import('./views/identity-pages.js'));
 const rewardsView = lazy(() => import('./views/rewards.js'));
 const placeholderView = lazy(() => import('./views/placeholder.js'));
 const fundsView = lazy(() => import('./views/funds.js')); // Phase 4 deposits / withdrawals, sandbox rails (CLONE_SPEC.md §26)
+const hubsView = lazy(() => import('./views/hubs.js')); // Phase 5B hubs, Senate map, Fed outlook, ballot (CLONE_SPEC.md §29)
+const incentivesView = lazy(() => import('./views/incentives.js')); // Phase 5B Liquidity Incentive Program (§29)
 
 const routes = [
   [/^\/$/, home],
@@ -80,7 +82,11 @@ const routes = [
   [/^\/funds$/, fundsView, () => ({ mode: 'overview' })],
   [/^\/funds\/(deposit|withdraw)$/, fundsView, (m) => ({ mode: m[1] })],
   [/^\/funds\/challenge\/([A-Za-z0-9_-]+)$/, fundsView, (m) => ({ mode: 'challenge', id: m[1] })],
-  [/^\/(incentives|docs)$/, placeholderView, (m) => ({ slug: m[1] })],
+  [/^\/incentives$/, incentivesView],
+  [/^\/incentives\/terms$/, incentivesView, () => ({ page: 'terms' })],
+  [/^\/hubs\/([a-z]+)$/, hubsView, (m) => ({ hub: m[1] })],
+  [/^\/ballot$/, hubsView, () => ({ hub: 'ballot' })],
+  [/^\/(docs)$/, placeholderView, (m) => ({ slug: m[1] })],
   [/^\/(trust|research|support)\/([a-z-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })],
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
@@ -227,7 +233,7 @@ function showBrowserPush(p) {
 // MORE menu (spec §15.1): secondary destinations.
 document.getElementById('more-btn').addEventListener('click', (e) => {
   toggleMenu(e.currentTarget, `<a href="/calendar" data-link>Calendar</a><a href="/sports" data-link data-testid="more-sports">Sports scores</a><a href="/social" data-link>Social</a><a href="/messages" data-link data-testid="more-messages">Group chats</a><a href="/social/circle" data-link>Inner Circle</a><a href="/social/leaderboard" data-link>Leaderboard</a>
-    <a href="/watchlist" data-link>Watchlist</a><a href="/browse" data-link>Browse all markets</a><hr><a href="/account/limits" data-link>Responsible trading</a><button id="more-theme">Toggle light / dark</button>`);
+    <a href="/watchlist" data-link>Watchlist</a><a href="/browse" data-link>Browse all markets</a><a href="/hubs/elections" data-link data-testid="more-election-hub">Harbor 2026 hub</a><a href="/hubs/economics" data-link data-testid="more-rates">Rates outlook</a><a href="/incentives" data-link>Liquidity rewards</a><hr><a href="/account/limits" data-link>Responsible trading</a><button id="more-theme">Toggle light / dark</button>`);
   const t = document.getElementById('more-theme');
   if (t) t.onclick = () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; if (session.user) session.setProp('theme', next); else { applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } closeMenus(); };
 });

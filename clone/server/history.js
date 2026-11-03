@@ -11,7 +11,7 @@ const GROUPS = {
   orders: ['order', 'cancel'],
   settlements: ['settlement'],
   combos: ['combo', 'rfq', 'quote', 'rfq_execution'],
-  cash: ['deposit', 'withdrawal', 'interest', 'perps_transfer', 'credit', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout', 'deposit_return', 'withdrawal_fee', 'withdrawal_reversal', 'credit_expired'],
+  cash: ['deposit', 'withdrawal', 'interest', 'perps_transfer', 'credit', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout', 'deposit_return', 'withdrawal_fee', 'withdrawal_reversal', 'credit_expired', 'incentive'],
 };
 // Account › Your activity chips (CLONE_SPEC §13.16: All · Deposit · Withdrawal · Order · Trade · Settlement · Credit).
 const ACTIVITY = {
@@ -20,12 +20,12 @@ const ACTIVITY = {
   order: ['order', 'cancel', 'rfq', 'quote', 'combo'],
   trade: ['fill', 'netting', 'rfq_execution'],
   settlement: ['settlement'],
-  credit: ['credit', 'interest', 'credit_expired'],
+  credit: ['credit', 'interest', 'credit_expired', 'incentive'],
 };
 const GROUP_OF = Object.fromEntries(Object.entries(GROUPS).flatMap(([g, ks]) => ks.map((k) => [k, g])));
 const TYPE_LABEL = { fill: 'Trade', netting: 'Pairs redeemed', order: 'Order', cancel: 'Canceled', settlement: 'Settlement', combo: 'Combo', rfq: 'RFQ', quote: 'Quote', rfq_execution: 'RFQ executed', deposit: 'Deposit', withdrawal: 'Withdrawal', interest: 'Interest', perps_transfer: 'Perps transfer',
   credit: 'Credit', withdrawal_hold: 'Withdrawal (under review)', withdrawal_hold_reversal: 'Withdrawal returned', closure_payout: 'Closing payout',
-  deposit_return: 'Deposit returned', withdrawal_fee: 'Network fee', withdrawal_reversal: 'Withdrawal returned', credit_expired: 'Credit expired' }; // payment rails (CLONE_SPEC.md §26)
+  deposit_return: 'Deposit returned', withdrawal_fee: 'Network fee', withdrawal_reversal: 'Withdrawal returned', credit_expired: 'Credit expired', incentive: 'Liquidity reward' }; // payment rails (CLONE_SPEC.md §26); liquidity rewards (§29)
 
 // Every source projected onto: id, ts, prio (tie-break within the same ms), kind, market, side, action, otype,
 // price, qty, filled, amount, fee, status, role, extra (kind-specific number), memo.
@@ -45,7 +45,7 @@ const UNION = `
     FROM settlements s WHERE s.user_id=:uid
   UNION ALL
   SELECT 'ledger:'||l.id, ${ms('l.created_at')}, 2, l.kind, CASE WHEN l.kind='netting' THEN l.ref END, NULL, NULL, NULL, NULL, NULL, NULL, l.amount_cents, NULL, COALESCE((SELECT pt.status FROM payment_transactions pt WHERE pt.id=l.ref AND pt.rail<>'demo'), 'done'), NULL, NULL, l.memo
-    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting','credit','withdrawal_hold','withdrawal_hold_reversal','closure_payout','deposit_return','withdrawal_fee','withdrawal_reversal','credit_expired')
+    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting','credit','withdrawal_hold','withdrawal_hold_reversal','closure_payout','deposit_return','withdrawal_fee','withdrawal_reversal','credit_expired','incentive')
   UNION ALL
   SELECT 'combo:'||c.combo_ticker, c.created_ts, 0, 'combo', c.combo_ticker, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'created', NULL, NULL, ''
     FROM combo_creations c WHERE c.user_id=:uid

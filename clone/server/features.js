@@ -2,6 +2,7 @@
 // Features added from the 2026-11-02 live capture (CLONE_SPEC §13): social, notifications + price targets,
 // account limits, two-factor login, calendar feed, categories with subcategories, social trades.
 const crypto = require('node:crypto');
+const { eventLimits } = require('./calendar-limits'); // calendar event_limits (Phase 5B, CLONE_SPEC.md §29)
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, ustr, E, ApiError, encCursor, decCursor } = require('./util');
 
@@ -462,6 +463,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     const byDate = new Map();
     for (const e of shown.filter((x) => !x.is_live)) { const d = dateOf(e); if (!byDate.has(d)) byDate.set(d, []); byDate.get(d).push(e); }
     for (const d of [...byDate.keys()].sort()) sections.push({ section_key: d, group_type: 'date', date: d, is_live: false, events: byDate.get(d) });
+    for (const s of sections) s.event_limits = eventLimits(s.events); // recurring families capped per section (Phase 5B)
     res.json({ sections, filters: { categories: counts, all }, total_count: shown.length, next_cursor: '' });
   });
 

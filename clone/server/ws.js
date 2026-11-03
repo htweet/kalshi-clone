@@ -7,8 +7,8 @@ const { WebSocketServer } = require('ws');
 const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
-const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat']);
-const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments']);
+const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives']);
+const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments', 'incentive_rewards']);
 
 function attachWs(server, { engine, auth, security }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 }); // inbound frame cap (clients only send small commands)
@@ -58,7 +58,7 @@ function attachWs(server, { engine, auth, security }) {
         }
         for (const ch of chans) {
           const sid = c.nextSid++;
-          const filt = Array.isArray(p.market_tickers) && p.market_tickers.length ? p.market_tickers : Array.isArray(p.milestone_ids) && p.milestone_ids.length ? p.milestone_ids : ch === 'chat' ? p.event_tickers : null; // live_data filters by milestone id, chat by event ticker
+          const filt = Array.isArray(p.market_tickers) && p.market_tickers.length ? p.market_tickers : Array.isArray(p.milestone_ids) && p.milestone_ids.length ? p.milestone_ids : ch === 'chat' || ch === 'event_content' ? p.event_tickers : null; // live_data filters by milestone id, chat by event ticker
           const tickers = filt ? new Set(filt) : null;
           c.subs.set(sid, { channel: ch, tickers, seq: 0 });
           send(c, { id, type: 'subscribed', msg: { sid, channel: ch } });
@@ -104,6 +104,10 @@ function attachWs(server, { engine, auth, security }) {
   engine.on('lifecycle', (t, eventType, status) => publish('market_lifecycle_v2', t, 'market_lifecycle_v2', { market_ticker: t, event_type: eventType, status }));
   engine.on('live_data', (id, msg) => publish('live_data', id, 'live_data', msg)); // sports scoreboards (server/sports.js)
   engine.on('chat', (t, type, msg) => publish('chat', t, type, msg)); // event live chat (server/chat.js), filtered by event ticker
+  // Phase 5B (CLONE_SPEC.md §29): AI summary changes per event, incentive program changes, the user's own rewards.
+  engine.on('event_content', (t, msg) => publish('event_content', t, 'event_content', msg));
+  engine.on('incentives', (t, msg) => publish('incentives', null, 'incentives', msg));
+  engine.on('incentive_reward', (uid, msg) => publish('incentive_rewards', null, 'incentive_reward', msg, uid));
   engine.on('user_balance', (uid, cents) => publish('user_balance', null, 'user_balance', { available_dollars: dollars(cents) }, uid));
   engine.on('user_order', (uid, o) => publish('user_orders', o.market_ticker, 'user_order', orderVo(o), uid));
   engine.on('fill', (uid, f) => publish('fill', f.market_ticker, 'fill', fillVo(f), uid));

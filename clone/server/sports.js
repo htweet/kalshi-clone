@@ -9,6 +9,7 @@
 // names. Everything else (sport models, rates, leagues, teams, players) is a Parlance design choice.
 const { tx } = require('./db');
 const { nowIso, newId, hashPassword, slugify, E } = require('./util');
+const Lines = require('./sports-lines'); // spreads and totals (Phase 5B, PLAN P5.2)
 
 // Engine quantity unit: integer hundredths of a contract (engine.UNITS = 100) or whole contracts (1).
 const UNITS = require('./engine').UNITS || 1;
@@ -608,7 +609,158 @@ const esports = {
   start(st) { return `Map 1 is live — ${st.names.home} vs ${st.names.away}`; },
 };
 
-const SPORT = { soccer, basketball, football, tennis, cricket, esports };
+// ---- Ice hockey (Phase 5B, PLAN G9): 3 × 20 min, one segment per 30-60 s of play, minor penalties → power plays
+// (2:00, ended by a power-play goal), 5-min 3-on-3 sudden-death overtime, then a best-of-3 shootout (the winner is
+// credited one goal, as in the common convention). Every rate and rule here is a Parlance design choice.
+const pName = (p) => (p <= 3 ? `P${p}` : p === 4 ? 'OT' : 'SO');
+const hockey = {
+  type: 'hockey_game', label: 'Hockey', draw: false,
+  init(st, cfg) {
+    const pLen = cfg.pLen || 1200;
+    Object.assign(st, { pLen, period: 1, remain: pLen, phase: 'play', pp: null, so: null, lam: { home: (3.05 + st.edge * 0.9) / 3600, away: (2.75 - st.edge * 0.9) / 3600 } });
+    for (const s of SIDES) Object.assign(st.stats[s], { goals: 0, shots: 0, power_plays: 0, power_play_goals: 0, penalty_minutes: 0, hits: 0, faceoffs_won: 0, saves: 0 });
+    st.lines = { home: [0], away: [0] };
+  },
+  next(st) { return st.phase === 'break' ? (st.period >= 3 ? 120 : 900) : st.phase === 'shootout' ? 45 : Math.min(st.remain, between(st, 30, 60)); },
+  // Goals per second for side s: power play ×2.4, short-handed ×0.25, 3-on-3 overtime ×1.7.
+  rate(st, s) {
+    let r = st.lam[s];
+    if (st.pp) r *= st.pp.team === s ? 2.4 : 0.25;
+    if (st.period === 4) r *= 1.7;
+    return r;
+  },
+  goal(st, s, plays, how) {
+    st.score[s] += 1; st.stats[s].goals += 1; st.stats[s].shots += 1; st.lines[s][lastLine(st, s)] += 1;
+    const ppg = st.pp && st.pp.team === s;
+    if (ppg) { st.stats[s].power_play_goals += 1; st.pp = null; }
+    plays.push({ team: s, kind: 'goal', text: `GOAL! ${st.names[s]}${ppg ? ' (power play)' : how ? ` (${how})` : ''} — ${st.names.home} ${st.score.home}-${st.score.away} ${st.names.away}` });
+  },
+  resolve(st) {
+    const plays = [];
+    if (st.phase === 'break') {
+      st.period += 1; st.phase = 'play'; st.lines.home.push(0); st.lines.away.push(0);
+      if (st.period === 4) { st.remain = 300; return [{ kind: 'period', text: 'Overtime: 3-on-3, next goal wins' }]; }
+      if (st.period === 5) { st.phase = 'shootout'; st.so = { round: 0, home: 0, away: 0, shots: { home: 0, away: 0 } }; return [{ kind: 'period', text: 'Shootout' }]; }
+      st.remain = st.pLen;
+      return [{ kind: 'period', text: `Start of the ${ord(st.period)} period` }];
+    }
+    if (st.phase === 'shootout') {
+      const so = st.so;
+      for (const s of SIDES) { so.shots[s] += 1; if (chance(st, 0.32 + (s === 'home' ? st.edge : -st.edge) * 0.04)) { so[s] += 1; plays.push({ team: s, kind: 'shootout_goal', text: `Shootout: ${st.names[s]} score (${so.home}-${so.away})` }); } else plays.push({ team: s, kind: 'shootout_miss', text: `Shootout: ${st.names[s]} denied` }); }
+      so.round += 1;
+      const left = Math.max(0, 3 - so.round);
+      const decided = so.round >= 3 ? so.home !== so.away : Math.abs(so.home - so.away) > left;
+      st.lines.home[lastLine(st, 'home')] = so.home; st.lines.away[lastLine(st, 'away')] = so.away;
+      if (decided) {
+        const w = so.home > so.away ? 'home' : 'away';
+        st.score[w] += 1; st.done = true; st.winner = w;
+        plays.push({ team: w, kind: 'final', text: `Final (SO): ${st.names.home} ${st.score.home}, ${st.names.away} ${st.score.away}` });
+      }
+      return plays;
+    }
+    st.remain = Math.max(0, st.remain - st.segDur);
+    const dur = st.segDur;
+    if (st.pp) { st.pp.left -= dur; if (st.pp.left <= 0) { plays.push({ team: st.pp.team, kind: 'pp_end', text: `${st.names[other(st.pp.team)]} back to full strength` }); st.pp = null; } }
+    for (const s of SIDES) {
+      const S = st.stats[s];
+      if (chance(st, 1 - Math.exp(-this.rate(st, s) * dur))) {
+        this.goal(st, s, plays);
+        if (st.period === 4) break;
+      } else if (chance(st, dur / 120)) { S.shots += 1; st.stats[other(s)].saves += 1; if (chance(st, 0.12)) plays.push({ team: s, kind: 'shot', text: `Save! ${st.names[other(s)]} stop a shot from ${st.names[s]}` }); }
+      if (chance(st, dur / 160)) S.hits += 1;
+    }
+    if (chance(st, dur / 70)) st.stats[chance(st, 0.5 + st.edge * 0.05) ? 'home' : 'away'].faceoffs_won += 1;
+    if (!st.done && st.period <= 4 && !st.pp && chance(st, dur / 900)) {
+      const off = chance(st, 0.5) ? 'home' : 'away'; const on = other(off);
+      st.stats[off].penalty_minutes += 2; st.stats[on].power_plays += 1;
+      st.pp = { team: on, left: 120 };
+      plays.push({ team: off, kind: 'penalty', text: `Penalty ${st.names[off]}: ${pick(st, ['tripping', 'hooking', 'slashing', 'interference', 'holding'])} (2:00) — ${st.names[on]} power play` });
+    }
+    if (st.period === 4 && st.score.home !== st.score.away) {
+      st.done = true; st.winner = st.score.home > st.score.away ? 'home' : 'away';
+      plays.push({ kind: 'final', text: `Final (OT): ${st.names.home} ${st.score.home}, ${st.names.away} ${st.score.away}` });
+      return plays;
+    }
+    if (st.remain <= 0) {
+      if (st.period >= 3 && st.score.home !== st.score.away) {
+        st.done = true; st.winner = st.score.home > st.score.away ? 'home' : 'away';
+        plays.push({ kind: 'final', text: `Final: ${st.names.home} ${st.score.home}, ${st.names.away} ${st.score.away}` });
+      } else {
+        st.phase = 'break'; st.pp = st.period >= 3 ? null : st.pp;
+        plays.push({ kind: 'period', text: st.period >= 3 ? (st.period === 3 ? 'End of regulation — tied, overtime' : 'End of overtime — shootout') : `End of the ${ord(st.period)} period` });
+      }
+    }
+    return plays;
+  },
+  view(st, part) {
+    if (st.done) return { period: st.period, clock: '0:00', label: 'Final' };
+    if (st.phase === 'shootout') return { period: 5, clock: 'SO', label: `Shootout · ${st.so.home}-${st.so.away}` };
+    if (st.phase === 'break') return { period: st.period, clock: '0:00', label: st.period >= 3 ? (st.period === 3 ? 'End of regulation' : 'End of overtime') : `${ord(st.period)} intermission` };
+    const c = mmss(Math.max(0, st.remain - part));
+    return { period: st.period, clock: c, label: `${pName(st.period)} ${c}` };
+  },
+  remaining(st) { return st.period > 3 ? 0 : (st.phase === 'break' ? 0 : st.remain) + (3 - st.period) * st.pLen; },
+  prob(st) {
+    if (st.done) return finalProb(st);
+    const otHome = clamp(0.5 + st.edge * 0.08, 0.3, 0.7);
+    if (st.phase === 'shootout') {
+      const so = st.so; const lead = so.home - so.away; const left = Math.max(1, 3 - so.round);
+      const h = clamp(0.5 + lead / (2 * left) * 0.8 + st.edge * 0.03, 0.02, 0.98);
+      return { home: h, away: 1 - h, draw: 0 };
+    }
+    if (st.period === 4) {
+      // Sudden death: next goal wins (rates over the time left), else the shootout.
+      const T = st.phase === 'break' ? 0 : st.remain; const rh = this.rate(st, 'home'); const ra = this.rate(st, 'away');
+      const any = 1 - Math.exp(-(rh + ra) * T);
+      const h = any * (rh / (rh + ra)) + (1 - any) * otHome;
+      return { home: h, away: 1 - h, draw: 0 };
+    }
+    const R = this.remaining(st);
+    const ph = poisson(this.rate(st, 'home') * R, 14); const pa = poisson(this.rate(st, 'away') * R, 14);
+    let h = 0; let a = 0; let d = 0;
+    for (let i = 0; i < ph.length; i++) for (let j = 0; j < pa.length; j++) {
+      const diff = st.score.home + i - (st.score.away + j); const p = ph[i] * pa[j];
+      if (diff > 0) h += p; else if (diff < 0) a += p; else d += p;
+    }
+    const t = h + a + d;
+    const home = (h + d * otHome) / t;
+    return { home, away: 1 - home, draw: 0 };
+  },
+  details(st, part) {
+    return { period: st.period, period_name: pName(st.period), power_play: st.pp ? { team: st.pp.team, remaining_seconds: Math.max(0, Math.ceil(st.pp.left - part)) } : null,
+      home_shots: st.stats.home.shots, away_shots: st.stats.away.shots, shootout: st.so ? { round: st.so.round, home: st.so.home, away: st.so.away } : null, period_length_seconds: st.pLen };
+  },
+  start: (st) => `Puck drop — ${st.names.home} vs ${st.names.away}`,
+};
+
+const SPORT = { soccer, basketball, football, tennis, cricket, esports, hockey };
+
+// Phase 5B (PLAN G9): the running game clock behind every live scoreboard and the event header label. `seconds` is the
+// clock value at `updated_ts`; clients advance it by `rate` (game seconds per real second) while `running`.
+// Countdown clocks (basketball, football, hockey), the match minute (soccer), the match time (tennis) and the map time
+// (esports) run; cricket counts overs, not time.
+function gameClock(sport, st, live, part) {
+  const off = (name) => ({ name, seconds: null, running: false, direction: 'up', format: 'none' });
+  if (!live || st.done) return off('');
+  switch (sport) {
+    case 'basketball': case 'football':
+      if (st.phase !== 'play') return off(SPORT[sport].view(st, 0).label);
+      return { name: qName(st.quarter), seconds: Math.max(0, st.remain - part), running: true, direction: 'down', format: 'mmss' };
+    case 'hockey':
+      if (st.phase !== 'play') return off(hockey.view(st, 0).label);
+      return { name: pName(st.period), seconds: Math.max(0, st.remain - part), running: true, direction: 'down', format: 'mmss' };
+    case 'soccer':
+      if (st.phase === 'ht') return off('Half-time');
+      return { name: st.half === 1 ? '1st half' : '2nd half', seconds: st.clock + part, running: true, direction: 'up', format: 'minute', cap: st.half * 2700 };
+    case 'tennis': { const set = tennis.cur(st); return { name: `Set ${st.sets.length} · ${set.home}-${set.away}${st.tb ? ' · Tiebreak' : ''}`, seconds: st.t, running: true, direction: 'up', format: 'hmmss', label: 'Match time' }; }
+    case 'esports': {
+      const m = st.maps[st.map - 1];
+      if (st.phase !== 'play') return off(`Map ${st.map} complete`);
+      return { name: `Map ${st.map} · ${m.home}-${m.away}`, seconds: m.dur + part, running: true, direction: 'up', format: 'mmss', label: 'Map time' };
+    }
+    default: return off(SPORT[sport].view(st, part).label);
+  }
+}
 
 // =====================================================================================================
 // Invented leagues, teams and players (no real leagues, clubs, marks or people).
@@ -630,6 +782,9 @@ const LEAGUES = [
     teams: [['Harbor Mariners', 'Mariners', 'HMA', '#1864ab'], ['Ridgeback Kings', 'Kings', 'RBK', '#e67700'], ['Saltpan Strikers', 'Strikers', 'SPS', '#c2255c'], ['Emerald Falcons', 'Falcons', 'EMF', '#087f5b']] },
   { id: 'VXM', sport: 'esports', name: 'Vector Masters', short: 'Vector Masters', featured: 0, cfg: {}, homeAdv: 0, competition: 'Vector Masters · Playoffs',
     teams: [['Nullpoint', 'Nullpoint', 'NUL', '#7950f2'], ['Kite Theory', 'Kite Theory', 'KIT', '#15aabf'], ['Orbit Five', 'Orbit Five', 'OR5', '#fd7e14'], ['Static Bloom', 'Static Bloom', 'STB', '#e64980']] },
+  // Phase 5B (PLAN G9): invented ice-hockey league.
+  { id: 'IHL', sport: 'hockey', name: 'Icebound Hockey League', short: 'IHL', featured: 0, cfg: { pLen: 1200 }, homeAdv: 0.1,
+    teams: [['Frostport Narwhals', 'Narwhals', 'FPN', '#1c7ed6'], ['Glacier Bay Lumberjacks', 'Lumberjacks', 'GBL', '#2b8a3e'], ['Northreach Lynx', 'Lynx', 'NRL', '#862e9c'], ['Kettle Falls Comets', 'Comets', 'KFC', '#e8590c']] },
 ];
 const RATINGS = [0.25, 0.1, -0.05, -0.2, 0.15, -0.25];
 
@@ -643,6 +798,7 @@ const FIXTURES = [
   ['LHO', 0, 1, 'live', { set: 2, games: 3, tiebreakSet1: true }], ['LHO', 2, 3, 'upcoming', 45], ['LHO', 4, 5, 'final', 90],
   ['HTB', 0, 1, 'live', { innings: 2, overs: 8 }], ['HTB', 2, 3, 'upcoming', 90],
   ['VXM', 0, 1, 'live', { map: 2, round: 6 }], ['VXM', 2, 3, 'upcoming', 50],
+  ['IHL', 0, 1, 'live', { period: 2, remain: 1000 }], ['IHL', 2, 3, 'upcoming', 35], ['IHL', 1, 2, 'final', 110],
 ];
 const LIVE_AT = {
   soccer: (st, a) => st.clock / 60 >= a.minute,
@@ -651,6 +807,7 @@ const LIVE_AT = {
   tennis: (st, a) => st.sets.length >= a.set && st.sets[a.set - 1].home + st.sets[a.set - 1].away >= a.games,
   cricket: (st, a) => st.innings >= a.innings && st.phase === 'play' && st.stats[st.batting].balls >= a.overs * 6,
   esports: (st, a) => st.map >= a.map && st.phase === 'play' && st.maps[st.map - 1].home + st.maps[st.map - 1].away >= a.round,
+  hockey: (st, a) => st.phase === 'play' && (st.period > a.period || (st.period === a.period && st.remain <= a.remain)),
 };
 const LIVE_OK = { tennis: (st, a) => !a.tiebreakSet1 || !!st.sets[0].tb };
 
@@ -672,6 +829,10 @@ CREATE TABLE IF NOT EXISTS sports_stats (milestone_id TEXT NOT NULL, side TEXT N
 CREATE TABLE IF NOT EXISTS sports_event_links (event_ticker TEXT PRIMARY KEY, milestone_id TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS sports_markets (market_ticker TEXT PRIMARY KEY, milestone_id TEXT NOT NULL, outcome TEXT NOT NULL, quoted_cents INTEGER, quoted_ts INTEGER);
 CREATE INDEX IF NOT EXISTS idx_sports_mk_ms ON sports_markets(milestone_id);
+CREATE TABLE IF NOT EXISTS sports_line_events (event_ticker TEXT PRIMARY KEY, milestone_id TEXT NOT NULL UNIQUE, game_event_ticker TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sports_lines (market_ticker TEXT PRIMARY KEY, milestone_id TEXT NOT NULL, event_ticker TEXT NOT NULL, kind TEXT NOT NULL, side TEXT NOT NULL DEFAULT '', line REAL NOT NULL,
+  fair REAL, quoted_cents INTEGER, quoted_ts INTEGER, priced_ts INTEGER);
+CREATE INDEX IF NOT EXISTS idx_sports_lines_ms ON sports_lines(milestone_id);
 `;
 
 function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
@@ -680,11 +841,13 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   const settleSec = Number(options.settlementSeconds ?? 5);
   const DEPTH = Number(options.depthContracts ?? 150) * UNITS; // resting liquidity per side
   const PRINT = 1 * UNITS; // reference print at the fair price when the probability moves
+  const LINE_SIMS = Math.max(20, Number(options.lineSims ?? 120)); // Monte Carlo paths per spread/total price
+  const LINES_MS = Number(options.linesMs ?? 4000); // re-price spreads/totals at most this often per game (real ms)
   db.exec(SCHEMA);
 
   // A full reset (`npm run seed`) wipes `meta`; our rows then point at deleted events, so start over.
   if (!db.prepare('SELECT 1 FROM meta WHERE key=?').get(SEED_KEY)) {
-    db.exec('DELETE FROM sports_plays; DELETE FROM sports_stats; DELETE FROM sports_markets; DELETE FROM sports_event_links; DELETE FROM sports_milestones; DELETE FROM sports_teams; DELETE FROM sports_leagues;');
+    db.exec('DELETE FROM sports_plays; DELETE FROM sports_stats; DELETE FROM sports_markets; DELETE FROM sports_event_links; DELETE FROM sports_lines; DELETE FROM sports_line_events; DELETE FROM sports_milestones; DELETE FROM sports_teams; DELETE FROM sports_leagues;');
   }
   const sysUser = (email, name, cents) => {
     const u = db.prepare('SELECT id FROM users WHERE email=?').get(email);
@@ -698,9 +861,11 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   const FLOW = sysUser('sportsflow@parlance.local', 'Parlance Sports Flow', 100_000_00);
 
   // ---------- reference data (cached; tiny and static once created) ----------
-  if (!db.prepare('SELECT 1 FROM sports_leagues LIMIT 1').get()) {
+  // Leagues added in later releases (Phase 5B hockey) are inserted into existing databases too.
+  if (LEAGUES.some((lg) => !db.prepare('SELECT 1 FROM sports_leagues WHERE id=?').get(lg.id))) {
     tx(db, () => {
       LEAGUES.forEach((lg, i) => {
+        if (db.prepare('SELECT 1 FROM sports_leagues WHERE id=?').get(lg.id)) return;
         db.prepare('INSERT INTO sports_leagues(id,sport,name,short_name,series_ticker,featured,sort,config) VALUES(?,?,?,?,?,?,?,?)')
           .run(lg.id, lg.sport, lg.name, lg.short, `PLX${lg.id}`, lg.featured, i, JSON.stringify({ ...lg.cfg, homeAdv: lg.homeAdv, competition: lg.competition || lg.name }));
         lg.teams.forEach(([name, short, abbr, color], j) => db.prepare('INSERT INTO sports_teams(id,league_id,name,short_name,abbr,color,rating) VALUES(?,?,?,?,?,?,?)')
@@ -713,6 +878,14 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   const linkByEvent = new Map(db.prepare('SELECT * FROM sports_event_links').all().map((r) => [r.event_ticker, r.milestone_id]));
   const eventByMs = new Map([...linkByEvent].map(([e, m]) => [m, e]));
   const outcomesCache = new Map();
+  // Spread / total events (Phase 5B): line event ↔ milestone, and the line markets per milestone.
+  const lineEventByMs = new Map(db.prepare('SELECT * FROM sports_line_events').all().map((r) => [r.milestone_id, r.event_ticker]));
+  const msByLineEvent = new Map([...lineEventByMs].map(([m, e]) => [e, m]));
+  const linesCache = new Map();
+  const linesOf = (id) => {
+    if (!linesCache.has(id)) linesCache.set(id, db.prepare('SELECT * FROM sports_lines WHERE milestone_id=? ORDER BY rowid').all(id));
+    return linesCache.get(id);
+  };
   const marketsOf = (id) => {
     if (!outcomesCache.has(id)) outcomesCache.set(id, db.prepare('SELECT * FROM sports_markets WHERE milestone_id=? ORDER BY rowid').all(id));
     return outcomesCache.get(id);
@@ -770,6 +943,8 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
       status, widget_status: { scheduled: 'pre', live: 'live', final: 'finished' }[row.status], winner: row.winner || '',
       home_win_probability: r4(row.win_home), away_win_probability: r4(row.win_away), ...(sp.draw ? { draw_probability: r4(row.win_draw) } : {}),
       last_play: row.last_play, period: v.period, clock: v.clock, period_label: v.label, side_orientation: 'milestone',
+      // Running clock (Phase 5B, PLAN G9): value at updated_ts; clients advance it at `rate` game seconds per second.
+      game_clock: { ...gameClock(row.sport, st, row.status === 'live', part), rate: speed, as_of: iso(row.updated_ts) },
     };
     const outcomes = Object.fromEntries(marketsOf(row.id).map((m) => [m.market_ticker, m.outcome]));
     return {
@@ -777,7 +952,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
       league: { id: lg.id, name: lg.name, short_name: lg.short_name }, competition: row.competition, title: row.title,
       start_date: iso(row.start_ts), status: row.status, live_label: row.status === 'live' ? v.label : row.status === 'final' ? 'Final' : '',
       event_ticker: eventByMs.get(row.id) || null, home: teamVo(teams.get(row.home_id)), away: teamVo(teams.get(row.away_id)),
-      outcomes, lines: st.lines, stats: st.stats, updated_ts: row.updated_ts, details,
+      outcomes, lines: st.lines, stats: st.stats, updated_ts: row.updated_ts, details, lines_event_ticker: lineEventByMs.get(row.id) || null,
     };
   }
   function milestoneVo(row) {
@@ -827,7 +1002,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
 
   // Re-quote the liquidity account around the live fair price: cancel, print one reference trade at the fair
   // price (system flow account vs liquidity account), then rest a bid one cent below and an offer one cent above.
-  function requote(mk, p, now, force = false) {
+  function requote(mk, p, now, force = false, table = 'sports_markets') {
     const f = clamp(Math.round(p * 100), 2, 98);
     if (!force && mk.quoted_cents === f) return;
     if (!force && mk.quoted_ts && now - mk.quoted_ts < requoteMs) return;
@@ -846,15 +1021,74 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
     attempt(() => engine.placeOrder(lp, { ticker: t, side: 'yes', price: f - 1, count: DEPTH, source: 'liquidity' }));
     attempt(() => engine.placeOrder(lp, { ticker: t, side: 'no', price: 99 - f, count: DEPTH, source: 'liquidity' }));
     mk.quoted_cents = f; mk.quoted_ts = now;
-    db.prepare('UPDATE sports_markets SET quoted_cents=?, quoted_ts=? WHERE market_ticker=?').run(f, now, t);
+    db.prepare(`UPDATE ${table === 'sports_lines' ? 'sports_lines' : 'sports_markets'} SET quoted_cents=?, quoted_ts=? WHERE market_ticker=?`).run(f, now, t);
   }
   function requoteAll(id, wp, now, force = false) {
     for (const mk of marketsOf(id)) requote(mk, wp[mk.outcome] ?? 0, now, force);
   }
-  // Final whistle: every winner market closes and is determined; the engine tick finalizes and pays out.
-  function settle(id, winner) {
+  // Final whistle: every winner market closes and is determined; the engine tick finalizes and pays out. Spread and
+  // total markets resolve from the final score (Lines.covers on the final measures).
+  function settle(id, winner, st) {
     for (const mk of marketsOf(id)) {
       try { engine.determine(mk.market_ticker, mk.outcome === winner ? 'yes' : 'no'); } catch (e) { if (process.env.SPORTS_DEBUG) console.error('settle', mk.market_ticker, e.message); }
+    }
+    if (!st) return;
+    const row = getRow(id); const fin = Lines.measure(row.sport, st);
+    for (const l of linesOf(id)) {
+      try { engine.determine(l.market_ticker, Lines.covers(l, fin) ? 'yes' : 'no'); } catch (e) { if (process.env.SPORTS_DEBUG) console.error('settle line', l.market_ticker, e.message); }
+    }
+  }
+
+  // ---------- spreads and totals (Phase 5B) ----------
+  const linePrices = (row, st, fresh = false) => {
+    const lines = linesOf(row.id);
+    if (!lines.length) return [];
+    const samples = Lines.simulate(SPORT[row.sport], row.sport, st, { n: LINE_SIMS, seed: hash(`${row.id}:${Math.floor(st.t || 0)}:${st.segStart || 0}`), fresh });
+    return Lines.probs(lines, samples);
+  };
+  function createLines(row, lg, home, away, gameEt, pre, preState, now) {
+    const sp = SPORT[lg.sport];
+    const samples = Lines.simulate(sp, lg.sport, preState, { n: LINE_SIMS, seed: hash(`${row.id}:pre`), fresh: true });
+    const fav = pre.home >= pre.away ? 'home' : 'away';
+    const lines = Lines.pickLines(lg.sport, samples, fav);
+    const fair = Lines.probs(lines, samples);
+    const et = `${gameEt}-LINES`;
+    const title = `${home.name} vs ${away.name}: Spread & Total`;
+    const ts = nowIso();
+    db.prepare('INSERT INTO events(ticker,series_ticker,title,sub_title,category,mutually_exclusive,is_live,live_label,news,featured,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+      .run(et, lg.series_ticker, title, `${row.competition} · Spread and total`, 'Sports', 0, 0, '', '', 0, ts);
+    const open = Math.min(now, row.start_ts) - 3 * 3600 * 1000;
+    const close = row.start_ts + (MAX_SIM_SEC * 1000) / speed;
+    const teamsBySide = { home, away }; const abbr = { home: home.abbr, away: away.abbr };
+    lines.forEach((l, i) => {
+      const mt = `${et}-${Lines.suffix(l, abbr)}`;
+      const d = Lines.describe(lg.sport, l, teamsBySide, `${home.name} vs ${away.name}`);
+      const color = l.kind === 'spread' ? teamsBySide[l.side].color : '#5c7cfa';
+      db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(mt, et, `${home.name} vs ${away.name} — ${d.yes}`, d.yes, d.no, color, 'active', iso(open), iso(close), iso(close + 3600 * 1000), settleSec, d.rule, ts, ts);
+      db.prepare('INSERT INTO sports_lines(market_ticker,milestone_id,event_ticker,kind,side,line,fair,priced_ts) VALUES(?,?,?,?,?,?,?,?)').run(mt, row.id, et, l.kind, l.side, l.line, fair[i], now);
+      // Pre-game price history: three prints at the pre-game fair value.
+      const price = clamp(Math.round(100 * fair[i]), 1, 99);
+      for (const k of [3, 2, 1]) db.prepare('INSERT INTO trades(id,market_ticker,yes_price_cents,count,taker_side,created_ts) VALUES(?,?,?,?,?,?)').run(newId('t_'), mt, price, (5 + (hash(mt + k) % 40)) * UNITS, k % 2 ? 'yes' : 'no', Math.min(now - 1, row.start_ts) - k * 40 * 60 * 1000);
+    });
+    db.prepare('INSERT INTO sports_line_events(event_ticker,milestone_id,game_event_ticker) VALUES(?,?,?)').run(et, row.id, gameEt);
+    lineEventByMs.set(row.id, et); msByLineEvent.set(et, row.id); linesCache.delete(row.id);
+    return et;
+  }
+  // Re-price a live game's lines (throttled per game) and re-quote the liquidity account around them.
+  function requoteLines(row, st, now, force = false) {
+    const lines = linesOf(row.id);
+    if (!lines.length) return;
+    if (!force && lines[0].priced_ts && now - lines[0].priced_ts < LINES_MS) return;
+    if (!force && linesBudget <= 0) return; // at most two games re-priced per tick, so the simulation never stalls a tick
+    if (!force) linesBudget -= 1;
+    const fresh = row.status === 'scheduled';
+    const ps = linePrices(row, st, fresh);
+    lines.forEach((l, i) => { l.fair = ps[i]; l.priced_ts = now; });
+    db.prepare('UPDATE sports_lines SET priced_ts=? WHERE milestone_id=?').run(now, row.id);
+    for (const [i, l] of lines.entries()) {
+      db.prepare('UPDATE sports_lines SET fair=? WHERE market_ticker=?').run(ps[i], l.market_ticker);
+      requote(l, ps[i], now, force, 'sports_lines');
     }
   }
 
@@ -895,8 +1129,8 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
       }
     });
     if (emit) engine.emit('live_data', row.id, { ...liveVo(next, st), plays: stored.reverse().slice(0, 30).map(playVo) });
-    if (status === 'final' && row.status !== 'final') settle(row.id, st.winner);
-    else if (status !== 'final') requoteAll(row.id, wp, now);
+    if (status === 'final' && row.status !== 'final') settle(row.id, st.winner, st);
+    else if (status !== 'final') { requoteAll(row.id, wp, now); requoteLines(next, st, now, !emit); }
     return next;
   }
 
@@ -929,9 +1163,10 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
     tx(db, () => {
       db.prepare('INSERT INTO sports_milestones(id,type,sport,league_id,title,competition,home_id,away_id,start_ts,status,seed,state_json,home_score,away_score,win_home,win_away,win_draw,winner,live_label,last_play,play_seq,started_ts,ended_ts,updated_ts,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
         .run(row.id, row.type, row.sport, row.league_id, row.title, row.competition, row.home_id, row.away_id, row.start_ts, row.status, row.seed, JSON.stringify(st), 0, 0, row.win_home, row.win_away, row.win_draw, '', '', '', 0, row.started_ts, row.ended_ts, now, row.created_at);
-      createMarkets(row, lg, home, away, timeline, row.start_ts, now);
+      const gameEt = createMarkets(row, lg, home, away, timeline, row.start_ts, now);
+      createLines(row, lg, home, away, gameEt, pre, newState(lg, home, away, s), now);
     });
-    if (mode === 'upcoming') { writeStats(id, st); requoteAll(id, pre, now, true); return id; }
+    if (mode === 'upcoming') { writeStats(id, st); requoteAll(id, pre, now, true); requoteLines(row, st, now, true); return id; }
     // Persist the fast-forwarded history (backdated play timestamps) — a final game also settles here.
     const endNow = mode === 'final' ? startTs : now;
     persist(row, st, plays, endNow, { emit: false }); // live: also places the first quotes; final: determines the markets
@@ -964,7 +1199,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   }
 
   // ---------- the clock: driven by the engine tick ----------
-  let lastWall = null; let lastFixtures = 0;
+  let lastWall = null; let lastFixtures = 0; let linesBudget = 2;
   function startGame(row, now) {
     const sp = SPORT[row.sport]; const st = JSON.parse(row.state_json); const plays = [];
     begin(st, sp, plays);
@@ -978,6 +1213,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   }
   function tick() {
     const now = Date.now();
+    linesBudget = 2;
     // First tick after boot: dt = 0, so a restarted server resumes every clock exactly where the DB left it.
     const dt = lastWall == null ? 0 : clamp(now - lastWall, 0, MAX_CATCHUP_MS);
     lastWall = now;
@@ -1065,20 +1301,30 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
     res.json({ plays: db.prepare('SELECT * FROM sports_plays WHERE milestone_id=? AND seq<? ORDER BY seq DESC LIMIT ?').all(r.id, before, limit).map(playVo) });
   });
   // Event page: the game behind a sports event (404 for other events).
+  // Also answers for a game's spread / total event (Phase 5B), with the lines and their current fair values.
   v1.get('/sports/events/:ticker', (req, res) => {
-    const id = linkByEvent.get(String(req.params.ticker).toUpperCase()); const r = id && getRow(id);
+    const t = String(req.params.ticker).toUpperCase();
+    const id = linkByEvent.get(t) || msByLineEvent.get(t); const r = id && getRow(id);
     if (!r) throw E.notFound();
-    res.json({ milestone: milestoneVo(r), live_data: liveVo(r), plays: db.prepare('SELECT * FROM sports_plays WHERE milestone_id=? ORDER BY seq DESC LIMIT 80').all(r.id).map(playVo) });
+    const le = lineEventByMs.get(r.id);
+    res.json({ milestone: milestoneVo(r), live_data: liveVo(r), plays: db.prepare('SELECT * FROM sports_plays WHERE milestone_id=? ORDER BY seq DESC LIMIT 80').all(r.id).map(playVo),
+      lines: le ? { event_ticker: le, game_event_ticker: eventByMs.get(r.id) || null, markets: linesOf(r.id).map(lineVo) } : null });
   });
 
   // eventFull() hook: attach the live scoreboard to any event linked to a game.
   function decorate(vo) {
     const id = linkByEvent.get(vo.event_ticker);
-    if (!id) return vo;
+    if (!id) {
+      // A spread / total event points at its game (no live_data, so cards stay plain market cards).
+      const lm = msByLineEvent.get(vo.event_ticker);
+      if (lm) { const r = getRow(lm); if (r) vo.sports_lines = { milestone_id: lm, game_event_ticker: eventByMs.get(lm) || null, status: r.status, title: r.title }; }
+      return vo;
+    }
     const r = getRow(id);
-    if (r) { vo.milestone_id = id; vo.live_data = liveVo(r); }
+    if (r) { vo.milestone_id = id; vo.live_data = liveVo(r); vo.lines_event_ticker = lineEventByMs.get(id) || null; }
     return vo;
   }
+  const lineVo = (l) => ({ market_ticker: l.market_ticker, kind: l.kind, side: l.side, line: l.line, fair_probability: l.fair == null ? null : r4(l.fair) });
   return { decorate, tick, speed };
 }
 

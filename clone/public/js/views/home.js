@@ -46,7 +46,7 @@ export async function render({ el, navigate }) {
     </div>
     <aside class="rail">
       ${home.promos ? home.promos.map(promoCard).join('') : '<a class="card promo" href="/perps" data-link data-testid="perps-promo"><span><span class="overline">Perps</span><b>Trade with up to 10x leverage</b><span class="sub">Crypto, metals and rates, 24/7</span></span><span class="art" aria-hidden="true"></span><span class="faint">›</span></a>'}
-      ${home.hubs.map((h, i) => `<a class="card promo ${i ? 'hub2' : 'hub'}" href="/category/${catSlug(h.category)}" data-link><span><b>${esc(h.title)}</b><span class="sub">${money0(h.dollar_volume)} volume · ${esc(h.events)} events</span></span><span class="faint ml-auto">›</span></a>`).join('')}
+      ${home.hubs.map((h, i) => `<a class="card promo ${i ? 'hub2' : 'hub'}" href="${h.category === 'Elections' ? '/hubs/elections' : `/category/${catSlug(h.category)}`}" data-link><span><b>${esc(h.title)}</b><span class="sub">${money0(h.dollar_volume)} volume · ${esc(h.events)} events</span></span><span class="faint ml-auto">›</span></a>`).join('')}
       <div class="card rail-box"><h3>Trending <a href="/browse?order_by=trending" data-link>›</a></h3>${rankList(home.trending)}</div>
       <div class="card rail-box"><h3>Harbor 2026 <a href="/category/elections" data-link>›</a></h3>${rankList(home.featured_list)}</div>
       <div class="card rail-box"><h3>Top movers <a href="/browse?order_by=trending" data-link>›</a></h3>${rankList(home.top_movers)}</div>

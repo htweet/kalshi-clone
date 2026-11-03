@@ -94,6 +94,7 @@ function prefKeyOf(type) {
     case 'group_chat': return 'group_chats';
     case 'leaderboard': return 'leaderboard';
     case 'sports_major': return 'major_events';
+    case 'market_reward': return 'market_rewards'; // liquidity incentive payouts (Phase 5B, server/incentives.js)
     case 'security': case 'account': return 'security';
     default: return type && type.startsWith('promo_') && PROMO_TOPICS.includes(type.slice(6)) ? type.slice(6) : null;
   }

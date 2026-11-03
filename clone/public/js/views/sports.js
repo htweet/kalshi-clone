@@ -4,8 +4,8 @@
 // Live updates arrive on the `live_data` WebSocket channel; each view falls back to polling while it is down.
 import { request } from '../api.js';
 import { socket } from '../ws.js';
-import { esc } from '../lib.js';
-import { sportIcon, gameCard, fullBoard, playsList, playItem, boxScore, SPORT_LABEL } from './scoreboard.js';
+import { esc, cents, eventHref } from '../lib.js';
+import { sportIcon, gameCard, fullBoard, playsList, playItem, boxScore, SPORT_LABEL, evLabelInner } from './scoreboard.js';
 
 const get = (url) => request('GET', url);
 const qs = (o) => { const s = new URLSearchParams(Object.entries(o).filter(([, v]) => v)).toString(); return s ? `?${s}` : ''; };
@@ -86,6 +86,49 @@ export function mountEventScoreboard(box, ev) {
     try { const r = await get(`/v1/sports/events/${encodeURIComponent(ev.event_ticker)}`); ld = r.live_data; drawBoard(); merge(r.plays); if (tab === 'box') drawTab(); } catch { /* keep trying */ }
   }, 5000);
   return () => { unsub(); clearInterval(iv); };
+}
+
+// Phase 5B: the game board on a spread / total event page (the event has no live_data of its own; its game does).
+export function mountGameBoard(box, ev) {
+  if (ev.live_data) return mountEventScoreboard(box, ev);
+  if (!box || !ev.sports_lines) return () => {};
+  let stop = () => {}; let gone = false;
+  get(`/v1/sports/events/${encodeURIComponent(ev.event_ticker)}`).then((r) => {
+    if (gone || !box.isConnected) return;
+    stop = mountEventScoreboard(box, { ...ev, live_data: r.live_data });
+    const label = document.querySelector('[data-testid=ev-live-label]');
+    if (label) { label.dataset.liveMs = r.live_data.milestone_id; label.innerHTML = evLabelInner(r.live_data); }
+  }).catch(() => {});
+  return () => { gone = true; stop(); };
+}
+
+// Phase 5B (PLAN P5.2): "Spread and Total" section on a game's event page — the lines event's markets with live
+// prices; Yes / No open the lines event with that market selected in the ticket.
+const pct = (m) => (m.last_price_dollars != null ? cents(m.last_price_dollars) : m.yes_bid_dollars != null && m.yes_ask_dollars != null ? Math.round((cents(m.yes_bid_dollars) + cents(m.yes_ask_dollars)) / 2) : null);
+export function mountLinesSection(box, ev) {
+  if (!box || !ev.lines_event_ticker) return () => {};
+  let unsub = () => {}; let gone = false;
+  get(`/trade-api/v2/events/${encodeURIComponent(ev.lines_event_ticker)}`).then(({ event: le }) => {
+    if (gone || !box.isConnected) return;
+    const href = eventHref({ ...le, series_slug: le.series_slug });
+    const row = (m) => {
+      const p = pct(m); const open = m.status === 'active';
+      const ya = cents(m.yes_ask_dollars); const na = cents(m.no_ask_dollars);
+      return `<div class="sb-line-row" data-testid="line-row" data-ticker="${esc(m.ticker)}"><span class="sb-line-name">${esc(m.yes_sub_title)}</span>
+        <span class="sb-line-p num" data-line-p>${p == null ? '—' : `${p}%`}</span>
+        ${open ? `<a class="btn btn-sm yes-btn" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link data-testid="line-yes">Yes ${ya ? `${ya}¢` : '—'}</a><a class="btn btn-sm no-btn" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link data-testid="line-no">No ${na ? `${na}¢` : '—'}</a>`
+    : `<span class="sb-line-res" data-testid="line-result">${m.result ? `Resolved ${esc(String(m.result).toUpperCase())}` : esc(m.status)}</span><span></span>`}</div>`;
+    };
+    const spreads = le.markets.filter((m) => /-SP[A-Z0-9]+$/.test(m.ticker)); const totals = le.markets.filter((m) => /-TOT\d+$/.test(m.ticker));
+    box.innerHTML = `<div class="sb-lines-head"><h2>Spread and Total</h2><a href="${href}" data-link class="faint" data-testid="lines-event-link">All lines ›</a></div>
+      <div class="sb-lines-group"><div class="overline">Spread</div>${spreads.map(row).join('')}</div><div class="sb-lines-group"><div class="overline">Total</div>${totals.map(row).join('')}</div>`;
+    unsub = socket.subscribe({ channels: ['ticker'], market_tickers: le.markets.map((m) => m.ticker) }, (msg) => {
+      const n = box.querySelector(`[data-ticker="${CSS.escape(msg.msg.market_ticker)}"] [data-line-p]`);
+      const p = pct(msg.msg);
+      if (n && p != null) n.textContent = `${p}%`;
+    });
+  }).catch(() => { box.innerHTML = ''; });
+  return () => { gone = true; unsub(); };
 }
 
 // Sports category page: show the hidden "Live scores" chip when the sports engine is running.

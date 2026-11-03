@@ -9,7 +9,9 @@ import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, e
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
-import { mountEventScoreboard } from './sports.js'; // live scoreboard for sports events (CLONE_SPEC §19.6)
+import { mountGameBoard, mountLinesSection } from './sports.js'; // live scoreboard (§19.6); spread & total section (§29)
+import { evLabelInner } from './scoreboard.js'; // live header label with the running game clock (§29, PLAN G9)
+import { mountAiSummary } from './ai-summary.js'; // AI news summary + timeline (§29, PLAN P5.4)
 import { mountChat } from './chat.js'; // "● Live chat" pill + panel (CLONE_SPEC §20)
 import { mountEventExtras, renderPromos } from './social2.js'; // follow event, price-move alerts, targeted promos (CLONE_SPEC.md §24)
 
@@ -74,7 +76,10 @@ export async function render({ el, params, query, navigate }) {
         ${evIcon({ ...ev, series_title: series.title }, 'xl')}
         <div class="flex-1 minw-0"><div class="crumbs"><a href="${isCombo ? '/combos' : `/category/${catSlug(ev.category)}`}" data-link>${esc(catLabel(ev.category))}</a> &nbsp;/&nbsp; ${esc(series.title)}</div>
           <h1 data-testid="event-title">${esc(ev.title)}</h1><div class="muted fs-lg">${esc(ev.sub_title)}</div>
-          ${ev.is_live ? `<div class="live-dot mt-8">Live · ${esc(ev.live_label)}</div>` : ''}</div>
+          ${ev.live_data ? `<div class="ev-live-label mt-8" data-testid="ev-live-label" data-live-ms="${esc(ev.live_data.milestone_id)}" data-sb-part="evlabel" data-status="${esc(ev.live_data.status)}">${evLabelInner(ev.live_data)}</div>`
+    : ev.sports_lines ? `<div class="ev-live-label mt-8" data-testid="ev-live-label" data-live-ms="${esc(ev.sports_lines.milestone_id)}" data-sb-part="evlabel"></div>`
+      : ev.is_live ? `<div class="live-dot mt-8">Live · ${esc(ev.live_label)}</div>` : ''}
+          ${ev.sports_lines && ev.sports_lines.game_event_ticker ? `<a class="faint d-block mt-8" data-testid="moneyline-link" href="/markets/${esc(ev.series_ticker.toLowerCase())}/${esc(series.slug)}/${esc(ev.sports_lines.game_event_ticker.toLowerCase())}" data-link>Moneyline: ${esc(ev.sports_lines.title)} ›</a>` : ''}</div>
         <div class="ev-actions">
           <button class="icon-btn" id="ics-btn" data-testid="ics-btn" title="Add to calendar" aria-label="Add to calendar">${SVG.cal}</button>
           <button class="icon-btn" id="chat-btn" title="Discussion" aria-label="Go to discussion">${SVG.chat}</button>
@@ -83,7 +88,8 @@ export async function render({ el, params, query, navigate }) {
           <button class="btn btn-pill" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}"></button>
         </div>
       </div>
-      ${ev.live_data ? '<div id="sports-board" class="sb-mount"></div>' : ''}
+      ${ev.live_data || ev.sports_lines ? '<div id="sports-board" class="sb-mount"></div>' : ''}
+      ${ev.lines_event_ticker ? '<section class="card sb-lines" id="sb-lines" data-testid="lines-section" aria-label="Spread and Total"></section>' : ''}
       ${h2h ? `<div class="h2h" data-testid="h2h"></div>` : ''}
       ${isCombo ? '<section class="card combo-legs" id="combo-legs" data-testid="combo-legs" aria-label="Combo legs"></section>' : ''}
       <section class="chart-box">
@@ -97,6 +103,7 @@ export async function render({ el, params, query, navigate }) {
       <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="bottom"></div>
       <div class="sec-head mt-48"><h2>People are also trading</h2></div><div id="also"></div>
+      ${ev.news_items ? '<div id="ai-summary" class="ai-mount"></div>' : ''}
       ${ev.news || ev.news_items ? `<div class="sec-head"><h2>News</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${new Date(Date.now() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
     </div>
     <aside>
@@ -580,7 +587,9 @@ export async function render({ el, params, query, navigate }) {
   // ---------- live updates ----------
   const tickers = ev.markets.map((m) => m.ticker);
   const unsubs = [];
-  unsubs.push(mountEventScoreboard($('#sports-board'), ev));
+  unsubs.push(mountGameBoard($('#sports-board'), ev));
+  unsubs.push(mountLinesSection($('#sb-lines'), ev));
+  unsubs.push(mountAiSummary($('#ai-summary'), ev));
   if (!isCombo) unsubs.push(mountChat({ el, ev }));
   if (!isCombo) { unsubs.push(mountEventExtras({ el, ev, market })); el.querySelector('.ev-header')?.insertAdjacentHTML('afterend', '<div class="targeted-promos" data-testid="event-promos"></div>'); renderPromos(el.querySelector('[data-testid=event-promos]'), { series_ticker: ev.series_ticker }); }
   let pending = null;

@@ -30,6 +30,9 @@ export const SECTIONS = [
   ['promos', 'Promo codes', 'users.money', './admin/compliance.js'],
   // Phase 4 (CLONE_SPEC.md §26): transactions, reconciliation, AML cases, ledger audit, provider settings, webhook log.
   ['payments', 'Payments', 'users.read', './admin/payments.js'],
+  // Phase 5B (CLONE_SPEC.md §29): AI news summaries (hide / regenerate / budget) and the Liquidity Incentive Program.
+  ['ai_summaries', 'AI summaries', 'content.write', './admin/content5b.js'],
+  ['incentives', 'Liquidity incentives', 'markets.ops', './admin/content5b.js'],
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -38,7 +41,7 @@ const LOADERS = {
   './admin/community.js': () => import('./admin/community.js'), './admin/community2.js': () => import('./admin/community2.js'), './admin/chat.js': () => import('./admin/chat.js'), './admin/reports.js': () => import('./admin/reports.js'),
   './admin/system.js': () => import('./admin/system.js'), './admin/security.js': () => import('./admin/security.js'),
   './admin/identity.js': () => import('./admin/identity.js'), './admin/compliance.js': () => import('./admin/compliance.js'),
-  './admin/payments.js': () => import('./admin/payments.js'),
+  './admin/payments.js': () => import('./admin/payments.js'), './admin/content5b.js': () => import('./admin/content5b.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.

@@ -7,7 +7,7 @@ import { esc, cents, eventHref } from '../lib.js';
 import { socket } from '../ws.js';
 import { request } from '../api.js';
 
-export const SPORT_LABEL = { soccer: 'Soccer', basketball: 'Basketball', football: 'Football', tennis: 'Tennis', cricket: 'Cricket', esports: 'Esports' };
+export const SPORT_LABEL = { soccer: 'Soccer', basketball: 'Basketball', football: 'Football', tennis: 'Tennis', cricket: 'Cricket', esports: 'Esports', hockey: 'Hockey' };
 const ICONS = {
   soccer: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.6l3.3 2.4-1.2 3.9H9.9L8.7 10z" fill="currentColor"/><path d="M12 3.2v4.4M20.4 9.4l-5.1.6M17.3 19.2l-3.2-5.3M6.7 19.2l3.2-5.3M3.6 9.4l5.1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>',
   basketball: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3v18M5.7 5.6c3 3.2 3 9.6 0 12.8M18.3 5.6c-3 3.2-3 9.6 0 12.8" fill="none" stroke="currentColor" stroke-width="1.4"/>',
@@ -15,6 +15,7 @@ const ICONS = {
   tennis: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.8 6.3c3.6 2.9 3.6 8.5 0 11.4M19.2 6.3c-3.6 2.9-3.6 8.5 0 11.4" fill="none" stroke="currentColor" stroke-width="1.4"/>',
   cricket: '<path d="M15.6 3.2l3.2 3.2-8.9 8.9-3.2-3.2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.3 14.1l-4.6 4.6 1.6 1.6 4.6-4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="17.6" cy="17.4" r="2.6" fill="currentColor"/>',
   esports: '<path d="M7.2 7.5h9.6a4.2 4.2 0 014.1 3.6l.8 5a2.1 2.1 0 01-3.6 1.8l-2.4-2.6H8.3l-2.4 2.6a2.1 2.1 0 01-3.6-1.8l.8-5a4.2 4.2 0 014.1-3.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.2 9.8v3.4M6.5 11.5h3.4" stroke="currentColor" stroke-width="1.5"/><circle cx="15.6" cy="10.6" r="1.1" fill="currentColor"/><circle cx="17.6" cy="12.6" r="1.1" fill="currentColor"/>',
+ hockey: '<path d="M4.5 3.5l6.8 11.3a2 2 0 001.7 1h6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="9" cy="18.5" rx="3.6" ry="1.6" fill="currentColor"/>',
   all: '<circle cx="8" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="16" cy="16" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M14 6h6M17 3v6M4 18h6" stroke="currentColor" stroke-width="1.7"/>',
 };
 export const sportIcon = (sport, size = 18) => `<svg class="sb-icon" width="${esc(size)}" height="${esc(size)}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[sport] || ICONS.all}</svg>`;
@@ -31,6 +32,43 @@ export function startText(isoStr) {
   return d.toDateString() === new Date().toDateString() ? `Today ${t}` : `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · ${t}`;
 }
 export const statusText = (ld) => (ld.status === 'live' ? ld.live_label : isFinal(ld) ? 'Final' : startText(ld.start_date));
+
+// ---------- running game clocks (Phase 5B, PLAN G9) ----------
+// details.game_clock = {name, seconds, running, direction, format, cap?, rate}: the value when the server sent it. The
+// page advances every [data-gclock] element locally (tickClocks, 4 times a second) until the next update replaces it.
+const two = (n) => String(n).padStart(2, '0');
+export function clockText(fmt, sec, cap) {
+  const s = Math.max(0, Math.floor(sec));
+  if (fmt === 'minute') { const m = Math.floor(s / 60) + 1; return `${cap ? Math.min(m, Math.round(cap / 60)) : m}'`; }
+  if (fmt === 'hmmss') return `${Math.floor(s / 3600)}:${two(Math.floor((s % 3600) / 60))}:${two(s % 60)}`;
+  return `${Math.floor(s / 60)}:${two(s % 60)}`;
+}
+const clockNow = (n) => {
+  const base = Number(n.dataset.gcS); const rate = Number(n.dataset.gcRate) || 1; const at = Number(n.dataset.gcAt) || Date.now();
+  const d = n.dataset.gcRun === '1' ? ((Date.now() - at) / 1000) * rate : 0;
+  return n.dataset.gcDir === 'down' ? Math.max(0, base - d) : base + d;
+};
+export function clockSpan(gc, testid = 'game-clock') {
+  if (!gc || gc.seconds == null || gc.format === 'none') return '';
+  const cap = gc.cap || '';
+  return `<span class="sb-gclock" data-testid="${esc(testid)}" data-gclock data-gc-s="${esc(gc.seconds)}" data-gc-dir="${esc(gc.direction)}" data-gc-rate="${esc(gc.rate || 1)}" data-gc-fmt="${esc(gc.format)}" data-gc-cap="${esc(cap)}" data-gc-run="${gc.running ? '1' : '0'}" data-gc-at="${Date.now()}">${esc(clockText(gc.format, gc.seconds, gc.cap))}</span>`;
+}
+export function tickClocks(root = document) {
+  for (const n of root.querySelectorAll('[data-gclock][data-gc-run="1"]')) {
+    const t = clockText(n.dataset.gcFmt, clockNow(n), Number(n.dataset.gcCap) || 0);
+    if (n.textContent !== t) n.textContent = t;
+  }
+}
+// "Q3 4:12" (countdown) or "Set 2 · 3-2 · 1:12:05" (elapsed): the period name plus a running clock when there is one.
+export function runLabel(ld) {
+  const gc = ld.details && ld.details.game_clock;
+  if (!gc || ld.status !== 'live') return esc(statusText(ld));
+  if (gc.seconds == null || gc.format === 'none') return esc(gc.name || ld.live_label);
+  return `${esc(gc.name)}${gc.direction === 'down' ? ' ' : ' · '}${clockSpan(gc)}`;
+}
+// Event header label (event.js): live state with the running clock, the final score, or the start time.
+export const evLabelInner = (ld) => (ld.status === 'live' ? `<span class="live-dot">Live</span><span>${runLabel(ld)}</span>`
+  : isFinal(ld) ? `<span class="sb-final-tag">Final</span><span>${esc(ld.details.home_score)}-${esc(ld.details.away_score)}</span>` : `<span>${esc(startText(ld.start_date))}</span>`);
 
 // ---------- compact score columns (cards) ----------
 export function sideCols(ld, side) {
@@ -61,7 +99,7 @@ export function scoreCols(ev, m) {
   if (side !== 'home' && side !== 'away') return '<span class="sb-cols"></span>';
   return `<span class="sb-cols${winnerCls(ld, side)}" data-testid="sb-cols" data-live-ms="${esc(ld.milestone_id)}" data-sb-part="cols" data-sb-side="${esc(side)}">${sideCols(ld, side)}</span>`;
 }
-const subInner = (ld) => (ld.status === 'live' ? `<span class="live-dot">Live</span><span>${esc(ld.competition)} · ${esc(ld.live_label)}</span>`
+const subInner = (ld) => (ld.status === 'live' ? `<span class="live-dot">Live</span><span>${esc(ld.competition)} · ${runLabel(ld)}</span>`
   : isFinal(ld) ? `<span class="sb-final-tag">Final</span><span>${esc(ld.competition)}</span>` : `<span>${esc(ld.competition)} · ${esc(startText(ld.start_date))}</span>`);
 // Card subtitle: red LIVE + competition + game state (observed browse pattern, CLONE_SPEC §15.3).
 export const liveSub = (ev) => `<span class="sb-sub" data-testid="sb-sub" data-live-ms="${esc(ev.live_data.milestone_id)}" data-sb-part="sub">${subInner(ev.live_data)}</span>`;
@@ -101,7 +139,7 @@ export function gameCard({ live_data: ld, event: ev }) {
     ${ld.status === 'scheduled' ? '' : winBar(ld, `data-live-ms="${esc(ld.milestone_id)}" data-sb-part="winbar"`)}
   </article>`;
 }
-const stateInner = (ld) => (ld.status === 'live' ? `<span class="live-dot">Live</span> ${esc(ld.live_label)}` : esc(statusText(ld)));
+const stateInner = (ld) => (ld.status === 'live' ? `<span class="live-dot">Live</span> ${runLabel(ld)}` : esc(statusText(ld)));
 const lastLine = (ld) => (ld.status === 'scheduled' ? `${ld.competition}` : ld.sport === 'cricket' && ld.details.match_comment ? ld.details.match_comment : ld.details.last_play || '');
 
 // ---------- full scoreboard (event page) ----------
@@ -137,12 +175,14 @@ function fullBody(ld) {
       ${d.match_comment ? `<div class="sb-note" data-testid="sb-comment">${esc(d.match_comment)}</div>` : ''}${(d.recent_balls || []).length && ld.status === 'live' ? `<div class="sb-balls" aria-label="Recent deliveries">${d.recent_balls.map((b) => `<span class="b b-${esc(b)}">${esc(b)}</span>`).join('')}</div>` : ''}`;
   }
   const mid = `<div class="sb-mid"><div class="sb-scoreline"><span data-testid="sb-score-home">${esc(d.home_score)}</span><span class="dash">–</span><span data-testid="sb-score-away">${esc(d.away_score)}</span></div>
-    <div class="sb-clock" data-testid="sb-clock">${ld.status === 'live' ? esc(ld.live_label) : esc(statusText(ld))}</div>
+    <div class="sb-clock" data-testid="sb-clock">${ld.status === 'live' ? runLabel(ld) : esc(statusText(ld))}</div>
+    ${ld.sport === 'hockey' && ld.status === 'live' && d.power_play ? `<div class="sb-note sb-pp" data-testid="sb-power-play">Power play · ${esc(ld[d.power_play.team].abbr)} ${esc(clockText('mmss', d.power_play.remaining_seconds))}</div>` : ''}
+    ${ld.sport === 'hockey' ? `<div class="sb-note">Shots ${esc(d.home_shots)}–${esc(d.away_shots)}</div>` : ''}
     ${ld.sport === 'football' && d.down_distance ? `<div class="sb-note" data-testid="sb-downs">${esc(d.down_distance)} · ${esc(ld[d.possession].abbr)} ball</div>` : ''}
     ${ld.sport === 'basketball' && ld.status === 'live' ? `<div class="sb-note">${esc(ld[d.possession].abbr)} possession</div>` : ''}
     ${ld.sport === 'soccer' && (d.home_red_cards || d.away_red_cards) ? `<div class="sb-note">Red cards ${esc(d.home_red_cards)}–${esc(d.away_red_cards)}</div>` : ''}
     ${ld.sport === 'esports' ? `<div class="sb-note">Best of ${esc(d.best_of)} · maps won</div>` : ''}</div>`;
-  const head = { soccer: (i) => `${i === 0 ? '1st' : '2nd'}`, basketball: (i) => (i < 4 ? `Q${i + 1}` : i === 4 ? 'OT' : `${i - 3}OT`), football: (i) => (i < 4 ? `Q${i + 1}` : 'OT'), esports: (i) => `Map ${i + 1}` }[ld.sport];
+  const head = { soccer: (i) => `${i === 0 ? '1st' : '2nd'}`, basketball: (i) => (i < 4 ? `Q${i + 1}` : i === 4 ? 'OT' : `${i - 3}OT`), football: (i) => (i < 4 ? `Q${i + 1}` : 'OT'), esports: (i) => `Map ${i + 1}`, hockey: (i) => (i < 3 ? `P${i + 1}` : i === 3 ? 'OT' : 'SO') }[ld.sport];
   return `<div class="sb-teams">${teamBlock(ld, 'home')}${mid}${teamBlock(ld, 'away')}</div>${head ? lineScore(ld, head) : ''}`;
 }
 export function fullBoard(ld) {
@@ -152,6 +192,7 @@ export function fullBoard(ld) {
       <span class="sb-status ${esc(ld.status)}" data-testid="sb-status">${ld.status === 'live' ? `<span class="live-dot">Live</span> ${esc(ld.live_label)}` : esc(statusText(ld))}</span></div>
     ${winner ? `<div class="sb-winner" data-testid="sb-winner">${esc(winner)}</div>` : ''}
     <div class="sb-full-body">${fullBody(ld)}</div>
+    ${(ld.sport === 'tennis' || ld.sport === 'esports') && ld.status === 'live' && d.game_clock && d.game_clock.seconds != null ? `<div class="sb-matchtime" data-testid="sb-match-time"><span class="faint">${esc(d.game_clock.label || 'Time')}</span> ${clockSpan(d.game_clock, 'match-clock')}</div>` : ''}
     ${ld.status === 'scheduled' ? `<div class="sb-last">Pre-game win probability</div>` : `<div class="sb-last" data-testid="last-play"><span class="faint">Last play</span> ${esc(d.last_play || '')}</div>`}
     ${winBar(ld)}`;
 }
@@ -171,6 +212,7 @@ const BOX = {
   tennis: [['Aces', 'aces'], ['Double faults', 'double_faults'], ['1st serve in', (s) => pct(s.first_serve_successful, s.first_serve_attempts)], ['1st serve points won', (s) => pct(s.first_serve_points_won, s.first_serve_successful)], ['2nd serve points won', (s) => pct(s.second_serve_points_won, s.second_serve_attempts)], ['Break points won', (s) => `${s.breakpoints_won}/${s.total_breakpoints}`], ['Points won', 'points_won'], ['Games won', 'games_won'], ['Tiebreaks won', 'tiebreaks_won']],
   cricket: [['Runs', 'runs'], ['Wickets lost', 'wickets'], ['Overs', (s) => ovs(s.balls)], ['Run rate', (s) => (s.balls ? (s.runs / (s.balls / 6)).toFixed(2) : '–')], ['Fours', 'fours'], ['Sixes', 'sixes'], ['Extras', 'extras'], ['Dot balls', 'dots']],
   esports: [['Maps won', 'maps_won'], ['Rounds won', 'rounds_won'], ['Pistol rounds', 'pistol_rounds_won'], ['Longest round streak', 'max_rounds_in_a_row']],
+  hockey: [['Shots', 'shots'], ['Power plays', (s) => `${s.power_play_goals}/${s.power_plays}`], ['Penalty minutes', 'penalty_minutes'], ['Hits', 'hits'], ['Faceoffs won', 'faceoffs_won'], ['Saves', 'saves']],
 };
 export function boxScore(ld) {
   const rows = BOX[ld.sport] || [];
@@ -188,6 +230,7 @@ function renderPart(n, ld) {
     case 'state': n.innerHTML = stateInner(ld); break;
     case 'lastplay': n.textContent = lastLine(ld); break;
     case 'winbar': n.innerHTML = winBarInner(ld); break;
+    case 'evlabel': n.innerHTML = evLabelInner(ld); n.dataset.status = ld.status; break; // event header (Phase 5B)
     default: break;
   }
 }
@@ -203,6 +246,7 @@ let started = false;
 export function startLivePatcher(root) {
   if (started) return; started = true;
   let tickerOn = false;
+  setInterval(() => { if (!document.hidden) tickClocks(root); }, 250); // running game clocks (Phase 5B)
   socket.subscribe({ channels: ['live_data'] }, (m) => {
     if (m.type !== 'live_data') return;
     if (!tickerOn) { tickerOn = true; subscribeTicker(); } // only once a sports engine is actually running
