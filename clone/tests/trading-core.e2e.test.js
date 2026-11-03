@@ -144,7 +144,7 @@ test('sub-cent grid: 0.1¢ limit from the ticket matches two makers; fees accrue
   await pa.click('[data-tab=book]');
   await pa.waitForSelector('[data-testid=orderbook] [data-testid=book-grid]:has-text("deci cent")');
   await pa.waitForSelector('[data-testid=book-price]:has-text("12.9¢")');
-  const candles = (await call(pa, 'GET', `/trade-api/v2/series/PLXSNOW/markets/${SNOW}/candlesticks?period_interval=1&start_ts=${Math.floor(Date.now() / 1000) - 3600}`)).b.candlesticks;
+  const candles = (await call(pa, 'GET', `/trade-api/v2/series/PLXSNOW/markets/${SNOW}/candlesticks?period_interval=1&start_ts=${Math.floor(Date.now() / 1000) - 3600}&end_ts=${Math.floor(Date.now() / 1000) + 120}`)).b.candlesticks; // end past the fills (end_ts is whole seconds)
   assert.equal(candles.at(-1).price.close_dollars, '0.1290');
   // API validation: more precision than the grid, or a price between ticks, is refused.
   assert.equal((await order(pa, A, { ticker: SNOW, side: 'yes', type: 'limit', count: 1, price_dollars: '0.12345' })).s, 400);
