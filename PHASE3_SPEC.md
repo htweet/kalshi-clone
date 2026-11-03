@@ -294,11 +294,15 @@ Tables (all `CREATE TABLE IF NOT EXISTS`, idempotent column migrations): `identi
 
 **Changes to existing tests** (minimal):
 - `tests/security-perimeter.e2e.test.js`: `Permissions-Policy` now expects `geolocation=(self)` (P3.6 browser location).
-- `tests/auth-security.e2e.test.js`: the lockout test asserts RS2 (proof of work instead of a timed lock; notification
-  "Repeated failed sign-ins"); TOTP codes reused within one 30-second step now use the next step's code (RS3).
-- `tests/features.e2e.test.js`, `tests/e2e.test.js` (where they re-use a TOTP code in the same step): same RS3 adjustment.
-- `tests/authz.e2e.test.js`: Phase 3 routes classified.
-(The exact list for this change set is in the hand-over report.)
+- `tests/auth-security.e2e.test.js`: the backoff test asserts RS2 (proof of work instead of a timed lock: 429 with a
+  challenge for known and unknown emails alike, single-use proofs, growing difficulty, "Repeated failed sign-ins" alert,
+  the browser still signs in); TOTP codes come from `freshTotp()` (next unused 30-second step, RS3) in `enableMfa`, the
+  two-factor-off flow (step-up code first, then a newer code for the retried request), the withdrawal step-up and the
+  restart sign-in; the in-page withdrawal promises are awaited with a 20-second bound so a refused code cannot hang.
+- `tests/features.e2e.test.js`: `freshTotp()` for enable / sign-in / disable (RS3); the reply button locator is
+  `[data-reply] button[type=submit]` because Phase 2 added a Sticker button to the reply form.
+- `tests/authz.e2e.test.js`: the 82 Phase 3 routes classified.
+- `package.json`: the three Phase 3 suites added to `test:e2e`.
 
 ### 25.14 Residual risks
 

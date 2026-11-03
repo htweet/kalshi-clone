@@ -201,7 +201,7 @@ test('social: profile, post, follow, like, reply, bookmark, feeds, delete, notif
   assert.equal(await post.locator('[data-testid=like-count]').textContent(), '1');
   await post.locator('[data-act=comments]').click();
   await post.locator('[data-testid=reply-input]').fill('Agreed, Carol.');
-  await post.locator('[data-reply] button').click();
+  await post.locator('[data-reply] button[type=submit]').click(); // the reply form also has a Sticker button (Phase 2)
   await post.locator('.comment:has-text("Agreed, Carol.")').waitFor();
   assert.equal(await post.locator('[data-testid=comment-count]').textContent(), '1');
   await post.locator('[data-act=bookmark]').click();

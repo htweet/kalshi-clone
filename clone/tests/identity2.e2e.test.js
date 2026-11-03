@@ -304,7 +304,7 @@ test('A2 + passkeys: locked (403 permission_denied) until verified; then registe
   const exp = page.evaluate(async (id) => { const { idApi } = await import('/js/identity-api.js'); const r = await idApi.dataExport(id); return r.account.user_id; }, uid);
   await page.locator('[data-testid=step-up-dialog]').waitFor();
   await page.click('[data-testid=step-up-passkey]');
-  assert.equal(await exp, uid);
+  assert.equal(await Promise.race([exp, H.sleep(20000).then(() => 'timed out waiting for the passkey step-up')]), uid);
   assert.ok(D.q("SELECT COUNT(*) c FROM auth_events WHERE user_id=? AND type='step_up' AND detail LIKE '%passkey%'", uid)[0].c >= 1);
   // Counter regression: the stored counter is ahead of the authenticator → refused as a possible clone.
   await logOutUi(page);

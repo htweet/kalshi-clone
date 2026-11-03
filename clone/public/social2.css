@@ -46,6 +46,7 @@
 .sticker-opt img { width: 52px; height: 52px; display: block; }
 .sticker-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .inline-form { position: relative; }
+.reply-extras { position: relative; margin-top: 4px; }
 @media (max-width: 480px) { .sticker-picker { grid-template-columns: repeat(4, 56px); } }
 
 /* ---------- social side cards, profile, promos */

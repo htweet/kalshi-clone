@@ -19,6 +19,8 @@ const util = require('../server/util.js');
 // RS3 (PHASE3_SPEC.md §25.11): a TOTP code is accepted once — each accepted code must be for a newer 30-second step than
 // the last one. freshTotp() returns the code for the next unused step inside the server's ±1-step window (waiting for the
 // next step when both are used).
+// Bounded wait for an in-page promise (a rejected code would otherwise leave the step-up dialog open forever).
+const within = (p, ms = 20000) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms} ms`)), ms))]);
 const usedTotpStep = new Map();
 async function freshTotp(secret) {
   for (;;) {
@@ -386,12 +388,12 @@ test('withdrawal two-factor: when on, every withdrawal needs a fresh code (passw
   await page.waitForSelector('[data-testid=step-up-error]:has-text("not valid")');
   await page.fill('[data-testid=step-up-code]', await freshTotp(wesSecret));
   await page.click('[data-testid=step-up-submit]');
-  assert.deepEqual(await p, { ok: true, r: { balance_dollars: '45.0000' } });
+  assert.deepEqual(await within(p), { ok: true, r: { balance_dollars: '45.0000' } });
   // The next withdrawal asks again, even seconds later; cancelling withdraws nothing.
   p = withdraw();
   await dialog(page).waitFor();
   await page.click('[data-testid=step-up-cancel]');
-  assert.deepEqual(await p, { ok: false, code: 'step_up_cancelled' });
+  assert.deepEqual(await within(p), { ok: false, code: 'step_up_cancelled' });
   assert.equal(dbq('SELECT balance_cents b FROM users WHERE id=?', wid)[0].b, 4500);
   // API level: the error names the only accepted method.
   const raw = await call(page, 'POST', `/v1/users/${wid}/withdrawals`, { amount_dollars: 1 });

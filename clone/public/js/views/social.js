@@ -38,7 +38,7 @@ export function wirePosts(root, { navigate, onDeleted } = {}) {
         const { comments } = await api.comments(pid);
         box.hidden = false;
         box.innerHTML = `${comments.map((c) => `<div class="comment" data-comment="${esc(c.id)}" data-testid="comment"><a href="/social/profile/${encodeURIComponent(c.author.nickname)}" data-link><strong>@${esc(c.author.nickname)}</strong></a>${c.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified">✓</span>' : ''}${badgeChips(c.author.badges)} <span class="faint">${relTime(c.created_time)}</span>${c.is_mine ? ' <button class="btn btn-sm btn-ghost btn-danger" data-act="del-comment">Delete</button>' : ` <button class="btn btn-sm btn-ghost" data-report-comment="${esc(c.id)}">Report</button>`}${c.body ? `<div data-testid="comment-body">${esc(c.body)}</div>` : ''}${stickerImg(c.sticker, 'comment-sticker')}</div>`).join('') || '<div class="faint">No replies yet.</div>'}
-          ${session.user ? `<form class="inline-form mt-8" data-reply><label class="field"><span hidden>Reply</span><input name="body" placeholder="Write a reply" maxlength="300" data-testid="reply-input"></label><button class="btn btn-sm btn-ghost" type="button" data-sticker-btn="reply-${esc(pid)}" data-testid="reply-sticker" aria-label="Reply with a sticker">Sticker</button><button class="btn btn-sm" type="submit">Reply</button></form>` : ''}`;
+          ${session.user ? `<form class="inline-form mt-8" data-reply><label class="field"><span hidden>Reply</span><input name="body" placeholder="Write a reply" maxlength="300" data-testid="reply-input"></label><button class="btn btn-sm" type="submit">Reply</button></form><div class="reply-extras"><button class="btn btn-sm btn-ghost" type="button" data-sticker-btn="reply-${esc(pid)}" data-testid="reply-sticker" aria-label="Reply with a sticker">Sticker</button></div>` : ''}`;
         const f = box.querySelector('[data-reply]');
         const sendReply = async (b) => {
           await api.commentWith(session.uid, pid, b);
@@ -46,7 +46,7 @@ export function wirePosts(root, { navigate, onDeleted } = {}) {
           cnt.textContent = Number(cnt.textContent) + 1;
           btn.dataset.reload = '1'; btn.click();
         };
-        if (f) f.querySelector('[data-sticker-btn]').onclick = (ev) => openStickerPicker(ev.currentTarget, (s) => sendReply({ body: f.body.value, sticker_id: s.id }).catch((ex) => toast(profileHint(ex), 'error')));
+        if (f) box.querySelector('[data-testid=reply-sticker]').onclick = (ev) => openStickerPicker(ev.currentTarget, (s) => sendReply({ body: f.body.value, sticker_id: s.id }).catch((ex) => toast(profileHint(ex), 'error')));
         if (f) f.onsubmit = async (ev) => {
           ev.preventDefault();
           try {
