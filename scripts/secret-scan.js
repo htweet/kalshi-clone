@@ -35,7 +35,10 @@ const RULES = [
   { id: 'url-credentials', re: /\b[a-z][a-z0-9+.-]*:\/\/[^/\s:@'"]{1,64}:[^/\s:@'"]{8,}@[^\s'"]+/i, skip: (m) => /:\/\/[^:]+:(?:password|pass|secret|xxx+|\*+|<[^>]+>|\$\{?[A-Z_]+\}?)@/i.test(m) },
   { id: 'generic-secret-assignment',
     re: /(?:secret|passw(?:or)?d|api[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|client[_-]?secret)[A-Za-z0-9_]*['"]?\s*[:=]\s*['"`]([^'"`\s]{20,})['"`]/i,
-    skip: (m, g) => entropy(g[1]) < 3.5 },
+    skip: (m, g) => entropy(g[1]) < 3.5,
+    // E2E fixtures create throwaway accounts with random-looking passwords (same allowlist as .gitleaks.toml);
+    // the token-format rules above still apply to tests.
+    skipPath: (p) => /^clone\/tests\//.test(p) },
 ];
 
 // Files that must never be committed, whatever their content.
@@ -93,7 +96,7 @@ for (const t of targets(process.argv.slice(2))) {
     if (line.includes('secret-scan:allow') || line.length > 20000) return;
     for (const r of RULES) {
       const m = r.re.exec(line);
-      if (!m || (r.skip && r.skip(m[0], m))) continue;
+      if (!m || (r.skip && r.skip(m[0], m)) || (r.skipPath && r.skipPath(t.p))) continue;
       const s = m[0];
       findings.push({ file: t.p, line: i + 1, rule: r.id, text: s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-2)} (redacted)` : '(redacted)' });
     }

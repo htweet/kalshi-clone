@@ -85,6 +85,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }} # only needed for organisation-owned repositories
+          GITLEAKS_VERSION: "8.30.1" # same version as the documented local check; bump deliberately
+          GITLEAKS_CONFIG: .gitleaks.toml
 
   codeql:
     name: CodeQL (javascript)

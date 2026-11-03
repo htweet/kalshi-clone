@@ -18,7 +18,7 @@ export async function call(method, path, body, stepUpDone = false) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const t = csrf.get(); if (t) headers['x-csrf-token'] = t;
-  if (method !== 'GET') { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; } // PLAN P1.10
+  { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; } // signed client token on every /v1 call (PLAN P1.10)
   const res = await fetch(`/v1/admin${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
   const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated); // own role change rotates the session (SEC_IDENTITY_SPEC §22.2)
   const data = await res.json().catch(() => ({}));

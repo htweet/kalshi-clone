@@ -202,10 +202,14 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
   }
 
   // ---------------------------------------------------------------- API guard (after the session is attached)
+  // Client token enforcement (HAR4: the SPA sends the token on every API call): every /v1 write, and every request under
+  // /v1/users/* (authenticated reads included). Public unauthenticated reads (/v1 market/social/live data, /trade-api/v2)
+  // stay open, as on the observed site.
+  const needsToken = (req) => /^\/v1\//.test(req.originalUrl) && (!SAFE.has(req.method) || /^\/v1\/users(\/|$|\?)/.test(req.originalUrl));
   function apiGuard(req, res, next) {
     bot.limiter(req, res, (err) => {
       if (err) return next(err);
-      if (!SAFE.has(req.method) && /^\/v1\//.test(req.originalUrl)) {
+      if (req.method !== 'OPTIONS' && needsToken(req)) {
         const tok = req.get('x-client-token') || bot.readCookie(req, 'plx_ct', parseCookies);
         const c = bot.checkClientToken(req, tok);
         if (!c.ok) {

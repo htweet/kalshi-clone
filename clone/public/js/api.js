@@ -40,8 +40,9 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const t = csrf.get();
   if (t) headers['x-csrf-token'] = t;
-  // Signed client token on writes (PLAN P1.10, see security.js); the HttpOnly cookie copy covers a missing header.
-  if (method !== 'GET' && method !== 'HEAD') { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; }
+  // Signed client token on every /v1 request, reads included (PLAN P1.10; HAR4 shows the WAF token on every API call).
+  // The server enforces it on writes and /v1/users/* reads; the HttpOnly cookie copy covers a missing header.
+  if (/^\/v1\//.test(url)) { const ct = await refreshClientToken(); if (ct) headers['X-Client-Token'] = ct; }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   let res;

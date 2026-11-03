@@ -17,7 +17,7 @@ P0.1 exit criterion).
 | Job | What it does | Fails when |
 |---|---|---|
 | **test** | Node 22, `npm ci` (lockfile only), `npm audit --audit-level=high`, `npm run lint`, bundled secret scan of tracked files, `npm run build --if-present`, `npx playwright install --with-deps chromium`, full `npm run test:e2e`. On failure uploads the test temp directory (SQLite files, `e2e-output.txt`) as an artefact for 14 days. | any high/critical advisory, lint error, undocumented env var, secret finding, build error or failing test |
-| **secrets** | gitleaks over the **full history** (`fetch-depth: 0`): a secret removed in a later commit is still a leak. | any finding |
+| **secrets** | gitleaks 8.30.1 (pinned) over the **full history** (`fetch-depth: 0`) with `.gitleaks.toml`: a secret removed in a later commit is still a leak. | any finding |
 | **codeql** | CodeQL `javascript-typescript`, `security-extended` queries, over `clone/server`, `clone/public`, `scripts`. Results land in the Security tab. | a CodeQL error result |
 | **zap** | Starts the real server (fresh DB, sports off) and runs the OWASP ZAP baseline (passive scan + AJAX spider) against it; `scripts/zap-gate.js` then reads `report_json.json`. | any **High or Medium** alert not accepted in `.zap/rules.tsv`, or any alert whose rule is marked `FAIL` there |
 
@@ -52,6 +52,10 @@ Installed automatically by `npm install` in `clone/` (`prepare` → `scripts/ins
    releases) — the same engine CI uses.
 3. `scripts/audit-gate.js`: `npm audit --json --audit-level=high` in `clone/`; blocks on high/critical advisories, but
    only warns when the registry is unreachable so offline commits stay possible (CI is strict).
+
+`.gitleaks.toml` extends the default gitleaks rules and relaxes only `generic-api-key` under `clone/tests/` (throwaway
+account passwords in E2E fixtures, e.g. the one gitleaks flagged in `auth-security.e2e.test.js`); every token-format rule
+still applies to tests. The bundled scanner applies the same exception to its generic rule.
 
 `git commit --no-verify` bypasses the hook; CI re-runs the same checks, so a bypass only delays the failure.
 
