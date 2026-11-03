@@ -153,7 +153,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
       db.prepare('INSERT INTO events(ticker,series_ticker,title,sub_title,category,mutually_exclusive,is_live,live_label,news,featured,created_at) VALUES(?,?,?,?,?,0,0,\'\',\'\',0,?)')
         .run(ticker, COMBO_SERIES, `Combo: ${title}`, `${legs.length}-leg combo`, 'Combos', now);
       db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at,fractional_trading_enabled,mve_collection_ticker,mve_selected_legs,price_level_structure) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)')
-        .run(ticker, ticker, `Combo: ${title}`, 'All legs hit', 'Any leg misses', '#8f7fff', 'active', now, close, expiry, 5,
+        .run(ticker, ticker, `Combo: ${title}`, 'All legs hit', 'Any leg misses', '#008751', 'active', now, close, expiry, 5,
           `Resolves YES if every leg resolves as selected: ${rows.map(({ l, m }) => `${m.event_title} → ${label({ l, m })}`).join('; ')}. Resolves NO as soon as any leg resolves the other way.`,
           now, now, COMBO_SERIES, JSON.stringify(legs), COMBO_GRID);
       legs.forEach((l, i) => db.prepare('INSERT INTO combo_legs(combo_ticker,leg_index,market_ticker,event_ticker,side) VALUES(?,?,?,?,?)').run(ticker, i, l.market_ticker, l.event_ticker, l.side));

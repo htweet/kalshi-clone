@@ -90,7 +90,7 @@
 .checklist li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--line); }
 .checklist li:first-child { border-top: 0; }
 .checklist .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-weight: var(--fw-bold); color: var(--on-brand); flex: none; }
-.checklist li.done .check { background: var(--yes); border-color: var(--yes); }
+.checklist li.done .check { background: var(--yes); border-color: var(--yes); color: var(--on-yes); }
 .grow { flex: 1; min-width: 0; }
 @media (max-width: 640px) { .set-display { grid-template-columns: minmax(0, 1fr); } .set-apps li { flex-wrap: wrap; } }
 

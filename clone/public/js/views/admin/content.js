@@ -15,7 +15,7 @@ const COLL = {
     cols: [{ key: 'position', label: '#', num: true }, { key: 'title', label: 'Title' }, { key: 'category', label: 'Category' }, { key: 'active', label: 'State', render: active }] },
   promos: { noun: 'promo card', hint: 'Spotlight cards in the home rail (overline, title, subtitle, link, colour, active dates). With none active, the built-in Perps promo is shown.',
     fields: (r) => [{ name: 'overline', label: 'Overline', value: r.overline }, { name: 'title', label: 'Title', required: true, value: r.title }, { name: 'subtitle', label: 'Subtitle', value: r.subtitle, span: true },
-      { name: 'link', label: 'Link', required: true, value: r.link, placeholder: '/category/sports' }, { name: 'color', label: 'Colour', type: 'color', value: r.color || '#8f7fff' },
+      { name: 'link', label: 'Link', required: true, value: r.link, placeholder: '/category/sports' }, { name: 'color', label: 'Colour', type: 'color', value: r.color || '#008751' },
       { name: 'starts_at', label: 'Starts (optional)', type: 'datetime', value: r.starts_at }, { name: 'ends_at', label: 'Ends (optional)', type: 'datetime', value: r.ends_at },
       { name: 'position', label: 'Order', type: 'number', value: r.position ?? 0 }, { name: 'active', label: 'Active', type: 'checkbox', value: r.active ?? true },
       // Targeting (gap G8, spec §13.11): untargeted cards show on home; series / category cards on those pages.

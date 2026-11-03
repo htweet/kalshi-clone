@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS cms_draft_markets (ticker TEXT PRIMARY KEY, event_tic
 CREATE TABLE IF NOT EXISTS cms_event_meta (event_ticker TEXT PRIMARY KEY, icon_color TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cms_hero (event_ticker TEXT PRIMARY KEY, position INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS cms_hubs (id TEXT PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cms_promos (id TEXT PRIMARY KEY, overline TEXT NOT NULL DEFAULT '', title TEXT NOT NULL, subtitle TEXT NOT NULL DEFAULT '', link TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#8f7fff',
+CREATE TABLE IF NOT EXISTS cms_promos (id TEXT PRIMARY KEY, overline TEXT NOT NULL DEFAULT '', title TEXT NOT NULL, subtitle TEXT NOT NULL DEFAULT '', link TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#008751',
   starts_at TEXT, ends_at TEXT, position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cms_banners (id TEXT PRIMARY KEY, content TEXT NOT NULL, link TEXT NOT NULL DEFAULT '', visibility TEXT NOT NULL DEFAULT 'all', position TEXT NOT NULL DEFAULT 'top',
   starts_at TEXT, ends_at TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -971,7 +971,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   const C = (table, fields, extra = {}) => ({ table, fields, ...extra });
   const COLL = {
     hubs: C('cms_hubs', { title: F.text(1, 60), category: F.category(), position: F.int(0, 9999, 0), active: F.bool(1) }),
-    promos: C('cms_promos', { overline: F.text(0, 30, ''), title: F.text(1, 80), subtitle: F.text(0, 140, ''), link: F.link(), color: F.color('#8f7fff'), starts_at: F.time(true), ends_at: F.time(true), position: F.int(0, 9999, 0), active: F.bool(1),
+    promos: C('cms_promos', { overline: F.text(0, 30, ''), title: F.text(1, 80), subtitle: F.text(0, 140, ''), link: F.link(), color: F.color('#008751'), starts_at: F.time(true), ends_at: F.time(true), position: F.int(0, 9999, 0), active: F.bool(1),
       series_tickers: F.jsonList('series', 20), categories: F.jsonList('category', 10), hide_logged_out: F.bool(0) }), // targeting (G8)
     banners: C('cms_banners', { content: F.text(1, 240), link: F.link(true), visibility: F.oneOf(['all', 'logged_in', 'logged_out'], 'all'), position: F.oneOf(['top', 'bottom'], 'top'), starts_at: F.time(true), ends_at: F.time(true), active: F.bool(1) }),
     info_cards: C('cms_info_cards', { title: F.text(1, 40), subtitle: F.text(0, 80, ''), link: F.link(), icon: F.oneOf(['shield', 'bars', 'clock', 'star', 'info'], 'info'), position: F.int(0, 9999, 0), active: F.bool(1) }),
