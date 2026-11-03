@@ -81,8 +81,8 @@
   --fill-x30: #191c21;
   --fill-x40: #22262d;
   --fill-x50: #2d323a;
-  --brand: #8f7fff;
-  --brand-x20: #221d4a;
+  --brand: #13a866; /* Nigerian green, lifted for contrast on the dark surface (6.3:1) */
+  --brand-x20: #0b2a1c;
   --on-brand: #0d0e11;
   --featured: #ff7a59;
   --yes: #2fd18b;
@@ -107,8 +107,8 @@
   --fill-x30: #f2f3f6;
   --fill-x40: #e7e9ee;
   --fill-x50: #dcdfe5;
-  --brand: #5a48f0;
-  --brand-x20: #ecebfd;
+  --brand: #008751; /* Nigerian green (flag), 4.6:1 on white */
+  --brand-x20: #e2f3ea;
   --on-brand: #ffffff;
   --featured: #e8590c;
   --yes: #0a875c;

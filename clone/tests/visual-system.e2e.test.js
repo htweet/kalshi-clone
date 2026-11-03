@@ -306,3 +306,32 @@ async function adminSession(viewport, theme) {
   await page.waitForSelector('[data-testid=account-menu]');
   return page;
 }
+
+test('brand colour: Nigerian green in both themes (wordmark, primary button, outline button, favicon); no purple brand left', async () => {
+  const want = { dark: 'rgb(19, 168, 102)', light: 'rgb(0, 135, 81)' }; // #13a866 (dark, contrast-lifted) · #008751 (flag green)
+  for (const theme of ['dark', 'light']) {
+    const page = await page0(VIEWPORTS.desk, theme);
+    await go(page, '/', '[data-testid=hero-title]');
+    const c = await page.evaluate(() => {
+      const css = (sel, prop) => { const e = document.querySelector(sel); return e ? getComputedStyle(e)[prop] : null; };
+      return {
+        token: getComputedStyle(document.documentElement).getPropertyValue('--brand').trim(),
+        wordmark: css('.brand-name', 'color'),
+        primary: css('#account-area .btn-primary', 'backgroundColor'),
+        outline: css('#account-area .btn-outline-brand', 'color'),
+        favicon: decodeURIComponent(document.querySelector('link[rel=icon]').getAttribute('href')),
+      };
+    });
+    assert.equal(c.token, theme === 'dark' ? '#13a866' : '#008751', `${theme}: --brand token`);
+    assert.equal(c.wordmark, want[theme], `${theme}: wordmark`);
+    assert.equal(c.primary, want[theme], `${theme}: primary button`);
+    assert.equal(c.outline, want[theme], `${theme}: outline button text`);
+    assert.match(c.favicon, /fill='#008751'/, 'favicon uses the brand green');
+    await clean(page, `brand ${theme}`);
+    await page.context().close();
+  }
+  // The old purple brand values are gone from every stylesheet and the page shell.
+  for (const f of [...fs.readdirSync(PUBLIC).filter((x) => x.endsWith('.css')), 'index.html']) {
+    assert.doesNotMatch(fs.readFileSync(path.join(PUBLIC, f), 'utf8'), /#8f7fff|#5a48f0|#4b3fe0|#221d4a|#ecebfd/i, `${f}: no purple brand values`);
+  }
+});

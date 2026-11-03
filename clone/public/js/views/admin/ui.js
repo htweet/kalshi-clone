@@ -95,7 +95,7 @@ export function formHtml(fields, { submit = 'Save', id = '', extra = '', testid 
     else if (x.type === 'select') input = `<select ${common}>${x.options.map((o) => { const [val, lab] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(lab)}</option>`; }).join('')}</select>`;
     else if (x.type === 'checkbox') return `<label class="adm-check ${x.span ? 'span2' : ''}"><input type="checkbox" ${common} ${v ? 'checked' : ''}> <span>${esc(x.label)}</span></label>`;
     else if (x.type === 'datetime') input = `<input type="datetime-local" ${common} value="${esc(toLocalInput(v))}">`;
-    else if (x.type === 'color') input = `<span class="adm-color"><input type="color" value="${esc(v || '#8f7fff')}" data-color-for="${esc(x.name)}" aria-label="${esc(x.label)} picker"><input type="text" ${common} value="${esc(v)}" maxlength="7"></span>`;
+    else if (x.type === 'color') input = `<span class="adm-color"><input type="color" value="${esc(v || '#008751')}" data-color-for="${esc(x.name)}" aria-label="${esc(x.label)} picker"><input type="text" ${common} value="${esc(v)}" maxlength="7"></span>`;
     else input = `<input type="${x.type === 'number' ? 'number' : x.type === 'date' ? 'date' : 'text'}" ${x.step ? `step="${esc(x.step)}"` : ''} ${common} value="${esc(v)}">`;
     return `<label class="field ${x.span ? 'span2' : ''}" for="f-${esc(id)}-${esc(x.name)}"><span>${esc(x.label)}${x.required ? ' *' : ''}</span>${input}${x.hint ? `<small class="faint">${esc(x.hint)}</small>` : ''}<small class="adm-err" id="e-${esc(id)}-${esc(x.name)}" role="alert"></small></label>`;
   };

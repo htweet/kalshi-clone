@@ -398,7 +398,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §26 payments, sandbox only: observed funds routes (cards, bank link, crypto, deposits/withdrawals, withdrawal_times, metadata, credit_history), card tokenizer (no PAN stored), ACH pending → settled / returns, crypto confirmations, signed webhooks with replay protection, double-entry journal + audit, reconciliation queue, limits, AML hooks, holds, withdrawal 2FA, non-withdrawable credits, Admin › Payments | yes (sandbox) | tests `payments`; UI is a Parlance design (screens not observed) |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, AI summaries, ballot lookup, public signed API keys, FIX gateway, ice hockey league | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 196 Playwright scenarios across 24 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 197 Playwright scenarios across 24 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -785,7 +785,7 @@ The engine owns these SQLite tables, created with `CREATE TABLE IF NOT EXISTS`: 
   - An outlined "Log in" pill and a filled "Sign up" pill.
 - **Category strip:** Trending, **Midterms** (a featured hub in a highlight colour), Elections, Politics, Sports, Culture, Crypto, Commodities, Climate, Economics, Mentions, Finance, Tech & Science. These are short labels for the data categories in §13.3.
 - **Clone:** same structure.
-  - The wordmark "Parlance" uses its own violet; the featured hub "Harbor 2026" is coral.
+  - The wordmark "Parlance" uses its own brand green (Nigerian green, #008751); the featured hub "Harbor 2026" is coral.
   - INVEST → `/perps` (§14); PRO → `/pro` (§15.7); MORE → Calendar, Social, Leaderboard, Watchlist, Responsible trading, and a light/dark toggle.
 
 ### 15.2 Home (OBSERVED SHOT3:home, home-scroll)
@@ -3147,7 +3147,7 @@ classifies the 44 new routes; `package.json` adds the suite. No existing asserti
 
 | Aspect | Observed on the live site (§13.2, §15) | Parlance |
 |---|---|---|
-| Theme | Dark default; semantic `surface/text/fill` scales with light variants | Same structure, own palette (violet brand, coral featured hub) |
+| Theme | Dark default; semantic `surface/text/fill` scales with light variants | Same structure, own palette (Nigerian green brand #008751, lifted to #13a866 on dark; coral featured hub) |
 | Container | `max-w-[1320px]`, `px-3` on phones | `--container: 1320px`; gutter 24px, 12px at ≤640px |
 | Grid | `minmax(min(360px,100%),1fr)`, `gap-2` | Unchanged (8px gap) |
 | Type classes | `typ-title-x10`, `typ-body-x20` exist; values UNKNOWN (U15) | Token scale below; `.typ-*` classes kept and mapped onto it |
@@ -3231,6 +3231,7 @@ Values the screenshots do not give (sizes, weights, spacing, control heights) ar
 - Page titles stay in the condensed display face (rule 2, matching §15.1).
 - Header nav 13px semibold uppercase with 0.06em tracking; category strip 14px medium.
 - Market-card titles 16px semibold; other sizes as listed in §27.2.
+- Brand colour: Nigerian green. Light theme `#008751` (the flag green, 4.6:1 on white); dark theme `#13a866`, the same hue lifted to 6.3:1 on the dark surface. Avatar, category and outcome palettes are data colours and unchanged. Enforced by the brand-colour scenario in `tests/visual-system.e2e.test.js`.
 
 ---
 
