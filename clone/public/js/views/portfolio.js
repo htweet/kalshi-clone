@@ -43,7 +43,7 @@ export async function render({ el, navigate, query }) {
       <div class="card stat"><div class="label">Positions value</div><div class="value" id="s-value" data-testid="positions-value">—</div></div>
       <div class="card stat"><div class="label">Held for open orders</div><div class="value" id="s-reserved" data-testid="reserved">—</div></div>
       <form class="card stat" id="funds" aria-label="Move funds">
-        <div class="label">Simulated funds</div>
+        <div class="label">Demo funds · <a href="/funds" data-link data-testid="portfolio-transfers">Deposit or withdraw</a></div>
         <div class="d-flex fw-wrap gap-6 mt-6"><input id="f-amount" class="amount-input" type="number" min="0.01" step="0.01" placeholder="Amount $" aria-label="Amount in dollars">
           <button class="btn btn-primary" data-act="deposit" type="submit">Deposit</button><button class="btn" data-act="withdraw" type="button">Withdraw</button></div>
         <div class="form-error" id="f-error" role="alert"></div>

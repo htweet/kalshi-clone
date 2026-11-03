@@ -14,6 +14,7 @@ const { newId, ApiError, E, dollars } = require('./util');
 const kc = require('./crypto');
 const C = require('./countries');
 const { check } = require('./validate');
+const journal = require('./journal');
 
 const MIN = 60000; const HOUR = 60 * MIN; const DAY = 24 * HOUR;
 const SCHEMA = `
@@ -133,19 +134,41 @@ function createCompliance(ctx) {
       saveAssessment(uid, kind, cents, a, kind === 'withdrawal' && a.score >= threshold ? 'flag' : 'allow');
       return next();
     }
-    const id = newId('wh_');
+    let id;
     try {
+      // Payments (server/payments.js): withdrawal limits and the unsettled-funds rule apply before funds move into a hold.
+      if (precheck) precheck(uid, cents);
       tx(db, () => {
-        engine.credit(uid, -cents, 'withdrawal_hold', id, 'withdrawal held for review');
-        db.prepare('INSERT INTO withdrawal_holds(id,user_id,amount_cents,score,signals,status,created_ts) VALUES(?,?,?,?,?,?,?)').run(id, uid, cents, a.score, JSON.stringify(a.signals), 'held', Date.now());
+        id = createHold(uid, cents, a.score, a.signals, { notifyUser: false });
         saveAssessment(uid, kind, cents, a, 'hold');
       });
     } catch (e) { return next(e); }
     engine.emit('user_balance', uid, engine.balance(uid));
     logEvent(uid, 'withdrawal_held', req, { hold_id: id, score: a.score });
-    try { notify(uid, { type: 'security', title: 'Withdrawal under review', body: `Your withdrawal of $${(cents / 100).toFixed(2)} is being reviewed. This usually takes less than one business day.`, link: '/account/privacy' }); } catch { /* ignore */ }
+    holdNotice(uid, cents, '/account/privacy');
     res.status(202).json({ status: 'held', hold_id: id, amount_dollars: dollars(cents), balance_dollars: dollars(engine.balance(uid)), message: 'Your withdrawal is being reviewed before it is sent.' });
   }
+
+  // A withdrawal held for staff review: the funds leave the balance into the hold (journal account user:<uid>:held).
+  // Shared by the fraud score above and the AML rules of server/payments.js. Runs inside the caller's transaction.
+  function createHold(uid, cents, score, signals, { notifyUser = true, link = '/funds' } = {}) {
+    const id = newId('wh_');
+    tx(db, () => {
+      engine.credit(uid, -cents, 'withdrawal_hold', id, 'withdrawal held for review');
+      db.prepare('INSERT INTO withdrawal_holds(id,user_id,amount_cents,score,signals,status,created_ts) VALUES(?,?,?,?,?,?,?)').run(id, uid, cents, score, JSON.stringify(signals || []), 'held', Date.now());
+    });
+    if (notifyUser) holdNotice(uid, cents, link);
+    return id;
+  }
+  function holdNotice(uid, cents, link) {
+    try { notify(uid, { type: 'security', title: 'Withdrawal under review', body: `Your withdrawal of $${(cents / 100).toFixed(2)} is being reviewed. This usually takes less than one business day.`, link }); } catch { /* ignore */ }
+  }
+  // Release / reverse listeners (server/payments.js sends a held rail withdrawal to its provider on release). A listener
+  // returns true when it posted the journal entry for a release; otherwise the funds leave as a demo payout.
+  const holdListeners = [];
+  const onHoldDecision = (fn) => holdListeners.push(fn);
+  let precheck = null;
+  const setWithdrawalPrecheck = (fn) => { precheck = fn; };
 
   const holdVo = (h) => ({ id: h.id, amount_dollars: dollars(h.amount_cents), status: h.status, created_time: new Date(h.created_ts).toISOString(), decided_time: h.decided_ts ? new Date(h.decided_ts).toISOString() : null });
   const holdsOf = (uid) => db.prepare('SELECT * FROM withdrawal_holds WHERE user_id=? ORDER BY created_ts DESC').all(uid).map(holdVo);
@@ -193,6 +216,8 @@ function createCompliance(ctx) {
         // Release: the held funds leave as the withdrawal (the `withdrawal_hold` ledger entry already took them from the
         // balance; the ledger stays append-only). Reverse: refunded with a `withdrawal_hold_reversal` entry.
         if (action === 'reverse') engine.credit(h.user_id, h.amount_cents, 'withdrawal_hold_reversal', h.id, 'held withdrawal reversed');
+        const claimed = holdListeners.map((fn) => fn(h, action, req)).some((x) => x === true);
+        if (action === 'release' && !claimed) journal.onHoldReleased(db, h); // held → paid out (double-entry journal)
         audit(req, `fraud.hold_${action}`, h.user_id, { hold: h.id, status: 'held' }, { hold: h.id, status: action === 'release' ? 'released' : 'reversed', amount_cents: h.amount_cents }, reason);
       });
       engine.emit('user_balance', h.user_id, engine.balance(h.user_id));
@@ -208,7 +233,7 @@ function createCompliance(ctx) {
     db.prepare('DELETE FROM risk_assessments WHERE ts<?').run(Date.now() - 400 * DAY);
   }
 
-  return { geoCheck, geoDecision, ipCountry, fraudGate, recordDevice, devicesOf, holdsOf, riskSummary, assess, mountRoutes, forgetUser, purge };
+  return { geoCheck, geoDecision, ipCountry, fraudGate, recordDevice, devicesOf, holdsOf, riskSummary, assess, mountRoutes, forgetUser, purge, createHold, onHoldDecision, setWithdrawalPrecheck, saveAssessment, holdsEnabled };
 }
 
 module.exports = { createCompliance, SIGNAL_TEXT };

@@ -691,6 +691,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
     if (u) return u.id;
     const id = newId('u_');
     db.prepare('INSERT INTO users(id,email,display_name,password_hash,is_admin,is_system,balance_cents,created_at) VALUES(?,?,?,?,0,1,?,?)').run(id, email, name, hashPassword(newId()), cents, nowIso());
+    require('./journal').openUser(db, id, 'opening balance (system liquidity account)'); // double-entry journal (CLONE_SPEC.md §26.6)
     return id;
   };
   const LP = () => db.prepare("SELECT id FROM users WHERE email='liquidity@parlance.local'").get()?.id;

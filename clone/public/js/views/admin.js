@@ -28,6 +28,8 @@ export const SECTIONS = [
   ['fraud', 'Fraud & holds', 'users.read', './admin/compliance.js'],
   ['compliance', 'Compliance', 'settings.write', './admin/compliance.js'],
   ['promos', 'Promo codes', 'users.money', './admin/compliance.js'],
+  // Phase 4 (CLONE_SPEC.md §26): transactions, reconciliation, AML cases, ledger audit, provider settings, webhook log.
+  ['payments', 'Payments', 'users.read', './admin/payments.js'],
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -36,6 +38,7 @@ const LOADERS = {
   './admin/community.js': () => import('./admin/community.js'), './admin/community2.js': () => import('./admin/community2.js'), './admin/chat.js': () => import('./admin/chat.js'), './admin/reports.js': () => import('./admin/reports.js'),
   './admin/system.js': () => import('./admin/system.js'), './admin/security.js': () => import('./admin/security.js'),
   './admin/identity.js': () => import('./admin/identity.js'), './admin/compliance.js': () => import('./admin/compliance.js'),
+  './admin/payments.js': () => import('./admin/payments.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.

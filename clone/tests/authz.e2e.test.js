@@ -213,6 +213,24 @@ const EXPECT = {
   'GET /v1/admin/kyc/:userId/documents': perm('users.read'), 'POST /v1/admin/kyc/:userId/documents/:docId/view': perm('users.support'),
   'GET /v1/admin/fraud/overview': perm('users.read'), 'POST /v1/admin/fraud/holds/:id/:action': perm('users.money'),
   'GET /v1/admin/promo_codes': perm('users.money'), 'POST /v1/admin/promo_codes': perm('users.money'), 'PUT /v1/admin/promo_codes/:id': perm('users.money'),
+  // ---- Phase 4: payments, sandbox only (CLONE_SPEC.md §26). Webhooks are public by design (HMAC signature, timestamp
+  // window and event-id dedupe protect them); the isolated card tokenizer needs a session (its own handler answers 401).
+  'POST /v1/payments/webhooks/:provider': P, 'GET /v1/payments/supported_networks': P, 'POST /v1/payments/tokenize/card': U,
+  'GET /v1/users/:uid/payments/metadata': O, 'GET /v1/users/:uid/withdrawal_times': O, 'GET /v1/users/:uid/credit_history': O,
+  'GET /v1/users/:uid/deposits': O, 'GET /v1/users/:uid/withdrawals': O, 'GET /v1/users/:uid/withdrawal_addresses': O,
+  'GET /v1/users/:uid/debit/cards': O, 'DELETE /v1/users/:uid/debit/cards/:id': O, 'POST /v1/users/:uid/debit/payment_session': O, 'POST /v1/users/:uid/debit/payment': O,
+  'GET /v1/users/:uid/debit/payment_status_web': O, 'POST /v1/users/:uid/debit/payment/:id/challenge': O, 'POST /v1/users/:uid/debit/withdrawal': O,
+  'POST /v1/users/:uid/bank_link/accounts': O, 'GET /v1/users/:uid/bank_link/accounts': O, 'DELETE /v1/users/:uid/bank_link/accounts/:id': O,
+  'POST /v1/users/:uid/bank_link/deposit': O, 'POST /v1/users/:uid/bank_link/withdrawal': O, 'GET /v1/users/:uid/banks/all_accounts': O,
+  'POST /v1/users/:uid/banks/linked_accounts': O, 'DELETE /v1/users/:uid/banks/linked_accounts/:id': O,
+  'GET /v1/users/:uid/crypto/account': O, 'PUT /v1/users/:uid/crypto/account': O, 'GET /v1/users/:uid/crypto/wallets': O, 'POST /v1/users/:uid/crypto/wallets': O,
+  'DELETE /v1/users/:uid/crypto/wallets/:id': O, 'POST /v1/users/:uid/crypto/withdrawal': O, 'POST /v1/users/:uid/crypto/simulate_deposit': O,
+  'GET /v1/admin/payments/overview': perm('users.read'), 'GET /v1/admin/payments/transactions': perm('users.read'), 'GET /v1/admin/payments/reconciliation': perm('users.read'),
+  'POST /v1/admin/payments/reconciliation/run': perm('users.money'), 'POST /v1/admin/payments/reconciliation/:id/resolve': perm('users.money'),
+  'GET /v1/admin/payments/aml_cases': perm('users.read'), 'POST /v1/admin/payments/aml_cases/:id/:action': perm('users.money'),
+  'GET /v1/admin/payments/ledger_audit': perm('users.read'), 'POST /v1/admin/payments/ledger_audit/run': perm('users.money'),
+  'GET /v1/admin/payments/settings': perm('settings.write'), 'PUT /v1/admin/payments/settings': perm('settings.write'),
+  'GET /v1/admin/payments/webhooks': perm('audit.read'), 'POST /v1/admin/payments/sandbox/crypto/mine': perm('users.money'),
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };

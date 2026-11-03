@@ -267,7 +267,9 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
     } else {
       const cssFiles = new Set(fs.readdirSync(PUBLIC).filter((f) => f.endsWith('.css')));
       target.use('/js', onlyExt(['.js']), express.static(path.join(PUBLIC, 'js'), staticOpts('no-cache')));
-      target.get(/^\/[A-Za-z0-9_-]+\.css$/, (req, res, next) => (cssFiles.has(req.path.slice(1)) ? res.setHeader('Cache-Control', 'no-cache').sendFile(path.join(PUBLIC, req.path.slice(1))) : next()));
+      // `root` keeps send's dot-file check on the file name only (a checkout under a dot-directory, e.g. a worktree in
+      // .claude/worktrees, would otherwise 404 every stylesheet).
+      target.get(/^\/[A-Za-z0-9_-]+\.css$/, (req, res, next) => (cssFiles.has(req.path.slice(1)) ? res.setHeader('Cache-Control', 'no-cache').sendFile(req.path.slice(1), { root: PUBLIC }) : next()));
       target.use('/fonts', onlyExt(['.woff2', '.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400')));
     }
     target.use('/fonts', onlyExt(['.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400'))); // OFL licences

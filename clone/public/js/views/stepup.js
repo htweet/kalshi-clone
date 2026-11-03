@@ -12,6 +12,8 @@ const LABELS = {
   data_export: 'download your data', account_closure: 'close your account', phone_change: 'change your phone number', passkey_add: 'add a passkey',
   passkey_remove: 'remove a passkey', oauth_link: 'link a sign-in provider', oauth_unlink: 'unlink a sign-in provider', kyc_decision: 'decide an identity verification',
   withdrawal_hold_decision: 'decide a held withdrawal',
+  // Phase 4 (CLONE_SPEC.md §26)
+  payout_destination: 'add a withdrawal destination', payments_settings: 'change payment settings', payments_recon_resolve: 'resolve a reconciliation item', aml_case_decision: 'decide an AML case',
 };
 
 let open = null; // one dialog at a time; concurrent callers share it

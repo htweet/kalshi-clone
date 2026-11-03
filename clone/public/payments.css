@@ -1,0 +1,62 @@
+/* Phase 4 payments UI (CLONE_SPEC.md §26.10): Transfers, Deposit / Withdraw flows, Account › Payment methods.
+   Parlance design. Own file; reuses the app tokens. Font sizes 12/13/14/16/18/22 only, weights 400–700, 4px spacing. */
+.pay { max-width: 880px; }
+.pay-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.pay-head .seg a { height: 28px; padding: 0 var(--space-3); border-radius: var(--rounded-x10); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); color: var(--text-x20); display: inline-flex; align-items: center; }
+.pay-head .seg a.on { background: var(--surface-x10); color: var(--text-x10); }
+.pay-sandbox { margin: var(--space-1) 0 var(--space-4); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+
+.pay-balances { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: var(--space-2); margin-bottom: var(--space-3); }
+.pay-bal { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.pay-bal strong { font-size: var(--fs-2xl); line-height: var(--lh-2xl); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
+.pay-bal .faint { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+.pay-owed { border-color: var(--no); }
+.pay-owed > span:first-child { color: var(--no); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); }
+
+.pay-steps { list-style: none; display: flex; gap: var(--space-2); margin: 0 0 var(--space-3); padding: 0; flex-wrap: wrap; counter-reset: step; }
+.pay-steps li { counter-increment: step; font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); color: var(--text-x30); display: inline-flex; align-items: center; gap: var(--space-1h); }
+.pay-steps li::before { content: counter(step); width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--fill-x40); font-size: var(--fs-xs); line-height: var(--lh-xs); }
+.pay-steps li.on { color: var(--text-x10); }
+.pay-steps li.on::before { background: var(--brand); color: var(--on-brand); }
+.pay-steps li.done::before { background: var(--yes-x20); color: var(--yes); }
+
+.pay-methods { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: var(--space-2); margin: var(--space-3) 0; }
+.pay-method { text-align: left; border: 1px solid var(--line); background: var(--surface-x10); border-radius: var(--rounded-x20); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); cursor: pointer; color: var(--text-x10); min-width: 0; }
+.pay-method:hover, .pay-method:focus-visible { border-color: var(--brand); background: var(--fill-x30); }
+.pay-method strong { font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.pay-method .faint { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+.pay-method[data-cooling] { opacity: .7; }
+
+.pay-form { max-width: 520px; }
+.pay-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: var(--space-2); }
+.pay-hint { margin: var(--space-2) 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-x20); }
+.pay-hint summary { cursor: pointer; font-weight: var(--fw-semibold); }
+.pay-hint ul { margin: var(--space-2) 0; padding-left: var(--space-4); }
+.pay-hint li { margin: var(--space-1) 0; }
+.pay-choice { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--rounded-x20); margin: var(--space-2) 0; cursor: pointer; }
+.pay-choice > span { display: flex; flex-direction: column; gap: var(--space-half); }
+.pay-choice .faint { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+.pay-break { overflow-wrap: anywhere; word-break: break-all; }
+
+.pay-review { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: var(--space-3) 0 var(--space-4); font-size: var(--fs-md); line-height: var(--lh-md); }
+.pay-review dt { color: var(--text-x20); }
+.pay-review dd { margin: 0; font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+.pay-challenge { border: 1px dashed var(--warn); border-radius: var(--rounded-x20); padding: var(--space-3) var(--space-4); margin: var(--space-3) 0; }
+
+.pay-badge { display: inline-flex; align-items: center; height: 24px; padding: 0 var(--space-2); border-radius: var(--rounded-pill); font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); background: var(--fill-x40); color: var(--text-x20); white-space: nowrap; }
+.pay-badge.ok { background: var(--yes-x20); color: var(--yes); }
+.pay-badge.bad { background: var(--no-x20); color: var(--no); }
+.pay-badge.warn { background: var(--fill-x40); color: var(--warn); }
+.pay-badge.info { background: var(--brand-x20); color: var(--brand); }
+
+.pay-list { list-style: none; margin: var(--space-2) 0; padding: 0; }
+.pay-saved { display: flex; align-items: center; gap: var(--space-2); justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+.pay-saved:last-child { border-bottom: 0; }
+.pay-saved > span { display: flex; flex-direction: column; gap: var(--space-half); min-width: 0; overflow-wrap: anywhere; }
+.pay-saved .faint { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+
+@media (max-width: 640px) {
+  .pay .table { display: block; overflow-x: auto; }
+  .pay-review { grid-template-columns: 1fr; gap: var(--space-half); }
+  .pay-review dd { margin-bottom: var(--space-2); }
+}

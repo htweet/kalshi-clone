@@ -27,6 +27,9 @@ const ROUTES = [
   ['POST', /^\/users\/([^/]+)\/orders$/],
   ['POST', /^\/users\/([^/]+)\/deposits$/],
   ['POST', /^\/users\/([^/]+)\/withdrawals$/],
+  // Payment rails (server/payments.js, CLONE_SPEC.md §26): the key is required there, not just honoured.
+  ['POST', /^\/users\/([^/]+)\/(?:debit\/payment|bank_link\/deposit)$/],
+  ['POST', /^\/users\/([^/]+)\/(?:debit|bank_link|crypto)\/withdrawal$/],
   ['POST', /^\/perps\/orders$/],
   ['POST', /^\/perps\/transfers$/],
   ['POST', /^\/perps\/positions\/[^/]+\/close$/],

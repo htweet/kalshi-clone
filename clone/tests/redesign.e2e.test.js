@@ -180,10 +180,19 @@ test('daily interest: 3.5% APY credited once per day to cash + positions, shown 
 test('rolling Above/Below markets: live card, trade Above, window settles, Determined card, payout', async () => {
   const page = await newPage();
   await logIn(page);
-  await page.goto(BASE + '/live');
-  await page.waitForSelector('[data-testid=flash-card] [data-testid=flash-target]');
+  // Windows last 5 s in this file. Only open a window with time left: one that closes mid-navigation has no
+  // ticket (closed market), which made this test fail intermittently under load.
+  let ev;
+  for (const until = Date.now() + 20000; ;) {
+    await page.goto(BASE + '/live');
+    await page.waitForSelector('[data-testid=flash-card] [data-testid=flash-target]');
+    ev = await page.getAttribute('[data-testid=flash-card]', 'data-event');
+    const end = dbq('SELECT end_ts FROM flash_windows WHERE event_ticker=?', ev)[0]?.end_ts || 0;
+    if (end - Date.now() > 3000) break;
+    assert.ok(Date.now() < until, 'a rolling window with at least 3 s left appears');
+    await page.waitForTimeout(Math.max(200, end - Date.now() + 300));
+  }
   assert.match(await page.textContent('[data-testid=flash-target]'), /^Target \$\d+\.\d{2}$/);
-  const ev = await page.getAttribute('[data-testid=flash-card]', 'data-event');
   await page.click('[data-testid=flash-card] .ab a:first-child');
   await page.waitForSelector('#ticket .side-toggle button.on-yes');
   await mode(page, 'market');

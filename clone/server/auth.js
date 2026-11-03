@@ -393,6 +393,10 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     ['PUT', /^\/users\/[^/]+\/email$/, 'email_change'],
     ['PUT', /^\/users\/[^/]+\/withdrawal_mfa$/, 'withdrawal_mfa'],
     ['POST', /^\/users\/[^/]+\/withdrawals$/, 'withdrawal'],
+    // Payment rails (server/payments.js, CLONE_SPEC.md §26): every withdrawal, and every new payout destination (a linked
+    // bank account or a crypto withdrawal address). Withdrawal two-factor (withdrawal_mfa) covers both.
+    ['POST', /^\/users\/[^/]+\/(debit|bank_link|crypto)\/withdrawal$/, 'withdrawal'],
+    ['POST', /^\/users\/[^/]+\/(banks\/linked_accounts|crypto\/wallets)$/, 'payout_destination'],
     ['POST', /^\/users\/[^/]+\/deposits$/, 'large_deposit', (req) => amountCents(req.body) > opt.largeDepositCents],
     ['POST', /^\/perps\/transfers$/, 'large_transfer', (req) => transferCents(req.body) > opt.largeTransferCents],
     ['PUT', /^\/admin\/roles\/[^/]+$/, 'admin_role_change'],
@@ -425,7 +429,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     if (hit) {
       const s = req.auth.session; const uid = req.auth.user.id; const now = Date.now();
       const hasMfa = mfaEnabled(uid);
-      const totpOnly = hit[2] === 'withdrawal' && hasMfa && !!secRow(uid).withdrawal_mfa;
+      const totpOnly = (hit[2] === 'withdrawal' || hit[2] === 'payout_destination') && hasMfa && !!secRow(uid).withdrawal_mfa;
       const fresh = totpOnly ? now - s.totp_at <= opt.stepUpMs : now - s.auth_at <= opt.stepUpMs;
       if (!fresh) return next(new StepUpError(totpOnly ? ['totp'] : stepUpMethods(uid), hit[2]));
       // Withdrawal two-factor is per withdrawal: a successful one consumes the code verification.

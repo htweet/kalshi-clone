@@ -29,6 +29,10 @@ const BODY_LIMITS = [
   [/^\/v1\/admin\//, '64kb'],
 ];
 const limitFor = (p) => (BODY_LIMITS.find(([re]) => re.test(p)) || [null, DEFAULT_LIMIT])[1];
+// Paths that read their own raw body (server/payments.js): the card tokenizer (a card number must never sit in a shared
+// parser's error object) and provider webhooks (the HMAC covers the exact bytes).
+const RAW_BODY = /^\/v1\/payments\/(tokenize\/card|webhooks\/[^/]+)$/;
+BODY_LIMITS.unshift([/^\/v1\/users\/[^/]+\/(debit|bank_link|banks|crypto)\//, '2kb']);
 
 function jsonBody() {
   const parsers = new Map();
@@ -37,6 +41,7 @@ function jsonBody() {
     return parsers.get(limit);
   };
   return (req, res, next) => {
+    if (req.method === 'POST' && RAW_BODY.test(req.path)) return next();
     const limit = limitFor(req.path);
     parserFor(limit)(req, res, (err) => {
       if (err && err.type === 'entity.too.large') return next(new ApiError(413, 'payload_too_large', 'request body too large', `this endpoint accepts at most ${limit}`));
@@ -114,7 +119,8 @@ const SCHEMAS = {
     post_only: FLAG, reduce_only: FLAG,
   },
   amend: { price: NUMISH, price_dollars: NUMISH, count: NUMISH, count_fp: NUMISH, remaining_count: NUMISH, remaining_count_fp: NUMISH, reduce_by: NUMISH, reduce_by_fp: NUMISH, reduce_to: NUMISH, reduce_to_fp: NUMISH, expiration_time: { type: ['string', 'number'], maxLen: 64, nullable: true } },
-  money: { amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
+  // method_id: a payment rail (server/payments.js); without it the demo-funds method.
+  money: { amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true }, method_id: { type: 'string', maxLen: 64, pattern: /^[A-Za-z0-9_.:-]+$/ } },
   perpsTransfer: { direction: S(16), source: S(32), destination: S(32), amount_dollars: NUMISH, amount: NUMISH, client_transfer_id: { ...ID, nullable: true } },
   perpsOrder: {
     ticker: S(64), side: S(8), action: S(8), direction: S(16), type: S(16), time_in_force: TIF, count: NUMISH, count_fp: NUMISH, price: NUMISH, price_dollars: NUMISH, leverage: NUMISH,
@@ -131,6 +137,18 @@ const SCHEMAS = {
   report: { kind: S(16), id: S(64), reason: { type: 'string', maxLen: 1000 } },
   // Admin catalog has its own per-field validator (admin.js check()/FieldError); this only bounds the shape.
   adminCatalog: {},
+  // Payment rails (server/payments.js, CLONE_SPEC.md §26). Card numbers never reach these routes (tokenizer only).
+  cardPayment: { card_id: ID, token: { ...ID, maxLen: 80 }, session_id: ID, amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true }, label: { type: 'string', maxLen: 40 } },
+  cardPayout: { card_id: { ...ID, required: true }, amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
+  bankMove: { bank_id: { ...ID, required: true }, amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
+  cryptoPayout: { wallet_id: { ...ID, required: true }, amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
+  bankLink: { institution_id: { ...ID, required: true }, username: { type: 'string', maxLen: 64, required: true }, password: { type: 'string', maxLen: 64, required: true } },
+  bankAccount: { link_id: { ...ID, required: true }, account_id: { ...ID, required: true }, label: { type: 'string', maxLen: 40 } },
+  cryptoAccount: { accept_terms: { type: 'boolean', required: true } },
+  cryptoWallet: { address: { type: 'string', maxLen: 80, required: true }, network: { type: 'string', maxLen: 16 }, label: { type: 'string', maxLen: 40 } },
+  cryptoSimulate: { amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
+  paymentChallenge: { result: { type: 'string', enum: ['approve', 'fail'], required: true } },
+  empty: {},
 };
 
 // Route table: method, path relative to /v1, schema, options, who is validated ('owner' = signed-in user acting on
@@ -149,6 +167,18 @@ const ROUTES = [
   ['POST', /^\/users\/([^/]+)\/social\/posts\/[^/]+\/comments$/, 'socialComment', {}, 'owner'],
   ['POST', /^\/users\/([^/]+)\/social\/reports$/, 'report', {}, 'owner'],
   ['POST', /^\/users\/([^/]+)\/chat\/[^/]+\/messages$/, 'chatMessage', {}, 'owner'],
+  // Payment rails (server/payments.js, CLONE_SPEC.md §26).
+  ['POST', /^\/users\/([^/]+)\/debit\/payment$/, 'cardPayment', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/debit\/payment_session$/, 'empty', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/debit\/payment\/[^/]+\/challenge$/, 'paymentChallenge', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/debit\/withdrawal$/, 'cardPayout', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/bank_link\/(deposit|withdrawal)$/, 'bankMove', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/bank_link\/accounts$/, 'bankLink', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/banks\/linked_accounts$/, 'bankAccount', { unknown: 'reject' }, 'owner'],
+  ['PUT', /^\/users\/([^/]+)\/crypto\/account$/, 'cryptoAccount', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/crypto\/wallets$/, 'cryptoWallet', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/crypto\/withdrawal$/, 'cryptoPayout', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/crypto\/simulate_deposit$/, 'cryptoSimulate', { unknown: 'reject' }, 'owner'],
   ['POST', /^\/admin\/catalog\/(series|events|markets|import|[^/]+\/[^/]+\/publish)$/, 'adminCatalog', { maxKeys: 64 }, 'staff'],
   ['PUT', /^\/admin\/catalog\/(series|events|markets)\/[^/]+$/, 'adminCatalog', { maxKeys: 64 }, 'staff'],
 ];
@@ -169,4 +199,4 @@ function validateRoutes({ rolesOf = () => [] } = {}) {
   };
 }
 
-module.exports = { jsonBody, validateRoutes, check, ValidationError, SCHEMAS, BODY_LIMITS, limitFor };
+module.exports = { jsonBody, validateRoutes, check, ValidationError, SCHEMAS, BODY_LIMITS, limitFor, RAW_BODY };

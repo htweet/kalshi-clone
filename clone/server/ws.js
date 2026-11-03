@@ -8,7 +8,7 @@ const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat']);
-const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups']);
+const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments']);
 
 function attachWs(server, { engine, auth, security }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 }); // inbound frame cap (clients only send small commands)
@@ -109,6 +109,7 @@ function attachWs(server, { engine, auth, security }) {
   engine.on('fill', (uid, f) => publish('fill', f.market_ticker, 'fill', fillVo(f), uid));
   engine.on('notification', (uid, n) => publish('notifications', null, 'notification', n, uid));
   engine.on('push', (uid, p) => publish('notifications', null, 'push', p, uid)); // push channel: the user's registered browsers (server/notify-prefs.js)
+  engine.on('payment', (uid, t) => publish('payments', null, 'payment', t, uid)); // deposit / withdrawal status (server/payments.js)
   engine.on('group', (uid, type, msg) => publish('groups', null, type, msg, uid)); // group chats: current members only (server/groups.js)
   // RFQ / quote events (spec §17.5): uid null = every authenticated subscriber (rfq_created / rfq_deleted).
   engine.on('communications', (uid, type, msg) => publish('communications', null, type, msg, uid));
