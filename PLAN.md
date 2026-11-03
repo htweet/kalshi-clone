@@ -219,10 +219,10 @@ The project is complete only when **all** of the following hold:
 
 | Phase | Status |
 |---|---|
-| 0 Stabilise | ✅ done (CI workflow, Dependabot, Windows notes, pre-commit hook). Owner action: enable branch protection on `main` requiring the CI checks |
+| 0 Stabilise | ✅ done; CI green on `main` (tests, lint, audit, gitleaks, CodeQL, ZAP). Owner action: enable branch protection on `main` requiring the CI checks |
 | 1 Security foundation | ✅ done (spec §21–23; 140 E2E tests). Residual risks tracked in §21.11/§22 and §10 below |
-| 2 Social completion | live chat done; rest pending |
-| 3 Identity & compliance | pending |
+| 2 Social completion | in progress (branch `phase-2-3`): post extras, stickers, follows, badges, notification prefs, G3, G8, G10 |
+| 3 Identity & compliance | in progress (branch `phase-2-3`): onboarding per §13.14, PII protection, phone codes, OAuth, passkeys, KYC sandbox, geo, fraud, export/closure, RS2/3/6/9/10 |
 | 4 Payments (sandbox) | pending |
 | 5 Markets & content | pending |
 | 6 Perps completion | pending |
