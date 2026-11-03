@@ -1,4 +1,4 @@
-// Rewards (CLONE_SPEC §13.19; PLAN A12, PHASE3_SPEC.md §25.10): the new-user checklist (4 steps tied to identity
+// Rewards (CLONE_SPEC §13.19; PLAN A12, CLONE_SPEC.md §25.10): the new-user checklist (4 steps tied to identity
 // verification, the first deposit, the first trade and the profile), promo-code entry and the codes you used.
 // Referrals and promotions with progress are Phase 8 (P8.1) and say so.
 import { session } from '../store.js';

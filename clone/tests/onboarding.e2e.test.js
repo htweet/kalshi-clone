@@ -1,5 +1,5 @@
 'use strict';
-// Identity onboarding E2E (PLAN P3.1, P3.1a, P3.2, P3.5; CLONE_SPEC §13.14 observed flow; PHASE3_SPEC.md §25): the
+// Identity onboarding E2E (PLAN P3.1, P3.1a, P3.2, P3.5; CLONE_SPEC §13.14 observed flow; CLONE_SPEC.md §25): the
 // full-screen flow phone code → legal name → birthday → address + national ID → "Verifying info…" → document verification
 // → outcome, with the sandbox KYC adapter's outcomes (approved / manual review → admin decision / rejected / retry),
 // "Not now" + resume banner, trading and deposit gating, validation (underage, bad phone, wrong code, resend cooldown,

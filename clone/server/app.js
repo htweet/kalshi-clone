@@ -14,8 +14,8 @@ const { mountPositions } = require('./positions');
 const { mountSports } = require('./sports');
 const { mountAdmin } = require('./admin');
 const { mountChat } = require('./chat');
-const { mountCommunity } = require('./community'); // Phase 2: social and community completion (PHASE2_SPEC.md §24)
-const { mountIdentity } = require('./identity'); // Phase 3: accounts, identity, compliance (PHASE3_SPEC.md §25)
+const { mountCommunity } = require('./community'); // Phase 2: social and community completion (CLONE_SPEC.md §24)
+const { mountIdentity } = require('./identity'); // Phase 3: accounts, identity, compliance (CLONE_SPEC.md §25)
 const { mountAccountArea } = require('./account-area'); // Phase 3: account area, settings, documents, rewards (§25)
 const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
@@ -107,7 +107,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   auth.initAuditChain(); // admin_audit exists now: add chain columns, seal pre-chain rows (server/audit-chain.js)
   // Idempotency-Key replay for orders, deposits, withdrawals, transfers, RFQ accept (server/idempotency.js, PLAN P1.9).
   v1.use(idempotency({ db }).middleware);
-  // Identity, onboarding, KYC and compliance (server/identity.js, PHASE3_SPEC.md §25): its gate on trading, deposits and
+  // Identity, onboarding, KYC and compliance (server/identity.js, CLONE_SPEC.md §25): its gate on trading, deposits and
   // withdrawals (identity verification, location, fraud holds) runs here, after idempotency; its routes follow.
   app.locals.identity = mountIdentity({ v1, app, db, engine, auth, admin, security, keyDir, notify: (...a) => feat.notify(...a), options: identityOptions });
   const feat = mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent });

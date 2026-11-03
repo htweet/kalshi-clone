@@ -1,4 +1,4 @@
-// Admin › Identity reviews, Fraud & holds, Compliance settings, Promo codes (PHASE3_SPEC.md §25; PLAN P3.5–P3.7, A12).
+// Admin › Identity reviews, Fraud & holds, Compliance settings, Promo codes (CLONE_SPEC.md §25; PLAN P3.5–P3.7, A12).
 // Personal data is masked everywhere here; "Reveal" and "View document" ask for a reason, are recorded in the audit log
 // and shown to the customer in their security activity. National ID numbers can never be revealed.
 import { esc, get, post, put, toast, dataTable, section, fmtTime, badge, confirmAction, dialog, fmtMoney } from './ui.js';

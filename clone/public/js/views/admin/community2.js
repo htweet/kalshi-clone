@@ -1,4 +1,4 @@
-// Admin › Community (PHASE2_SPEC.md §24.9; permission social.moderate, outbox users.support): the sticker set with
+// Admin › Community (CLONE_SPEC.md §24.9; permission social.moderate, outbox users.support): the sticker set with
 // enable / disable, post lookup with edit history and the four social-admin actions (G8: subtype, market status,
 // moderator edit, profile-picture decision), group chats (members, messages incl. removed, delete, remove member, lock;
 // every view is audited), and the email / push notification outbox. All user content passes through esc().

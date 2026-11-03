@@ -1,4 +1,4 @@
-// Group chats (/messages, /messages/:id; PLAN §11 A11, PHASE2_SPEC.md §24.7): the list of your groups with unread
+// Group chats (/messages, /messages/:id; PLAN §11 A11, CLONE_SPEC.md §24.7): the list of your groups with unread
 // counts, a conversation with live messages over the private `groups` WebSocket channel, replies, stickers, delete own,
 // report others, mute (hides that person everywhere for you), members (add from your mutual follows / Inner Circle,
 // owner removes, rename, leave), and "New group".

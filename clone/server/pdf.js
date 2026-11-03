@@ -1,5 +1,5 @@
 'use strict';
-// A minimal PDF 1.4 writer for the simulated yearly statements (PLAN A5; PHASE3_SPEC.md §25.9). One or more A4/Letter
+// A minimal PDF 1.4 writer for the simulated yearly statements (PLAN A5; CLONE_SPEC.md §25.9). One or more A4/Letter
 // pages of left-aligned text in the standard Helvetica fonts (no embedding, no images, no scripts, no forms): every
 // object is written by hand and the cross-reference table is computed from the byte offsets.
 const PAGE_W = 612; // US Letter, points

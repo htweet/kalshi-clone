@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end browser tests for Group chats (PLAN §11 A11; PHASE2_SPEC.md §24.7): groups started from mutual follows
+// End-to-end browser tests for Group chats (PLAN §11 A11; CLONE_SPEC.md §24.7): groups started from mutual follows
 // and the Inner Circle, live delivery over the private `groups` channel to three browsers, unread counts, coalesced
 // notifications, replies, stickers, members (add / owner-only remove / rename / leave with owner hand-over), the same
 // safety model as event chat (report → admin queue → live delete, moderator lock, mute, posting ban, rate limits,

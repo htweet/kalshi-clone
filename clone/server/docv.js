@@ -1,5 +1,5 @@
 'use strict';
-// Document verification (PLAN A1; CLONE_SPEC §13.15; PHASE3_SPEC.md §25.4): "Let's get you verified" → "Continue on your
+// Document verification (PLAN A1; CLONE_SPEC §13.15; CLONE_SPEC.md §25.4): "Let's get you verified" → "Continue on your
 // phone" (QR) → the phone captures the ID front, back and a selfie → the desktop's "Stay on this page" screen follows
 // the upload live → "Verifying info…" → outcome. A same-device upload is the fallback.
 //

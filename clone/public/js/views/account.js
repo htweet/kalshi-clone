@@ -1,4 +1,4 @@
-// Account area frame (CLONE_SPEC §13.16; PHASE3_SPEC.md §25.7): content on the left, a right-hand card nav with icons —
+// Account area frame (CLONE_SPEC §13.16; CLONE_SPEC.md §25.7): content on the left, a right-hand card nav with icons —
 // Account & security · Your activity · Documents · Settings. "Account & security" keeps the earlier sections (spec
 // §13.6–13.9, CLONE_SPEC §22) as sub-tabs: Security (password, two-factor, devices, activity), Identity & privacy
 // (verification status, sign-in methods, passkeys, data export, account closure), Social profile, Account limits and
@@ -72,7 +72,7 @@ const EVENT_LABELS = {
   password_rehash: 'Password storage upgraded', email_change: 'Email address changed', session_revoke: 'Device signed out', sessions_revoke_all: 'Signed out everywhere',
   sessions_revoked: 'Sessions ended (role change)', session_expired: 'Session expired', withdrawal_mfa_on: 'Withdrawal verification on', withdrawal_mfa_off: 'Withdrawal verification off',
   admin_bootstrap: 'Admin account set up', default_password_removed: 'Default password removed',
-  // Phase 3 (PHASE3_SPEC.md §25)
+  // Phase 3 (CLONE_SPEC.md §25)
   phone_code_sent: 'Phone code sent', phone_verified: 'Phone number verified', phone_changed: 'Phone number changed', phone_verify_fail: 'Wrong phone code', phone_code_limited: 'Phone code request limited',
   email_verified: 'Email verified', password_reset_requested: 'Password reset requested', password_reset: 'Password reset by email link', passkey_added: 'Passkey added', passkey_removed: 'Passkey removed',
   passkey_used: 'Signed in with a passkey', passkey_fail: 'Passkey check failed', passkey_counter_regression: 'Passkey refused (possible copy)', oauth_linked: 'Sign-in provider linked',

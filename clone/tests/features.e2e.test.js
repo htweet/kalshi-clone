@@ -12,7 +12,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { start } = require('../server/index.js');
 const { totp } = require('../server/features.js');
 
-// RS3 (PHASE3_SPEC.md §25.11): a TOTP code is accepted once — each accepted code must be for a newer 30-second step than
+// RS3 (CLONE_SPEC.md §25.11): a TOTP code is accepted once — each accepted code must be for a newer 30-second step than
 // the last one. freshTotp() returns the code for the next unused step inside the server's ±1-step window (waiting for the
 // next step when both are used).
 const usedTotpStep = new Map();

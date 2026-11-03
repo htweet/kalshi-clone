@@ -1,4 +1,4 @@
-// Account › Documents (/account/taxes; CLONE_SPEC §13.16, §13.19; PHASE3_SPEC.md §25.9): realized P&L per year with and
+// Account › Documents (/account/taxes; CLONE_SPEC §13.16, §13.19; CLONE_SPEC.md §25.9): realized P&L per year with and
 // without fees, the year's transactions as CSV, and simulated yearly statements (CSV + PDF) — clearly not tax advice.
 import { session } from '../store.js';
 import { idApi } from '../identity-api.js';

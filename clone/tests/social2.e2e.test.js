@@ -1,5 +1,5 @@
 'use strict';
-// End-to-end browser tests for Phase 2 social and community completion (PHASE2_SPEC.md §24; PLAN §3 Phase 2, §11 A6 +
+// End-to-end browser tests for Phase 2 social and community completion (CLONE_SPEC.md §24; PLAN §3 Phase 2, §11 A6 +
 // A11, gaps G3, G8, G10): post extras (position tag verified by the server, sticker, Read more, share / copy link,
 // canonical page, 10-minute edit window with moderator-visible history), mutes applied to feeds / replies / chat /
 // notifications, topic follows + timeline counts + nickname search + badges, Inner Circle with circle-only posts,

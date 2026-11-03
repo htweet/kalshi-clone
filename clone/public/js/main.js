@@ -20,16 +20,16 @@ import * as combos from './views/combos.js';
 import * as sports from './views/sports.js';
 import { startLivePatcher } from './views/scoreboard.js';
 import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
-import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (PHASE3_SPEC.md §25)
+import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (CLONE_SPEC.md §25)
 import { menuHtml, wireMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
-// Phase 2 community pages (PHASE2_SPEC.md §24), loaded on demand.
+// Phase 2 community pages (CLONE_SPEC.md §24), loaded on demand.
 const groupsView = { render: (ctx) => import('./views/groups.js').then((m) => m.render(ctx)) };
 const socialManageView = { render: (ctx) => import('./views/social-manage.js').then((m) => m.render(ctx)) };
 const notifSettingsView = { render: (ctx) => import('./views/notification-settings.js').then((m) => m.render(ctx)) };
-// Phase 3 views (PHASE3_SPEC.md §25), loaded on demand; literal import()s so the bundler splits them.
+// Phase 3 views (CLONE_SPEC.md §25), loaded on demand; literal import()s so the bundler splits them.
 const lazy = (load) => ({ render: (ctx) => load().then((m) => m.render(ctx)) });
 const onboardingView = lazy(() => import('./views/onboarding.js'));
 const docvPhoneView = lazy(() => import('./views/docv-phone.js'));

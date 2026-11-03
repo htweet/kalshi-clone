@@ -9,7 +9,7 @@ import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { relTime, toast } from '../lib.js';
-import { REACTIONS, openStickerPicker, mutedNicks } from './social2.js'; // reactions, stickers, mutes (PHASE2_SPEC.md §24.8)
+import { REACTIONS, openStickerPicker, mutedNicks } from './social2.js'; // reactions, stickers, mutes (CLONE_SPEC.md §24.8)
 
 const MAX = 280;
 const PAGE = 40;

@@ -1,5 +1,5 @@
 'use strict';
-// Social completion (PLAN Phase 2: P2.1–P2.3, A11 position / trade / leaderboard alerts, gap G8; PHASE2_SPEC.md §24).
+// Social completion (PLAN Phase 2: P2.1–P2.3, A11 position / trade / leaderboard alerts, gap G8; CLONE_SPEC.md §24).
 //
 //   P2.1  post extras: position tag verified against the author's own positions / fills at post time ("Yes · outcome ·
 //         market"), sticker, circle-only visibility, 10-minute edit window with persisted edit history (moderators see

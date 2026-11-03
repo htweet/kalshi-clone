@@ -1,5 +1,5 @@
 'use strict';
-// Identity-document image intake (PLAN P3.1a, A1; PHASE3_SPEC.md §25.4). No image library is used: the browser
+// Identity-document image intake (PLAN P3.1a, A1; CLONE_SPEC.md §25.4). No image library is used: the browser
 // re-encodes every capture through a canvas (which drops EXIF, GPS and maker notes), and the server then
 //   1. sniffs the type from the bytes (JPEG or PNG only; the declared type and file name are ignored),
 //   2. walks the container structure and rewrites it with only the segments needed to show the picture — every

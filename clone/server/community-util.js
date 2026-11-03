@@ -1,5 +1,5 @@
 'use strict';
-// Shared helpers for the Phase 2 community modules (PHASE2_SPEC.md §24): token-bucket rate limits with a 429 envelope,
+// Shared helpers for the Phase 2 community modules (CLONE_SPEC.md §24): token-bucket rate limits with a 429 envelope,
 // text cleaning for posts / replies / chat lines, a per-route body-schema guard built on server/validate.js, the
 // moderator check and the hash-chained audit append. Nothing here touches the database schema.
 const { ApiError, E } = require('./util');

@@ -20,7 +20,7 @@ export class ApiError extends Error {
     this.mutedUntil = e.muted_until ?? null; // chat mute
     this.details = e.details ?? null;
     this.methods = e.methods ?? null; // step_up_required: ['password'] | ['totp'] | both (CLONE_SPEC §22.6)
-    // Phase 3 (PHASE3_SPEC.md §25): per-field validation errors, compliance details, sign-in proof of work, code attempts.
+    // Phase 3 (CLONE_SPEC.md §25): per-field validation errors, compliance details, sign-in proof of work, code attempts.
     this.fields = e.fields ?? null;
     this.identityStatus = e.identity_status ?? null;
     this.action = e.action ?? null;
@@ -97,7 +97,7 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
     return request(method, url, body, { raw, timeoutMs, stepUpDone: true, idempotencyKey, quietCompliance }, retried);
   }
   if (res.status === 401 && data?.error?.code === 'token_authentication_failure') window.dispatchEvent(new Event('parlance:session-ended'));
-  // Identity verification / location / closed account (PHASE3_SPEC.md §25): one shared explanation dialog.
+  // Identity verification / location / closed account (CLONE_SPEC.md §25): one shared explanation dialog.
   if (!res.ok && COMPLIANCE.has(data?.error?.code) && !quietCompliance) window.dispatchEvent(new CustomEvent('parlance:compliance', { detail: data.error }));
   if (!res.ok) throw new ApiError(res.status, data);
   return data;
@@ -223,7 +223,7 @@ export const api = {
   chatDelete: (uid, t, id) => request('DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`)),
   chatReport: (uid, t, id, reason) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/report`), { reason }),
   chatMod: (t, action, b) => request('POST', `/v1/admin/chat/rooms/${encodeURIComponent(t)}/${encodeURIComponent(action)}`, b || {}),
-  // Phase 2 community (PHASE2_SPEC.md §24): post extras, stickers, mutes, topics, search, Inner Circle, group chats,
+  // Phase 2 community (CLONE_SPEC.md §24): post extras, stickers, mutes, topics, search, Inner Circle, group chats,
   // notification preferences, price-movement and trade-alert subscriptions, push devices, chat reactions / edits.
   post: (pid) => request('GET', `/v1/social/posts/${encodeURIComponent(pid)}`),
   editPost: (uid, pid, body) => request('PUT', u(uid, `/social/posts/${encodeURIComponent(pid)}`), { body }),

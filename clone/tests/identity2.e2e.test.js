@@ -1,6 +1,6 @@
 'use strict';
 // Identity E2E, part 2 (PLAN P3.1 email/reset, P3.3 OAuth, P3.4 passkeys, A2, P3.6 geolocation, P3.7 fraud holds, P3.8
-// export + closure, residual RS2/RS3/RS9/RS10; PHASE3_SPEC.md §25):
+// export + closure, residual RS2/RS3/RS9/RS10; CLONE_SPEC.md §25):
 // email verification and password reset through the dev mailbox (signed single-use links), OAuth sign-in against the
 // built-in mock OIDC provider (new account, account linking with password, state / PKCE / binding tampering refused),
 // passkeys with Chromium's CDP virtual authenticator (register, sign in, counter regression, passkey step-up, admin

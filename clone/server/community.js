@@ -1,5 +1,5 @@
 'use strict';
-// Phase 2 — social and community completion (PLAN §3 Phase 2, §11 A6 + A11, gaps G8 and G10; PHASE2_SPEC.md §24).
+// Phase 2 — social and community completion (PLAN §3 Phase 2, §11 A6 + A11, gaps G8 and G10; CLONE_SPEC.md §24).
 // One entry point so server/app.js needs only two lines:
 //   const community = mountCommunity({...});   // after mountFeatures: hooks, routes, notification gate
 //   community.attachChat(mountChat({...}));      // event-chat reactions, edits, stickers, mutes

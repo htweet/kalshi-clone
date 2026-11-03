@@ -158,7 +158,7 @@ const EXPECT = {
   'POST /v1/perps/admin/markets/:ticker/index': { who: 'legacy-admin' },
   'POST /v1/perps/admin/markets/:ticker/simulation': { who: 'legacy-admin' },
   'POST /v1/perps/admin/markets/:ticker/funding': { who: 'legacy-admin' },
-  // ---- Phase 2 social and community completion (PHASE2_SPEC.md §24)
+  // ---- Phase 2 social and community completion (CLONE_SPEC.md §24)
   'GET /v1/social/badges': P, 'GET /v1/search/social_profiles': P, 'GET /v1/social/timeline_count': P, 'GET /v1/social/stickers': P,
   'GET /v1/social/stickers/:file': P, 'GET /v1/promos': P, 'GET /v1/social/gifs/search': U,
   'GET /v1/users/:uid/social/position_tags': O, 'PUT /v1/users/:uid/social/profile/avatar': O, 'PUT /v1/users/:uid/social/posts/:pid': O,
@@ -182,7 +182,7 @@ const EXPECT = {
   'GET /v1/admin/moderation/posts/:pid': perm('social.moderate'), 'GET /v1/admin/stickers': perm('social.moderate'), 'PUT /v1/admin/stickers/:id': perm('social.moderate'),
   'GET /v1/admin/groups': perm('social.moderate'), 'GET /v1/admin/groups/:gid': perm('social.moderate'), 'POST /v1/admin/groups/:gid/:action': perm('social.moderate'),
   'GET /v1/admin/chat/messages/:id/edits': perm('social.moderate'), 'GET /v1/admin/notifications/deliveries': perm('users.support'),
-  // ---- Phase 3: accounts, identity, compliance, account area (PHASE3_SPEC.md §25)
+  // ---- Phase 3: accounts, identity, compliance, account area (CLONE_SPEC.md §25)
   // Pre-session and handoff endpoints are public by design: login CSRF, signed single-use tokens, the docv capture
   // cookie + CSRF value, or the mock OIDC provider's own checks protect them. /v1/dev/* exists outside production only
   // and answers loopback clients only.

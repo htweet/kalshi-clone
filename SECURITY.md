@@ -115,7 +115,7 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 | I | Private profile/holdings leaks | Only public profile fields serialised | ✅ |
 | D | Spam / flooding | Chat per-user and per-IP buckets, slow mode, mutes, posting bans, body size limits | ✅ |
 | E | Banned or muted user still posting | Ban/mute checked on every write | ✅ |
-| I | Circle-only posts or private group chats leaking | One visibility rule for single post, replies, likes, feeds, counts, links and notifications (404 for others); group paths 404 for non-members; `groups` WS channel published per current member; moderator group views audited (PHASE2_SPEC §24.6–24.7) | ✅ Phase 2 |
+| I | Circle-only posts or private group chats leaking | One visibility rule for single post, replies, likes, feeds, counts, links and notifications (404 for others); group paths 404 for non-members; `groups` WS channel published per current member; moderator group views audited (CLONE_SPEC §24.6–24.7) | ✅ Phase 2 |
 | T | Edits rewriting history | 10-minute post / 5-minute chat edit windows; every edit kept (`post_edits`, `chat_message_edits`) and shown to moderators; moderator edits marked and audited | ✅ Phase 2 |
 | D | Harassment through circle requests, group adds, notifications | Mutes drop notifications caused by the muted user; 24 h cool-off after a declined request; adds limited to mutual follows / circle with a uniform refusal; per-user / per-IP buckets on every new write; email / push capped per hour | ✅ Phase 2 |
 | S | Malicious media in stickers / GIFs | Only Parlance's own SVG stickers, served by id with `default-src 'none'` + `sandbox`; external GIF adapter off (server-side proxy with host allowlist when enabled) | ✅ Phase 2 |
@@ -145,7 +145,7 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 |---|---|---|---|
 | S | Accepting a quote on someone else's RFQ / confirming someone else's quote | `acceptQuote` requires the RFQ owner, `confirmQuote` the quote's maker (404 otherwise); IDOR probes | ✅ P1.7 |
 | T | Accept/confirm replayed → two executions | Quote state machine (`open → accepted → confirmed → executed`) plus `Idempotency-Key` on accept/confirm | ✅ P1.9 |
-| I | Requester identity exposed to makers | Opaque `communications_id`, not user ids; `obscure_creator_id` shows others the empty-input SHA-256 placeholder until execution (PHASE2_SPEC §24.10) | ✅ G3 |
+| I | Requester identity exposed to makers | Opaque `communications_id`, not user ids; `obscure_creator_id` shows others the empty-input SHA-256 placeholder until execution (CLONE_SPEC §24.10) | ✅ G3 |
 | E | Maker bypassing daily trading limits through quote confirmation | Limit checked on confirm (G4) | ✅ |
 | D | RFQ spam | At most N open RFQs per user, TTLs on RFQs and quotes | ✅ |
 
@@ -158,7 +158,7 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 | T | Unsafe code merged | CodeQL (security-extended), ESLint security rules, ZAP baseline, full E2E suite as required checks; CODEOWNERS on security-sensitive files | ✅ (branch protection on `main` to enable) |
 | I | Coding agent reading secrets during development | `.claude/settings.json` deny rules; no real secrets on dev machines | ✅ (guardrail only) |
 
-### 10. Identity, personal data and compliance (Phase 3, `PHASE3_SPEC.md` §25)
+### 10. Identity, personal data and compliance (Phase 3, `CLONE_SPEC.md` §25)
 
 | STRIDE | Threat | Mitigation | Status |
 |---|---|---|---|
@@ -177,7 +177,7 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
 - No WAF/CDN in front of the dev server (P9.3); TLS terminates at a reverse proxy in production (P9.1).
-- Payments are not built (Phase 4); KYC, geolocation and fraud signals are simulations (Phase 3, `PHASE3_SPEC.md` §25.14).
+- Payments are not built (Phase 4); KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
 - Signed API keys for the public trading API are not built (P7.1).
 - Property-based tests for perps margin/liquidation invariants (P6 gate).
 

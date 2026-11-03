@@ -1,5 +1,5 @@
 'use strict';
-// Parlance's self-hosted sticker set (PLAN P2.2, PHASE2_SPEC.md §24.3). Every sticker below is original art drawn for
+// Parlance's self-hosted sticker set (PLAN P2.2, CLONE_SPEC.md §24.3). Every sticker below is original art drawn for
 // Parlance as plain SVG shapes: no third-party artwork, fonts, scripts, <style> elements, event handlers or external
 // references. Stickers are served by GET /v1/social/stickers/<id>.svg from this table only (never from a URL a user
 // supplies); posts, replies and chat messages store the sticker id. Admins can switch individual stickers off

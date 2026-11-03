@@ -75,7 +75,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   let salt = db.prepare("SELECT value FROM meta WHERE key='comms_salt'").get()?.value;
   if (!salt) { salt = crypto.randomBytes(16).toString('hex'); db.prepare("INSERT INTO meta(key,value) VALUES('comms_salt',?)").run(salt); }
   const commsId = (uid) => crypto.createHash('sha256').update(salt + uid).digest('hex').slice(0, 24); // pseudonymous (getting_started_rfqs.md)
-  // G3 (PLAN §7, PHASE2_SPEC.md §24.10): obscure_creator_id on RFQs; partial-size quotes and rest_remainder on quotes.
+  // G3 (PLAN §7, CLONE_SPEC.md §24.10): obscure_creator_id on RFQs; partial-size quotes and rest_remainder on quotes.
   { const has = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
     if (!has('rfqs', 'obscure_creator_id')) db.exec('ALTER TABLE rfqs ADD COLUMN obscure_creator_id INTEGER NOT NULL DEFAULT 0');
     if (!has('rfqs', 'remainder_order_id')) db.exec('ALTER TABLE rfqs ADD COLUMN remainder_order_id TEXT');

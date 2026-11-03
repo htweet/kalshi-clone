@@ -1,4 +1,4 @@
-// Header ☰ menu and category index (CLONE_SPEC §13.16; PHASE3_SPEC.md §25.7). Menu order follows the observed one:
+// Header ☰ menu and category index (CLONE_SPEC §13.16; CLONE_SPEC.md §25.7). Menu order follows the observed one:
 // two round icon buttons (Leaderboard, Rewards), the account destinations, collapsible Trust / Research / Support
 // groups, "Enter promo code" and "Log out". Destinations whose feature belongs to a later phase open a placeholder page
 // that says so (views/placeholder.js). Staff also get "Admin"; a quick light/dark switch stays for convenience.

@@ -1,6 +1,6 @@
 'use strict';
 // Inner Circle (PLAN §11 A11; CLONE_SPEC §13.16 notification rows "Inner Circle requests" / "Inner Circle accepted";
-// PHASE2_SPEC.md §24.6). A close-friends circle: a member sends a request by nickname, the other side accepts or
+// CLONE_SPEC.md §24.6). A close-friends circle: a member sends a request by nickname, the other side accepts or
 // declines; accepting makes the relationship mutual (each is in the other's circle); either side can remove it at any
 // time. Circle-only posts (server/social2.js) are visible to the author and the author's circle only; Group chats
 // (server/groups.js) can be started with circle members. Everything is persisted; mutes and posting bans apply.

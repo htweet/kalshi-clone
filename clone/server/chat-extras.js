@@ -1,5 +1,5 @@
 'use strict';
-// Event live chat completion (PLAN gap G10, P2.1/P2.2; PHASE2_SPEC.md §24.8): reactions from a small fixed set
+// Event live chat completion (PLAN gap G10, P2.1/P2.2; CLONE_SPEC.md §24.8): reactions from a small fixed set
 // (toggle; counts live over the `chat` WebSocket channel), editing your own message within 5 minutes ("edited";
 // previous text kept for moderators), sticker messages (ids from the moderated sticker set, never URLs) and the
 // viewer's mutes on history reads. Live frames carry nicknames only (never user ids), so the muter's client hides

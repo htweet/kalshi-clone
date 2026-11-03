@@ -1,6 +1,6 @@
 'use strict';
 // Identity verification (KYC) through a provider interface (PLAN P3.5; CLONE_SPEC §13.14 "Verifying info…", §13.15
-// document verification; PHASE3_SPEC.md §25.5).
+// document verification; CLONE_SPEC.md §25.5).
 //
 // Two stages, each an asynchronous job ("Verifying info…" on screen while it runs):
 //   1. data       — after the address step: our own rules (duplicate national ID, age, blocked residence) and the

@@ -229,7 +229,7 @@ async function renderProfile({ el, nickname, navigate }) {
   el.querySelector('#holdings').innerHTML = h.hidden ? 'This trader keeps positions private.' : h.holdings.map((x) => `<a class="rank-row rank-2" href="${esc(x.link)}" data-link><span><div class="t">${esc(x.event_title)}</div><div class="faint">${esc(x.outcome)} · ${esc(x.side.toUpperCase())}</div></span><span class="num">${qty(x.position_fp)}</span></a>`).join('') || 'No open positions.';
 }
 
-// Profile actions beyond Follow (PHASE2_SPEC.md §24): Inner Circle request / accept / remove, trade-alert bell (followers
+// Profile actions beyond Follow (CLONE_SPEC.md §24): Inner Circle request / accept / remove, trade-alert bell (followers
 // only), mute / unmute. State comes from the profile response (circle, trade_alerts, is_muted) and is re-drawn in place.
 const CIRCLE_LABEL = { member: 'In your Inner Circle', requested: 'Circle request sent', incoming: 'Accept Inner Circle request' };
 function wireProfileExtras(box, p, navigate) {

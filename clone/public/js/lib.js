@@ -19,7 +19,7 @@ export function prob(m) {
   if (m.yes_bid_dollars != null && m.yes_ask_dollars != null) return Math.round((cents(m.yes_bid_dollars) + cents(m.yes_ask_dollars)) / 2);
   return null;
 }
-// Market preview price (Settings › Market preview price type, PHASE3_SPEC.md §25.8): the last traded price (default) or
+// Market preview price (Settings › Market preview price type, CLONE_SPEC.md §25.8): the last traded price (default) or
 // the current price to buy Yes (best ask). Used for the % pill on cards and the home hero.
 export function previewPct(m) {
   if (uiPrefs.market_price_type === 'current_buy') { const a = cents(m.yes_ask_dollars); return a == null ? prob(m) : a; }

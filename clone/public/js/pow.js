@@ -1,4 +1,4 @@
-// Sign-in proof of work (RS2; PHASE3_SPEC.md §25.11): after repeated failed sign-ins for an account the server answers
+// Sign-in proof of work (RS2; CLONE_SPEC.md §25.11): after repeated failed sign-ins for an account the server answers
 // 429 too_many_attempts with {pow: {token, id, bits}} instead of locking the account; the browser finds a nonce with
 // SHA-256("<id>:<nonce>") having `bits` leading zero bits (≈4k–262k hashes) and retries. Pure JS SHA-256 (synchronous,
 // works on plain-http origins where crypto.subtle is missing), in slices so the page stays responsive.

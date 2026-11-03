@@ -1,5 +1,5 @@
 // Placeholder pages for ☰ menu destinations whose features belong to later phases (CLONE_SPEC §13.16–§13.18;
-// PHASE3_SPEC.md §25.7). Each says plainly what it is and when it arrives, instead of a dead link or a 404.
+// CLONE_SPEC.md §25.7). Each says plainly what it is and when it arrives, instead of a dead link or a 404.
 import { esc } from '../lib.js';
 import { GROUPS } from './account-menu.js';
 

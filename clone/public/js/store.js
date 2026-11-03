@@ -31,7 +31,7 @@ class SessionStore extends Observable {
     this.nickname = sp.profile ? sp.profile.nickname : null;
     this.props = p.properties || {};
     applyTheme(this.props.theme);
-    setUiPrefs(this.props); // display mode, accessible colours, market preview price (Settings, PHASE3_SPEC.md §25.8)
+    setUiPrefs(this.props); // display mode, accessible colours, market preview price (Settings, CLONE_SPEC.md §25.8)
     this.wsBind();
     this.notify();
   }

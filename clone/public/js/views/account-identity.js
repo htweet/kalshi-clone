@@ -1,4 +1,4 @@
-// Account › Account & security › Identity & privacy (PHASE3_SPEC.md §25): verification status with masked details,
+// Account › Account & security › Identity & privacy (CLONE_SPEC.md §25): verification status with masked details,
 // email verification, sign-in methods and passkeys (locked until verified — CLONE_SPEC §13.19 — and behind step-up),
 // API keys (Phase 7), location check, withdrawal holds, the retention policy, data export and account closure.
 import { session } from '../store.js';

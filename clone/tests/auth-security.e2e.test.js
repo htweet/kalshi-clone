@@ -16,7 +16,7 @@ const { start } = require('../server/index.js');
 const { totp } = require('../server/features.js');
 const util = require('../server/util.js');
 
-// RS3 (PHASE3_SPEC.md §25.11): a TOTP code is accepted once — each accepted code must be for a newer 30-second step than
+// RS3 (CLONE_SPEC.md §25.11): a TOTP code is accepted once — each accepted code must be for a newer 30-second step than
 // the last one. freshTotp() returns the code for the next unused step inside the server's ±1-step window (waiting for the
 // next step when both are used).
 // Bounded wait for an in-page promise (a rejected code would otherwise leave the step-up dialog open forever).
@@ -202,7 +202,7 @@ test('unknown email and wrong password get identical responses with similar timi
   await page.context().close();
 });
 
-// RS2 (PHASE3_SPEC.md §25.11): repeated failures no longer lock the account for a time; each further attempt must carry a
+// RS2 (CLONE_SPEC.md §25.11): repeated failures no longer lock the account for a time; each further attempt must carry a
 // proof of work (the browser solves it), so a stranger who knows an email cannot keep its owner out.
 const solvePow = (ch) => { for (let n = 0; ; n++) { const h = crypto.createHash('sha256').update(`${ch.id}:${n}`).digest(); let z = 0; for (const b of h) { if (b === 0) { z += 8; continue; } z += Math.clz32(b) - 24; break; } if (z >= ch.bits) return { token: ch.token, nonce: String(n) }; } };
 test('backoff: failures require a proof of work (same for unknown emails), the owner is alerted, difficulty grows, the browser still signs in', async () => {

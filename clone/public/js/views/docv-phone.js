@@ -1,4 +1,4 @@
-// Phone side of document verification (CLONE_SPEC §13.15; PHASE3_SPEC.md §25.4), opened by scanning the desktop's QR
+// Phone side of document verification (CLONE_SPEC §13.15; CLONE_SPEC.md §25.4), opened by scanning the desktop's QR
 // code: /verify/m#t=<single-use token>. The token is read from the fragment (never sent in a URL, never logged), removed
 // from the address bar, and exchanged once for a short capture session (HttpOnly cookie + CSRF value). The phone then
 // captures the ID front, back and a selfie with the camera (<input type="file" accept="image/*" capture>), re-encodes

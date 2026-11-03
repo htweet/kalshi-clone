@@ -1,4 +1,4 @@
-// Account › Your activity (CLONE_SPEC §13.16; PHASE3_SPEC.md §25.8): a condensed title with a ⤓ download icon, filter
+// Account › Your activity (CLONE_SPEC §13.16; CLONE_SPEC.md §25.8): a condensed title with a ⤓ download icon, filter
 // chips All · Deposit · Withdrawal · Order · Trade · Settlement · Credit, the timeline from server/history.js, and the
 // empty state "No activity with these filters". The chosen chip is remembered with the account (user_settings).
 import { session } from '../store.js';

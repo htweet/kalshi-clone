@@ -1,4 +1,12 @@
 'use strict';
+// node:sqlite (the persistence layer) needs Node 22.5+; say so plainly instead of a bare "Cannot find module".
+{
+  const [maj, min] = process.versions.node.split('.').map(Number);
+  if (maj < 22 || (maj === 22 && min < 5)) {
+    console.error(`Could not start Parlance Exchange: Node ${process.versions.node} is too old. Install Node 22.5 or newer (https://nodejs.org), then run npm start again.`);
+    process.exit(1);
+  }
+}
 const http = require('node:http');
 const path = require('node:path');
 const { open } = require('./db');

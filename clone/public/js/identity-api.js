@@ -1,4 +1,4 @@
-// Phase 3 transport (PHASE3_SPEC.md §25): identity onboarding, phone codes, document verification, email verification,
+// Phase 3 transport (CLONE_SPEC.md §25): identity onboarding, phone codes, document verification, email verification,
 // password reset, OAuth, passkeys, compliance, privacy, and the account area (preferences, consent, connected apps,
 // activity, documents, rewards, promo codes). Same request() as api.js: cookie session, CSRF, client token, step-up.
 import { request } from './api.js';

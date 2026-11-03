@@ -1,5 +1,5 @@
 'use strict';
-// Group chats (PLAN §11 A11; CLONE_SPEC §13.16 notification row "Group chats"; PHASE2_SPEC.md §24.7).
+// Group chats (PLAN §11 A11; CLONE_SPEC §13.16 notification row "Group chats"; CLONE_SPEC.md §24.7).
 //
 // Private rooms of up to 50 people. A group is created from the creator's mutual follows and Inner Circle; any member
 // may add their own mutual follows / circle members; the owner can rename and remove members; anyone can leave (the

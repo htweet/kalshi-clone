@@ -6,7 +6,7 @@ import { socket } from '../ws.js';
 import { esc, money, qty, cents, toast, relTime, secsLeft, validQty } from '../lib.js';
 import { renderPerpsPortfolio } from './perps.js';
 import { ocAvatar } from './components.js';
-import { uiPrefs } from '../prefs.js'; // Settings › Market preview price type (PHASE3_SPEC.md §25.8)
+import { uiPrefs } from '../prefs.js'; // Settings › Market preview price type (CLONE_SPEC.md §25.8)
 
 // Observed tab set ["position","resting","rfqs","quotes","history"]; data-tab values keep the earlier names.
 const TABS = [['positions', 'Positions'], ['orders', 'Resting'], ['rfqs', 'RFQs'], ['quotes', 'Quotes'], ['history', 'History']];
@@ -411,7 +411,7 @@ export async function render({ el, navigate, query }) {
     if (!(amt > 0)) { err.textContent = 'Enter an amount greater than $0.'; return; }
     try {
       const r = await (act === 'deposit' ? api.deposit(uid, amt) : api.withdraw(uid, amt));
-      // A withdrawal the risk score holds for review answers 202 {status: 'held'} (PHASE3_SPEC.md §25.6).
+      // A withdrawal the risk score holds for review answers 202 {status: 'held'} (CLONE_SPEC.md §25.6).
       toast(r && r.status === 'held' ? `Withdrawal of ${money(amt)} is under review` : `${act === 'deposit' ? 'Deposited' : 'Withdrew'} ${money(amt)}`);
       $('#f-amount').value = '';
       refresh();

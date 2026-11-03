@@ -13,7 +13,7 @@ export const SECTIONS = [
   ['users', 'Users', 'users.read', './admin/users.js'],
   ['moderation', 'Moderation', 'social.moderate', './admin/community.js'],
   ['chat', 'Chat', 'social.moderate', './admin/chat.js'],
-  ['community', 'Community', 'social.moderate', './admin/community2.js'], // stickers, post history, group chats (PHASE2_SPEC §24.9)
+  ['community', 'Community', 'social.moderate', './admin/community2.js'], // stickers, post history, group chats (CLONE_SPEC §24.9)
   ['outbox', 'Notification outbox', 'users.support', './admin/community2.js'],
   ['announcements', 'Announcements', 'announce', './admin/community.js'],
   ['reports', 'Reports', 'reports.read', './admin/reports.js'],
@@ -22,7 +22,7 @@ export const SECTIONS = [
   ['settings', 'Settings & health', 'settings.write', './admin/system.js'],
   ['security', 'Security', 'audit.read', './admin/security.js'],
   ['identity', 'Sign-in & audit integrity', 'audit.read', './admin/identity.js'], // CLONE_SPEC §22
-  // Phase 3 (PHASE3_SPEC.md §25): identity reviews (masked, audited reveal and document view), fraud holds, compliance
+  // Phase 3 (CLONE_SPEC.md §25): identity reviews (masked, audited reveal and document view), fraud holds, compliance
   // settings (gating, blocked regions, IP table, SMS limits, retention) and promo codes.
   ['kyc', 'Identity reviews', 'users.read', './admin/compliance.js'],
   ['fraud', 'Fraud & holds', 'users.read', './admin/compliance.js'],
@@ -38,7 +38,7 @@ const LOADERS = {
   './admin/identity.js': () => import('./admin/identity.js'), './admin/compliance.js': () => import('./admin/compliance.js'),
 };
 
-// Admin passkey policy (PHASE3_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.
+// Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.
 function passkeyRequired(el, e, retry) {
   document.title = 'Admin · Parlance';
   el.innerHTML = `<div class="card empty adm-forbidden" role="alert" data-testid="admin-passkey-required"><h1 class="typ-title-x20">Confirm with your passkey</h1>

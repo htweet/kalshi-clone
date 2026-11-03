@@ -1,5 +1,5 @@
 'use strict';
-// Account area (PLAN A3–A6, A12; CLONE_SPEC §13.16, §13.19; PHASE3_SPEC.md §25.8–§25.10):
+// Account area (PLAN A3–A6, A12; CLONE_SPEC §13.16, §13.19; CLONE_SPEC.md §25.8–§25.10):
 //   • preferences shown on Settings — display mode, theme + accessible colours, security notifications, trade mechanics
 //     toggles, market preview price type — strictly validated and stored in `user_settings` (the same rows
 //     GET /users/:uid/properties returns, so the SPA applies them on every page and device);

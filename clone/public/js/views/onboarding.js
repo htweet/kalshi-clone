@@ -1,4 +1,4 @@
-// Identity onboarding (CLONE_SPEC §13.14–§13.15, observed; PHASE3_SPEC.md §25): a full-screen page with only the wordmark
+// Identity onboarding (CLONE_SPEC §13.14–§13.15, observed; CLONE_SPEC.md §25): a full-screen page with only the wordmark
 // and a segmented progress bar. Steps: phone number → 4-digit code → legal name → birthday (18+) → address with a
 // country-specific national ID → "Verifying info…" → document verification ("Let's get you verified" → QR "Continue on
 // your phone" → "Stay on this page" while the phone uploads, or the same-device fallback) → "Verifying info…" → outcome

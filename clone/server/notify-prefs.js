@@ -1,6 +1,6 @@
 'use strict';
 // Notification preferences and delivery channels (PLAN P2.4 and §11 A6; CLONE_SPEC §13.7 call sites, §13.16 matrix;
-// PHASE2_SPEC.md §24.5).
+// CLONE_SPEC.md §24.5).
 //
 // The matrix below is the observed Settings › Notifications list (groups, type names, which channel pills each type
 // offers). Defaults, the ⌄ sub-options and the channels of rows whose pills were not listed are Parlance design

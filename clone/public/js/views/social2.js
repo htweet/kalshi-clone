@@ -1,4 +1,4 @@
-// Social completion on the client (PLAN Phase 2, PHASE2_SPEC.md §24): the post ⋯ menu (copy link, share, edit within
+// Social completion on the client (PLAN Phase 2, CLONE_SPEC.md §24): the post ⋯ menu (copy link, share, edit within
 // the window, delete, mute, report), Read more, the share button (Web Share API, else copy link), the sticker picker,
 // the composer's "+ Add a position" / sticker / audience controls, targeted promos, event-page extras (follow the
 // event, price-move alerts) and the "N new posts" timeline badge.

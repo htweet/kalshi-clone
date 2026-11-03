@@ -40,7 +40,7 @@ const dayKey = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10); // 
 const dayStartMs = (ms = Date.now()) => Date.parse(dayKey(ms) + 'T00:00:00Z');
 
 function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
-  // Extension points used by the Phase 2 community modules (server/community.js, PHASE2_SPEC.md §24): serializer
+  // Extension points used by the Phase 2 community modules (server/community.js, CLONE_SPEC.md §24): serializer
   // decorators, feed filters and extra feeds, post / reply creation (stickers, verified position tags, circle-only
   // visibility), per-post visibility, and the notification gate (type × channel preferences, quiet hours, mutes).
   const hooks = { postVo: [], commentVo: [], profileVo: [], feeds: [], feedFilter: null, beforePost: null, afterPost: null, beforeComment: null, afterComment: null, commentFilter: null, canView: null, notifyGate: null, afterPostNotify: null };

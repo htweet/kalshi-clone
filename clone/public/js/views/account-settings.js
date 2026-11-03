@@ -1,4 +1,4 @@
-// Account › Settings (CLONE_SPEC §13.16, in the observed page order; PHASE3_SPEC.md §25.8):
+// Account › Settings (CLONE_SPEC §13.16, in the observed page order; CLONE_SPEC.md §25.8):
 //   1. "Browse and manage markets by" Payout and odds / Shares and prices, with a live market-card preview
 //   2. Connected apps (OAuth grants; empty until the public API of Phase 7 issues them)
 //   3. Notifications — Phase 2's settings module, mounted here (views/notification-settings.js)

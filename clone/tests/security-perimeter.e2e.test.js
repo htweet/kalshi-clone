@@ -95,7 +95,7 @@ test('security headers on HTML, API and static responses; no-store on authentica
   const common = (r, what) => {
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff', what);
     assert.equal(r.headers.get('referrer-policy'), 'strict-origin-when-cross-origin', what);
-    // geolocation=(self): the optional browser location check of the compliance flow (Phase 3, PHASE3_SPEC.md §25.6).
+    // geolocation=(self): the optional browser location check of the compliance flow (Phase 3, CLONE_SPEC.md §25.6).
     assert.match(r.headers.get('permissions-policy'), /camera=\(\).*geolocation=\(self\).*microphone=\(\).*payment=\(\)/, what);
     assert.equal(r.headers.get('cross-origin-opener-policy'), 'same-origin', what);
     assert.equal(r.headers.get('cross-origin-resource-policy'), 'same-origin', what);

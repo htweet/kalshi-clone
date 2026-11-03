@@ -1,4 +1,4 @@
-// Settings › Notifications (CLONE_SPEC §13.16 item 3; PLAN §11 A6; PHASE2_SPEC.md §24.5).
+// Settings › Notifications (CLONE_SPEC §13.16 item 3; PLAN §11 A6; CLONE_SPEC.md §24.5).
 //
 // mountNotificationSettings(el) renders the module into any container: the Phase 3 /account/settings page includes it,
 // and /notifications/settings shows it on its own. Collapsible groups (General, Predictions, Sports, Social,

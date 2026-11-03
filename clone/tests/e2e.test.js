@@ -488,3 +488,25 @@ test('port in use: auto-selects the next free port (CLI + browser); explicit POR
     } finally { await s.close(); }
   } finally { for (const b of blockers) b.close(); }
 });
+
+test('startup on an old Node: exits 1 with an install hint before touching the database, then the app still serves', async () => {
+  const { spawnSync } = require('node:child_process');
+  const fs = require('node:fs');
+  const dbFile = path.join(TMP, 'oldnode.db');
+  const r = spawnSync(process.execPath, ['--no-warnings', '-r', path.join(__dirname, 'lib', 'old-node-preload.js'), path.join(__dirname, '..', 'server', 'index.js')],
+    { env: { ...process.env, DB_FILE: dbFile, PORT: '0' }, encoding: 'utf8', timeout: 15000 });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Could not start Parlance Exchange: Node 20\.11\.1 is too old\. Install Node 22\.5 or newer/);
+  assert.doesNotMatch(r.stderr, /node:sqlite|at Module\.|node:internal/);
+  assert.equal(fs.existsSync(dbFile), false, 'no database or lock file is created');
+  assert.equal(fs.existsSync(`${dbFile}.lock`), false);
+  // On the real (supported) Node the same entry point starts and the browser renders the home page.
+  const s = await start({ port: 0, dbFile });
+  try {
+    const page = await newPage();
+    await page.goto(`http://127.0.0.1:${s.port}/`);
+    await page.waitForSelector('[data-testid=hero-title]');
+    assert.deepEqual(page.errors, []);
+    await page.context().close();
+  } finally { await s.close(); }
+});

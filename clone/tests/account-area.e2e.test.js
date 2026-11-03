@@ -1,5 +1,5 @@
 'use strict';
-// Account area E2E (PLAN A3–A6, A12; CLONE_SPEC §13.16, §13.19; PHASE3_SPEC.md §25.7–§25.10): the /account/* frame with
+// Account area E2E (PLAN A3–A6, A12; CLONE_SPEC §13.16, §13.19; CLONE_SPEC.md §25.7–§25.10): the /account/* frame with
 // the right-hand card nav, the ☰ menu (observed items, placeholders for later phases), trophy and category index; Your
 // activity (chips, CSV, empty state); Documents (/account/taxes: yearly P&L, transactions CSV, simulated statements as CSV
 // and PDF, "not tax advice"); Settings in the observed order, each setting persisted and applied app-wide; marketing-text

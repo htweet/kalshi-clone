@@ -11,8 +11,15 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 103 end-to-end browser tests (Playwright + node:test)
+npm run test:e2e     # 179 end-to-end browser scenarios across 22 files (Playwright + node:test)
 ```
+
+**If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
+- *Node … is too old*: install Node 22.5 or newer (`node -v` to check). The database layer is `node:sqlite`.
+- *Another Parlance server (process N) is already using …*: one is already running. Use that one, stop it (Ctrl+C in its terminal), or start a second copy on its own database: `DB_FILE=data/second.db npm start`.
+- *Port … is busy*: only with an explicit `PORT`. Leave `PORT` unset to take the next free port (3000-3019).
+- *bash: cd: clone: No such file or directory*: you are already inside `clone/`. Run `npm install && npm start` there.
+- After `git pull`, run `npm install` again before `npm start`: dependencies change between phases.
 
 **Admin bootstrap (no default password, `../CLONE_SPEC.md` §22.5).** On first start with no admin, the server prints a single-use setup link (`http://localhost:3000/setup?token=…`, valid 60 minutes) where you create the first admin. Alternatives: `ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='…' npm start` (PowerShell: `$env:ADMIN_EMAIL='…'; $env:ADMIN_PASSWORD='…'; npm start`), or `npm run create-admin` with the server stopped (prompts for email and password). Passwords need 12+ characters mixing two character classes, not your name/email, and not a common breached password. Demo social accounts `maple_quant`, `harborwatch`, `rainmaker` (`<name>@parlance.local`) get a random password printed once when the database is seeded, or `DEMO_PASSWORD`. Admins can pause, resume, close and resolve markets from any event page. New users sign up and deposit simulated funds on the Portfolio page. Account › Security has password change, two-factor login, withdrawal verification, signed-in devices (sign out one / everywhere) and the account's security activity.
 
@@ -35,7 +42,10 @@ Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_E
 - Live chat on events (● Live chat on the event header): slow mode, replies, reports, moderator delete/mute/pin/lock (Admin › Chat).
 - Also: Social, Notifications, Watchlist, Account (profile, two-factor login, limits, alerts, appearance).
 
-Not built: KYC/identity checks, real payment rails, GIFs, ballot lookup, AI summaries, signed public API keys (spec §12).
+- Onboarding and identity (`../CLONE_SPEC.md` §13.14-13.16, §25): sign-up → email code → phone code → legal name → birthday → address → "Verifying info…" → document verification (ID front, back, selfie; desktop can continue on a phone through a 10-minute QR link) → result. With `npm start`, trading, deposits, withdrawals and transfers wait for an approved identity. `KYC_REQUIRED=0 npm start` turns that gate off, and an admin can switch it in Admin › Identity. Verification codes go to the dev mailbox at `http://localhost:3000/v1/dev/mailbox` (email and SMS; never registered in production). The identity check is a deterministic sandbox, so use invented data only. The legal last name picks the outcome: `Review` (manual review, Admin › Identity), `Reject`, `Retry`, `Outage`; anything else is approved after the documents step.
+- Account area (☰ menu): Your activity, Documents, Settings (notification matrix, theme and accessible colors, trade mechanics, market preview price type), Account & security (passkeys, sign-in methods, devices), Rewards, promo codes.
+
+Not built yet (PLAN.md Phases 4-9): real payment rails (deposits are simulated), public developer API keys and portal, FIX gateway, referrals and rewards payouts, ballot lookup, AI summaries.
 
 Perimeter security (`../CLONE_SPEC.md` §21): CSP with per-response nonces and the other security headers, CORS allowlist (`ALLOWED_ORIGINS`), proof-of-work bot challenge for suspicious HTML requests, signed client tokens on `/v1` writes and the WebSocket, honeypot paths, tiered persisted rate limits, Admin › Security event log. Taker fee coefficient, rolling window, rate limits and bot settings are editable live in Admin › Settings & health. Fonts are self-hosted (`public/fonts/`, SIL OFL).
 

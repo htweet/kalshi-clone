@@ -1,4 +1,4 @@
-// QR Code encoder (ISO/IEC 18004), written for Parlance (PLAN A1; PHASE3_SPEC.md §25.4): byte mode, error correction
+// QR Code encoder (ISO/IEC 18004), written for Parlance (PLAN A1; CLONE_SPEC.md §25.4): byte mode, error correction
 // level M, versions 1–10 (up to 213 bytes — a handoff URL is ~80). No network service and no third-party code: the
 // document-verification QR is generated in the browser from the single-use handoff URL.
 // Usage: const m = qrMatrix(text) → { size, modules: boolean[][] (true = dark) }; qrSvg(text) → SVG markup string.

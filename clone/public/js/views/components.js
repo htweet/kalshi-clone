@@ -120,7 +120,7 @@ export function lineChart(points, color = 'var(--brand)') {
 }
 
 // Social post (spec §13.6, §15.4): author (sticker avatar or monogram), badges, age, "edited", circle badge, position tag
-// "Yes · outcome · market", body with "Read more", sticker, actions like / reply / bookmark / share / ⋯ (PHASE2_SPEC §24.2).
+// "Yes · outcome · market", body with "Read more", sticker, actions like / reply / bookmark / share / ⋯ (CLONE_SPEC §24.2).
 const BADGE_LABEL = { first_trade: 'First trade', ten_trades: '10 trades', profitable_month: 'Profitable month', top_10: 'Top 10', verified: 'Verified' };
 export const badgeChips = (ids = []) => ids.filter((b) => b !== 'verified' && BADGE_LABEL[b]).map((b) => `<span class="badge-chip" data-badge="${esc(b)}" title="${esc(BADGE_LABEL[b])}">${esc(BADGE_LABEL[b])}</span>`).join('');
 export const authorAvatar = (a, cls = '') => (a && a.avatar ? `<img class="avatar sticker-avatar ${esc(cls)}" src="${esc(a.avatar.url)}" alt="" width="36" height="36" data-testid="sticker-avatar">` : avatar(a ? a.nickname : '?', cls));

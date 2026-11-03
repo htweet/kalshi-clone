@@ -1360,7 +1360,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   v1.post(`${A}/announcements`, can('announce'), (req, res) => {
     const b = req.body || {};
     const v = check(b, { ...ANN_SPEC, segment: F.oneOf(Object.keys(SEGMENTS), 'all') });
-    // Optional promotional topic (Settings › Notifications › Promotional, PHASE2_SPEC.md §24.5): recipients' channel choices apply.
+    // Optional promotional topic (Settings › Notifications › Promotional, CLONE_SPEC.md §24.5): recipients' channel choices apply.
     const topic = check(b, { topic: F.oneOf(['', 'breaking_events', 'new_markets', 'politics', 'crypto', 'commodities'], '') }).topic;
     const ids = segmentIds(v.segment);
     const id = newId('ann_');

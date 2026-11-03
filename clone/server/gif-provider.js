@@ -1,5 +1,5 @@
 'use strict';
-// Optional external GIF provider adapter (PLAN P2.2, PHASE2_SPEC.md §24.3). DISABLED by default: Parlance ships with its
+// Optional external GIF provider adapter (PLAN P2.2, CLONE_SPEC.md §24.3). DISABLED by default: Parlance ships with its
 // own moderated sticker set and no third-party key. When an operator configures a provider, every request goes through
 // the server (the browser never talks to the provider and never receives a provider URL it can follow):
 //   - one allowlisted HTTPS host per provider for the search API and one for media; any other host is refused;

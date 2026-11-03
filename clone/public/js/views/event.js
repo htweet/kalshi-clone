@@ -11,7 +11,7 @@ import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
 import { mountEventScoreboard } from './sports.js'; // live scoreboard for sports events (CLONE_SPEC §19.6)
 import { mountChat } from './chat.js'; // "● Live chat" pill + panel (CLONE_SPEC §20)
-import { mountEventExtras, renderPromos } from './social2.js'; // follow event, price-move alerts, targeted promos (PHASE2_SPEC.md §24)
+import { mountEventExtras, renderPromos } from './social2.js'; // follow event, price-move alerts, targeted promos (CLONE_SPEC.md §24)
 
 const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60], all: [365 * 86400, 1440] };
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
