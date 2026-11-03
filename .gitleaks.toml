@@ -1,0 +1,13 @@
+# gitleaks configuration (CI secrets job, pre-commit hook). Extends the default rule set.
+title = "Parlance gitleaks config"
+
+[extend]
+useDefault = true
+
+# Test fixtures: end-to-end tests create throwaway accounts with high-entropy passwords on temporary databases
+# (clone/tests/**). Only the generic "password/api key = <random string>" rule is relaxed there; every token-format rule
+# (AWS, GitHub, Stripe, private keys, ...) still applies to the tests. Reviewed 2026-11-03.
+[[allowlists]]
+description = "E2E test account passwords on throwaway databases"
+targetRules = ["generic-api-key"]
+paths = ['''^clone/tests/''']
