@@ -41,7 +41,7 @@ async function renderPlay({ el, me }) {
   el.innerHTML = section(tx('admin.playmode.page.title'), te('admin.playmode.page.intro', { zero: esc(moneyCents(0)) })) +
     `<div class="adm-two"><div class="card adm-card" data-testid="play-status" data-on="${pm.on ? '1' : '0'}"><h3>${te('admin.playmode.status.title')}</h3>
       <p>${pm.on ? badge(tx('admin.playmode.status.on'), 'warn') : badge(tx('admin.playmode.status.off'), 'ok')}</p><p class="faint">${te('admin.playmode.status.epoch', { epoch: esc(pm.epoch) })}</p>
-      <p class="faint" data-testid="real-money">${te('admin.playmode.status.real_money', { balances: esc(rm.balances), positions: esc(rm.positions), orders: esc(rm.orders), perps: esc(rm.perps), pending: esc(rm.pending), holds: esc(rm.holds) })}</p>
+      ${pm.on ? '' : `<p class="faint" data-testid="real-money">${te('admin.playmode.status.real_money', { balances: esc(rm.balances), positions: esc(rm.positions), orders: esc(rm.orders), perps: esc(rm.perps), pending: esc(rm.pending), holds: esc(rm.holds) })}</p>`}
       ${pm.on ? '' : `<button class="btn btn-primary" data-on data-testid="play-on">${te('admin.playmode.on.button')}</button><p class="form-error" data-on-err data-testid="play-on-error"></p>`}</div>
     <div class="card adm-card"><h3>${te('admin.playmode.settings.title')}</h3>${formHtml(settingsFields, { submit: tx('admin.playmode.settings.save'), id: 'pms', testid: 'play-settings' })}<p class="faint">${te('admin.playmode.settings.prod_note')}</p></div></div>
     ${pm.on ? `<div class="card adm-card" data-testid="production-switch"><h3>${te('admin.playmode.switch.title')}</h3><p class="faint">${te('admin.playmode.switch.intro')}</p>

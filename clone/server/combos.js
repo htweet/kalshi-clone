@@ -519,7 +519,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     }
     lpQuoteSweep();
   }
-  function pumpSafe() { if (engine.flags && !engine.flags.jobOn('combos')) return; try { if (db.isOpen !== false) pump(); } catch (e) { if (!/database is not open/i.test(String(e && e.message))) console.error('rfq pump', e); } }
+  function pumpSafe() { try { if (engine.flags && !engine.flags.jobOn('combos')) return; if (db.isOpen !== false) pump(); } catch (e) { if (!/database is not open/i.test(String(e && e.message))) console.error('rfq pump', e); } }
   engine.on('tick', pumpSafe);
 
   // ---------- REST (paths mirror api-reference_communications_*.md under /v1/communications) ----------

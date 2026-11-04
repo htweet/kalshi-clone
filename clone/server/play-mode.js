@@ -114,7 +114,8 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     return { deposits: dep, withdrawals: wd, deposits_revoked: !!c.deposits_revoked, withdrawals_revoked: !!c.withdrawals_revoked, reason: c.reason || '' };
   }
   const revokedError = (kind, c) => {
-    const e = new ApiError(403, `${kind}_revoked`, s(`money.${kind}_revoked`), c.reason ? s('money.revoked_details', { reason: c.reason }) : '');
+    const details = c.reason ? s('money.revoked_details', { reason: c.reason }) : '';
+    const e = kind === 'deposits' ? new ApiError(403, 'deposits_revoked', s('money.deposits_revoked'), details) : new ApiError(403, 'withdrawals_revoked', s('money.withdrawals_revoked'), details);
     e.toJSON = () => ({ error: { code: e.code, message: e.message, details: e.details, reason: c.reason } });
     return e;
   };
@@ -455,7 +456,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     for (const u of db.prepare('SELECT * FROM users WHERE is_admin=1 OR id IN (SELECT user_id FROM admin_roles)').all()) {
       if (u.id === req.auth.user.id) continue;
       if (!admin.rolesOf(u).some((r) => (require('./admin').ROLE_PERMS[r] || []).includes('settings.write'))) continue;
-      try { feat.notify(u.id, { type: 'admin_approval', title: 'Second approval needed: switch to production', body: reason.slice(0, 140), link: '/admin/play_mode' }); } catch { /* best effort */ }
+      try { feat.notify(u.id, { type: 'admin_approval', title: s('notify.approval.title'), body: reason.slice(0, 140), link: '/admin/play_mode' }); } catch { /* best effort */ }
     }
     res.status(202).json({ status: 'pending_approval', approval: approvalVo(a) });
   });

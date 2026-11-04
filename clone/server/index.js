@@ -50,6 +50,8 @@ function listen(server, port, fallback) {
 // sets the seeded demo accounts' password, otherwise a random one is printed once; `auth` overrides session /
 // lockout / step-up timings (server/auth.js DEFAULTS). `push` tunes Web Push (server/webpush.js, CLONE_SPEC §31):
 // subject, allowedHosts, insecureEndpointHosts (tests only), retryBaseMs, maxAttempts, timeoutMs.
+// Phase 5D (CLONE_SPEC §33): `flags: { overrides: { key: bool } }` (technical overrides, like FEATURE_FLAGS), `playMode`,
+// `centralBank: { rng, now }` (deterministic heist codes / clock for tests; ignored when NODE_ENV=production).
 async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports,
   admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
   const explicit = port != null || !!process.env.PORT;

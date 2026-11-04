@@ -29,6 +29,7 @@
 .hz-side .card { padding: var(--space-4); }
 .hz-side h2 { margin: 0 0 var(--space-3); font-size: var(--fs-lg); line-height: var(--lh-lg); }
 .hz-stage { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.hz-vault { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 
 /* The vault door: rings, a dial with handles and bolts; spins while a heist runs, opens on success, flashes on alarm. */
 .hz-door { position: relative; width: 200px; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--fill-x50), var(--fill-x30) 70%); border: 6px solid var(--fill-x50); box-shadow: inset 0 0 0 10px var(--surface-x20), var(--shadow-pop); display: grid; place-items: center; transition: transform .5s ease, border-color .3s; }
@@ -87,6 +88,7 @@
 .hz-result { padding: var(--space-3) var(--space-4); border-radius: var(--rounded-x20); border: 1px solid var(--line); }
 .hz-result h2 { margin: 0 0 var(--space-1); font-family: var(--font-display); font-size: var(--fs-3xl); line-height: var(--lh-3xl); letter-spacing: var(--ls-display); }
 .hz-result p { margin: 0; }
+.hz-result .hz-code span { color: var(--text-x10); }
 .hz-result.won { border-color: var(--yes); background: var(--yes-x20); }
 .hz-result.won h2 { color: var(--yes); }
 .hz-result.lost { border-color: var(--no); background: var(--no-x20); }

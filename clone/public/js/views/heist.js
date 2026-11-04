@@ -6,7 +6,7 @@ import '../content/heist-strings.js';
 import { request } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, money, toast, relTime, fmtTime } from '../lib.js';
+import { esc, money, relTime, fmtTime } from '../lib.js';
 import { vars } from '../dynstyle.js';
 import { playLabel, playOn, flagOn } from '../flags.js';
 
@@ -22,8 +22,8 @@ const newClientId = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID().r
 
 function vaultDoor(level, max, state = 'idle') {
   const pips = Array.from({ length: Math.max(1, max) }, (_, i) => `<span class="hz-pip${i < level ? ' on' : ''}"></span>`).join('');
-  return `<div class="hz-door ${esc(state)}" aria-hidden="true"><div class="hz-ring"><div class="hz-dial"><span class="hz-handle"></span><span class="hz-handle r90"></span><span class="hz-handle r45"></span><span class="hz-handle r135"></span></div></div><div class="hz-bolts">${'<span></span>'.repeat(8)}</div></div>
-    <div class="hz-level"><span class="faint">${te('heist.vault.level')}</span><span class="hz-pips" data-testid="heist-level" data-level="${esc(level)}">${pips}</span></div>`;
+  return `<div class="hz-vault"><div class="hz-door ${esc(state)}" aria-hidden="true"><div class="hz-ring"><div class="hz-dial"><span class="hz-handle"></span><span class="hz-handle r90"></span><span class="hz-handle r45"></span><span class="hz-handle r135"></span></div></div><div class="hz-bolts">${'<span></span>'.repeat(8)}</div></div>
+    <div class="hz-level"><span class="faint">${te('heist.vault.level')}</span><span class="hz-pips" data-testid="heist-level" data-level="${esc(level)}">${pips}</span></div></div>`;
 }
 // eslint-disable-next-line parlance/no-unescaped-html -- the repeated pieces are static markup; counts come from the server as numbers
 const pegs = (g, digits) => `<span class="hz-pegs" aria-label="${te('heist.active.exact', { n: esc(g.exact) })}, ${te('heist.active.near', { n: esc(g.near) })}">${'<span class="hz-peg exact"></span>'.repeat(g.exact)}${'<span class="hz-peg near"></span>'.repeat(g.near)}${'<span class="hz-peg"></span>'.repeat(Math.max(0, digits - g.exact - g.near))}</span>`;
@@ -136,6 +136,5 @@ export async function render({ el }) {
     if (m.msg.type === 'vault') { drawVault(m.msg); if (st.bank) { st.bank.balance_dollars = m.msg.balance_dollars; st.bank.security_level = m.msg.security_level; } }
     if (m.msg.type === 'feed') { const ul = el.querySelector('[data-feed]'); if (ul) { if (!ul.querySelector('[data-testid=heist-feed-row]')) ul.innerHTML = ''; ul.insertAdjacentHTML('afterbegin', feedRow(m.msg.item)); } api.wanted().then((w) => { const ol = el.querySelector('[data-wanted]'); if (ol && w.most_wanted.length) ol.innerHTML = w.most_wanted.map((r) => `<li class="hz-wanted-row" data-testid="most-wanted-row"><span class="hz-rank">${esc(r.rank)}</span><b>${esc(r.name)}</b><span class="num">${esc(money(r.loot_dollars))}</span><span class="faint">${te('heist.wanted.row', { heists: esc(r.heists) })}</span></li>`).join(''); }).catch(() => {}); }
   }));
-  void toast;
   return () => { stopTimer(); unsubs.forEach((f) => f()); };
 }

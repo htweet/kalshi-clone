@@ -51,7 +51,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "heist.feed.timeout": "{name} ran out of time",
   "heist.wanted.title": "Most Wanted",
   "heist.wanted.empty": "Nobody has cracked the vault yet.",
-  "heist.wanted.row": "{heists} heists"
+  "heist.wanted.row": "Heists cracked: {heists}"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

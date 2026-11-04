@@ -51,6 +51,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "error.crypto_deposit_address": "{message}",
   "error.demo_funds_disabled": "{message}",
   "error.deposit_limit_exceeded": "{message}",
+  "error.deposits_revoked": "{message}",
   "error.destination_cooling": "{message}",
   "error.disclosure_changed": "{message}",
   "error.documents_incomplete": "{message}",
@@ -216,7 +217,8 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "error.weak_password": "{message}",
   "error.withdrawal_limit_exceeded": "{message}",
   "error.withdrawal_on_hold": "{message}",
-  "error.withdrawals_play_mode": "{message}"
+  "error.withdrawals_play_mode": "{message}",
+  "error.withdrawals_revoked": "{message}"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

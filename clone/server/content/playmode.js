@@ -41,6 +41,7 @@ const STRINGS = {
   'notify.controls.what.both': 'deposits and withdrawals',
   'notify.reset.title': 'Parlance is moving to real money',
   'notify.reset.body': 'Play mode has ended. Your play balance and positions were archived and reset to {zero}. Your account, watchlist and history are kept.',
+  'notify.approval.title': 'Second approval needed: switch to production',
   'notify.payout_paid.title': 'Promotion paid: {amount}',
   'notify.payout_paid.body': '{memo}',
   // ledger memos and history labels

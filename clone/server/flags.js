@@ -332,7 +332,7 @@ function createFlags({ db, engine, options = {} }) {
 function mountFlags({ v1, db, flags, admin, auth, identity }) {
   flags.ctx.rolesOf = (u) => admin.rolesOf(u);
   flags.ctx.regionOf = (req) => { try { return identity.compliance.geoDecision(req).country; } catch { return null; } };
-  flags.ctx.legacy = () => admin.setting('features') || {};
+  flags.ctx.legacy = () => { try { return admin.setting('features') || {}; } catch { return {}; } }; // a timer may outlive the database
   const can = admin.can;
   const reasonOf = (b) => { const r = String((b && b.reason) || '').trim(); if (r.length < 3 || r.length > 500) throw new ApiError(400, 'validation_failed', 'validation failed', 'reason: a reason of 3-500 characters is required'); return r; };
   const emailOf = (id) => db.prepare('SELECT email FROM users WHERE id=?').get(id)?.email || id;
