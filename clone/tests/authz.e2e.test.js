@@ -171,6 +171,10 @@ const EXPECT = {
   'GET /v1/users/:uid/notifications/preferences': O, 'PUT /v1/users/:uid/notifications/preferences': O, 'PUT /v1/users/:uid/notifications/settings/:type': O,
   'GET /v1/users/:uid/notifications/push_devices': O, 'POST /v1/users/:uid/notifications/push_devices': O, 'DELETE /v1/users/:uid/notifications/push_devices/:id': O,
   'GET /v1/users/:uid/notifications/deliveries': O,
+  // ---- Web Push (CLONE_SPEC.md §31): the VAPID public key is public; subscriptions are the owner's.
+  'GET /v1/push/vapid_public_key': P, 'GET /manifest.webmanifest': P, 'GET /sw.js': P, 'GET /offline.html': P,
+  'GET /v1/users/:uid/push_subscriptions': O, 'POST /v1/users/:uid/push_subscriptions': O, 'DELETE /v1/users/:uid/push_subscriptions': O,
+  'DELETE /v1/users/:uid/push_subscriptions/:id': O, 'POST /v1/users/:uid/push_subscriptions/:id/test': O,
   'GET /v1/users/:uid/notifications/price_movement_subscriptions': O, 'POST /v1/users/:uid/notifications/price_movement_subscriptions': O, 'DELETE /v1/users/:uid/notifications/price_movement_subscriptions': O,
   'GET /v1/users/:uid/notifications/social_account_subscriptions': O, 'POST /v1/users/:uid/notifications/social_account_subscriptions': O, 'DELETE /v1/users/:uid/notifications/social_account_subscriptions': O,
   'GET /v1/users/:uid/groups': O, 'POST /v1/users/:uid/groups': O, 'GET /v1/users/:uid/groups/candidates': O, 'GET /v1/users/:uid/groups/:gid': O, 'PUT /v1/users/:uid/groups/:gid': O,
@@ -218,7 +222,7 @@ const EXPECT = {
   // ---- Phase 4: payments, sandbox only (CLONE_SPEC.md §26). Webhooks are public by design (HMAC signature, timestamp
   // window and event-id dedupe protect them); the isolated card tokenizer needs a session (its own handler answers 401).
   'POST /v1/payments/webhooks/:provider': P, 'GET /v1/payments/supported_networks': P, 'POST /v1/payments/tokenize/card': U,
-  'GET /v1/users/:uid/payments/metadata': O, 'GET /v1/users/:uid/withdrawal_times': O, 'GET /v1/users/:uid/credit_history': O,
+  'GET /v1/users/:uid/payments/metadata': O, 'GET /v1/users/:uid/payments/sandbox/test_cards': O, 'GET /v1/users/:uid/withdrawal_times': O, 'GET /v1/users/:uid/credit_history': O,
   'GET /v1/users/:uid/deposits': O, 'GET /v1/users/:uid/withdrawals': O, 'GET /v1/users/:uid/withdrawal_addresses': O,
   'GET /v1/users/:uid/debit/cards': O, 'DELETE /v1/users/:uid/debit/cards/:id': O, 'POST /v1/users/:uid/debit/payment_session': O, 'POST /v1/users/:uid/debit/payment': O,
   'GET /v1/users/:uid/debit/payment_status_web': O, 'POST /v1/users/:uid/debit/payment/:id/challenge': O, 'POST /v1/users/:uid/debit/withdrawal': O,

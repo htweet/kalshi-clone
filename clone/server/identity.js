@@ -659,6 +659,8 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
       limits: all('SELECT * FROM user_limits WHERE user_id=?', uid),
       social: { profile: all('SELECT nickname, bio, share_trades, created_at FROM social_profiles WHERE user_id=?', uid)[0] || null, posts: all('SELECT id, body, event_ticker, created_ts FROM posts WHERE user_id=?', uid), comments: all('SELECT id, post_id, body, created_ts FROM comments WHERE user_id=?', uid) },
       chat_messages: has('chat_messages') ? all('SELECT id, room, body, created_ts FROM chat_messages WHERE user_id=? AND deleted=0', uid) : [],
+      // Web Push devices (§31): metadata only; endpoints and keys are capability secrets and stay encrypted server-side.
+      push_devices: has('push_subscriptions') ? all('SELECT id, label, service, created_at, last_success_ts FROM push_subscriptions WHERE user_id=?', uid) : [],
       perps: has('perp_accounts') ? { account: all('SELECT * FROM perp_accounts WHERE user_id=?', uid)[0] || null, positions: all('SELECT * FROM perp_positions WHERE user_id=?', uid), orders: all('SELECT * FROM perp_orders WHERE user_id=?', uid) } : null,
       security: {
         two_factor: auth.mfaEnabled(uid), sessions: all('SELECT sid, device, ip_prefix, created_at, last_seen_ms FROM sessions WHERE user_id=?', uid),
@@ -712,6 +714,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
       db.prepare('DELETE FROM mfa WHERE user_id=?').run(uid);
       if (has('passkeys')) db.prepare('DELETE FROM passkeys WHERE user_id=?').run(uid);
       if (has('oauth_links')) db.prepare('DELETE FROM oauth_links WHERE user_id=?').run(uid);
+      if (has('push_subscriptions')) { db.prepare('DELETE FROM push_outbox WHERE user_id=?').run(uid); db.prepare('DELETE FROM push_subscriptions WHERE user_id=?').run(uid); } // Web Push (§31)
       compliance.forgetUser(uid);
       // The account row stays (ledger, fills and audit keep their references) without personal data.
       db.prepare('UPDATE users SET email=?, display_name=?, password_hash=? WHERE id=?').run(`closed+${uid.slice(-12)}@closed.invalid`, 'Closed account', pw.UNUSABLE('account-closed'), uid);

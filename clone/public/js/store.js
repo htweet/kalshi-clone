@@ -4,6 +4,8 @@ import { socket } from './ws.js';
 import { toast } from './lib.js';
 import { setUiPrefs, resetUiPrefs } from './prefs.js';
 
+export const logoutHooks = []; // async (uid) => void, run before the sign-out request
+
 class Observable {
   constructor() { this.subs = new Set(); }
   subscribe(fn) { this.subs.add(fn); return () => this.subs.delete(fn); }
@@ -132,6 +134,8 @@ class SessionStore extends Observable {
   }
 
   async logout() {
+    // Work that needs the session one last time (pwa.js: this browser's Web Push subscription is removed).
+    for (const h of logoutHooks) { try { await h(this.uid); } catch { /* best effort */ } }
     try { await api.logOut(); } catch { /* ignore */ }
     csrf.clear();
     for (const u of this.unsubs) u();

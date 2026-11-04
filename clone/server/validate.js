@@ -24,7 +24,7 @@ const BODY_LIMITS = [
   [/^\/v1\/users\/[^/]+\/chat\//, '4kb'],
   [/^\/v1\/users\/[^/]+\/social\//, '8kb'],
   [/^\/v1\/users\/[^/]+\/groups\b/, '8kb'], // group chats (Phase 2, server/groups.js)
-  [/^\/v1\/users\/[^/]+\/(mfa|notifications)\b/, '4kb'],
+  [/^\/v1\/users\/[^/]+\/(mfa|notifications|push_subscriptions)\b/, '4kb'], // push_subscriptions: Web Push (CLONE_SPEC §31)
   [/^\/v1\/admin\/catalog\/import$/, '256kb'], // CSV import: a few hundred rows
   [/^\/v1\/admin\//, '64kb'],
 ];
@@ -154,6 +154,10 @@ const SCHEMAS = {
   cryptoWallet: { address: { type: 'string', maxLen: 80, required: true }, network: { type: 'string', maxLen: 16 }, label: { type: 'string', maxLen: 40 } },
   cryptoSimulate: { amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
   paymentChallenge: { result: { type: 'string', enum: ['approve', 'fail'], required: true } },
+  // Web Push subscriptions (server/webpush.js, CLONE_SPEC.md §31): PushSubscription.toJSON() with snake_case expiry.
+  // The handler checks the endpoint (https, known push service) and the key encodings and lengths.
+  pushSubscribe: { endpoint: { type: 'string', maxLen: 2048, required: true }, keys: { type: 'object', required: true }, expiration_time: { type: 'number', nullable: true }, label: { type: 'string', maxLen: 60 } },
+  pushUnsubscribe: { endpoint: { type: 'string', maxLen: 2048, required: true } },
   empty: {},
   // Admin › Settings › Currency & defaults (server/admin.js, CLONE_SPEC.md §30); nested objects are checked by the handler.
   adminCurrency: { display_currency: { type: 'object' }, account_defaults: { type: 'object' }, reason: { type: 'string', maxLen: 500 } }, // reason required by the handler (authorization errors keep precedence)
@@ -194,6 +198,9 @@ const ROUTES = [
   ['POST', /^\/users\/([^/]+)\/crypto\/wallets$/, 'cryptoWallet', { unknown: 'reject' }, 'owner'],
   ['POST', /^\/users\/([^/]+)\/crypto\/withdrawal$/, 'cryptoPayout', { unknown: 'reject' }, 'owner'],
   ['POST', /^\/users\/([^/]+)\/crypto\/simulate_deposit$/, 'cryptoSimulate', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/push_subscriptions$/, 'pushSubscribe', { unknown: 'reject' }, 'owner'],
+  ['DELETE', /^\/users\/([^/]+)\/push_subscriptions$/, 'pushUnsubscribe', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/users\/([^/]+)\/push_subscriptions\/[^/]+\/test$/, 'empty', { unknown: 'reject' }, 'owner'],
   ['POST', /^\/admin\/catalog\/(series|events|markets|import|[^/]+\/[^/]+\/publish)$/, 'adminCatalog', { maxKeys: 64 }, 'staff'],
   ['PUT', /^\/admin\/catalog\/(series|events|markets)\/[^/]+$/, 'adminCatalog', { maxKeys: 64 }, 'staff'],
 ];

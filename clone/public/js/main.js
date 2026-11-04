@@ -22,7 +22,8 @@ import * as sports from './views/sports.js';
 import { startLivePatcher } from './views/scoreboard.js';
 import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
 import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (CLONE_SPEC.md §25)
-import { menuHtml, wireMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
+import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
+import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
@@ -192,7 +193,9 @@ function renderAccount() {
   const el = document.getElementById('account-area');
   if (!session.loaded) { el.innerHTML = ''; return; }
   if (!session.user) {
-    el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>Log in</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>Sign up</a>`;
+    el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>Log in</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>Sign up</a>${guestMenuButton()}`;
+    const g = el.querySelector('#guest-btn'); // signed-out ☰, only while the app can be installed (CLONE_SPEC §31.6)
+    if (g) g.onclick = (e) => { const m = toggleMenu(e.currentTarget, guestMenuHtml(), 'hamburger-menu'); if (m) wireGuestMenu(m, { close: closeMenus }); };
     return;
   }
   const nick = session.nickname || session.user.display_name;
@@ -227,7 +230,7 @@ function showBrowserPush(p) {
   try { id = localStorage.getItem('plx-push-device'); } catch { /* storage unavailable */ }
   if (!id || !Array.isArray(p.devices) || !p.devices.includes(id)) return;
   window.dispatchEvent(new CustomEvent('parlance:push', { detail: p }));
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || thisDevice()) return; // Web Push shows it instead
   try { const n = new Notification(String(p.title || 'Parlance'), { body: String(p.body || ''), tag: String(p.id || '') }); n.onclick = () => { window.focus(); if (p.link && String(p.link).startsWith('/')) navigate(p.link); }; } catch { /* not supported */ }
 }
 
@@ -292,5 +295,7 @@ renderAccount();
 socket.subscribe({ channels: ['display_currency'] }, (m) => { if (m.type === 'display_currency') setCurrency(m.msg); });
 let booted = false;
 onCurrency(() => { renderAccount(); if (booted) render(); });
+initPwa();
+window.addEventListener('parlance:install-state', () => { if (!session.user) renderAccount(); }); // signed-out ☰ with "Install app"
 Promise.all([session.load(), loadSite()]).then(() => { booted = true; socket.connect(); render(); });
 window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

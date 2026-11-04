@@ -7,6 +7,7 @@ const idem = () => ({ idempotencyKey: newIdempotencyKey() });
 
 export const payApi = {
   metadata: (uid) => request('GET', u(uid, '/payments/metadata')),
+  testCards: (uid) => request('GET', u(uid, '/payments/sandbox/test_cards')), // sandbox only (404 in production)
   networks: () => request('GET', '/v1/payments/supported_networks'),
   withdrawalTimes: (uid) => request('GET', u(uid, '/withdrawal_times')),
   creditHistory: (uid) => request('GET', u(uid, '/credit_history')),

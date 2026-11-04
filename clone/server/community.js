@@ -12,7 +12,7 @@ const { mountNotifyPrefs } = require('./notify-prefs');
 const { mountGroups } = require('./groups');
 const { mountChatExtras } = require('./chat-extras');
 
-function mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEvent }) {
+function mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEvent, webpush = null }) {
   const getFeat = () => feat;
   const rolesOf = admin.rolesOf;
   const can = admin.can;
@@ -21,7 +21,7 @@ function mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEven
   const circle = mountCircle({ v1, db, requireUser, rolesOf, getFeat, isMuted });
   social = mountSocial2({ v1, db, engine, requireUser, can, rolesOf, getFeat, circle, getEvent });
   social.attachFeatures(feat);
-  const prefs = mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getFeat, isMuted });
+  const prefs = mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getFeat, isMuted, webpush });
   feat.hooks.notifyGate = prefs.gate;
   const groups = mountGroups({ v1, app, db, engine, requireUser, rolesOf, can, getFeat, social, circle });
   let chatExtras = null;

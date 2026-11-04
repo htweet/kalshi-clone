@@ -8,7 +8,7 @@
 //   - mutes: a notification caused by someone the recipient muted is dropped;
 //   - type × channel: in-app (inbox row + live toast), email (the dev mailbox `email_outbox`, no SMTP) and push (the
 //     dev push outbox `notif_deliveries`, delivered live to the user's registered browsers, which show a browser
-//     Notification when the user turned that on);
+//     Notification when the user turned that on, and as real Web Push to every subscribed device, server/webpush.js);
 //   - sub-options: trade confirmations every fill vs when the order completes, auto-cancel reasons, price-move
 //     threshold / window, sports major-event moments;
 //   - quiet hours: email and push are held (status `deferred`) until the window ends; in-app rows are stored
@@ -117,7 +117,7 @@ function inQuiet(q, ms = Date.now()) {
 // Epoch ms when the current quiet window ends (next minute boundary at `end` in the user's zone).
 const quietEndsAt = (q, ms = Date.now()) => { const d = (toMin(q.end) - minutesIn(q.timezone, ms) + 1440) % 1440 || 1440; return Math.floor(ms / 60000) * 60000 + d * 60000; };
 
-function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getFeat, isMuted }) {
+function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getFeat, isMuted, webpush = null }) {
   db.exec(SCHEMA);
   // New-account default channels (Admin › Currency & defaults, CLONE_SPEC.md §30) switch a channel off on every row offering it.
   currency.hooks.channelTypes = () => TYPES.map(([key, , , offered]) => ({ key, offered }));
@@ -159,6 +159,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
       }) })),
       quiet_hours: q, in_quiet_hours: inQuiet(q), security_notifications: p.security,
       push_devices: db.prepare('SELECT COUNT(*) c FROM push_devices WHERE user_id=?').get(uid).c,
+      web_push: webpush ? { public_key: webpush.publicKey(), devices: db.prepare('SELECT COUNT(*) c FROM push_subscriptions WHERE user_id=?').get(uid).c } : null,
     };
   }
   function parseOptions(t, v, cur) {
@@ -273,7 +274,9 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
       db.prepare("UPDATE notif_deliveries SET status='sent', sent_ts=? WHERE id=?").run(now, d.id);
     } else {
       const devices = db.prepare('SELECT id FROM push_devices WHERE user_id=?').all(d.user_id).map((x) => x.id);
-      db.prepare('UPDATE notif_deliveries SET status=?, devices=?, sent_ts=? WHERE id=?').run(devices.length ? 'sent' : 'no_device', devices.length, now, d.id);
+      // Web Push (server/webpush.js, CLONE_SPEC §31): one encrypted outbox row per subscribed browser, sent by its pump.
+      const web = webpush ? webpush.enqueueUser(d.user_id, { id: d.id, pref: d.pref, title: d.title, body: d.body, link: d.link }) : 0;
+      db.prepare('UPDATE notif_deliveries SET status=?, devices=?, sent_ts=? WHERE id=?').run(devices.length || web ? 'sent' : 'no_device', devices.length + web, now, d.id);
       if (devices.length) {
         db.prepare('UPDATE push_devices SET last_seen_at=? WHERE user_id=?').run(nowIso(), d.user_id);
         engine.emit('push', d.user_id, { id: d.id, type: d.type, title: d.title, body: d.body, link: d.link, devices });

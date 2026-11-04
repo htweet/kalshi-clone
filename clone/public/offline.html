@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{offline.document_title}}</title>
+  <!-- Template of the static page the service worker (sw.js) shows when a page cannot be loaded. Double-brace placeholders
+       are filled, HTML-escaped, from public/js/content/pwa-strings.js by the build (dist/offline.html) and the dev
+       server (server/content/pwa.js renderOffline). No scripts and no inline styles: it is served with its own strict
+       CSP (server/pwa-static.js) and holds no user data. The build also points the stylesheet links at the hashed
+       bundle (scripts/build.js). "Retry" links to the current address. -->
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/fonts.css">
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/utilities.css">
+  <link rel="stylesheet" href="/pwa.css">
+</head>
+<body class="offline-body">
+  <main class="offline-page" data-testid="offline-page">
+    <img class="offline-mark" src="/icons/icon.svg" alt="" width="64" height="64">
+    <h1 class="page-title m-0">{{offline.heading}}</h1>
+    <p class="muted m-0">{{offline.body}}</p>
+    <div class="offline-actions"><a class="btn btn-primary btn-pill" href="" data-testid="offline-retry">{{offline.retry}}</a><a class="btn btn-pill" href="/">{{offline.home}}</a></div>
+  </main>
+</body>
+</html>

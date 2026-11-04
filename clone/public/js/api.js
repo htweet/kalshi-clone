@@ -268,6 +268,13 @@ export const api = {
   pushDevices: (uid) => request('GET', u(uid, '/notifications/push_devices')),
   addPushDevice: (uid, label) => request('POST', u(uid, '/notifications/push_devices'), { label }),
   removePushDevice: (uid, id) => request('DELETE', u(uid, `/notifications/push_devices/${encodeURIComponent(id)}`)),
+  // Web Push (server/webpush.js, CLONE_SPEC.md §31).
+  pushPublicKey: () => request('GET', '/v1/push/vapid_public_key'),
+  pushSubscriptions: (uid) => request('GET', u(uid, '/push_subscriptions')),
+  addPushSubscription: (uid, b) => request('POST', u(uid, '/push_subscriptions'), b),
+  removePushSubscription: (uid, id) => request('DELETE', u(uid, `/push_subscriptions/${encodeURIComponent(id)}`)),
+  removePushEndpoint: (uid, endpoint) => request('DELETE', u(uid, '/push_subscriptions'), { endpoint }),
+  testPushSubscription: (uid, id) => request('POST', u(uid, `/push_subscriptions/${encodeURIComponent(id)}/test`), {}),
   moveSubs: (uid, ticker) => request('GET', u(uid, `/notifications/price_movement_subscriptions${qs({ market_ticker: ticker })}`)),
   addMoveSub: (uid, b) => request('POST', u(uid, '/notifications/price_movement_subscriptions'), b),
   deleteMoveSub: (uid, id) => request('DELETE', u(uid, `/notifications/price_movement_subscriptions${qs({ id })}`)),
