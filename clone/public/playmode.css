@@ -12,6 +12,9 @@
 .balance-chip.play .label { color: var(--warn); }
 .pay-notice { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--no); border-radius: var(--rounded-x20); background: var(--no-x20); font-size: var(--fs-sm); line-height: var(--lh-sm); display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .pay-blocked h2 { margin-top: 0; }
+/* The panel pulls its intro paragraph up under a plain h2; the chip + heading row needs its own spacing. */
+.play-deposit .play-deposit-head { margin-bottom: var(--space-3); }
+.play-deposit .play-deposit-head + p.muted { margin-top: 0; }
 .play-deposit .pay-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
 
 /* Admin lists used by the flag history and the play-mode pages. */

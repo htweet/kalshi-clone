@@ -25,7 +25,7 @@ export async function render({ el, params, navigate }) {
   document.title = tx('funds.render.parlance', { value: mode === 'deposit' ? tx('funds.render.deposit') : mode === 'withdraw' ? tx('funds.render.withdraw') : tx('funds.render.transfers') });
   el.innerHTML = `<div class="pay" data-testid="funds" data-mode="${esc(mode)}"><div class="page-head pay-head"><h1 class="typ-title-x10">${mode === 'deposit' ? te('funds.render.deposit') : mode === 'withdraw' ? te('funds.render.withdraw') : te('funds.render.transfers')}</h1>
     <nav class="seg" aria-label="${te('funds.render.transfers')}"><a class="${mode === 'overview' ? 'on' : ''}" href="/funds" data-link>${te('funds.render.overview')}</a><a class="${mode === 'deposit' ? 'on' : ''}" href="/funds/deposit" data-link data-testid="nav-deposit">${te('funds.render.deposit')}</a><a class="${mode === 'withdraw' ? 'on' : ''}" href="/funds/withdraw" data-link data-testid="nav-withdraw">${te('funds.render.withdraw')}</a></nav></div>
-    <p class="faint pay-sandbox" data-testid="sandbox-note">${te('funds.render.sandbox_test_cards_test_banks')}</p><div data-body></div></div>`;
+    <p class="faint pay-sandbox" data-testid="sandbox-note">${playOn() ? te('funds.render.play_note') : te('funds.render.sandbox_test_cards_test_banks')}</p><div data-body></div></div>`;
   const body = el.querySelector('[data-body]');
   const unsubs = [];
   const onPayment = (fn) => unsubs.push(socket.subscribe({ channels: ['payments'] }, (m) => { if (m.type === 'payment') fn(m.msg); }));
@@ -185,7 +185,7 @@ function blocked(body, kind) {
 async function playDepositFlow(body) {
   const draw = async () => {
     const { play_money: pm } = await request('GET', `/v1/users/${encodeURIComponent(session.uid)}/play_money`);
-    body.innerHTML = `<section class="card panel play-deposit" data-testid="play-deposit"><div class="d-flex ai-center gap-8">${playLabel()}<h2 class="m-0">${te('funds.play.title')}</h2></div>
+    body.innerHTML = `<section class="card panel play-deposit" data-testid="play-deposit"><div class="d-flex ai-center gap-8 play-deposit-head" data-testid="play-deposit-head">${playLabel()}<h2 class="m-0">${te('funds.play.title')}</h2></div>
       <p class="muted">${te('funds.play.intro')}</p>
       <p class="faint" data-testid="play-cap">${pm.daily_cap_dollars == null ? te('funds.play.no_cap') : te('funds.play.cap', { cap: esc(money(pm.daily_cap_dollars)), left: esc(money(pm.left_today_dollars)) })}</p>
       <form class="pay-form" data-play novalidate><label class="field">${te('funds.play.amount')}<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" data-testid="play-amount" placeholder="${esc(T('input.amount_placeholder', { symbol: currency.symbol }))}"></label>

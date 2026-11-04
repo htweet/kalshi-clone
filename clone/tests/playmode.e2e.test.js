@@ -156,6 +156,15 @@ test('signup bonus on every new account, free play deposits with a daily cap, wi
   await p.goto(BASE + '/funds/deposit');
   await p.waitForSelector('[data-testid=play-deposit]');
   assert.equal(await p.locator('[data-testid=fund-method]').count(), 0, 'no payment methods in play mode');
+  // The page says play money (not "sandbox test cards"), and the chip + heading row never overlaps the intro text.
+  await p.waitForSelector('[data-testid=sandbox-note]:has-text("Play mode")');
+  assert.doesNotMatch(await p.textContent('[data-testid=sandbox-note]'), /test cards/);
+  const gap = await p.evaluate(() => {
+    const head = document.querySelector('[data-testid=play-deposit-head]').getBoundingClientRect();
+    const intro = document.querySelector('[data-testid=play-deposit-head] + p').getBoundingClientRect();
+    return intro.top - head.bottom;
+  });
+  assert.ok(gap >= 0, `the intro starts below the heading row (gap ${gap}px)`);
   assert.match(await p.textContent('[data-testid=play-cap]'), /₦10,000/);
   await p.fill('[data-testid=play-amount]', '6000');
   await p.click('[data-testid=play-submit]');

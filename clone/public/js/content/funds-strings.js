@@ -10,6 +10,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "funds.render.transfers": "Transfers",
   "funds.render.overview": "Overview",
   "funds.render.sandbox_test_cards_test_banks": "Sandbox: test cards, test banks and a test chain only. No real money moves.",
+  "funds.render.play_note": "Play mode: deposits are free play money. No card, bank or crypto payment is used, and nothing can be withdrawn.",
   "funds.balances_html.cash_balance": "Cash balance",
   "funds.balances_html.withdrawable": "Withdrawable",
   "funds.balances_html.non_withdrawable_credits": "Non-withdrawable credits",
