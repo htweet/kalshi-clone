@@ -108,6 +108,28 @@ Size: S ≈ a day, M ≈ 2–4 days, L ≈ a week+, for one engineer with this c
 - P5.4 AI news summaries/timeline from the platform's own news items (LLM API behind the server, cached, citations, safety filtering, cost caps).
 - Security gate: market-creation permissions, resolution integrity (two-person rule option), prompt-injection handling for AI summaries.
 
+### Phase 5C — Content management (CMS) for everything user-facing (L)
+Owner requirement (2026-11-04): every frontend value, text, image, notification and email template is managed in the
+admin panel; only technical configuration stays in code. Runs after the Naira and PWA branches merge and before Phase 6,
+so later phases build on it.
+- C.1 **Text catalog:** every UI string is a keyed entry with a code default; admin overrides in Admin › Content › Texts
+  (search by page and section, in-context preview, typed variables such as `{amount}`, plain text or sanitised rich text,
+  locale-ready, default `en-NG`).
+- C.2 **Media library:** upload and replace logo, favicon and PWA icons, hero and promo art, category and hub images,
+  email header. Server-side re-encode (metadata stripped, type checked), no SVG uploads, size limits, slots per usage.
+- C.3 **Notification and email templates:** in-app title and body, push, email subject plus HTML and text bodies, SMS,
+  per notification type; shared email layout (header, footer, legal); preview with sample data; test-send to the dev
+  mailbox.
+- C.4 **Pages:** terms, privacy, responsible trading, help and FAQ, incentive terms, footer links; slugs, SEO title and
+  description, scheduled publishing.
+- C.5 **Branding and values:** brand and YES colours (contrast-checked), logo and app name (drives the PWA manifest),
+  alongside the existing settings, payments and Currency & defaults panels.
+- C.6 **Governance:** editor and publisher roles; draft, preview, publish, schedule; version history and one-click
+  rollback; hash-chained audit; step-up for legal pages; live updates without restart; JSON export and import.
+- C.7 **Enforcement:** a test that fails when user-facing text is hard-coded in views (like the §27 token check).
+- Security gate: all CMS content escaped or sanitised (allowlist), no raw HTML or script, logic-free templates with
+  declared variables only, upload validation and re-encoding, permission checks, rate limits.
+
 ### Phase 6 — Perps completion (M)
 - P6.1 Amend/decrease, order groups, subaccounts and transfers, trailing stops.
 - P6.2 Size-tiered margin and the portfolio maintenance-margin model; fractional perps.
@@ -228,6 +250,9 @@ The project is complete only when **all** of the following hold:
 | 5A Trading core | ✅ built on `phase-5a` (CLONE_SPEC.md §28): P5.1 price grids (`linear_cent`, `deci_cent`, `tapered`, combo `center_deci_edge_centi_cent`) stored in centi-cents with fractional quantities through book, matching, validation, ticket, order book, chart and REST/WS; G1 per-order fee accumulator (exact micro-dollar fees, one rounding cent per order, journal split `house:fees` / `house:fees:rounding`); scalar markets (P5.2 core: floor/cap payout, floored per holder, rounding to the house, desk value entry, seeded `PLXGDP-26Q4`); A7 order review (skippable) and auto-sell prompt; A8 flip sell; A9 MECNET collateral return journaled as an advance; G6 settlement correction with claw-back, Phase 4 debt rule, step-up, audit chain and notifications; two-person rule; market-creation permissions; G12 combos on the finer grid and the HVM 3 s window; `trading-core.e2e` suite (10 scenarios). Residual: tick bands and the tapered name are design choices, conservative MECNET guarantee, corrections do not cascade into combos (§28.11) |
 | 5 Markets & content | pending |
 | 5B Markets & content | ✅ built on `phase-5b` (CLONE_SPEC.md §29): P5.2 sports derivatives (spread and total events per game, Monte Carlo fair values from the game's own simulation, settled from the final score), G9 (Icebound Hockey League with periods, power plays, OT and shootout; running clocks for every sport incl. tennis match time and esports map time; live event header label), calendar `event_limits` with "+N more" (U16 resolved as a design choice), P5.3 ballot lookup on invented jurisdictions (no address stored; only a saved jurisdiction id; rate limited), P5.4 AI news summaries + timeline (offline extractive default with citations; optional Claude adapter only with `ANTHROPIC_API_KEY` + `AI_SUMMARY_MODEL`; cache by news-set hash; daily request/token budget with extractive fallback; delimited input, validated output, blocklist; admin hide/regenerate audited and rate limited), A13 Liquidity Incentive Program (programs, Active/Upcoming, monthly/lifetime rewards, region gating, terms, accrual formula from resting liquidity, cash/credit payouts through the journal, admin), A15 hub widgets (Senate map, Fed funds outlook, event forecast history); `markets-content` suite (8 scenarios). Phase 5A items (sub-cent grids, fee accumulator, scalar markets, order review, flip sell, collateral return, resolution reversal, combos) are on `phase-5a` |
+| 5C Content management (CMS) | pending: next after the Naira and PWA branches merge (owner requirement 2026-11-04: all user-facing content admin-managed) |
+| Currency & defaults (NGN) | in progress on `naira` |
+| PWA | in progress on `pwa` (owner requirement: must not be missed) |
 | 6 Perps completion | pending |
 | 7 Public API | pending |
 | 8 Growth & reach | pending |
