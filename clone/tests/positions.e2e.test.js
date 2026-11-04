@@ -138,9 +138,16 @@ test('Sell sheet: partial market sell returns exactly the estimated cash; Max se
   assert.equal(usd(bal(P) - b0), est);
   await pp.waitForSelector(`tr[data-ticker="${RAV}"] [data-testid=p-qty]:has-text("6")`);
   // Over-size is refused in the sheet; Max fills the held size.
+  // The sheet's first estimate (for the full position) is held back until after an invalid size is typed: the late
+  // quote must not overwrite the validation message.
+  let release; const held = new Promise((r) => { release = r; });
+  await pp.route('**/sell_quote*', async (route) => { await held; route.continue(); });
   await pp.click(`tr[data-ticker="${CUT}"] [data-sell]`);
   await pp.fill('#s-count', '9');
   await pp.waitForSelector('[data-testid=sell-estimate]:has-text("Enter up to 2.37")');
+  release(); await pp.waitForTimeout(500);
+  await pp.unroute('**/sell_quote*');
+  assert.match(await pp.textContent('[data-testid=sell-estimate]'), /Enter up to 2\.37/, 'a late quote never replaces the newer message');
   assert.equal(await pp.isDisabled('[data-testid=sell-submit]'), true);
   await pp.click('[data-testid=sell-max]');
   await pp.waitForSelector('[data-testid=sell-proceeds]');

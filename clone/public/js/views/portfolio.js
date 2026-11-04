@@ -143,14 +143,14 @@ export async function render({ el, navigate, query }) {
     wrap.onclick = (e) => { if (e.target === wrap) close(); };
     let seq = 0;
     const estimate = async () => {
+      const my = ++seq; // any newer input (valid or not) supersedes a quote still in flight
       const c = Number($s('#s-count').value); const type = $s('#s-type').value; const pxv = Number($s('#s-price').value);
       $s('#s-price-wrap').hidden = type !== 'limit';
       const ok = c > 0 && c <= held && (/^\d+(\.\d{1,2})?$/.test($s('#s-count').value)) && (x.fractional_trading_enabled || Number.isInteger(c) || c === held);
       $s('[data-testid=sell-submit]').disabled = !ok || (type === 'limit' && !(pxv > 0 && pxv < 100 && Math.abs(Math.round(pxv * 100) - pxv * 100) < 1e-6));
       if (!ok) { $s('[data-testid=sell-estimate]').textContent = tx('portfolio.render.enter_up_to_contracts', { qty: qty(x.position_fp), value: x.fractional_trading_enabled ? (' ' + tx('portfolio.render.n2_decimals')) : '' }); return; }
       if (type === 'limit') { $s('[data-testid=sell-estimate]').textContent = T('portfolio.proceeds_at', { price: pxc(Math.round(pxv * 100)), amount: money((c * pxv) / 100) }); return; }
-      const my = ++seq;
-      try { const q = await api.sellQuote(uid, x.ticker, c.toFixed(2)); if (my === seq) $s('[data-testid=sell-estimate]').innerHTML = `${te('portfolio.render.est_proceeds')} <strong data-testid="sell-proceeds">${money(q.proceeds_dollars)}</strong> ${te('portfolio.render.fee', { money: money(q.fee_dollars), value: q.complete ? '' : (' ' + te('portfolio.render.only_can_fill_now', { qty: qty(q.fillable_fp) })) })}`; } catch (e) { $s('[data-testid=sell-estimate]').textContent = e.message; }
+      try { const q = await api.sellQuote(uid, x.ticker, c.toFixed(2)); if (my === seq) $s('[data-testid=sell-estimate]').innerHTML = `${te('portfolio.render.est_proceeds')} <strong data-testid="sell-proceeds">${money(q.proceeds_dollars)}</strong> ${te('portfolio.render.fee', { money: money(q.fee_dollars), value: q.complete ? '' : (' ' + te('portfolio.render.only_can_fill_now', { qty: qty(q.fillable_fp) })) })}`; } catch (e) { if (my === seq) $s('[data-testid=sell-estimate]').textContent = e.message; }
     };
     $s('#s-count').oninput = estimate; $s('#s-price').oninput = estimate; $s('#s-type').onchange = estimate;
     $s('[data-testid=sell-max]').onclick = () => { $s('#s-count').value = String(held); estimate(); };
