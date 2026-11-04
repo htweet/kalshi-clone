@@ -41,6 +41,16 @@ const REGISTRY = [
   ['combos', 'markets', null, 'both'],
   ['combos.rfq', 'markets', 'combos', 'both'],
   ['perps', 'markets', null, 'both'],
+  // Phase 6 (CLONE_SPEC.md §34). perps.waitlist on = the waitlist gate is active (access by invitation), so it starts off.
+  ['perps.subaccounts', 'markets', 'perps', 'both'],
+  ['perps.portfolio_margin', 'markets', 'perps', 'both'],
+  ['perps.order_groups', 'markets', 'perps', 'both'],
+  ['perps.amend', 'markets', 'perps', 'both'],
+  ['perps.trailing_stops', 'markets', 'perps', 'both'],
+  ['perps.fractional', 'markets', 'perps', 'both'],
+  ['perps.apy', 'markets', 'perps', 'both'],
+  ['perps.referrals', 'markets', 'perps', 'both'],
+  ['perps.waitlist', 'markets', 'perps', 'both', false],
   ['sports', 'sports', null, 'both'],
   ['sports.lines', 'sports', 'sports', 'both'],
   ['sports.live_clocks', 'sports', 'sports', 'client'],
@@ -88,6 +98,9 @@ const ORDERS = /^\/users\/[^/]+\/orders$/;
 const R = (method, re, opts = {}) => ({ method, re, ...opts });
 const typeIs = (t) => (req) => (req.body && typeof req.body === 'object' ? (req.body.type || 'limit') : 'limit') === t;
 const fractionalCount = (req) => { const b = req.body || {}; const raw = b.count_fp ?? b.count; return raw != null && /\.\d*[1-9]/.test(String(raw)); };
+const bodyOf = (req) => (req.body && typeof req.body === 'object' ? req.body : {});
+const nonZeroSub = (req) => { const v = bodyOf(req).subaccount; return v != null && v !== '' && Number(v) !== 0; };
+const PERPS_ORDERS = /^\/perps\/orders$/;
 const ROUTE_RULES = {
   trading: [R('POST', ORDERS), R('POST', /^\/users\/[^/]+\/orders\/[^/]+\/(amend|decrease)$/)],
   'trading.limit_orders': [R('POST', ORDERS, { when: typeIs('limit') })],
@@ -101,6 +114,15 @@ const ROUTE_RULES = {
   combos: [R('*', /^\/multivariate_event_collections(\/|$)/), R('GET', /^\/combos\//), R('*', /^\/users\/[^/]+\/(combos|combo_slip)$/)],
   'combos.rfq': [R('*', /^\/communications\//)],
   perps: [R('*', /^\/perps\/(?!admin\/)/)],
+  'perps.subaccounts': [R('*', /^\/perps\/subaccounts(\/|$)/, { user: true }), R('POST', /^\/perps\/(orders|transfers|order_groups)$/, { when: nonZeroSub })],
+  'perps.portfolio_margin': [R('*', /^\/perps\/subaccounts(\/[^/]+)?$/, { when: (req) => bodyOf(req).margin_mode === 'cross' })],
+  'perps.order_groups': [R('*', /^\/perps\/order_groups(\/|$)/, { user: true }), R('POST', PERPS_ORDERS, { when: (req) => !!bodyOf(req).order_group_id })],
+  'perps.amend': [R('POST', /^\/perps\/orders\/[^/]+\/(amend|decrease)$/)],
+  'perps.trailing_stops': [R('PUT', /^\/perps\/positions\/[^/]+\/exit_trigger$/, { when: (req) => String(bodyOf(req).kind || '').toLowerCase() === 'trailing' })],
+  'perps.fractional': [R('POST', PERPS_ORDERS, { when: fractionalCount })],
+  'perps.apy': [R('GET', /^\/perps\/apy$/, { user: true })],
+  'perps.referrals': [R('*', /^\/perps\/referrals(\/|$)/, { user: true })],
+  'perps.waitlist': [R('*', /^\/perps\/waitlist$/, { user: true })],
   sports: [R('GET', /^\/sports\//), R('GET', /^\/live_data\/(feed|batch|milestone\/|[a-z_]+\/milestone\/)/), R('GET', /^\/milestones(\/|$)/)],
   'sports.lines': [R('POST', ORDERS, { when: (req, ctx) => ctx.isLinesMarket(req.body && req.body.ticker) })],
   social: [R('*', /^\/social\//), R('*', /^\/users\/[^/]+\/social\//), R('GET', /^\/search\/social_profiles$/), R('*', /^\/users\/[^/]+\/notifications\/social_account_subscriptions$/)],
@@ -144,12 +166,12 @@ const CORE_ROUTES = [
 ];
 // Every mount* module wired in server/app.js → the flag that switches it (or 'core'). Checked by the enforcement test.
 const MODULE_FLAGS = {
-  mountFeatures: 'core', mountRolling: 'trading.rolling', mountPerps: 'perps', mountCombos: 'combos', mountHistory: 'core', mountOrders: 'core', mountPositions: 'core',
+  mountFeatures: 'core', mountRolling: 'trading.rolling', mountPerps: 'perps', mountPerpsOps: 'perps', mountCombos: 'combos', mountHistory: 'core', mountOrders: 'core', mountPositions: 'core',
   mountTradingCore: 'trading', mountSports: 'sports', mountAdmin: 'core', mountChat: 'social.chat', mountCommunity: 'social', mountWebPush: 'pwa.push', mountIdentity: 'identity.kyc',
   mountAccountArea: 'core', mountPayments: 'payments.deposits', mountMarketsContent: 'incentives', mountCms: 'core', mountFlags: 'core', mountPlayMode: 'play.free_deposits', mountCentralBank: 'central_bank',
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
-const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank'];
+const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank'];
 
 const PERCENT = (n) => Number.isInteger(n) && n >= 0 && n <= 100;
 const SCHEMA = `
@@ -283,7 +305,7 @@ function createFlags({ db, engine, options = {} }) {
       const isAdminPath = /^\/admin\//.test(req.path);
       for (const [key, r] of matchRules(req)) {
         if (isAdminPath && !r.admin) continue;
-        if (!req.auth && !r.public && req.method !== 'GET') continue; // the route answers 401 first
+        if (!req.auth && !r.public && (req.method !== 'GET' || r.user)) continue; // the route answers 401 first (r.user: signed-in reads too)
         if (r.staffBypass && staffEmail(req.body && req.body.email)) continue; // staff can always sign in to fix a flag
         if (!on(key, { req })) return next(disabledError(key));
       }

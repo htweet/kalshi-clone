@@ -119,7 +119,16 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.label.play.signup_bonus": "Signup bonus",
   "admin.flags.label.play.free_deposits": "Free play-money deposits",
   "admin.flags.label.central_bank": "Central Bank / promotions treasury",
-  "admin.flags.label.heist": "Vault Heist"
+  "admin.flags.label.heist": "Vault Heist",
+  "admin.flags.label.perps.subaccounts": "Perps subaccounts and transfers between them",
+  "admin.flags.label.perps.portfolio_margin": "Perps portfolio (cross) margin",
+  "admin.flags.label.perps.order_groups": "Perps order groups (limit and OCO)",
+  "admin.flags.label.perps.amend": "Perps order amend and decrease",
+  "admin.flags.label.perps.trailing_stops": "Perps trailing stops",
+  "admin.flags.label.perps.fractional": "Fractional Perps contracts",
+  "admin.flags.label.perps.apy": "APY on Perps collateral",
+  "admin.flags.label.perps.referrals": "Perps referrals and rewards",
+  "admin.flags.label.perps.waitlist": "Perps waitlist (access by invitation)"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

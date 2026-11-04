@@ -1183,7 +1183,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (!m) throw E.notFound();
     const v = check(req.body || {}, { max_leverage: F.num(1, 100) });
     const reason = reasonOf(req.body);
-    db.prepare('UPDATE perp_markets SET max_leverage=? WHERE ticker=?').run(v.max_leverage, m.ticker);
+    // Tier 1 of the size tiers carries the max leverage (CLONE_SPEC.md §34.4): the tiers are rescaled with it.
+    if (engine.perps && engine.perps.setMaxLeverage) engine.perps.setMaxLeverage(m.ticker, v.max_leverage);
+    else db.prepare('UPDATE perp_markets SET max_leverage=? WHERE ticker=?').run(v.max_leverage, m.ticker);
     audit(req, 'perps.leverage', 'perp_market', m.ticker, { max_leverage: m.max_leverage }, { max_leverage: v.max_leverage }, reason);
     res.json({ market: perpRow(perpGet(m.ticker)) });
   });

@@ -150,6 +150,18 @@ button.perps-lvl:hover { background: var(--fill-x30); }
 .perps-stat span { font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-x30); }
 .perps-stat strong { font-size: var(--fs-xl); line-height: var(--lh-xl); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
+/* Phase 6 (CLONE_SPEC.md §34): subaccount and order-group pickers, forms, waitlist card, row actions */
+.perps-select { width: 100%; min-width: 0; padding: var(--space-2) var(--space-3); border-radius: var(--rounded-x10); border: 1px solid var(--line); background: var(--surface-x10); color: var(--text-x10); font: inherit; font-size: var(--fs-md); line-height: var(--lh-md); }
+.perps-form { display: grid; gap: var(--space-3); align-content: start; min-width: 0; }
+.perps-form .perps-field input { width: 100%; min-width: 0; padding: var(--space-2) var(--space-3); border-radius: var(--rounded-x10); border: 1px solid var(--line); background: var(--surface-x10); color: var(--text-x10); font: inherit; font-size: var(--fs-md); line-height: var(--lh-md); }
+.perps-inline { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); align-items: end; }
+.perps-actions { display: flex; gap: var(--space-1h); flex-wrap: wrap; }
+.perps-sub-pick:not([hidden]) { display: block; }
+.perps-waitlist { display: grid; gap: var(--space-2); }
+.perps-waitlist-pos { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-bold); color: var(--text-x10); }
+.perps-trail-row td, .perps-amend-row td { background: var(--fill-x30); }
+.perps-tpsl input[type=number] { font-size: var(--fs-md); line-height: var(--lh-md); }
+
 @media (max-width: 1100px) {
   .perps-layout { grid-template-columns: minmax(0, 1fr); }
   .perps-side-col { position: static; grid-row: 1; }

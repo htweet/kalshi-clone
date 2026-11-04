@@ -24,6 +24,9 @@ const TYPES = [
   ['rfq_executed', 'Trading', 'RFQ executed'], ['rfq_failed', 'Trading', 'RFQ failed'],
   ['perp_fill', 'Perps', 'Perps order filled'], ['perp_exit_trigger', 'Perps', 'Perps exit trigger'], ['perp_liquidation', 'Perps', 'Perps liquidation'],
   ['margin_transfer_completed', 'Perps', 'Margin transfer completed'], ['margin_funding_payment', 'Perps', 'Funding payment'],
+  // Phase 6 (CLONE_SPEC.md §34): the server composes the wording from server/content/perps.js; these wrap it.
+  ['perps_waitlist_joined', 'Perps', 'Perps waitlist joined'], ['perps_waitlist_approved', 'Perps', 'Perps access unlocked (waitlist)'], ['perps_apy', 'Perps', 'Interest on Perps collateral'],
+  ['referral_reward', 'Money', 'Referral reward'],
   ['transfer', 'Money', 'Deposit or withdrawal'], ['reward', 'Money', 'Reward'], ['market_reward', 'Money', 'Market reward'],
   ['security', 'Account', 'Security alert'], ['account', 'Account', 'Account notice'], ['identity', 'Account', 'Identity verification'], ['admin_approval', 'Account', 'Approval request (staff)'],
   ['social_post', 'Social', 'New post from someone you follow'], ['social_like', 'Social', 'Like'], ['social_comment', 'Social', 'Comment'], ['social_follow', 'Social', 'New follower'],

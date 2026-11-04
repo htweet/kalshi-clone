@@ -18,7 +18,7 @@ const varsOf = (s) => [...new Set([...String(s).matchAll(PH)].map((m) => m[1]))]
 
 // Which SPA route shows an area (Admin › Texts "Preview in context").
 const AREA_ROUTES = {
-  home: '/', shell: '/', browse: '/browse', event: '/browse', portfolio: '/portfolio', watchlist: '/watchlist', calendar: '/calendar', pro: '/pro', perps: '/perps',
+  home: '/', shell: '/', browse: '/browse', event: '/browse', portfolio: '/portfolio', watchlist: '/watchlist', calendar: '/calendar', pro: '/pro', perps: '/perps', perps2: '/perps',
   combos: '/combos', sports: '/sports', scoreboard: '/sports', social: '/social', social2: '/social', 'social-manage': '/social/circle', groups: '/messages', chat: '/browse',
   notifications: '/notifications', 'notification-settings': '/notifications/settings', account: '/account', 'account-settings': '/account/settings', 'account-identity': '/account/privacy',
   'account-activity': '/account/activity', 'account-documents': '/account/taxes', 'account-payments': '/account/payments', 'account-menu': '/', auth: '/sign-in', onboarding: '/sign-up/identity',
@@ -41,6 +41,7 @@ function serverModules() {
   const out = [['currency', cs.STRINGS], ['pwa', pwa.SERVER_STRINGS]];
   try { out.push(['messages', require('../content/messages').STRINGS]); } catch { /* optional */ }
   out.push(['playmode', require('../content/playmode').STRINGS]); // feature flags, play mode, Central Bank (CLONE_SPEC.md §33)
+  out.push(['perps', require('../content/perps').STRINGS]); // Perps completion (CLONE_SPEC.md §34)
   return out;
 }
 

@@ -15,7 +15,8 @@ const DEFAULT_LIMIT = '64kb';
 const BODY_LIMITS = [
   [/^\/v1\/(users\/[^/]+\/docv\/documents|docv\/handoff\/documents)$/, '9mb'], // one ID photo, base64 (Phase 3, server/docv.js)
   [/^\/v1\/users\/[^/]+\/(deposits|withdrawals)$/, '1kb'],
-  [/^\/v1\/perps\/transfers$/, '1kb'],
+  [/^\/v1\/perps\/(transfers|subaccounts\/transfers)$/, '1kb'],
+  [/^\/v1\/perps\/(subaccounts(\/[^/]+)?|order_groups(\/[^/]+(\/reset)?)?|orders\/[^/]+\/(amend|decrease)|referrals\/apply|waitlist)$/, '4kb'], // Phase 6 (CLONE_SPEC.md §34)
   [/^\/v1\/(log_in|log_in_mfa|log_out|client_token)$/, '4kb'],
   [/^\/v1\/users$/, '4kb'],
   [/^\/v1\/users\/[^/]+\/orders(\/[^/]+\/(amend|decrease))?$/, '4kb'],
@@ -123,14 +124,22 @@ const SCHEMAS = {
   amend: { price: NUMISH, price_dollars: NUMISH, count: NUMISH, count_fp: NUMISH, remaining_count: NUMISH, remaining_count_fp: NUMISH, reduce_by: NUMISH, reduce_by_fp: NUMISH, reduce_to: NUMISH, reduce_to_fp: NUMISH, expiration_time: { type: ['string', 'number'], maxLen: 64, nullable: true } },
   // method_id: a payment rail (server/payments.js); without it the demo-funds method.
   money: { amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true }, method_id: { type: 'string', maxLen: 64, pattern: /^[A-Za-z0-9_.:-]+$/ } },
-  perpsTransfer: { direction: S(16), source: S(32), destination: S(32), amount_dollars: NUMISH, amount: NUMISH, client_transfer_id: { ...ID, nullable: true } },
+  perpsTransfer: { direction: S(16), source: S(32), destination: S(32), amount_dollars: NUMISH, amount: NUMISH, client_transfer_id: { ...ID, nullable: true }, subaccount: NUMISH },
+  // Phase 6 (CLONE_SPEC.md §34): amend / decrease, subaccounts, order groups, trailing stops, referrals, waitlist.
+  perpsAmend: { price: NUMISH, price_dollars: NUMISH, count: NUMISH, count_fp: NUMISH, client_order_id: { ...S(64), nullable: true } },
+  perpsDecrease: { reduce_by: NUMISH, reduce_by_fp: NUMISH, reduce_to: NUMISH, reduce_to_fp: NUMISH },
+  perpsSubaccount: { name: { type: 'string', maxLen: 40 }, margin_mode: S(16) },
+  perpsSubTransfer: { from_subaccount: NUMISH, to_subaccount: NUMISH, amount_dollars: NUMISH, amount: NUMISH, client_transfer_id: { ...ID, nullable: true } },
+  perpsGroup: { kind: S(8), contracts_limit: NUMISH, contracts_limit_fp: NUMISH, subaccount: NUMISH },
+  perpsExitTrigger: { kind: S(16), take_profit_price: { ...NUMISH, nullable: true }, stop_loss_price: { ...NUMISH, nullable: true }, trail_percent: { ...NUMISH, nullable: true }, trail_amount: { ...NUMISH, nullable: true }, count: { ...NUMISH, nullable: true }, subaccount: NUMISH },
+  perpsReferral: { code: { type: 'string', maxLen: 32, required: true } },
   perpsOrder: {
     ticker: S(64), side: S(8), action: S(8), direction: S(16), type: S(16), time_in_force: TIF, count: NUMISH, count_fp: NUMISH, price: NUMISH, price_dollars: NUMISH, leverage: NUMISH,
-    client_order_id: { ...S(64), nullable: true }, reduce_only: FLAG, post_only: FLAG,
+    client_order_id: { ...S(64), nullable: true }, reduce_only: FLAG, post_only: FLAG, subaccount: NUMISH, order_group_id: { ...ID, nullable: true },
     take_profit: { type: ['object', 'number', 'string'], nullable: true, maxLen: 32 }, stop_loss: { type: ['object', 'number', 'string'], nullable: true, maxLen: 32 },
     expiration_time: { type: ['string', 'number'], maxLen: 64, nullable: true },
   },
-  perpsClose: { percent: { type: ['number', 'string'], maxLen: 16 } },
+  perpsClose: { percent: { type: ['number', 'string'], maxLen: 16 }, subaccount: NUMISH },
   rfqAccept: { accepted_side: S(8) },
   // Phase 5A (CLONE_SPEC.md §28): RFQ quotes on the finer grid with the HVM last look; resolution desk writes.
   rfqQuote: { rfq_id: ID, yes_bid: NUMISH, no_bid: NUMISH, contracts_fp: NUMISH, rest_remainder: FLAG, hvm: { type: 'boolean' } },
@@ -176,6 +185,15 @@ const ROUTES = [
   ['POST', /^\/perps\/transfers$/, 'perpsTransfer', { unknown: 'reject' }, 'owner'],
   ['POST', /^\/perps\/orders$/, 'perpsOrder', {}, 'owner'],
   ['POST', /^\/perps\/positions\/[^/]+\/close$/, 'perpsClose', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/perps\/orders\/[^/]+\/amend$/, 'perpsAmend', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/perps\/orders\/[^/]+\/decrease$/, 'perpsDecrease', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/perps\/subaccounts$/, 'perpsSubaccount', { unknown: 'reject' }, 'owner'],
+  ['PUT', /^\/perps\/subaccounts\/[^/]+$/, 'perpsSubaccount', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/perps\/subaccounts\/transfers$/, 'perpsSubTransfer', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/perps\/order_groups$/, 'perpsGroup', { unknown: 'reject' }, 'owner'],
+  ['PUT', /^\/perps\/positions\/[^/]+\/exit_trigger$/, 'perpsExitTrigger', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/perps\/referrals\/apply$/, 'perpsReferral', { unknown: 'reject' }, 'owner'],
+  ['POST', /^\/perps\/waitlist$/, 'empty', { unknown: 'reject' }, 'owner'],
   ['PUT', /^\/communications\/(rfqs\/[^/]+\/)?quotes\/[^/]+\/accept$/, 'rfqAccept', {}, 'owner'],
   ['POST', /^\/communications\/(quotes|rfqs\/[^/]+\/quotes)$/, 'rfqQuote', {}, 'owner'],
   ['POST', /^\/admin\/resolution\/[^/]+\/resolve$/, 'adminResolve', { unknown: 'reject' }, 'staff'],

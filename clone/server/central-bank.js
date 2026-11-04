@@ -72,6 +72,9 @@ function drawCode(digits, rng) {
 
 function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, options = {} }) {
   db.exec(SCHEMA);
+  // Phase 6 (CLONE_SPEC.md §34.7): a queued payout can name a destination other than predictions cash (Perps collateral).
+  if (!db.prepare('PRAGMA table_info(cb_payout_queue)').all().some((c) => c.name === 'dest_json')) db.exec('ALTER TABLE cb_payout_queue ADD COLUMN dest_json TEXT');
+  const destinations = {}; // kind -> ({ user_id, amount_cents, mode, ref, memo, dest }, contra) => void (server/perps-ops.js: 'perps')
   journal.init(db);
   const production = process.env.NODE_ENV === 'production';
   if (options.rng && production) console.warn('centralBank.rng is ignored in production');
@@ -118,16 +121,19 @@ function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, op
   }
   // Treasury payout to a user, from the vault. mode 'cash' (ledger kind as given) or 'credit' (non-withdrawable,
   // expiring credit). Inside the caller's transaction when there is one. → { paid } | { queued } | { refused }
-  function pay({ uid, cents, mode = 'cash', kind = 'bonus', purpose = 'bonus', ref = null, memo = '', queueRef = null }) {
+  // `dest` (optional): { kind, … } routes the money to a registered destination instead of predictions cash.
+  function pay({ uid, cents, mode = 'cash', kind = 'bonus', purpose = 'bonus', ref = null, memo = '', queueRef = null, dest = null }) {
     if (!(cents > 0)) return { paid: false };
+    if (dest && !destinations[dest.kind]) throw new Error(`unknown treasury destination ${dest.kind}`);
     return tx(db, () => {
       if (balance() >= cents) {
-        engine.credit(uid, cents, mode === 'credit' ? 'credit' : kind, ref, memo, { contra: VAULT });
+        if (dest) destinations[dest.kind]({ user_id: uid, amount_cents: cents, mode: kind, ref, memo, dest }, VAULT);
+        else engine.credit(uid, cents, mode === 'credit' ? 'credit' : kind, ref, memo, { contra: VAULT });
         return { paid: true };
       }
-      if (settings().treasury.on_empty === 'refuse') return { refused: true };
+      if (settings().treasury.on_empty === 'refuse') return { refused: true, reason: 'treasury_empty' };
       const id = newId('cbq_');
-      db.prepare('INSERT INTO cb_payout_queue(id,user_id,purpose,mode,amount_cents,ref,memo,status,created_ts,epoch) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, uid, purpose, mode === 'credit' ? 'credit' : kind, cents, queueRef ?? ref, memo, 'queued', Date.now(), hooks.epoch());
+      db.prepare('INSERT INTO cb_payout_queue(id,user_id,purpose,mode,amount_cents,ref,memo,status,created_ts,epoch,dest_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id, uid, purpose, mode === 'credit' ? 'credit' : kind, cents, queueRef ?? ref, memo, 'queued', Date.now(), hooks.epoch(), dest ? JSON.stringify(dest) : null);
       return { queued: true, id };
     });
   }
@@ -137,7 +143,9 @@ function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, op
     tx(db, () => {
       for (const q of db.prepare("SELECT * FROM cb_payout_queue WHERE status='queued' ORDER BY created_ts, rowid").all()) {
         if (balance() < q.amount_cents) break;
-        engine.credit(q.user_id, q.amount_cents, q.mode, q.ref, q.memo, { contra: VAULT });
+        const dest = q.dest_json ? JSON.parse(q.dest_json) : null;
+        if (dest && destinations[dest.kind]) destinations[dest.kind]({ ...q, dest }, VAULT);
+        else engine.credit(q.user_id, q.amount_cents, q.mode, q.ref, q.memo, { contra: VAULT });
         db.prepare("UPDATE cb_payout_queue SET status='paid', paid_ts=? WHERE id=?").run(Date.now(), q.id);
         paid.push(q);
       }
@@ -151,7 +159,7 @@ function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, op
   }
   // Promotions treasury hooks (production use, §33): incentive rewards and the referral credit hook draw from the vault
   // while the Central Bank is on; otherwise the Phase 4/5B accounts are used as before.
-  engine.treasury = { active: () => open(), pay, account: VAULT, balance };
+  engine.treasury = { active: () => open(), pay, account: VAULT, balance, destinations };
 
   // ---------------------------------------------------------------- heists
   const heistRow = (id) => db.prepare('SELECT * FROM cb_heists WHERE id=?').get(String(id));
@@ -357,7 +365,7 @@ function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, op
   });
   v1.post(`${A}/queue/process`, admin.can('users.money'), (req, res) => { const n = processQueue(); res.json({ paid: n, ...adminVo() }); });
 
-  return { balance, pay, processQueue, settings, level, publicVo, hooks, VAULT, FUNDING, expire, emitVault, feedback, drawCode,
+  return { balance, pay, processQueue, settings, level, publicVo, hooks, VAULT, FUNDING, expire, emitVault, feedback, drawCode, destinations,
     // Production switch (server/play-mode.js): play-mode heists void, the queue of the play epoch canceled.
     voidPlay: () => { db.prepare("UPDATE cb_heists SET status='void', ended_ts=? WHERE status='active'").run(Date.now()); db.prepare("UPDATE cb_payout_queue SET status='canceled' WHERE status='queued'").run(); admin.putSetting('central_bank_state', { level: 0, level_ts: 0 }, null); },
   };

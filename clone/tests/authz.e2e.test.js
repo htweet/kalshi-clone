@@ -73,7 +73,7 @@ const EXPECT = {
   'GET /v1/perps/enabled': P, 'GET /v1/perps/exchange/status': P, 'GET /v1/perps/asset_classes': P, 'GET /v1/perps/markets': P,
   'GET /v1/perps/markets/:ticker': P, 'GET /v1/perps/markets/:ticker/orderbook': P, 'GET /v1/perps/markets/:ticker/trades': P,
   'GET /v1/perps/markets/:ticker/candlesticks': P, 'GET /v1/perps/funding_rates/historical': P, 'GET /v1/perps/funding_rates/estimate': P,
-  'GET /v1/perps/funding_schedule': P, 'GET /v1/perps/risk_parameters': P, 'GET /v1/perps/fee_tiers': P,
+  'GET /v1/perps/funding_schedule': P, 'GET /v1/perps/risk_parameters': P, 'GET /v1/perps/fee_tiers': P, 'GET /v1/perps/markets/:ticker/margin_tiers': P,
   'GET /v1/multivariate_event_collections': P, 'GET /v1/multivariate_event_collections/:collection': P, 'GET /v1/combos/:ticker': P,
   'GET /v1/sports/leagues': P, 'GET /v1/live_data/feed': P, 'GET /v1/live_data/batch': P, 'GET /v1/live_data/milestone/:id/game_stats': P,
   'GET /v1/live_data/:type/milestone/:id': P, 'GET /v1/milestones': P, 'GET /v1/milestones/:id': P, 'GET /v1/milestones/:id/plays': P,
@@ -87,6 +87,11 @@ const EXPECT = {
   'GET /v1/perps/orders/:id': U, 'DELETE /v1/perps/orders/:id': U, 'GET /v1/perps/positions': U, 'POST /v1/perps/positions/:ticker/close': U,
   'GET /v1/perps/fills': U, 'GET /v1/perps/funding_history': U, 'GET /v1/perps/liquidations': U, 'GET /v1/perps/ledger': U, 'GET /v1/perps/risk': U,
   'GET /v1/perps/exit_triggers': U, 'PUT /v1/perps/positions/:ticker/exit_trigger': U, 'DELETE /v1/perps/positions/:ticker/exit_trigger': U,
+  // Phase 6 (CLONE_SPEC.md §34): subaccounts, amend / decrease, order groups, APY, waitlist, referrals — scoped to the caller.
+  'GET /v1/perps/subaccounts': U, 'POST /v1/perps/subaccounts': U, 'PUT /v1/perps/subaccounts/:n': U, 'POST /v1/perps/subaccounts/transfers': U,
+  'POST /v1/perps/orders/:id/amend': U, 'POST /v1/perps/orders/:id/decrease': U,
+  'POST /v1/perps/order_groups': U, 'GET /v1/perps/order_groups': U, 'GET /v1/perps/order_groups/:id': U, 'DELETE /v1/perps/order_groups/:id': U, 'POST /v1/perps/order_groups/:id/reset': U,
+  'GET /v1/perps/apy': U, 'GET /v1/perps/waitlist': U, 'POST /v1/perps/waitlist': U, 'GET /v1/perps/referrals': U, 'POST /v1/perps/referrals/apply': U,
   'POST /v1/multivariate_event_collections/:collection/markets': U, 'POST /v1/multivariate_event_collections/:collection': U,
   'GET /v1/communications/id': U, 'POST /v1/communications/rfqs': U, 'GET /v1/communications/rfqs': U, 'GET /v1/communications/rfqs/:id': U,
   'DELETE /v1/communications/rfqs/:id': U, 'POST /v1/communications/quotes': U, 'POST /v1/communications/rfqs/:id/quotes': U,
@@ -138,6 +143,13 @@ const EXPECT = {
   'GET /v1/admin/ops': perm('markets.ops'), 'POST /v1/admin/ops/exchange': perm('markets.ops'), 'POST /v1/admin/ops/markets/:ticker/:action': perm('markets.ops'),
   'PUT /v1/admin/ops/series/:ticker/fee': perm('markets.ops'), 'PUT /v1/admin/ops/markets/:ticker/liquidity': perm('markets.ops'), 'PUT /v1/admin/ops/markets/:ticker/combo': perm('markets.ops'),
   'GET /v1/admin/perps': perm('perps.ops'), 'POST /v1/admin/perps/:ticker/:action': perm('perps.ops'), 'PUT /v1/admin/perps/:ticker/leverage': perm('perps.ops'),
+  // Admin › Perps ops (Phase 6, CLONE_SPEC.md §34.10): tiers, risk limits, APY, waitlist, referral settings, the perps journal.
+  'GET /v1/admin/perps_ops/margin_tiers': perm('perps.ops'), 'PUT /v1/admin/perps_ops/margin_tiers/:ticker': perm('perps.ops'),
+  'GET /v1/admin/perps_ops/risk': perm('perps.ops'), 'PUT /v1/admin/perps_ops/risk': perm('perps.ops'),
+  'GET /v1/admin/perps_ops/apy': perm('perps.ops'), 'PUT /v1/admin/perps_ops/apy': perm('perps.ops'), 'POST /v1/admin/perps_ops/apy/payout': perm('perps.ops'),
+  'GET /v1/admin/perps_ops/waitlist': perm('perps.ops'), 'POST /v1/admin/perps_ops/waitlist/approve': perm('perps.ops'), 'POST /v1/admin/perps_ops/waitlist/revoke': perm('perps.ops'),
+  'POST /v1/admin/perps_ops/waitlist/invite': perm('perps.ops'), 'GET /v1/admin/perps_ops/referrals': perm('perps.ops'), 'PUT /v1/admin/perps_ops/referrals': perm('perps.ops'),
+  'GET /v1/admin/perps_ops/ledger': perm('perps.ops'),
   'GET /v1/admin/users': perm('users.read'), 'GET /v1/admin/users/:id': perm('users.read'),
   'POST /v1/admin/users/:id/adjust': perm('users.money'), 'PUT /v1/admin/users/:id/limits/:kind': perm('users.money'),
   'POST /v1/admin/users/:id/lock': perm('users.support'), 'POST /v1/admin/users/:id/unlock': perm('users.support'), 'POST /v1/admin/users/:id/reset_mfa': perm('users.support'),
@@ -397,6 +409,17 @@ test('object-level IDOR: user B cannot read or change user A\'s orders, perps or
   r = await A.call('POST', '/v1/perps/orders', { ticker: 'PLXBTCPERP', side: 'bid', type: 'limit', price: (Number(pm.mark_price) * 0.95).toFixed(4), count: 1 });
   assert.equal(r.status, 201, ctxCode(r));
   fx.perpOid = r.body.order_id;
+  // Phase 6: A's order group (with the resting order in it) and a funded subaccount.
+  r = await A.call('POST', '/v1/perps/order_groups', { kind: 'limit', contracts_limit: 5 });
+  assert.equal(r.status, 201, ctxCode(r));
+  fx.groupId = r.body.order_group_id;
+  r = await A.call('POST', '/v1/perps/orders', { ticker: 'PLXBTCPERP', side: 'bid', type: 'limit', price: (Number(pm.mark_price) * 0.94).toFixed(4), count: 1, order_group_id: fx.groupId });
+  assert.equal(r.status, 201, ctxCode(r));
+  fx.groupOid = r.body.order_id;
+  r = await A.call('POST', '/v1/perps/subaccounts', { name: 'Hedge' });
+  assert.equal(r.status, 201, ctxCode(r));
+  fx.sub = r.body.subaccount;
+  assert.equal((await A.call('POST', '/v1/perps/subaccounts/transfers', { from_subaccount: 0, to_subaccount: fx.sub, amount_dollars: 5 })).status, 201);
   // RFQ by A, quote by C.
   for (const c of [A, C]) assert.equal((await c.call('PUT', `/v1/users/${c.uid}/properties`, { properties: { rfq_enabled: true } })).status, 200);
   r = await A.call('POST', '/v1/communications/rfqs', { market_ticker: fx.ticker, contracts_fp: '1' });
@@ -429,6 +452,9 @@ test('object-level IDOR: user B cannot read or change user A\'s orders, perps or
     ['POST', `/v1/users/${B.uid}/orders/${fx.oid}/amend`, { price: 2 }], ['POST', `/v1/users/${B.uid}/orders/${fx.oid}/decrease`, { reduce_by: 1 }],
     ['DELETE', `/v1/users/${B.uid}/orders/${fx.oid}`],
     ['GET', `/v1/perps/orders/${fx.perpOid}`], ['DELETE', `/v1/perps/orders/${fx.perpOid}`],
+    ['POST', `/v1/perps/orders/${fx.perpOid}/amend`, { price: '1.0000' }], ['POST', `/v1/perps/orders/${fx.perpOid}/decrease`, { reduce_to: 0 }],
+    ['GET', `/v1/perps/order_groups/${fx.groupId}`], ['DELETE', `/v1/perps/order_groups/${fx.groupId}`], ['POST', `/v1/perps/order_groups/${fx.groupId}/reset`, {}],
+    ['POST', '/v1/perps/orders', { ticker: 'PLXBTCPERP', side: 'bid', type: 'limit', price: '1.0000', count: 1, order_group_id: fx.groupId }],
     ['GET', `/v1/communications/rfqs/${fx.rfq}`], ['DELETE', `/v1/communications/rfqs/${fx.rfq}`],
     ['GET', `/v1/communications/quotes/${fx.qid}`], ['DELETE', `/v1/communications/quotes/${fx.qid}`],
     ['PUT', `/v1/communications/rfqs/${fx.rfq}/quotes/${fx.qid}/accept`, { accepted_side: 'yes' }], ['PUT', `/v1/communications/quotes/${fx.qid}/accept`, { accepted_side: 'yes' }],
@@ -446,6 +472,12 @@ test('object-level IDOR: user B cannot read or change user A\'s orders, perps or
   // ---- A's objects are untouched.
   assert.equal(dbq('SELECT status FROM orders WHERE id=?', fx.oid)[0].status, 'resting');
   assert.equal(dbq('SELECT status FROM perp_orders WHERE id=?', fx.perpOid)[0].status, 'resting');
+  assert.equal(dbq('SELECT status FROM perp_orders WHERE id=?', fx.groupOid)[0].status, 'resting');
+  assert.equal(dbq('SELECT status FROM perp_order_groups WHERE id=?', fx.groupId)[0].status, 'active');
+  // B's subaccount ids are B's own: subaccount 1 of B does not exist, and B's transfer from it is refused (A's stays funded).
+  assert.equal((await B.call('POST', '/v1/perps/subaccounts/transfers', { from_subaccount: fx.sub, to_subaccount: 0, amount_dollars: 5 })).status, 404);
+  assert.equal(dbq('SELECT available_cc c FROM perp_subaccounts WHERE user_id=? AND subaccount=?', A.uid, fx.sub)[0].c, 50000);
+  assert.ok(!(await B.call('GET', '/v1/perps/subaccounts')).body.subaccounts.some((x) => x.subaccount === fx.sub), 'B does not see A\'s subaccount');
   assert.equal(dbq('SELECT status FROM rfqs WHERE id=?', fx.rfq)[0].status, 'open');
   assert.equal(dbq('SELECT status FROM rfq_quotes WHERE id=?', fx.qid)[0].status, 'open');
   assert.equal(dbq('SELECT COUNT(*) c FROM posts WHERE id=?', fx.pid)[0].c, 1);

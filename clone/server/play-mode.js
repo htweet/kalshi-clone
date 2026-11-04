@@ -68,7 +68,8 @@ const hasTable = (db, t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type
 
 // Mode markers on the ledger and the journal: additive columns filled by triggers from meta (money_mode, money_epoch).
 function installMarkers(db) {
-  for (const t of ['ledger', 'journal_entries']) {
+  // The perps journal (server/perps-ledger.js, CLONE_SPEC.md §34.6) is stamped the same way.
+  for (const t of ['ledger', 'journal_entries', 'perp_journal_entries'].filter((x) => hasTable(db, x))) {
     const cols = new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
     if (!cols.has('money_mode')) db.exec(`ALTER TABLE ${t} ADD COLUMN money_mode TEXT`);
     if (!cols.has('money_epoch')) db.exec(`ALTER TABLE ${t} ADD COLUMN money_epoch TEXT`);
@@ -217,7 +218,8 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
       balances: q(`SELECT COUNT(*) c FROM users WHERE is_system=0 AND balance_cents<>0`),
       positions: q(`SELECT COUNT(*) c FROM positions WHERE user_id NOT IN (${sys}) AND (yes_count>0 OR no_count>0)`),
       orders: q(`SELECT COUNT(*) c FROM orders WHERE status='resting' AND user_id NOT IN (${sys})`),
-      perps: hasTable(db, 'perp_accounts') ? q(`SELECT COUNT(*) c FROM perp_accounts WHERE user_id NOT IN (${sys}) AND available_cc<>0`) + q(`SELECT COUNT(*) c FROM perp_positions WHERE user_id NOT IN (${sys}) AND qty<>0`) : 0,
+      perps: hasTable(db, 'perp_accounts') ? q(`SELECT COUNT(*) c FROM perp_accounts WHERE user_id NOT IN (${sys}) AND available_cc<>0`) + q(`SELECT COUNT(*) c FROM perp_positions WHERE user_id NOT IN (${sys}) AND qty<>0`)
+        + (hasTable(db, 'perp_subaccounts') ? q(`SELECT COUNT(*) c FROM perp_subaccounts WHERE subaccount>0 AND user_id NOT IN (${sys}) AND available_cc<>0`) : 0) : 0,
       pending: hasTable(db, 'payment_transactions') ? q("SELECT COUNT(*) c FROM payment_transactions WHERE status IN ('processing','requires_action','pending','confirming','held')") : 0,
       holds: hasTable(db, 'withdrawal_holds') ? q("SELECT COUNT(*) c FROM withdrawal_holds WHERE status='held'") : 0,
     };
@@ -237,11 +239,14 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     const grants = q("SELECT COUNT(*) n FROM credit_grants WHERE status='active'").n;
     const collateral = hasTable(db, 'collateral_returns') ? q('SELECT COUNT(*) n, COALESCE(SUM(amount_cents),0) c FROM collateral_returns').c : 0;
     const heists = q("SELECT COUNT(*) n FROM cb_heists WHERE status='active'").n;
+    // Phase 6 (CLONE_SPEC.md §34): Perps subaccounts, APY accruals, pending referrals and queued rewards.
+    const px = engine.perpsOps ? engine.perpsOps.previewCounts() : { counts: {}, totals: { perps_subaccounts_cc: 0, perps_apy_accrued_cc: 0, referral_rewards_queued_dollars: dollars(0) } };
     return {
       counts: { accounts_with_balance: users.n, open_orders: orders.n, positions: pos.n, position_holders: pos.u, markets_with_escrow: escrow.n, perps_accounts: perps.accounts.n, perps_positions: perps.positions, perps_orders: perps.orders,
-        open_rfqs: rfqs, open_quotes: quotes, active_credit_grants: grants, active_heists: heists, kept_accounts: db.prepare('SELECT COUNT(*) c FROM users WHERE is_system=0').get().c, kept_markets: db.prepare('SELECT COUNT(*) c FROM markets').get().c },
+        open_rfqs: rfqs, open_quotes: quotes, active_credit_grants: grants, active_heists: heists, ...px.counts, kept_accounts: db.prepare('SELECT COUNT(*) c FROM users WHERE is_system=0').get().c, kept_markets: db.prepare('SELECT COUNT(*) c FROM markets').get().c },
       totals: { balances_dollars: dollars(users.c), cash_dollars: dollars(cash), credits_dollars: dollars(credits), held_dollars: dollars(held), reserved_dollars: dollars(orders.c), position_cost_dollars: dollars(pos.c),
-        escrow_dollars: dollars(escrow.c), perps_dollars: (perps.accounts.c / 10000).toFixed(4), collateral_advances_dollars: dollars(collateral), vault_dollars: dollars(centralBank ? centralBank.balance() : 0) },
+        escrow_dollars: dollars(escrow.c), perps_dollars: ((perps.accounts.c + px.totals.perps_subaccounts_cc) / 10000).toFixed(4), perps_apy_accrued_dollars: (px.totals.perps_apy_accrued_cc / 10000).toFixed(4),
+        referral_rewards_queued_dollars: px.totals.referral_rewards_queued_dollars, collateral_advances_dollars: dollars(collateral), vault_dollars: dollars(centralBank ? centralBank.balance() : 0) },
       play_mode: isOn(), epoch: epoch(), generated_time: nowIso(),
     };
   }
@@ -348,6 +353,8 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
         touchedUsers.add(u.id); counts.balances += 1;
         totals.balances_cents += u.balance_cents; totals.cash_cents += cash; totals.credits_cents += cr; totals.held_cents += held;
       }
+      // Phase 6 (CLONE_SPEC.md §34): subaccounts, APY accruals, referrals, order groups; every perps journal account closed.
+      if (engine.perpsOps) Object.assign(counts, engine.perpsOps.resetForProduction(batch));
       counts.grants = db.prepare("UPDATE credit_grants SET status='reset' WHERE status='active'").run().changes;
       if (hasTable(db, 'withdrawal_holds')) counts.holds = db.prepare("UPDATE withdrawal_holds SET status='reset' WHERE status='held'").run().changes;
       counts.heists = db.prepare("SELECT COUNT(*) c FROM cb_heists WHERE status='active'").get().c;
@@ -357,6 +364,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
       putSettings({ ...st, on: false, bonus: { ...st.bonus, enabled: false } }, approver.id);
       flags.save('heist', { enabled: false }, { action: 'update', reason: `production switch ${batch}`, actor: approver });
       metaSet('money_mode', 'real'); metaSet('money_epoch', batch);
+      if (engine.perpsOps) engine.perpsOps.reopenAfterReset(); // the liquidity float, in the real-money epoch
       db.prepare('INSERT INTO pm_reset_batches(id,approval_id,from_epoch,requested_by,approved_by,reason,backup_file,counts_json,totals_json,created_ts) VALUES(?,?,?,?,?,?,?,?,?,?)')
         .run(batch, a.id, fromEpoch, a.requested_by, approver.id, a.reason, path.basename(file), JSON.stringify(counts), JSON.stringify(totals), Date.now());
       db.prepare("UPDATE pm_approvals SET status='executed', decided_by=?, decided_ts=?, batch_id=? WHERE id=? AND status='pending'").run(approver.id, Date.now(), batch, a.id);
@@ -519,7 +527,8 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     const problems = [];
     // Every entry of the current epoch carries the current money mode: play and real money never mix.
     const ep = epoch(); const md = mode();
-    const mixed = dbx.prepare('SELECT COUNT(*) c FROM journal_entries WHERE money_epoch=? AND money_mode<>?').get(ep, md).c;
+    const mixed = dbx.prepare('SELECT COUNT(*) c FROM journal_entries WHERE money_epoch=? AND money_mode<>?').get(ep, md).c
+      + (hasTable(dbx, 'perp_journal_entries') ? dbx.prepare('SELECT COUNT(*) c FROM perp_journal_entries WHERE money_epoch=? AND money_mode<>?').get(ep, md).c : 0);
     if (mixed) problems.push({ check: 'money_mode_mixed', expected_cents: 0, actual_cents: mixed, detail: `entries of epoch ${ep} written in another money mode` });
     // A real-money epoch holds no play-money postings.
     if (md === 'real') { const minted = dbx.prepare("SELECT COALESCE(SUM(p.amount_cents),0) c FROM journal_postings p JOIN journal_entries e ON e.id=p.entry_id WHERE e.money_epoch=? AND p.account=?").get(ep, MINT).c; if (minted) problems.push({ check: 'play_money_in_real_epoch', account: MINT, expected_cents: 0, actual_cents: minted, detail: 'play money minted during a real-money epoch' }); }

@@ -78,9 +78,10 @@ async function eventually(fn, { timeout = 10000, interval = 100 } = {}) {
     await new Promise((r) => setTimeout(r, interval));
   }
 }
-const pos = (email, t) => one('SELECT * FROM perp_positions WHERE user_id=? AND ticker=?', uid(email), t);
+// Quantities are stored in units (hundredths of a contract, CLONE_SPEC.md §16.1 / §34.5): p.qty / 100 contracts.
+const pos = (email, t) => one('SELECT * FROM perp_positions WHERE user_id=? AND subaccount=0 AND ticker=?', uid(email), t);
 const liqCc = (p, mmRate) => {
-  const q = Math.abs(p.qty);
+  const q = Math.abs(p.qty) / 100;
   return p.qty > 0 ? (q * p.entry_cc - p.margin_cc) / (q * (1 - mmRate)) : (p.margin_cc + q * p.entry_cc) / (q * (1 + mmRate));
 };
 
@@ -183,12 +184,12 @@ test('open a 10x long with a market order: entry, leverage and liquidation price
   await pa.click('[data-testid=perp-submit]');
   await pa.waitForSelector(`[data-testid=perp-position][data-ticker=${BTC}]`);
   const p = pos(alice.email, BTC);
-  assert.ok(p.qty >= 95 && p.qty <= 100, `qty ${p.qty}`);
+  assert.ok(p.qty / 100 >= 95 && p.qty / 100 <= 100, `qty ${p.qty / 100}`);
   assert.ok(Math.abs(p.entry_cc - 100000) < 200, `entry ${p.entry_cc}`);
   assert.ok(Math.abs(p.leverage - 10) < 0.05, `leverage ${p.leverage}`);
   const row = `[data-testid=perp-position][data-ticker=${BTC}]`;
   assert.equal(await pa.textContent(`${row} [data-f=side]`), 'Long');
-  assert.equal(await pa.textContent(`${row} [data-f=size]`), String(p.qty));
+  assert.equal(await pa.textContent(`${row} [data-f=size]`), String(p.qty / 100));
   assert.equal(await pa.textContent(`${row} [data-f=entry]`), btcLevel(p.entry_cc));
   assert.equal(await pa.textContent(`${row} [data-f=leverage]`), '10x');
   assert.equal(await pa.textContent(`${row} [data-f=liq]`), btcLevel(liqCc(p, 0.025)));
@@ -205,7 +206,7 @@ test('mark moves: unrealized PnL updates live', async () => {
   srv.engine.perps.setIndex(BTC, 102000);
   const row = `[data-testid=perp-position][data-ticker=${BTC}]`;
   await pa.waitForFunction((r) => document.querySelector(`${r} [data-f=mark]`).textContent === '₦10,200,000', row);
-  const want = (p.qty * (102000 - p.entry_cc)) / 10000;
+  const want = ((p.qty / 100) * (102000 - p.entry_cc)) / 10000;
   await eventually(async () => {
     const got = Number(await pa.getAttribute(`${row} [data-f=pnl]`, 'data-upnl'));
     assert.ok(Math.abs(got - want) < 0.005, `upnl ${got} vs ${want}`);
@@ -266,7 +267,7 @@ test('price band rejects a limit far from the mark; a limit inside the band rest
   assert.equal(await pa.textContent('[data-testid=perp-order] [data-f=price]'), '₦9,900,000');
   // The order shows in the public (full-depth) book.
   const book = await pa.evaluate((t) => fetch(`/v1/perps/markets/${t}/orderbook`).then((r) => r.json()), BTC);
-  assert.ok(book.orderbook.bids.some(([px, n]) => px === '9.9000' && Number(n) === o.remaining_count), JSON.stringify(book.orderbook.bids.slice(-3)));
+  assert.ok(book.orderbook.bids.some(([px, n]) => px === '9.9000' && Math.round(Number(n) * 100) === o.remaining_count), JSON.stringify(book.orderbook.bids.slice(-3)));
   await pa.click('[data-testid=cancel-order]');
   await pa.waitForSelector('[data-testid=perp-no-orders]');
   assert.equal(one('SELECT status FROM perp_orders WHERE id=?', o.id).status, 'canceled');
@@ -347,7 +348,7 @@ test('funding is paid on schedule: longs pay and shorts receive at a positive ra
     const rows = dbq('SELECT * FROM perp_funding_payments WHERE ticker=? AND user_id=? ORDER BY funding_ts', ETH, who);
     for (const r of rows) {
       assert.equal(Math.sign(r.amount_cc), sign, `${who === a ? 'long pays' : 'short receives'}: ${r.amount_cc}`);
-      assert.equal(r.amount_cc, Math.round(-r.qty * r.mark_cc * r.rate));
+      assert.equal(r.amount_cc, Math.round((-r.qty * r.mark_cc * r.rate) / 100));
       assert.equal(r.mark_cc, 35000);
     }
   }
@@ -380,7 +381,7 @@ test('everything persists across a restart; Perps portfolio tabs', async () => {
   await page.waitForURL(BASE + '/portfolio?perpsTab=positions');
   await page.waitForSelector(`[data-testid=perp-position][data-ticker=${ETH}]`);
   const p = pos(alice.email, ETH);
-  assert.equal(await page.textContent(`[data-testid=perp-position][data-ticker=${ETH}] [data-f=size]`), String(p.qty));
+  assert.equal(await page.textContent(`[data-testid=perp-position][data-ticker=${ETH}] [data-f=size]`), String(p.qty / 100));
   assert.equal(await page.textContent(`[data-testid=perp-position][data-ticker=${ETH}] [data-f=entry]`), usd(p.entry_cc / 10000 / 0.001));
   const avail = one('SELECT available_cc c FROM perp_accounts WHERE user_id=?', a).c;
   assert.equal(await page.textContent('[data-testid=perps-port-available]'), naira(avail / 10000));

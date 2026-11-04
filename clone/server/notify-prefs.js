@@ -47,6 +47,7 @@ const TYPES = [
   ['referral_rewards', 'general', 'Referral rewards', CH, { in_app: true, email: true, push: true }],
   ['referral_activity', 'general', 'Referral activity', CH, { in_app: true, email: false, push: true }],
   ['market_rewards', 'general', 'Market rewards', CH, { in_app: true, email: true, push: true }],
+  ['perps_access', 'general', 'Perps access', CH, { in_app: true, email: true, push: true }], // waitlist (CLONE_SPEC.md §34.9)
   ['price_movement', 'predictions', 'Price movement', CH, { in_app: true, email: false, push: true }, null,
     { threshold_cents: { kind: 'int', min: 1, max: 50, def: 10, get label() { return CS.t('notify_prefs.price_move_threshold', { unit: currency.priceUnit() }); } },
       window_minutes: { kind: 'enum', values: WINDOWS, def: 60, label: 'Within' },
@@ -97,6 +98,10 @@ function prefKeyOf(type) {
     case 'leaderboard': return 'leaderboard';
     case 'sports_major': return 'major_events';
     case 'market_reward': return 'market_rewards'; // liquidity incentive payouts (Phase 5B, server/incentives.js)
+    // Phase 6 (CLONE_SPEC.md §34): the Perps waitlist, interest on collateral, referral rewards.
+    case 'perps_waitlist_joined': case 'perps_waitlist_approved': return 'perps_access';
+    case 'perps_apy': return 'transfers';
+    case 'referral_reward': return 'referral_rewards';
     // Phase 5D money notices (CLONE_SPEC.md §33): the Transfers row (in-app, email and push on by default).
     case 'bonus_credited': case 'heist_result': case 'money_controls': case 'production_reset': return 'transfers';
     case 'security': case 'account': return 'security';

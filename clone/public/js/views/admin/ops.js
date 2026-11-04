@@ -5,6 +5,7 @@ import '../../content/admin.ops-strings.js';
 import { t as T } from '../../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { money, pxCents, priceUnit } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, statusBadge, badge, fmtTime, fmtQty } from './ui.js';
+import { renderPerpsOps } from './perps-ops.js'; // Phase 6: tiers, risk limits, APY, waitlist, referrals (CLONE_SPEC.md §34.10)
 
 export async function render({ el, section: sec }) {
   if (sec === 'perps') return renderPerps(el);
@@ -84,7 +85,7 @@ export async function render({ el, section: sec }) {
 }
 
 async function renderPerps(el) {
-  el.innerHTML = section(tx('admin.ops.render_perps.perps_ops'), tx('admin.ops.render_perps.halt_or_resume_perpetual_markets')) + '<div id="pp"></div>';
+  el.innerHTML = section(tx('admin.ops.render_perps.perps_ops'), tx('admin.ops.render_perps.halt_or_resume_perpetual_markets')) + '<div id="pp"></div><div id="pp-extra"></div>';
   let rows = [];
   const t = dataTable(el.querySelector('#pp'), { search: false, testid: 'perps-ops', rowAttrs: (r) => `data-row="${esc(r.ticker)}"`,
     cols: [{ key: 'status', label: tx('admin.ops.render_perps.status'), render: (r) => statusBadge(r.status) }, { key: 'ticker', label: 'Market', render: (r) => `<code>${esc(r.ticker)}</code><div class="faint">${esc(r.title)} · ${esc(r.asset_class)}</div>` },
@@ -93,6 +94,7 @@ async function renderPerps(el) {
       { key: '_a', label: '', sort: false, render: (r) => `<span class="adm-actions">${r.status === 'active' ? `<button class="btn btn-sm" data-halt="${esc(r.ticker)}">${te('admin.ops.render_perps.halt')}</button>` : `<button class="btn btn-sm btn-primary" data-resume="${esc(r.ticker)}">${te('admin.ops.render_perps.resume')}</button>`}<button class="btn btn-sm" data-lev="${esc(r.ticker)}">${te('admin.ops.render_perps.leverage')}</button><button class="btn btn-sm" data-fund="${esc(r.ticker)}">${te('admin.ops.render_perps.run_funding')}</button></span>` }] });
   const load = async () => { const r = await get('/perps'); rows = r.markets; t.setRows(rows); if (!r.available) el.querySelector('#pp').insertAdjacentHTML('beforeend', `<p class="faint">${te('admin.ops.render_perps.perps_are_not_installed')}</p>`); };
   await load();
+  await renderPerpsOps(el.querySelector('#pp-extra'));
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b) return;

@@ -132,6 +132,9 @@ function attachWs(server, { engine, auth, security }) {
   engine.on('perp_order', (uid, o) => publish('perp_orders', o.ticker, 'perp_order', o, uid));
   engine.on('perp_position', (uid, p) => publish('perp_positions', p.market_ticker, 'perp_position', p, uid));
   engine.on('perp_account', (uid, b) => publish('perp_account', null, 'perp_account', b, uid));
+  // Phase 6 (CLONE_SPEC.md §34): subaccounts, order groups, waitlist, APY and referral events ride the private
+  // perp_account channel with their own message types.
+  engine.on('perp_event', (uid, type, msg) => publish('perp_account', null, type, msg, uid));
 
   // Keep-alive pings (spec §7.1 control frames).
   const iv = setInterval(() => {

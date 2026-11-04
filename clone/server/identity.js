@@ -291,6 +291,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     ['POST', /^\/users\/([^/]+)\/orders$/, 'trade'],
     ['POST', /^\/users\/([^/]+)\/orders\/[^/]+\/amend$/, 'trade'],
     ['POST', /^\/perps\/orders$/, 'trade'],
+    ['POST', /^\/perps\/orders\/[^/]+\/amend$/, 'trade'], // Phase 6 (CLONE_SPEC.md §34)
     ['POST', /^\/perps\/transfers$/, 'transfer'],
     ['POST', /^\/communications\/(rfqs|quotes)$/, 'trade'],
     ['POST', /^\/communications\/rfqs\/[^/]+\/quotes$/, 'trade'],
@@ -664,7 +665,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
       chat_messages: has('chat_messages') ? all('SELECT id, room, body, created_ts FROM chat_messages WHERE user_id=? AND deleted=0', uid) : [],
       // Web Push devices (§31): metadata only; endpoints and keys are capability secrets and stay encrypted server-side.
       push_devices: has('push_subscriptions') ? all('SELECT id, label, service, created_at, last_success_ts FROM push_subscriptions WHERE user_id=?', uid) : [],
-      perps: has('perp_accounts') ? { account: all('SELECT * FROM perp_accounts WHERE user_id=?', uid)[0] || null, positions: all('SELECT * FROM perp_positions WHERE user_id=?', uid), orders: all('SELECT * FROM perp_orders WHERE user_id=?', uid) } : null,
+      perps: has('perp_accounts') ? { account: all('SELECT * FROM perp_accounts WHERE user_id=?', uid)[0] || null, subaccounts: has('perp_subaccounts') ? all('SELECT * FROM perp_subaccounts WHERE user_id=?', uid) : [], positions: all('SELECT * FROM perp_positions WHERE user_id=?', uid), orders: all('SELECT * FROM perp_orders WHERE user_id=?', uid), order_groups: has('perp_order_groups') ? all('SELECT * FROM perp_order_groups WHERE user_id=?', uid) : [] } : null,
       security: {
         two_factor: auth.mfaEnabled(uid), sessions: all('SELECT sid, device, ip_prefix, created_at, last_seen_ms FROM sessions WHERE user_id=?', uid),
         events: all('SELECT ts, type, ip_prefix, device FROM auth_events WHERE user_id=? ORDER BY ts', uid).map((e) => ({ ...e, time: new Date(e.ts).toISOString() })),
@@ -694,6 +695,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     if (has('perp_positions') && db.prepare('SELECT COUNT(*) c FROM perp_positions WHERE user_id=? AND qty<>0').get(uid).c) throw E.conflict('open_positions', 'close your perps positions first');
     if (has('perp_orders') && db.prepare("SELECT COUNT(*) c FROM perp_orders WHERE user_id=? AND status='resting'").get(uid).c) throw E.conflict('open_orders', 'cancel your resting perps orders first');
     if (has('perp_accounts') && (db.prepare('SELECT available_cc c FROM perp_accounts WHERE user_id=?').get(uid)?.c || 0) > 0) throw E.conflict('perps_balance', 'move your perps collateral back to cash first');
+    if (has('perp_subaccounts') && (db.prepare('SELECT COALESCE(SUM(available_cc),0) c FROM perp_subaccounts WHERE user_id=?').get(uid)?.c || 0) > 0) throw E.conflict('perps_balance', 'move your perps collateral back to cash first');
     if (compliance.holdsOf(uid).some((h) => h.status === 'held')) throw E.conflict('withdrawal_on_hold', 'a withdrawal is under review', 'wait for it to be released or reversed');
     let canceled = 0;
     for (const o of db.prepare("SELECT id FROM orders WHERE user_id=? AND status='resting'").all(uid)) { try { engine.cancelOrder(uid, o.id, 'account_closed'); canceled += 1; } catch { /* market not open: reservation stays until settlement */ } }

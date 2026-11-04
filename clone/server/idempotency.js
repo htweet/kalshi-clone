@@ -32,6 +32,8 @@ const ROUTES = [
   ['POST', /^\/users\/([^/]+)\/(?:debit|bank_link|crypto)\/withdrawal$/],
   ['POST', /^\/perps\/orders$/],
   ['POST', /^\/perps\/transfers$/],
+  ['POST', /^\/perps\/subaccounts\/transfers$/], // Phase 6 (CLONE_SPEC.md §34)
+  ['POST', /^\/perps\/orders\/[^/]+\/amend$/],
   ['POST', /^\/perps\/positions\/[^/]+\/close$/],
   ['PUT', /^\/communications\/(?:rfqs\/[^/]+\/)?quotes\/[^/]+\/(?:accept|confirm)$/],
 ];

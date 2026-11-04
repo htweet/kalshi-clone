@@ -10,6 +10,7 @@ const { perContractFeeCapCc } = require('./engine');
 const P = require('./pricing'); // Phase 5A price grids and centi-cent prices (CLONE_SPEC.md §28)
 const { mountRolling } = require('./rolling');
 const { mountPerps } = require('./perps');
+const { mountPerpsOps } = require('./perps-ops'); // Phase 6: Admin › Perps ops, waitlist, collateral APY, Perps referrals (§34)
 const { mountCombos, COMBO_SERIES } = require('./combos');
 const { mountHistory } = require('./history');
 const { mountOrders, parseExpiry } = require('./orders');
@@ -156,6 +157,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   mountFlags({ v1, db, flags, admin, auth, identity: app.locals.identity });
   app.locals.centralBank = mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, options: centralBankOptions || {} });
   app.locals.playMode = mountPlayMode({ v1, app, db, engine, auth, admin, flags, feat, payments: app.locals.payments, centralBank: app.locals.centralBank, keyDir, options: playModeOptions || {} });
+  // Phase 6 (CLONE_SPEC.md §34): margin tiers / risk limits / APY / waitlist / referral settings, the user side of the
+  // waitlist, APY and referrals. After the Central Bank (the treasury pays APY and rewards in production) and play mode.
+  app.locals.perpsOps = mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank: app.locals.centralBank, options: perps || {} });
   // Every send goes through the templates (CLONE_SPEC.md §32.5): in-app (features.notify), email and push (notify-prefs),
   // account emails (auth, identity), the phone code SMS and the push test (identity, webpush).
   feat.hooks.notifyTemplate = (type, msg) => app.locals.cms.renderNotification(type, msg);

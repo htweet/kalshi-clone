@@ -12,10 +12,13 @@ import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, money, toast, assetPrice, assetDecimals, moneyCompact, sym, amountLabel, toApiDollars, validMoneyInput, moneyStep, moneyMin, moneyInputHint, isNgn, fmtTime, fmtDt } from '../lib.js';
 import { assetToApi, assetFromApi } from '../currency.js'; // perps ×100 display rule under NGN (CLONE_SPEC.md §30)
+import { flagOn } from '../flags.js';
+import { subLabel, subSelect, contracts, fractionalOn, tierAt, estLiq, tiersHtml, waitlistHtml, wireWaitlist, wireAmend, wireTrailing, trailText, subaccountsPanel, groupsPanel, rewardsPanel, groupOptions } from './perps-more.js'; // Phase 6 (CLONE_SPEC.md §34)
 
 const ASSET_ORDER = ['Crypto', 'Equities', 'Metals', 'FX', 'Energy', 'Indices', 'Rates', 'Compute', 'GPU', 'EventContracts'];
 const RANGES = { '1H': { period: 1, span: 3600 }, '1D': { period: 15, span: 86400 }, '1W': { period: 60, span: 7 * 86400 } };
-const PERPS_TABS = [['positions', ts('perps.perps_tabs.positions')], ['orders', ts('perps.perps_tabs.open_orders')], ['history', ts('perps.perps_tabs.history')]];
+const PERPS_TABS = [['positions', ts('perps.perps_tabs.positions')], ['orders', ts('perps.perps_tabs.open_orders')], ['history', ts('perps.perps_tabs.history')],
+  ['accounts', ts('perps2.tabs.accounts'), 'perps.subaccounts'], ['groups', ts('perps2.tabs.groups'), 'perps.order_groups'], ['rewards', ts('perps2.tabs.rewards'), 'perps.apy perps.referrals']];
 
 // ---------------------------------------------------------------- formatting
 const n = (s) => Number(s ?? 0);
@@ -114,12 +117,23 @@ function transferBox() {
     <h3 class="perps-box-title">${te('perps.transfer_box.transfer_funds')}</h3>
     <div class="perps-kv"><span>${te('perps.transfer_box.predictions_cash')}</span><strong data-testid="pred-cash">${session.balance != null ? money(session.balance) : '—'}</strong></div>
     <div class="perps-kv"><span>${te('perps.transfer_box.perps_available')}</span><strong data-testid="perps-available">—</strong></div>
-    <form class="perps-xfer" data-testid="perp-transfer-form">
+    <form class="perps-xfer" data-testid="perp-transfer-form"><div class="perps-sub-pick" data-sub-pick hidden></div>
       <input id="px-amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" placeholder="${esc(T('input.amount_placeholder', { symbol: sym() }))}" aria-label="${esc(T('input.transfer_aria', { mode: amountLabel().toLowerCase() }))}" data-testid="xfer-amount">
       <div class="perps-xfer-btns"><button class="btn btn-primary" type="submit" data-dir="to_perps" data-testid="xfer-to-perps">${te('perps.transfer_box.to_perps')}</button><button class="btn" type="button" data-dir="to_predictions" data-testid="xfer-to-predictions">${te('perps.transfer_box.to_predictions')}</button></div>
       <div class="form-error" role="alert" data-testid="xfer-error"></div>
     </form></section>`;
 }
+// Subaccount picker of the transfer box (shown when the user has more than one subaccount).
+function drawTransferSubs(root, subs, current = 0) {
+  const box = root.querySelector('[data-sub-pick]');
+  if (!box) return;
+  box.hidden = !(subs.length > 1 && flagOn('perps.subaccounts'));
+  if (!box.hidden) {
+    const keep = box.querySelector('select')?.value;
+    box.innerHTML = subSelect(subs, keep != null ? Number(keep) : current, 'xfer-sub');
+  }
+}
+const transferSub = (root) => Number(root.querySelector('[data-testid=xfer-sub]')?.value || 0);
 function wireTransfer(root, onDone) {
   const form = root.querySelector('[data-testid=perp-transfer-form]');
   if (!form) return () => {};
@@ -130,7 +144,7 @@ function wireTransfer(root, onDone) {
     if (!validMoneyInput(raw)) { err.textContent = T('error.amount_positive', { zero: money(0), hint: moneyInputHint() }); return; }
     const amt = toApiDollars(raw); // naira ÷ 100 = the API's dollars
     try {
-      await P.transfer(dir, amt);
+      await P.transfer(dir, amt, transferSub(root));
       form.querySelector('#px-amount').value = '';
       toast(tx('perps.wire_transfer.moved', { money: money(amt), value: dir === 'to_perps' ? tx('perps.wire_transfer.to_perps') : tx('perps.wire_transfer.to_predictions') }));
       await onDone();
@@ -144,7 +158,8 @@ function wireTransfer(root, onDone) {
 
 // ================================================================ shared: account panels
 // Positions table with live PnL recomputed from the mark on every perp_ticker message.
-function positionsHtml(positions, metas, { showMarket = true } = {}) {
+function positionsHtml(positions, metas, { showMarket = true, subs = [] } = {}) {
+  const subName = (n0) => { const x = subs.find((s) => Number(s.subaccount) === Number(n0)); return x ? subLabel(x) : tx('perps2.sub.number', { n: n0 }); };
   if (!positions.length) return `<div class="empty" data-testid="perp-no-positions">${te('perps.positions_html.no_open_perps_positions')}</div>`;
   return `<div class="perps-scroll"><table class="table perps-pos-table" data-testid="perp-positions">
     <thead><tr>${showMarket ? `<th>${te('perps.positions_html.market')}</th>` : ''}<th>${te('perps.positions_html.side')}</th><th class="num">${te('perps.positions_html.size')}</th><th class="num">${te('perps.positions_html.entry')}</th><th class="num">${te('perps.positions_html.mark')}</th><th class="num">${te('perps.positions_html.liq_price')}</th><th class="num">${te('perps.positions_html.position_value')}</th><th class="num">${te('perps.positions_html.pnl_roi')}</th><th>${te('perps.positions_html.tp_sl')}</th><th></th></tr></thead>
@@ -152,25 +167,33 @@ function positionsHtml(positions, metas, { showMarket = true } = {}) {
       const m = metas.get(p.market_ticker);
       const long = n(p.position) > 0;
       const tr = p.exit_trigger;
-      return `<tr data-testid="perp-position" data-ticker="${esc(p.market_ticker)}">
+      const sub = Number(p.subaccount || 0);
+      return `<tr data-testid="perp-position" data-ticker="${esc(p.market_ticker)}" data-sub="${sub}">
         ${showMarket ? `<td><a class="perps-mkt sm" href="/perps/${esc(p.market_ticker)}" data-link>${icon(m)}<strong>${esc(m.title)}</strong></a></td>` : ''}
-        <td><span class="perps-side ${long ? 'long' : 'short'}" data-f="side">${long ? te('perps.positions_html.long') : te('perps.positions_html.short')}</span> <span class="faint" data-f="leverage">${lev(p.leverage)}</span></td>
-        <td class="num"><span data-f="size">${Math.abs(n(p.position)).toLocaleString('en-US')}</span><div class="faint">${money(p.position_notional)}</div></td>
+        <td><span class="perps-side ${long ? 'long' : 'short'}" data-f="side">${long ? te('perps.positions_html.long') : te('perps.positions_html.short')}</span> <span class="faint" data-f="leverage">${lev(p.leverage)}</span>${sub || p.margin_mode === 'cross' ? `<div class="faint" data-f="sub">${esc(subName(sub))}${p.margin_mode === 'cross' ? ` · ${te('perps2.sub.mode_cross')}` : ''}</div>` : ''}</td>
+        <td class="num"><span data-f="size">${Math.abs(n(p.position)).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span><div class="faint">${money(p.position_notional)}</div></td>
         <td class="num" data-f="entry">${fmtPx(m, p.entry_price)}</td>
         <td class="num" data-f="mark">${fmtPx(m, p.mark_price)}</td>
         <td class="num" data-f="liq">${fmtPx(m, p.estimated_liquidation_price)}</td>
         <td class="num" data-f="value">${money(p.position_value)}</td>
         <td class="num perps-pnl ${cls(n(p.unrealized_pnl))}" data-f="pnl" data-upnl="${n(p.unrealized_pnl)}">${pnlText(n(p.unrealized_pnl), p.roe)}</td>
-        <td data-f="tpsl"><button class="btn btn-sm btn-ghost" data-tpsl="${esc(p.market_ticker)}" data-testid="tpsl-btn">${tr ? `${tr.take_profit_price ? te('perps.positions_html.tp', { fmt_px: fmtPx(m, tr.take_profit_price) }) : ''}${tr.take_profit_price && tr.stop_loss_price ? ' · ' : ''}${tr.stop_loss_price ? te('perps.positions_html.sl', { fmt_px: fmtPx(m, tr.stop_loss_price) }) : ''}` : te('perps.positions_html.add_tp_sl')}</button></td>
-        <td><button class="btn btn-sm" data-close="${esc(p.market_ticker)}" data-testid="close-position">${te('perps.positions_html.close')}</button></td></tr>`;
+        <td data-f="tpsl"><button class="btn btn-sm btn-ghost" data-tpsl="${esc(p.market_ticker)}" data-sub="${sub}" data-testid="tpsl-btn">${tr ? `${tr.take_profit_price ? te('perps.positions_html.tp', { fmt_px: fmtPx(m, tr.take_profit_price) }) : ''}${tr.take_profit_price && tr.stop_loss_price ? ' · ' : ''}${tr.stop_loss_price ? te('perps.positions_html.sl', { fmt_px: fmtPx(m, tr.stop_loss_price) }) : ''}` : te('perps.positions_html.add_tp_sl')}</button>
+        <button class="btn btn-sm btn-ghost" data-trail="${esc(p.market_ticker)}" data-sub="${sub}" data-testid="trail-btn" data-flag="perps.trailing_stops">${esc(trailText(m, p.trailing_stop, fmtPx))}</button></td>
+        <td><button class="btn btn-sm" data-close="${esc(p.market_ticker)}" data-sub="${sub}" data-testid="close-position">${te('perps.positions_html.close')}</button></td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
 // Live refreshes must not wipe a TP/SL editor the user is typing in: keep the table while one is open.
 function keepEditor(panel, positions) {
-  const open = panel.querySelector('.perps-tpsl-row');
+  const open = panel.querySelector('.perps-tpsl-row, .perps-trail-row');
   if (!open) return false;
   const shown = [...panel.querySelectorAll('[data-testid=perp-position]')].map((r) => r.dataset.ticker).join();
   return shown === positions.map((p) => p.market_ticker).join();
+}
+// The same for an open order editor (amend / decrease) on the Open orders tab.
+function keepOrderEditor(panel, orders) {
+  if (!panel.querySelector('.perps-amend-row')) return false;
+  const shown = [...panel.querySelectorAll('[data-testid=perp-order]')].map((r) => r.dataset.order).join();
+  return shown === orders.map((o) => o.order_id).join();
 }
 const pnlText = (u, roe) => `${signedUsd(u)}${roe == null ? '' : ` <span class="faint">(${signedPct(n(roe))})</span>`}`;
 function livePnl(root, positions, metas, ticker, markDollars) {
@@ -180,7 +203,7 @@ function livePnl(root, positions, metas, ticker, markDollars) {
     const q = n(p.position);
     const u = q * (n(markDollars) - n(p.entry_price));
     const margin = n(p.margin_used);
-    const row = root.querySelector(`[data-testid=perp-position][data-ticker="${ticker}"]`);
+    const row = root.querySelector(`[data-testid=perp-position][data-ticker="${ticker}"][data-sub="${Number(p.subaccount || 0)}"]`);
     if (!row) continue;
     row.querySelector('[data-f=mark]').textContent = fmtPx(m, markDollars);
     const cell = row.querySelector('[data-f=pnl]');
@@ -194,7 +217,7 @@ function wirePositions(root, positions, metas, refresh) {
   for (const b of root.querySelectorAll('[data-close]')) {
     b.onclick = async () => {
       b.disabled = true;
-      try { const r = await P.closePosition(b.dataset.close); toast(tx('perps.wire_positions.closed_contracts', { n: n(r.order.fill_count) })); } catch (e) { toast(e.message, 'error'); }
+      try { const r = await P.closePosition(b.dataset.close, 100, Number(b.dataset.sub || 0)); toast(tx('perps.wire_positions.closed_contracts', { n: n(r.order.fill_count) })); } catch (e) { toast(e.message, 'error'); }
       refresh();
     };
   }
@@ -204,7 +227,7 @@ function wirePositions(root, positions, metas, refresh) {
       const open = tr.nextElementSibling && tr.nextElementSibling.classList.contains('perps-tpsl-row');
       if (open) { tr.nextElementSibling.remove(); return; }
       const t = b.dataset.tpsl;
-      const p = positions.find((x) => x.market_ticker === t);
+      const p = positions.find((x) => x.market_ticker === t && Number(x.subaccount || 0) === Number(b.dataset.sub || 0));
       const m = metas.get(t);
       const x = p.exit_trigger;
       const long = n(p.position) > 0;
@@ -220,26 +243,28 @@ function wirePositions(root, positions, metas, refresh) {
         e.preventDefault();
         const tp = f.tp.value.trim(); const sl = f.sl.value.trim();
         try {
-          await P.setExitTrigger(t, { take_profit_price: tp ? toContract(m, tp) : null, stop_loss_price: sl ? toContract(m, sl) : null });
+          await P.setExitTrigger(t, { take_profit_price: tp ? toContract(m, tp) : null, stop_loss_price: sl ? toContract(m, sl) : null, ...(p.subaccount ? { subaccount: Number(p.subaccount) } : {}) });
           toast(tx('perps.wire_positions.exit_trigger_saved'));
           f.closest('tr').remove();
           refresh();
         } catch (er) { f.querySelector('[data-testid=tpsl-error]').textContent = er.message; }
       };
       const clr = f.querySelector('[data-clear]');
-      if (clr) clr.onclick = async () => { try { await P.clearExitTrigger(t); toast(tx('perps.wire_positions.exit_trigger_removed')); f.closest('tr').remove(); refresh(); } catch (er) { toast(er.message, 'error'); } };
+      if (clr) clr.onclick = async () => { try { await P.clearExitTrigger(t, null, Number(p.subaccount || 0)); toast(tx('perps.wire_positions.exit_trigger_removed')); f.closest('tr').remove(); refresh(); } catch (er) { toast(er.message, 'error'); } };
     };
   }
+  wireTrailing(root, positions, metas, { fmtPx, toContract, onDone: refresh });
 }
 function ordersHtml(orders, metas, { showMarket = true } = {}) {
   if (!orders.length) return `<div class="empty" data-testid="perp-no-orders">${te('perps.orders_html.no_open_orders')}</div>`;
   return `<div class="perps-scroll"><table class="table" data-testid="perp-orders"><thead><tr>${showMarket ? `<th>${te('perps.orders_html.market')}</th>` : ''}<th>${te('perps.orders_html.side')}</th><th>${te('perps.orders_html.type')}</th><th class="num">${te('perps.orders_html.price')}</th><th class="num">${te('perps.orders_html.filled_size')}</th><th class="num">${te('perps.orders_html.leverage')}</th><th class="num">${te('perps.orders_html.margin_held')}</th><th>${te('perps.orders_html.placed')}</th><th></th></tr></thead><tbody>
-    ${orders.map((o) => { const m = metas.get(o.ticker); return `<tr data-testid="perp-order" data-order="${esc(o.order_id)}">${showMarket ? `<td>${esc(m.title)}</td>` : ''}<td><span class="perps-side ${o.side === 'bid' ? 'long' : 'short'}">${o.side === 'bid' ? te('perps.orders_html.long') : te('perps.orders_html.short')}</span></td><td>${o.type === 'market' ? te('perps.orders_html.market') : te('perps.orders_html.limit')}</td><td class="num" data-f="price">${fmtPx(m, o.price)}</td><td class="num">${n(o.fill_count)} / ${n(o.count)}</td><td class="num">${lev(o.leverage)}</td><td class="num">${money(o.reserved_margin)}</td><td>${dateTime(o.created_time)}</td><td><button class="btn btn-sm" data-cancel="${esc(o.order_id)}" data-testid="cancel-order">${te('perps.orders_html.cancel')}</button></td></tr>`; }).join('')}</tbody></table></div>`;
+    ${orders.map((o) => { const m = metas.get(o.ticker); return `<tr data-testid="perp-order" data-order="${esc(o.order_id)}">${showMarket ? `<td>${esc(m.title)}</td>` : ''}<td><span class="perps-side ${o.side === 'bid' ? 'long' : 'short'}">${o.side === 'bid' ? te('perps.orders_html.long') : te('perps.orders_html.short')}</span></td><td>${o.type === 'market' ? te('perps.orders_html.market') : te('perps.orders_html.limit')}</td><td class="num" data-f="price">${fmtPx(m, o.price)}</td><td class="num" data-f="size">${contracts(o.fill_count)} / ${contracts(o.count)}</td><td class="num">${lev(o.leverage)}</td><td class="num">${money(o.reserved_margin)}</td><td>${dateTime(o.created_time)}${o.order_group_id ? `<div class="faint" data-f="group">${te('perps2.groups.tag', { id: esc(o.order_group_id.slice(-6)) })}</div>` : ''}</td><td class="perps-actions"><button class="btn btn-sm btn-ghost" data-amend="${esc(o.order_id)}" data-testid="amend-order" data-flag="perps.amend">${te('perps2.amend.edit')}</button><button class="btn btn-sm" data-cancel="${esc(o.order_id)}" data-testid="cancel-order">${te('perps.orders_html.cancel')}</button></td></tr>`; }).join('')}</tbody></table></div>`;
 }
-function wireOrders(root, refresh) {
+function wireOrders(root, refresh, orders = [], metas = new Map()) {
   for (const b of root.querySelectorAll('[data-cancel]')) {
     b.onclick = async () => { b.disabled = true; try { await P.cancelOrder(b.dataset.cancel); toast(tx('perps.wire_orders.order_canceled')); } catch (e) { toast(e.message, 'error'); } refresh(); };
   }
+  wireAmend(root, orders, metas, { toLevel: (m, px) => lvlFromApi(m, under(m, px)).toFixed(lvlDec(m)), toContract, onDone: refresh });
 }
 function fundingHtml(rows, metas) {
   if (!rows.length) return `<div class="empty" data-testid="perp-no-funding">${te('perps.funding_html.no_funding_payments_yet_funding')}</div>`;
@@ -277,6 +302,10 @@ async function renderMarket({ el, params, navigate }) {
   let bal = null;
   let positions = [];
   let tab = 'positions';
+  let subs = [{ subaccount: 0, name: '', margin_mode: 'isolated' }];
+  let groups = [];
+  let wl = null; // waitlist state while the perps.waitlist gate is on (CLONE_SPEC.md §34.9)
+  const gated = () => !!(wl && wl.gate_active && !wl.beta_unlocked);
 
   el.innerHTML = `<div class="perps perps-market" data-testid="perp-market" data-ticker="${esc(m.ticker)}">
     <a class="perps-back faint" href="/perps" data-link>${te('perps.render_market.all_perps')}</a>
@@ -307,7 +336,7 @@ async function renderMarket({ el, params, navigate }) {
           <div class="perps-tabs" role="tablist">${[['positions', tx('perps.render_market.positions')], ['orders', tx('perps.render_market.open_orders')], ['funding', tx('perps.render_market.funding')], ['history', tx('perps.render_market.history')]].map(([k, l]) => `<button data-tab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
           <div data-testid="perp-panel" class="perps-panel"></div></section>` : ''}
         <section class="card perps-box perps-about"><h3 class="perps-box-title">${te('perps.render_market.about', { title: esc(m.title) })}</h3><p class="muted">${esc(m.product_metadata?.description || '')}</p>
-          <dl class="perps-dl"><div><dt>${te('perps.render_market.contract_size')}</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? tx('perps.render_market.index_points') : tx('perps.render_market.units'))}</dd></div><div><dt>${te('perps.render_market.tick')}</dt><dd>${te('perps.render_market.per_contract', { money: esc(money(m.tick_size, { exact: 4 })) })}</dd></div><div><dt>${te('perps.render_market.initial_maintenance_margin')}</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>${te('perps.render_market.fees_maker_taker')}</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>${te('perps.render_market.funding_schedule')}</dt><dd>${te('perps.render_market.every_h', { value: Math.round(m.funding_interval_ms / 3600000) || '<1' })} <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>${te('perps.render_market.index')}</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl></section>
+          <dl class="perps-dl"><div><dt>${te('perps.render_market.contract_size')}</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? tx('perps.render_market.index_points') : tx('perps.render_market.units'))}</dd></div><div><dt>${te('perps.render_market.tick')}</dt><dd>${te('perps.render_market.per_contract', { money: esc(money(m.tick_size, { exact: 4 })) })}</dd></div><div><dt>${te('perps.render_market.initial_maintenance_margin')}</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>${te('perps.render_market.fees_maker_taker')}</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>${te('perps.render_market.funding_schedule')}</dt><dd>${te('perps.render_market.every_h', { value: Math.round(m.funding_interval_ms / 3600000) || '<1' })} <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>${te('perps.render_market.index')}</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl>${tiersHtml(m)}</section>
       </div>
       <aside class="perps-side-col">
         <section class="card perps-box perps-ticket" data-testid="perp-ticket">
@@ -330,12 +359,16 @@ async function renderMarket({ el, params, navigate }) {
         <input id="pt-lev" type="range" min="1" max="${maxLev}" step="1" value="${t.lev}" data-testid="perp-leverage" aria-label="${te('perps.render_market.leverage')}">
         <div class="perps-lev-marks faint"><span>1x</span><span>${lev(Math.round(maxLev / 2))}</span><span>${lev(maxLev)}</span></div></div>
       <label class="perps-check" data-market-only><input type="checkbox" id="pt-reduce" data-testid="perp-reduce-only"> ${te('perps.render_market.reduce_only')}</label>
+      <label class="perps-field" data-sub-field hidden><span>${te('perps2.ticket.subaccount')}</span><span data-sub-slot></span></label>
+      <label class="perps-field" data-group-field hidden><span>${te('perps2.ticket.order_group')}</span><select class="perps-select" id="pt-group" data-testid="perp-group" aria-label="${te('perps2.ticket.order_group')}"></select></label>
       <dl class="perps-summary" data-testid="perp-summary">
         <div><dt>${te('perps.render_market.contracts')}</dt><dd data-o="contracts">—</dd></div>
         <div><dt>${te('perps.render_market.total_size')}</dt><dd data-o="notional">—</dd></div>
         <div><dt>${te('perps.render_market.cost_margin')}</dt><dd data-o="cost">—</dd></div>
         <div><dt>${te('perps.render_market.est_fees')}</dt><dd data-o="fees">—</dd></div>
         <div><dt>${te('perps.render_market.est_liq_price')}</dt><dd data-o="liq" data-testid="perp-est-liq">—</dd></div>
+        <div><dt>${te('perps2.ticket.tier')}</dt><dd data-o="tier" data-testid="perp-tier">—</dd></div>
+        <div><dt>${te('perps2.ticket.max_leverage')}</dt><dd data-o="maxlev" data-testid="perp-max-lev">—</dd></div>
         <div><dt>${te('perps.render_market.perps_available')}</dt><dd data-o="avail" data-testid="perp-available-ticket">—</dd></div>
       </dl>
       <button class="btn btn-primary perps-submit" id="pt-submit" data-testid="perp-submit" disabled>${te('perps.render_market.long', { title: esc(m.title) })}</button>
@@ -421,32 +454,36 @@ async function renderMarket({ el, params, navigate }) {
     const px = t.type === 'limit' && limitLevel ? n(toContract(m, limitLevel)) : (t.side === 'long' ? ba : bb);
     const taker = n(m.taker_fee_rate);
     let contracts = 0;
-    if (px > 0 && amount > 0) contracts = t.unit === 'usd' ? Math.floor((amount / (px / t.lev + px * taker)) + 1e-9) : Math.floor(amount);
+    const step = fractionalOn(m) ? 100 : 1; // fractional markets trade hundredths of a contract (CLONE_SPEC.md §34.5)
+    if (px > 0 && amount > 0) contracts = (t.unit === 'usd' ? Math.floor((amount / (px / t.lev + px * taker)) * step + 1e-9) : Math.floor(amount * step + 1e-9)) / step;
     if (t.reduce && t.type === 'market') {
-      const p = positions.find((x) => x.market_ticker === m.ticker);
+      const p = positions.find((x) => x.market_ticker === m.ticker && Number(x.subaccount || 0) === ticketSub());
       contracts = p ? Math.min(contracts || Math.abs(n(p.position)), Math.abs(n(p.position))) : 0;
     }
     const notional = contracts * px;
     const cost = t.reduce ? 0 : notional / t.lev;
     const fees = Math.ceil(notional * taker * 10000) / 10000;
-    const r = n(m.maintenance_margin_rate);
     let liq = null;
-    if (contracts > 0 && !t.reduce) liq = t.side === 'long' ? (contracts * px - cost) / (contracts * (1 - r)) : (cost + contracts * px) / (contracts * (1 + r));
-    return { contracts, px, notional, cost, fees, liq };
+    if (contracts > 0 && !t.reduce) liq = estLiq(m, t.side === 'long' ? contracts : -contracts, px, cost);
+    const tier = tierAt(m, notional);
+    return { contracts, px, notional, cost, fees, liq, tier };
   }
   function drawTicket() {
-    if (!authed || !live()) return;
+    if (!authed || !live() || gated() || !$('#pt-amount')) return;
     const c = calc();
     const o = (k) => el.querySelector(`[data-o=${k}]`);
-    o('contracts').textContent = c.contracts ? c.contracts.toLocaleString('en-US') : '—';
+    o('contracts').textContent = c.contracts ? c.contracts.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—';
     o('notional').textContent = c.contracts ? money(c.notional) : '—';
     o('cost').textContent = c.contracts ? money(c.cost) : '—';
     o('fees').textContent = c.contracts ? money(c.fees, { exact: isNgn() ? 2 : 4 }) : '—';
     o('liq').textContent = c.liq && c.liq > 0 ? fmtPx(m, c.liq) : '—';
+    o('tier').textContent = c.contracts ? String(c.tier.tier) : '—';
+    o('maxlev').textContent = c.contracts ? lev(Math.floor(c.tier.maxLev * 10) / 10) : '—';
+    o('maxlev').classList.toggle('down', !!c.contracts && t.lev > c.tier.maxLev + 1e-9);
     o('avail').textContent = bal ? money(bal.available_dollars) : '—';
     const btn = $('#pt-submit');
     btn.disabled = !c.contracts;
-    btn.textContent = `${t.reduce ? tx('perps.render_market.reduce') : t.side === 'long' ? tx('perps.render_market.long_2') : tx('perps.render_market.short')} ${m.title}${c.contracts ? ` · ${c.contracts.toLocaleString('en-US')}` : ''}`;
+    btn.textContent = `${t.reduce ? tx('perps.render_market.reduce') : t.side === 'long' ? tx('perps.render_market.long_2') : tx('perps.render_market.short')} ${m.title}${c.contracts ? ` · ${c.contracts.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : ''}`;
     btn.className = `btn perps-submit ${t.side}`;
     el.querySelector('[data-limit]').hidden = t.type !== 'limit';
     el.querySelector('[data-market-only]').hidden = t.type !== 'market';
@@ -477,6 +514,10 @@ async function renderMarket({ el, params, navigate }) {
       const c = calc();
       if (!c.contracts) return;
       const body = { ticker: m.ticker, side: t.side === 'long' ? 'bid' : 'ask', type: t.type, count: c.contracts, leverage: t.lev, reduce_only: t.reduce && t.type === 'market' };
+      const sub = ticketSub();
+      if (sub) body.subaccount = sub;
+      const gid = $('#pt-group') && $('#pt-group').value;
+      if (gid) body.order_group_id = gid;
       if (t.type === 'limit') { body.price = toContract(m, $('#pt-price').value); body.time_in_force = 'good_till_canceled'; }
       const btn = $('#pt-submit');
       btn.disabled = true;
@@ -492,15 +533,52 @@ async function renderMarket({ el, params, navigate }) {
   }
 
   // ---- account
+  // Ticket subaccount (CLONE_SPEC.md §34.1): the picker shows once the user has a second subaccount.
+  const ticketSub = () => Number(el.querySelector('[data-testid=perp-sub]')?.value || 0);
+  function drawTicketExtras() {
+    if (!authed || !live() || gated()) return;
+    const sf = el.querySelector('[data-sub-field]');
+    const multi = subs.length > 1 && flagOn('perps.subaccounts');
+    if (sf) {
+      sf.hidden = !multi;
+      const keep = ticketSub();
+      if (multi) el.querySelector('[data-sub-slot]').innerHTML = subSelect(subs, keep, 'perp-sub');
+      const ps = el.querySelector('[data-testid=perp-sub]');
+      if (ps) ps.onchange = () => { drawTicketExtras(); refreshAccount().catch(() => {}); };
+    }
+    const gf = el.querySelector('[data-group-field]');
+    const opts = flagOn('perps.order_groups') ? groupOptions(groups, ticketSub()) : [];
+    if (gf) {
+      gf.hidden = !opts.length;
+      const sel = $('#pt-group'); const keep = sel.value;
+      sel.innerHTML = `<option value="">${te('perps2.ticket.no_group')}</option>${opts.map((g) => `<option value="${esc(g.order_group_id)}"${g.order_group_id === keep ? ' selected' : ''}>${te(g.kind === 'oco' ? 'perps2.ticket.group_oco' : 'perps2.ticket.group_limit', { id: esc(g.order_group_id.slice(-6)), limit: esc(contracts(g.contracts_limit)) })}</option>`).join('')}`;
+    }
+  }
+  // The waitlist gate replaces the ticket with the waitlist card until access is unlocked; it comes back live.
+  function drawGate() {
+    const tk = el.querySelector('[data-testid=perp-ticket]');
+    if (!authed || !tk || !live()) return;
+    const was = tk.dataset.gated === '1';
+    if (gated()) { tk.dataset.gated = '1'; tk.innerHTML = waitlistHtml(wl); wireWaitlist(tk, (w) => { wl = w; drawGate(); }); return; }
+    if (was) { tk.dataset.gated = '0'; tk.innerHTML = ticketHtml(); wireTicket(); drawTicketExtras(); drawTicket(); }
+  }
   async function refreshAccount() {
     if (!authed) return;
-    const [b, ps] = await Promise.all([P.balance(), P.positions()]);
+    const [b, ps, sv, gv, wv] = await Promise.all([P.balance(ticketSub()), P.positions(),
+      flagOn('perps.subaccounts') ? P.subaccounts().catch(() => null) : null, flagOn('perps.order_groups') ? P.orderGroups().catch(() => null) : null,
+      flagOn('perps.waitlist') ? P.waitlist().catch(() => null) : null]);
     bal = b;
+    if (sv) subs = sv.subaccounts;
+    if (gv) groups = gv.order_groups;
+    wl = wv ? wv.waitlist : null;
     positions = ps.positions;
     for (const p of positions) if (!metas.has(p.market_ticker)) metas.set(p.market_ticker, (await P.market(p.market_ticker)).market);
     if (!live()) return;
     const av = el.querySelector('[data-testid=perps-available]');
     if (av) av.textContent = money(b.available_dollars);
+    drawTransferSubs(el, subs);
+    drawGate();
+    drawTicketExtras();
     drawTicket();
     await drawPanel();
   }
@@ -509,13 +587,14 @@ async function renderMarket({ el, params, navigate }) {
     if (!panel) return;
     if (tab === 'positions') {
       if (keepEditor(panel, positions)) return;
-      panel.innerHTML = positionsHtml(positions, metas);
+      panel.innerHTML = positionsHtml(positions, metas, { subs });
       wirePositions(panel, positions, metas, refreshAccount);
     } else if (tab === 'orders') {
       const { orders } = await P.orders({ status: 'resting' });
       for (const o of orders) if (!metas.has(o.ticker)) metas.set(o.ticker, (await P.market(o.ticker)).market);
+      if (!live() || keepOrderEditor(panel, orders)) return;
       panel.innerHTML = ordersHtml(orders, metas);
-      wireOrders(panel, refreshAccount);
+      wireOrders(panel, refreshAccount, orders, metas);
     } else if (tab === 'funding') {
       const { funding_history: fh } = await P.fundingHistory({ ticker: m.ticker });
       panel.innerHTML = fundingHtml(fh, metas);
@@ -555,7 +634,7 @@ async function renderMarket({ el, params, navigate }) {
   ];
   if (authed) {
     unsubs.push(socket.subscribe({ channels: ['perp_positions', 'perp_orders', 'perp_account'] }, (msg) => {
-      if (msg.type === 'perp_account') { bal = msg.msg; const av = el.querySelector('[data-testid=perps-available]'); if (av) av.textContent = money(bal.available_dollars); }
+      if (msg.type === 'perp_account' && Number(msg.msg.subaccount || 0) === ticketSub()) { bal = msg.msg; const av = el.querySelector('[data-testid=perps-available]'); if (av) av.textContent = money(bal.available_dollars); }
       refreshSoon();
     }));
   }
@@ -568,7 +647,8 @@ async function renderMarket({ el, params, navigate }) {
 export async function renderPerpsPortfolio({ el, query, navigate }) {
   if (!session.user) { navigate(`/sign-in?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true }); return undefined; }
   document.title = tx('perps.render_perps_portfolio.perps_portfolio_parlance');
-  let tab = PERPS_TABS.some(([k]) => k === query.get('perpsTab')) ? query.get('perpsTab') : 'positions';
+  const tabs = PERPS_TABS.filter(([, , f]) => !f || f.split(' ').some((k) => flagOn(k)));
+  let tab = tabs.some(([k]) => k === query.get('perpsTab')) ? query.get('perpsTab') : 'positions';
   const { markets } = await P.markets();
   const metas = new Map(markets.map((m) => [m.ticker, m]));
   let positions = [];
@@ -583,16 +663,19 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
     </div>
     <div class="perps-layout">
       <div class="perps-main"><section class="card perps-box">
-        <div class="perps-tabs" role="tablist" data-testid="perps-port-tabs">${PERPS_TABS.map(([k, l]) => `<button data-ptab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}<a class="btn btn-sm btn-ghost perps-tabs-link" href="/perps" data-link>${te('perps.render_perps_portfolio.browse_perps')}</a></div>
+        <div class="perps-tabs" role="tablist" data-testid="perps-port-tabs">${tabs.map(([k, l]) => `<button data-ptab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}<a class="btn btn-sm btn-ghost perps-tabs-link" href="/perps" data-link>${te('perps.render_perps_portfolio.browse_perps')}</a></div>
         <div class="perps-panel" data-testid="perps-port-panel"></div></section></div>
       <aside class="perps-side-col">${transferBox()}</aside>
     </div></div>`;
   const root = el.firstElementChild;
   const $ = (s) => root.querySelector(s);
 
+  let subs = [];
   async function drawStats() {
-    const b = await P.balance();
+    const [b, sv] = await Promise.all([P.balance(), flagOn('perps.subaccounts') ? P.subaccounts().catch(() => null) : null]);
+    if (sv) subs = sv.subaccounts;
     if (!root.isConnected) return;
+    drawTransferSubs(root, subs);
     $('[data-testid=perps-equity]').textContent = money(b.account_equity);
     $('[data-testid=perps-port-available]').textContent = money(b.available_dollars);
     $('[data-testid=perps-available]').textContent = money(b.available_dollars);
@@ -602,23 +685,32 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
     up.className = `perps-pnl ${cls(u)}`;
     $('[data-testid=perps-margin]').textContent = money(b.margin_in_use);
   }
-  async function drawPanel() {
+  async function drawPanel({ live: fromSocket = false } = {}) {
     const p = $('[data-testid=perps-port-panel]');
+    // A live refresh never wipes a form the user is typing in (subaccounts, order groups, referral code).
+    if (fromSocket && ['accounts', 'groups', 'rewards'].includes(tab) && p.contains(document.activeElement) && document.activeElement.matches('input, select')) return;
     if (tab === 'positions') {
       positions = (await P.positions()).positions;
       if (!root.isConnected || keepEditor(p, positions)) return;
-      p.innerHTML = positionsHtml(positions, metas);
+      p.innerHTML = positionsHtml(positions, metas, { subs });
       wirePositions(p, positions, metas, refresh);
     } else if (tab === 'orders') {
       const { orders } = await P.orders({ status: 'resting' });
+      if (!root.isConnected || keepOrderEditor(p, orders)) return;
       p.innerHTML = ordersHtml(orders, metas);
-      wireOrders(p, refresh);
+      wireOrders(p, refresh, orders, metas);
+    } else if (tab === 'accounts') {
+      await subaccountsPanel(p, refresh);
+    } else if (tab === 'groups') {
+      await groupsPanel(p, refresh);
+    } else if (tab === 'rewards') {
+      await rewardsPanel(p, refresh);
     } else {
       const [{ fills }, { funding_history: fh }, { liquidations }, { transfers }] = await Promise.all([P.fills(), P.fundingHistory(), P.liquidations(), P.transfers()]);
       p.innerHTML = `${liquidationsHtml(liquidations, metas)}<h4 class="perps-sub">${te('perps.render_perps_portfolio.trades')}</h4>${fillsHtml(fills, metas)}<h4 class="perps-sub">${te('perps.render_perps_portfolio.funding_payments')}</h4>${fundingHtml(fh, metas)}${transfersHtml(transfers)}`;
     }
   }
-  async function refresh() { await Promise.all([drawStats(), drawPanel()]); }
+  async function refresh(opts) { await Promise.all([drawStats(), drawPanel(opts)]); }
   for (const b of el.querySelectorAll('[data-ptab]')) {
     b.onclick = () => {
       tab = b.dataset.ptab;
@@ -630,7 +722,7 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
   await refresh();
   if (!root.isConnected) return undefined;
   const unsubXfer = wireTransfer(el, refresh);
-  const refreshSoon = debounce(refresh, 150);
+  const refreshSoon = debounce(() => refresh({ live: true }), 150);
   const unsubs = [
     socket.subscribe({ channels: ['perp_positions', 'perp_orders', 'perp_account'] }, () => refreshSoon()),
     socket.subscribe({ channels: ['perp_ticker'] }, (msg) => {
