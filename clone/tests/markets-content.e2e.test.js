@@ -109,6 +109,9 @@ test('sports derivatives: a spread / total market bought on the event page settl
   const total = lines.find((l) => l.kind === 'total');
   await page.click(`[data-testid=line-row][data-ticker="${total.market_ticker}"] [data-testid=line-yes]`);
   await page.waitForURL(/-lines\?side=yes&market=/);
+  // The lines page's own header label (no data-status, unlike the game page it replaces) is filled once its game board
+  // loads; waiting on it avoids matching the previous page's scoreboard while the route is still switching.
+  await page.waitForFunction(() => /Live|Final/.test(document.querySelector('[data-testid=ev-live-label]:not([data-status])')?.textContent || ''));
   await page.waitForSelector('[data-testid=scoreboard]'); // the game board on the lines event page
   assert.match(await page.textContent('[data-testid=ev-live-label]'), /Live|Final/);
   await page.waitForSelector('#t-amount');

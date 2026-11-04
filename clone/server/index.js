@@ -69,7 +69,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
     app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
     const envAdmin = process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD ? { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD } : null;
     boot = app.locals.auth.bootstrap({ admin: admin || envAdmin, demoPassword });
-  } catch (e) { try { app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
+  } catch (e) { try { app?.locals.cms?.close(); app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
   const server = http.createServer(app);
   const hub = attachWs(server, { db, engine, auth: app.locals.auth, security: app.locals.security });
   app.locals.wsHub = hub; // admin health page (server/admin.js)
@@ -78,7 +78,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   try {
     bound = await listen(server, port, !explicit);
   } catch (e) {
-    clearInterval(ticker); hub.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); db.close();
+    clearInterval(ticker); hub.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); db.close();
     throw e;
   }
   // Sandbox payment providers deliver their webhooks to this server over loopback HTTP (server/payment-providers.js).
