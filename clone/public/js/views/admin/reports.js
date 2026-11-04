@@ -1,5 +1,6 @@
 // Reports dashboard: totals + per-day series (volume, fees, deposits/withdrawals, active users, sign-ups), top markets,
 // open-interest exposure (incl. the liquidity account), date range and CSV export. Own SVG charts, single series each.
+import { t as tc } from '../../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { sym, moneyCompact } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, toast, dataTable, section, fmtMoney, fmtQty, barChart, wireCharts } from './ui.js';
 
@@ -28,10 +29,10 @@ export async function render({ el, query }) {
     const compactN = (v, axis) => (axis ? Number(v).toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 }) : n(v));
     const chart = (title, key, fmt, axisFmt) => `<div class="card adm-card"><h3>${esc(title)}</h3>${barChart(pts(key, fmt), { format: axisFmt, label: title })}</div>`;
     host.innerHTML = `<div class="adm-tiles" data-testid="report-totals">
-        ${tile('volume_fp', 'Volume (contracts)', fmtQty(T.volume_fp))}${tile('volume_dollars', T('admin.volume', { symbol: sym() }), fmtMoney(T.volume_dollars))}${tile('trades', 'Trades', n(T.trades))}
+        ${tile('volume_fp', 'Volume (contracts)', fmtQty(T.volume_fp))}${tile('volume_dollars', tc('admin.volume', { symbol: sym() }), fmtMoney(T.volume_dollars))}${tile('trades', 'Trades', n(T.trades))}
         ${tile('fees_dollars', 'Fees collected', fmtMoney(T.fees_dollars))}${tile('deposits_dollars', 'Deposits', fmtMoney(T.deposits_dollars))}${tile('withdrawals_dollars', 'Withdrawals', fmtMoney(T.withdrawals_dollars))}
         ${tile('active_users', 'Active traders', n(T.active_users))}${tile('signups', 'New sign-ups', n(T.signups))}${tile('open_interest_fp', 'Open interest (now)', fmtQty(T.open_interest_fp))}</div>
-      <div class="adm-charts">${chart(T('admin.volume_per_day', { symbol: sym() }), 'volume_dollars', money, compactMoney)}${chart('Volume (contracts) per day', 'volume_fp', fmtQty, compactN)}${chart('Fees per day', 'fees_dollars', money, compactMoney)}
+      <div class="adm-charts">${chart(tc('admin.volume_per_day', { symbol: sym() }), 'volume_dollars', money, compactMoney)}${chart('Volume (contracts) per day', 'volume_fp', fmtQty, compactN)}${chart('Fees per day', 'fees_dollars', money, compactMoney)}
         ${chart('Deposits per day', 'deposits_dollars', money, compactMoney)}${chart('Withdrawals per day', 'withdrawals_dollars', money, compactMoney)}${chart('Active traders per day', 'active_users', n, compactN)}${chart('Sign-ups per day', 'signups', n, compactN)}</div>
       <h3 class="adm-h3">Top markets by volume</h3><div id="rep-top"></div><h3 class="adm-h3">Exposure (open interest and liquidity-account position)</h3><div id="rep-exp"></div><h3 class="adm-h3">Daily table</h3><div id="rep-daily"></div>`;
     wireCharts(host);

@@ -97,7 +97,7 @@ test('perps list: seeded markets, asset-class chips filter, live ticker updates'
   assert.match(chips, /All\s*7/);
   assert.match(chips, /Crypto\s*3/);
   assert.match(chips, /Metals\s*1/);
-  assert.match(await page.textContent(`[data-ticker=${BTC}] [data-f=price]`), /^\$\d{2,3},\d{3}\.\d{2}$/);
+  assert.match(await page.textContent(`[data-ticker=${BTC}] [data-f=price]`), /^₦\d{1,2},\d{3},\d{3}$/);
   assert.match(await page.textContent(`[data-ticker=${BTC}] [data-f=funding]`), /^-?\d\.\d{4}%$/);
   // Category filter (route /perps/categories/{assetClass}, lower-cased).
   await page.click('[data-testid=perps-chips] a[data-class=Metals]');
@@ -210,7 +210,7 @@ test('mark moves: unrealized PnL updates live', async () => {
     const got = Number(await pa.getAttribute(`${row} [data-f=pnl]`, 'data-upnl'));
     assert.ok(Math.abs(got - want) < 0.005, `upnl ${got} vs ${want}`);
   });
-  assert.match(await pa.textContent(`${row} [data-f=pnl]`), /^\+\$\d+\.\d{2} \(\+\d+\.\d{2}%\)$/);
+  assert.match(await pa.textContent(`${row} [data-f=pnl]`), /^\+₦[\d,]+(\.\d{2})? \(\+\d+\.\d{2}%\)$/);
   assert.match(await pa.textContent('[data-testid=perp-mark]'), /₦10,200,000/);
   assert.deepEqual(pa.errors, []);
 });

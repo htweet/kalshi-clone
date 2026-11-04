@@ -192,7 +192,7 @@ test('rolling Above/Below markets: live card, trade Above, window settles, Deter
     assert.ok(Date.now() < until, 'a rolling window with at least 3 s left appears');
     await page.waitForTimeout(Math.max(200, end - Date.now() + 300));
   }
-  assert.match(await page.textContent('[data-testid=flash-target]'), /^Target \$\d+\.\d{2}$/);
+  assert.match(await page.textContent('[data-testid=flash-target]'), /^Target ₦[\d,]+$/);
   await page.click('[data-testid=flash-card] .ab a:first-child');
   await page.waitForSelector('#ticket .side-toggle button.on-yes');
   await mode(page, 'market');

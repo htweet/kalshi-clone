@@ -104,7 +104,7 @@ test('Positions is the default tab; whole + fractional holdings match the DB and
     assert.equal(await cell(pp, t, 'p-value'), usd(value));
     assert.equal(await cell(pp, t, 'p-payout'), usd(units));
     assert.equal(await cell(pp, t, 'p-sell'), usd(sellValue(t, side, units, uid(P))));
-    assert.match(await cell(pp, t, 'p-upnl'), value - basis < 0 ? /^-\$/ : /^\+?\$/);
+    assert.match(await cell(pp, t, 'p-upnl'), value - basis < 0 ? /^-₦/ : /^\+?₦/);
   }
   assert.match(await pp.textContent(`tr[data-ticker="${RAV}"]`), /YES\s*10/);
   assert.equal(await pp.textContent('[data-testid=pos-cash]'), usd(bal(P)));

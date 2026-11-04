@@ -106,7 +106,7 @@ test('B quotes (UI validation first); A sees it live and accepts; B confirms; ex
   await pb.fill(`${form} input[name=yes]`, '60');
   await pb.fill(`${form} input[name=no]`, '50');
   await pb.click(`${form} button[type=submit]`);
-  await pb.waitForSelector(`${form} .form-error:has-text("cannot exceed 100")`);
+  await pb.waitForSelector(`${form} .form-error:has-text("cannot exceed ₦100")`);
   await pb.fill(`${form} input[name=yes]`, '0');
   await pb.fill(`${form} input[name=no]`, '0');
   await pb.click(`${form} button[type=submit]`);

@@ -95,7 +95,7 @@ test('Live rail ◇ COMBO opens the builder; the slip and amount persist in the 
   await logIn(p2);
   await p2.goto(BASE + '/combos');
   await p2.waitForSelector('[data-testid=slip-count]:has-text("2/6")');
-  assert.equal(await p2.inputValue('#combo-amount'), '12.5');
+  assert.equal(await p2.inputValue('#combo-amount'), '1250'); // ₦1,250 (stored as amount_dollars 12.5)
   assert.deepEqual(p2.errors, []);
   await p2.context().close();
 });
