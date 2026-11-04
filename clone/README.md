@@ -28,11 +28,18 @@ Port: with `PORT` unset the server tries 3000-3019 and prints the URL it actuall
 
 Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_PASSWORD`, `SECRET_KEY` / `SECRET_KEY_FILE` (default: `secret.key` next to the database), `SECURE_COOKIES=1` behind a TLS proxy, `SCRYPT_LOG_N` (see `.env.example`). Requires Node ≥ 22.5 (`node:sqlite`).
 
+## Currency (naira by default)
+
+- **Prices and balances show in naira.** A contract pays **₦100**: a 64¢ price shows as **₦64**, a balance of $25.00 as **₦2,500**, and finer markets show kobo (**₦64.50**). Odds (%) and payout multipliers are unchanged. Perps prices, margin, funding and P&L use the same rule.
+- **Amounts you type are naira.** Deposits, withdrawals, transfers, the ticket's **Naira** mode and limits take whole naira. Limit prices are the same number as before (64 = ₦64).
+- **It is a display rule, not an exchange rate.** The API keeps its fields (`*_dollars`); `GET /v1/exchange/display_currency` tells you the rule (display = dollars × 100 under NGN).
+- **Admin › Settings › Currency & defaults** switches between NGN and USD, sets the locale and time zone (default Africa/Lagos) and the settings new accounts start with. Changes need a reason and a password check, are audited, and update open pages at once.
+
 ## Trading core (Phase 5A)
 
 - **Finer prices.** Some markets trade in 0.1¢ steps (`deci_cent`), or in finer steps near 0¢ and 100¢ (`tapered`). Combos use 0.1¢ steps, and 0.01¢ near the edges. The ticket's limit field steps by the market's tick and lists the bands.
 - **Fees.** Fees are charged once per order: the exact fee of every fill is added up and rounded up a single time.
-- **Scalar markets** (for example *Harbor GDP growth in Q4 2026*) pay YES a share of $1 by the reported value between a floor and a cap; NO gets the rest. Admins resolve them with the value.
+- **Scalar markets** (for example *Harbor GDP growth in Q4 2026*) pay YES a share of ₦100 (one contract) by the reported value between a floor and a cap; NO gets the rest. Admins resolve them with the value.
 - **Settings › Trade mechanics** are live:
   - **Skip order review** is off by default, so orders show a review first.
   - **Auto-sell prompt** offers a take-profit sell after a buy fills.

@@ -402,7 +402,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §29 markets and content (Phase 5B): sports spreads and totals settled from the final score, ice-hockey league, running clocks and live header label (G9), calendar `event_limits`, ballot lookup on invented jurisdictions (no address stored), AI news summaries + timeline (offline extractive default with citations, optional external adapter, cache, cost caps, injection handling, admin hide/regenerate), Liquidity Incentive Program (A13, journaled payouts), hub widgets: Senate map, Fed funds outlook, forecast history (A15) | yes | tests `markets-content`; civic data, rates and news invented; accrual formula is a design choice |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 216 Playwright scenarios across 26 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 223 Playwright scenarios across 27 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -3733,6 +3733,103 @@ ai: { adapter, regeneratePer10Min }, incentives: { snapshotMs }, ballot: { ballo
 **Confirmed by the owner (2026-11-04):** the design choices above as built: the incentive reward formula (§29.7),
 spreads and totals as a separate event per game on half-point lines, calendar caps (15-minute and hourly 3, daily 2,
 sports never capped), the optional external summarizer with the pinned official SDK, and the `npm start`-only demo data.
+
+## 30. Display currency (NGN) and admin defaults
+
+Owner decision (2026-11-04): Parlance displays **Nigerian naira by default**. A contract pays **₦100**. The rule is
+**display-only**: the engine, ledger, journal, database and API keep their units (integer cents, centi-cent prices,
+`*_dollars` strings). It is a sandbox display rule, not an exchange rate.
+
+### 30.1 The rule
+
+| Internal | NGN (default) | USD (alternative) |
+|---|---|---|
+| Contract price 64¢ (6,400 cc) | ₦64 | 64¢ |
+| Sub-cent price 64.50¢ (6,450 cc) | ₦64.50 (kobo) | 64.5¢ |
+| Amount $25.00 (2,500 cents) | ₦2,500 | $25.00 |
+| Contract value $1.00 | ₦100 | $1.00 |
+| Perps BTC level $96,250.00 | ₦9,625,000 | $96,250.00 |
+| Funding $0.0123 | ₦1.23 | $0.0123 |
+
+- 1 internal cent = ₦1, so amounts in whole cents are whole naira; kobo appear only when the value has them (sub-cent
+  grids, perps prices and P&L in centi-cents, exact fee memos).
+- Percent odds and payout multipliers are currency-free and unchanged.
+- Perps follow the same ×100 rule for asset prices, notional, margin, funding and P&L, so no page mixes currencies.
+- Money inputs take display units and convert at the client boundary: naira ÷ 100 = the API's dollars. Deposits,
+  withdrawals, transfers, ticket amounts, combo amounts and limits take **whole naira** (the API takes at most 2 dollar
+  decimals). Price inputs are the same number in both currencies (64 = ₦64 = 64¢); fine grids accept kobo where the grid
+  allows (₦12.30 on `deci_cent`). Perps price inputs take naira levels.
+- Labels: the ticket's "Dollars" mode is "Naira" (the API order type stays `dollars`); "Max payout", limits, fees,
+  admin money fields and error messages quote ₦. Seeded copy that names dollar thresholds is written at the same rule
+  ("PLX token above ₦500", "Each contract pays ₦100").
+
+### 30.2 Configuration (DB, live)
+
+- `admin_settings.display_currency` = `{code: NGN|USD, locale: en-NG|en-US|en-GB, timezone: IANA zone}`; defaults
+  `NGN`, `en-NG`, `Africa/Lagos`. Loaded at boot, changed live by the admin panel, persisted across restarts.
+- `admin_settings.account_defaults` = `{theme, order_review, flip_sell, display_mode, notification_channels}`.
+  Applied once when an account is created (password sign-up and OAuth sign-up) by writing the account's own
+  `user_settings` rows and, when a channel is off, a `notif_prefs` row. Existing accounts keep their saved choices.
+- The SPA boots from `GET /v1/site_config` (`display_currency`) and listens on the public WebSocket channel
+  `display_currency`; a change re-renders every open page in place.
+- Time zone: dates, calendar labels, exports' local timestamps, rolling-market titles ("Closes 15:15 WAT") and
+  statements format in the configured zone and locale. Server-side calendar sections are **local days** in that zone
+  (`GET /v1/calendar` `date`): a close at 23:30 UTC belongs to the next Lagos day. Daily limits, the session limit,
+  withdrawal limits and admin reports stay on **UTC days** (they were never local-day based); their help text says so.
+
+### 30.3 Admin › Settings › Currency & defaults
+
+- Fields: currency, locale, time zone; new-account theme, order review, flip sell, market preview (payout & odds vs
+  shares & prices), in-app / email / push channels; reason.
+- Live preview before saving: sample prices (whole and kobo), a balance, a payout, a perps level, funding, a date at
+  23:30 UTC (the midnight edge) and the price-input unit, formatted with the form's values.
+- `GET /v1/admin/settings/currency` and `PUT /v1/admin/settings/currency` need `settings.write`; the PUT needs a
+  reason (3-500 characters), a fresh step-up (`admin_currency_settings` in the central SENSITIVE list), a strict body
+  (`server/validate.js` `adminCurrency`, nested objects checked with `unknown: 'reject'`), and writes one hash-chained
+  `settings.currency` audit row with before / after.
+
+### 30.4 Developer API
+
+Every existing field name and value is unchanged (they mirror the observed exchange API). New, public:
+`GET /v1/exchange/display_currency` →
+`{display_currency: {code, symbol, name, minor_unit, minor_units_per_major, contract_value, contract_value_display,
+locale, timezone, per_internal_dollar, rule, supported}}`. Display value = `*_dollars × per_internal_dollar`
+(100 under NGN). CSV exports name their money columns for the currency (`amount_ngn`, `price_ngn`, `volume_ngn`, …,
+plain numbers in naira) and keep the original names (`amount_usd`, `price_dollars`, …) under USD.
+
+### 30.5 One formatter each side, keyed wording
+
+- Server: `server/currency.js` (`moneyCents`, `moneyDollars`, `priceCc`, `priceCents`, `assetPrice`, `csv*`, dates,
+  `dayKey`, `descriptor`, `applyAccountDefaults`). SPA: `public/js/currency.js` (the same functions plus input
+  conversion; `lib.js` re-exports `money`, `px`, `pxc`, so every view goes through it). Notifications, toasts, the
+  dev-mailbox emails (built from notification title and body), ledger memos, error details, CSV exports, admin pages,
+  incentives, perps and combos all format through them.
+- PDF statements write the ISO code ("NGN 2,500") because the standard PDF fonts have no ₦ glyph, plus a line naming
+  the currency and the display rule.
+- CMS readiness (PLAN Phase 5C): every new or changed user-facing string of this phase is a keyed template with named
+  variables in one module per side, `server/content/currency-strings.js` and `public/js/content/currency-strings.js`
+  (`t(key, vars)`, `tHtml` for markup with pre-escaped variables).
+
+### 30.6 Design choices to confirm
+
+- Whole naira when the amount has no kobo (₦2,500, not ₦2,500.00); kobo shown with two digits when present.
+- Notifications and ledger memos are text written at the time of the event, so switching currency does not rewrite
+  the history of earlier messages; seeded titles are written once at seed time.
+- Calendar sections follow the configured zone; responsible-trading limits, withdrawal limits and reports stay UTC.
+- PDF statements use "NGN" instead of "₦"; CSV money columns are plain numbers named by currency.
+
+### 30.7 Verification
+
+`clone/tests/currency.e2e.test.js` (7 scenarios, real server + SQLite + Chromium): the descriptor and site config;
+NGN on home, the ticket in Naira mode (whole-naira validation, contracts within ₦1,000, payout = contracts × ₦100, the
+review line, the DB order type unchanged), `/funds` deposit of ₦2,500 → 2,500 cents in the ledger, the Transfers
+notification (inbox, bell, dev-mailbox email and page), portfolio, the CSV (`amount_ngn`, trade memo in ₦) and the PNL
+PDF; perps (mark ₦10,000,000, a ₦500 transfer = 50,000 cc, limit input in naira); kobo on `deci_cent` (book levels,
+a ₦12.30 limit stored as 1,230 cc, portfolio order row); the admin switch NGN → USD with preview, reason and step-up,
+audit row and chain verification, live update of another user's open page, persistence across a restart, and back to
+NGN live; new-account defaults on a new account and not on an existing one; calendar grouping under the Lagos day vs
+the UTC day around midnight and the preview's date across midnight. Existing suites expect the NGN default (currency
+strings and money inputs only).
 
 ---
 
