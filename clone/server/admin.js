@@ -19,7 +19,7 @@ const currency = require('./currency'); // display currency and new-account defa
 const { check: checkBody } = require('./validate');
 
 // ----------------------------------------------------------------------------------------------- roles
-const PERMS = ['catalog.read', 'catalog.write', 'content.write', 'resolution.write', 'markets.ops', 'perps.ops', 'users.read', 'users.support', 'users.money',
+const PERMS = ['catalog.read', 'catalog.write', 'content.write', 'content.publish', 'resolution.write', 'markets.ops', 'perps.ops', 'users.read', 'users.support', 'users.money',
   'social.moderate', 'announce', 'reports.read', 'settings.write', 'roles.write', 'audit.read'];
 const ROLE_PERMS = {
   admin: PERMS,
@@ -28,6 +28,8 @@ const ROLE_PERMS = {
   risk: ['catalog.read', 'markets.ops', 'perps.ops', 'reports.read'],
   support: ['users.read', 'users.support', 'announce'],
   moderator: ['social.moderate'],
+  // CMS (CLONE_SPEC.md §32.2): editors save drafts and preview (content.write); publishers also publish, schedule and roll back.
+  publisher: ['catalog.read', 'content.write', 'content.publish'],
 };
 const ROLES = Object.keys(ROLE_PERMS);
 const COMBO_SERIES = 'PLXCOMBO';

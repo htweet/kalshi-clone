@@ -1,4 +1,6 @@
 // Root store (observable) + query cache with staleTime/refetchInterval (spec §2 hybrid pattern).
+import { t as tx } from './i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import './content/store-strings.js';
 import { api, csrf } from './api.js';
 import { socket } from './ws.js';
 import { toast } from './lib.js';
@@ -117,7 +119,7 @@ class SessionStore extends Observable {
     try {
       const had = this.user;
       await this.load();
-      if (!this.user) { this.clearLocal(); toast('You were signed out of this device.'); }
+      if (!this.user) { this.clearLocal(); toast(tx('store.common.you_were_signed_out_of')); }
       else if (this.user.user_id !== had.user_id) this.notify();
     } finally { this.checking = false; }
   }

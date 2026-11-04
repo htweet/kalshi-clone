@@ -5,6 +5,8 @@
 //
 // Security: every piece of user content (group name, nicknames, bodies, quotes) is written with textContent through
 // h(); no user content reaches innerHTML. Live frames only arrive for groups you belong to (server-side membership).
+import { t, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/groups-strings.js';
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
@@ -13,16 +15,16 @@ import { h, openStickerPicker, mutedNicks, toggleMute } from './social2.js';
 
 const MAX = 500;
 const chars = (s) => [...s].length;
-const REPORTS = ['Spam or scam', 'Harassment or hate', 'Something else'];
+const REPORTS = [ts('groups.reports.spam_or_scam'), ts('groups.reports.harassment_or_hate'), ts('groups.reports.something_else')];
 
 export async function render({ el, params, navigate }) {
   if (!session.user) { navigate(`/sign-in?next=${encodeURIComponent(location.pathname)}`, { replace: true }); return undefined; }
-  document.title = 'Group chats · Parlance';
+  document.title = t('groups.render.group_chats_parlance');
   const st = { groups: [], current: params.id || null, group: null, ids: new Set(), muted: new Set(), replyTo: null, oldest: null, hasMore: false, gone: false, listSeq: 0, convSeq: 0, menu: null };
   const listBox = h('div', { class: 'group-list', 'data-testid': 'group-list' });
   const conv = h('section', { class: 'group-conv card', 'data-testid': 'group-conv' });
-  const newBtn = h('button', { class: 'btn btn-primary btn-sm', type: 'button', 'data-testid': 'new-group' }, 'New group');
-  const aside = h('aside', { class: 'group-side card' }, h('div', { class: 'd-flex jc-between ai-center group-side-head' }, h('h2', { class: 'typ-title-x20 m-0' }, 'Group chats'), newBtn), listBox);
+  const newBtn = h('button', { class: 'btn btn-primary btn-sm', type: 'button', 'data-testid': 'new-group' }, t('groups.render.new_group'));
+  const aside = h('aside', { class: 'group-side card' }, h('div', { class: 'd-flex jc-between ai-center group-side-head' }, h('h2', { class: 'typ-title-x20 m-0' }, t('groups.render.group_chats')), newBtn), listBox);
   const layout = h('div', { class: `groups-layout${st.current ? ' has-conv' : ''}`, 'data-testid': 'groups-page' }, aside, conv);
   el.replaceChildren(layout);
   newBtn.onclick = () => newGroupDialog(navigate);
@@ -39,7 +41,7 @@ export async function render({ el, params, navigate }) {
   function drawList() {
     listBox.replaceChildren(...(st.groups.length ? st.groups.map((g) => h('a', { class: `group-item${g.id === st.current ? ' on' : ''}`, href: `/messages/${encodeURIComponent(g.id)}`, 'data-link': '', 'data-group': g.id, 'data-testid': 'group-item' },
       h('span', { class: 'group-name' }, g.name), g.unread && g.id !== st.current ? h('span', { class: 'dot-count', 'data-testid': 'group-unread' }, String(g.unread)) : null,
-      h('span', { class: 'faint group-last' }, g.last_message ? `${g.last_message.nickname ? `@${g.last_message.nickname}: ` : ''}${g.last_message.excerpt}` : `${g.member_count} members`))) : [h('div', { class: 'faint empty', 'data-testid': 'no-groups' }, 'No group chats yet. Start one with people who follow you back or are in your Inner Circle.')]));
+      h('span', { class: 'faint group-last' }, g.last_message ? `${g.last_message.nickname ? `@${g.last_message.nickname}: ` : ''}${g.last_message.excerpt}` : t('groups.render.members', { member_count: g.member_count })))) : [h('div', { class: 'faint empty', 'data-testid': 'no-groups' }, t('groups.render.no_group_chats_yet_start'))]));
   }
 
   // ---------------- conversation
@@ -48,10 +50,10 @@ export async function render({ el, params, navigate }) {
     if (m.kind === 'system') return h('div', { class: 'gmsg system', 'data-id': m.id, 'data-testid': 'group-system' }, m.body);
     const mine = m.is_mine;
     const row = h('div', { class: `gmsg${mine ? ' mine' : ''}`, 'data-id': m.id, 'data-nick': m.author.nickname, 'data-testid': 'group-msg' });
-    if (m.reply_to) row.append(m.reply_to.deleted ? h('div', { class: 'chat-quote deleted' }, 'Original message was deleted') : h('div', { class: 'chat-quote', 'data-testid': 'group-quote' }, h('b', {}, `@${m.reply_to.nickname}`), ' ', m.reply_to.excerpt));
-    const acts = h('span', { class: 'chat-acts' }, h('button', { class: 'chat-act', type: 'button', 'data-act': 'reply', 'data-testid': 'group-reply' }, 'Reply'),
-      mine ? h('button', { class: 'chat-act danger', type: 'button', 'data-act': 'delete', 'data-testid': 'group-del' }, 'Delete') : h('button', { class: 'chat-act more', type: 'button', 'data-act': 'more', 'aria-label': 'More actions', 'data-testid': 'group-more' }, '⋯'));
-    row.append(h('div', { class: 'chat-meta' }, h('span', { class: 'chat-nick', 'data-testid': 'group-nick' }, `@${m.author.nickname}`), m.author.verified ? h('span', { class: 'verified-badge', title: 'Verified profile' }, '✓') : null,
+    if (m.reply_to) row.append(m.reply_to.deleted ? h('div', { class: 'chat-quote deleted' }, t('groups.render.original_message_was_deleted')) : h('div', { class: 'chat-quote', 'data-testid': 'group-quote' }, h('b', {}, `@${m.reply_to.nickname}`), ' ', m.reply_to.excerpt));
+    const acts = h('span', { class: 'chat-acts' }, h('button', { class: 'chat-act', type: 'button', 'data-act': 'reply', 'data-testid': 'group-reply' }, t('groups.render.reply')),
+      mine ? h('button', { class: 'chat-act danger', type: 'button', 'data-act': 'delete', 'data-testid': 'group-del' }, t('groups.render.delete')) : h('button', { class: 'chat-act more', type: 'button', 'data-act': 'more', 'aria-label': t('groups.render.more_actions'), 'data-testid': 'group-more' }, '⋯'));
+    row.append(h('div', { class: 'chat-meta' }, h('span', { class: 'chat-nick', 'data-testid': 'group-nick' }, `@${m.author.nickname}`), m.author.verified ? h('span', { class: 'verified-badge', title: t('groups.render.verified_profile') }, '✓') : null,
       h('time', { class: 'chat-time', datetime: m.created_time }, relTime(m.created_time)), acts));
     if (m.body) row.append(h('div', { class: 'chat-body', 'data-testid': 'group-body' }, m.body));
     if (m.sticker) row.append(h('img', { class: 'chat-sticker', src: m.sticker.url, alt: m.sticker.label, title: m.sticker.label, width: '72', height: '72', 'data-testid': 'group-sticker' }));
@@ -72,12 +74,12 @@ export async function render({ el, params, navigate }) {
     let r;
     try { r = await api.group(session.uid, id, { limit: 50 }); } catch (e) {
       if (seq !== st.convSeq) return;
-      conv.replaceChildren(h('div', { class: 'empty', 'data-testid': 'group-missing' }, e.notFound ? 'This group chat isn’t available. You may have left or been removed.' : e.message), h('a', { class: 'btn btn-sm', href: '/messages', 'data-link': '' }, 'All group chats'));
+      conv.replaceChildren(h('div', { class: 'empty', 'data-testid': 'group-missing' }, e.notFound ? t('groups.render.this_group_chat_isn_t') : e.message), h('a', { class: 'btn btn-sm', href: '/messages', 'data-link': '' }, t('groups.render.all_group_chats')));
       return;
     }
     if (seq !== st.convSeq || st.gone) return;
     st.group = r.group;
-    document.title = `${r.group.name} · Group chats · Parlance`;
+    document.title = t('groups.render.group_chats_parlance_2', { name: r.group.name });
     msgsBox.replaceChildren(h('div', { 'data-older': '' }));
     st.hasMore = r.has_more; st.oldest = r.messages[0]?.id || null;
     drawOlder();
@@ -89,7 +91,7 @@ export async function render({ el, params, navigate }) {
   function drawOlder() {
     const box = msgsBox.querySelector('[data-older]');
     if (!box) return;
-    box.replaceChildren(st.hasMore ? h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'data-load-older': '', 'data-testid': 'group-older' }, 'Load earlier messages') : h('span', { class: 'faint' }, 'Beginning of the conversation'));
+    box.replaceChildren(st.hasMore ? h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'data-load-older': '', 'data-testid': 'group-older' }, t('groups.render.load_earlier_messages')) : h('span', { class: 'faint' }, t('groups.render.beginning_of_the_conversation')));
   }
   async function loadOlder() {
     if (!st.hasMore || !st.oldest) return;
@@ -100,12 +102,12 @@ export async function render({ el, params, navigate }) {
   }
   function drawConv() {
     const g = st.group;
-    const back = h('a', { class: 'btn btn-sm btn-ghost group-back', href: '/messages', 'data-link': '' }, '← Chats');
-    const membersBtn = h('button', { class: 'btn btn-sm', type: 'button', 'data-testid': 'group-members-btn' }, `${g.members.length} members`);
+    const back = h('a', { class: 'btn btn-sm btn-ghost group-back', href: '/messages', 'data-link': '' }, t('groups.render.chats'));
+    const membersBtn = h('button', { class: 'btn btn-sm', type: 'button', 'data-testid': 'group-members-btn' }, t('groups.render.members_2', { value: g.members.length }));
     membersBtn.onclick = () => membersDialog();
-    const input = h('textarea', { class: 'chat-input', rows: '1', maxlength: String(MAX * 2), placeholder: g.locked ? 'A moderator locked this group' : 'Message', 'aria-label': 'Message', 'data-testid': 'group-input', disabled: g.locked });
-    const send = h('button', { class: 'btn btn-primary btn-sm', type: 'submit', 'data-testid': 'group-send', disabled: true }, 'Send');
-    const sticker = h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'data-sticker-btn': 'group', 'data-testid': 'group-sticker-btn', 'aria-label': 'Send a sticker', disabled: g.locked }, 'Sticker');
+    const input = h('textarea', { class: 'chat-input', rows: '1', maxlength: String(MAX * 2), placeholder: g.locked ? t('groups.render.a_moderator_locked_this_group') : t('groups.render.message'), 'aria-label': t('groups.render.message'), 'data-testid': 'group-input', disabled: g.locked });
+    const send = h('button', { class: 'btn btn-primary btn-sm', type: 'submit', 'data-testid': 'group-send', disabled: true }, t('groups.render.send'));
+    const sticker = h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'data-sticker-btn': 'group', 'data-testid': 'group-sticker-btn', 'aria-label': t('groups.render.send_a_sticker'), disabled: g.locked }, t('groups.render.sticker'));
     const count = h('span', { class: 'chat-count', 'data-testid': 'group-count' }, `0/${MAX}`);
     const err = h('div', { class: 'form-error', role: 'alert', 'data-testid': 'group-error' });
     const replying = h('div', { class: 'chat-replying', hidden: true, 'data-testid': 'group-replying' });
@@ -118,13 +120,13 @@ export async function render({ el, params, navigate }) {
       try {
         const { message } = await api.groupSend(session.uid, g.id, { ...b, reply_to: st.replyTo?.id || null });
         add(message); toBottom(); input.value = ''; update(); setReply(null);
-      } catch (ex) { err.textContent = ex.tooManyRequests ? `You're sending too quickly. Try again in ${ex.retryAfter || 5}s.` : ex.message; }
+      } catch (ex) { err.textContent = ex.tooManyRequests ? t('groups.render.you_re_sending_too_quickly', { value: ex.retryAfter || 5 }) : ex.message; }
     };
     form.onsubmit = (e) => { e.preventDefault(); if (input.value.trim()) submit({ body: input.value }); };
     sticker.onclick = (e) => openStickerPicker(e.currentTarget, (s) => submit({ body: input.value, sticker_id: s.id }));
-    st.setReply = (m) => { st.replyTo = m; replying.hidden = !m; replying.replaceChildren(...(m ? [h('span', {}, 'Replying to ', h('b', {}, `@${m.nickname}`)), Object.assign(h('button', { class: 'chat-act', type: 'button', 'aria-label': 'Cancel reply' }, '✕'), { onclick: () => st.setReply(null) })] : [])); if (m) input.focus(); };
+    st.setReply = (m) => { st.replyTo = m; replying.hidden = !m; replying.replaceChildren(...(m ? [h('span', {}, (t('groups.render.replying_to') + ' '), h('b', {}, `@${m.nickname}`)), Object.assign(h('button', { class: 'chat-act', type: 'button', 'aria-label': t('groups.render.cancel_reply') }, '✕'), { onclick: () => st.setReply(null) })] : [])); if (m) input.focus(); };
     conv.replaceChildren(
-      h('header', { class: 'group-head' }, back, h('h2', { class: 'typ-title-x20 m-0 group-title', 'data-testid': 'group-title' }, g.name), g.locked ? h('span', { class: 'adm-badge bad', 'data-testid': 'group-locked' }, 'Locked') : null, h('span', { class: 'grow' }), membersBtn),
+      h('header', { class: 'group-head' }, back, h('h2', { class: 'typ-title-x20 m-0 group-title', 'data-testid': 'group-title' }, g.name), g.locked ? h('span', { class: 'adm-badge bad', 'data-testid': 'group-locked' }, t('groups.render.locked')) : null, h('span', { class: 'grow' }), membersBtn),
       msgsBox, replying, form, h('div', { class: 'chat-foot-row' }, h('span', { class: 'grow' }), count), err);
     update();
   }
@@ -141,34 +143,34 @@ export async function render({ el, params, navigate }) {
     for (const m of g.members) {
       const row = h('div', { class: 'circle-row', 'data-testid': 'group-member', 'data-nick': m.nickname }, h('a', { href: `/social/profile/${encodeURIComponent(m.nickname)}`, 'data-link': '' }, `@${m.nickname}`), m.role === 'owner' ? h('span', { class: 'faint' }, 'owner') : null, h('span', { class: 'grow' }));
       if (owner && m.nickname !== session.nickname) {
-        const rm = h('button', { class: 'btn btn-sm btn-ghost btn-danger', type: 'button', 'data-testid': 'group-remove' }, 'Remove');
-        rm.onclick = async () => { try { await api.removeGroupMember(session.uid, g.id, m.nickname); toast(`Removed @${m.nickname}`); d.close(); await openGroup(g.id); } catch (ex) { toast(ex.message, 'error'); } };
+        const rm = h('button', { class: 'btn btn-sm btn-ghost btn-danger', type: 'button', 'data-testid': 'group-remove' }, t('groups.render.remove'));
+        rm.onclick = async () => { try { await api.removeGroupMember(session.uid, g.id, m.nickname); toast(t('groups.render.removed', { nickname: m.nickname })); d.close(); await openGroup(g.id); } catch (ex) { toast(ex.message, 'error'); } };
         row.append(rm);
       }
       list.append(row);
     }
-    const cands = h('div', { class: 'cand-list', 'data-testid': 'group-candidates' }, h('span', { class: 'faint' }, 'Loading…'));
-    const addBtn = h('button', { class: 'btn btn-sm btn-primary', type: 'button', 'data-testid': 'group-add-submit' }, 'Add selected');
-    const rename = owner ? h('form', { class: 'inline-form' }, h('label', { class: 'field flex-1' }, h('span', {}, 'Group name'), h('input', { name: 'name', value: g.name, maxlength: '50', required: true, 'data-testid': 'group-rename-input' })), h('button', { class: 'btn btn-sm', type: 'submit', 'data-testid': 'group-rename' }, 'Rename')) : null;
-    const leave = h('button', { class: 'btn btn-sm btn-ghost btn-danger', type: 'button', 'data-testid': 'group-leave' }, 'Leave group');
-    const close = h('button', { class: 'btn btn-sm', type: 'button' }, 'Close');
-    d.append(h('div', { class: 'adm-confirm' }, h('h3', {}, g.name), list, h('h4', {}, 'Add people'), h('p', { class: 'faint m-0' }, 'People who follow you back or are in your Inner Circle.'), cands, addBtn, rename, h('div', { class: 'adm-form-actions' }, leave, close)));
+    const cands = h('div', { class: 'cand-list', 'data-testid': 'group-candidates' }, h('span', { class: 'faint' }, t('groups.render.loading')));
+    const addBtn = h('button', { class: 'btn btn-sm btn-primary', type: 'button', 'data-testid': 'group-add-submit' }, t('groups.render.add_selected'));
+    const rename = owner ? h('form', { class: 'inline-form' }, h('label', { class: 'field flex-1' }, h('span', {}, t('groups.render.group_name')), h('input', { name: 'name', value: g.name, maxlength: '50', required: true, 'data-testid': 'group-rename-input' })), h('button', { class: 'btn btn-sm', type: 'submit', 'data-testid': 'group-rename' }, t('groups.render.rename'))) : null;
+    const leave = h('button', { class: 'btn btn-sm btn-ghost btn-danger', type: 'button', 'data-testid': 'group-leave' }, t('groups.render.leave_group'));
+    const close = h('button', { class: 'btn btn-sm', type: 'button' }, t('groups.render.close'));
+    d.append(h('div', { class: 'adm-confirm' }, h('h3', {}, g.name), list, h('h4', {}, t('groups.render.add_people')), h('p', { class: 'faint m-0' }, t('groups.render.people_who_follow_you_back')), cands, addBtn, rename, h('div', { class: 'adm-form-actions' }, leave, close)));
     document.body.append(d);
     d.addEventListener('close', () => d.remove());
     close.onclick = () => d.close();
     if (rename) rename.onsubmit = async (e) => { e.preventDefault(); try { await api.renameGroup(session.uid, g.id, rename.name.value); d.close(); await openGroup(g.id); loadList(); } catch (ex) { toast(ex.message, 'error'); } };
-    leave.onclick = async () => { if (!confirm('Leave this group? You will stop receiving its messages.')) return; try { await api.leaveGroup(session.uid, g.id); d.close(); toast('You left the group'); navigate('/messages'); } catch (ex) { toast(ex.message, 'error'); } };
+    leave.onclick = async () => { if (!confirm(t('groups.render.leave_this_group_you_will'))) return; try { await api.leaveGroup(session.uid, g.id); d.close(); toast(t('groups.render.you_left_the_group')); navigate('/messages'); } catch (ex) { toast(ex.message, 'error'); } };
     addBtn.onclick = async () => {
       const picked = [...cands.querySelectorAll('input:checked')].map((x) => x.value);
       if (!picked.length) return;
-      try { await api.addGroupMembers(session.uid, g.id, picked); d.close(); toast('Added'); await openGroup(g.id); } catch (ex) { toast(ex.message, 'error'); }
+      try { await api.addGroupMembers(session.uid, g.id, picked); d.close(); toast(t('groups.render.added')); await openGroup(g.id); } catch (ex) { toast(ex.message, 'error'); }
     };
     d.showModal();
     try {
       const { candidates } = await api.groupCandidates(session.uid);
       const inGroup = new Set(g.members.map((m) => m.nickname.toLowerCase()));
       const avail = candidates.filter((c) => !inGroup.has(c.nickname.toLowerCase()));
-      cands.replaceChildren(...(avail.length ? avail.map((c) => h('label', { class: 'opt-row', 'data-testid': 'group-candidate' }, h('input', { type: 'checkbox', value: c.nickname }), `@${c.nickname}`, c.in_circle ? h('span', { class: 'faint' }, ' · Inner Circle') : null)) : [h('span', { class: 'faint' }, 'Everyone you can add is already here.')]));
+      cands.replaceChildren(...(avail.length ? avail.map((c) => h('label', { class: 'opt-row', 'data-testid': 'group-candidate' }, h('input', { type: 'checkbox', value: c.nickname }), `@${c.nickname}`, c.in_circle ? h('span', { class: 'faint' }, (' ' + t('groups.render.inner_circle'))) : null)) : [h('span', { class: 'faint' }, t('groups.render.everyone_you_can_add_is'))]));
     } catch (ex) { cands.replaceChildren(h('span', { class: 'form-error' }, ex.message)); }
   }
 
@@ -183,9 +185,9 @@ export async function render({ el, params, navigate }) {
       else if (act === 'delete') { await api.groupDelete(session.uid, st.current, row.dataset.id); row.remove(); st.ids.delete(row.dataset.id); }
       else if (act === 'more') {
         st.menu?.remove();
-        const menu = h('div', { class: 'chat-menu', role: 'menu', 'data-testid': 'group-menu' }, h('div', { class: 'chat-menu-head' }, 'Report'),
-          ...REPORTS.map((r, i) => Object.assign(h('button', { type: 'button', role: 'menuitem', 'data-testid': `group-report-${i}` }, r), { onclick: async (ev) => { ev.stopPropagation(); menu.remove(); try { await api.groupReport(session.uid, st.current, row.dataset.id, r); toast('Thanks. A moderator will review this message.'); } catch (ex) { toast(ex.message, 'error'); } } })),
-          Object.assign(h('button', { type: 'button', role: 'menuitem', 'data-testid': 'group-mute' }, `Mute @${row.dataset.nick}`), { onclick: async (ev) => { ev.stopPropagation(); menu.remove(); await toggleMute(row.dataset.nick, true); st.muted = await mutedNicks(); for (const x of msgsBox.querySelectorAll('.gmsg[data-nick]')) if (x.dataset.nick.toLowerCase() === row.dataset.nick.toLowerCase()) x.remove(); } }));
+        const menu = h('div', { class: 'chat-menu', role: 'menu', 'data-testid': 'group-menu' }, h('div', { class: 'chat-menu-head' }, t('groups.render.report')),
+          ...REPORTS.map((r, i) => Object.assign(h('button', { type: 'button', role: 'menuitem', 'data-testid': `group-report-${i}` }, r), { onclick: async (ev) => { ev.stopPropagation(); menu.remove(); try { await api.groupReport(session.uid, st.current, row.dataset.id, r); toast(t('groups.render.thanks_a_moderator_will_review')); } catch (ex) { toast(ex.message, 'error'); } } })),
+          Object.assign(h('button', { type: 'button', role: 'menuitem', 'data-testid': 'group-mute' }, t('groups.render.mute', { nick: row.dataset.nick })), { onclick: async (ev) => { ev.stopPropagation(); menu.remove(); await toggleMute(row.dataset.nick, true); st.muted = await mutedNicks(); for (const x of msgsBox.querySelectorAll('.gmsg[data-nick]')) if (x.dataset.nick.toLowerCase() === row.dataset.nick.toLowerCase()) x.remove(); } }));
         row.append(menu); st.menu = menu;
       }
     } catch (ex) { toast(ex.message, 'error'); }
@@ -210,7 +212,7 @@ export async function render({ el, params, navigate }) {
       if (msg.id === st.current && st.group && (msg.name !== st.group.name || msg.locked !== st.group.locked || msg.member_count !== st.group.members.length)) openGroup(msg.id).catch(() => {});
     } else if (m.type === 'group_removed') {
       st.groups = st.groups.filter((x) => x.id !== msg.id); drawList();
-      if (msg.id === st.current) { conv.replaceChildren(h('div', { class: 'empty', 'data-testid': 'group-removed' }, msg.by === 'self' ? 'You left this group.' : 'You were removed from this group.'), h('a', { class: 'btn btn-sm', href: '/messages', 'data-link': '' }, 'All group chats')); st.group = null; }
+      if (msg.id === st.current) { conv.replaceChildren(h('div', { class: 'empty', 'data-testid': 'group-removed' }, msg.by === 'self' ? t('groups.render.you_left_this_group') : t('groups.render.you_were_removed_from_this')), h('a', { class: 'btn btn-sm', href: '/messages', 'data-link': '' }, t('groups.render.all_group_chats'))); st.group = null; }
     }
   };
   const unsub = socket.subscribe({ channels: ['groups'] }, onSocket);
@@ -220,7 +222,7 @@ export async function render({ el, params, navigate }) {
 
   await loadList();
   if (st.current) await openGroup(st.current);
-  else conv.replaceChildren(h('div', { class: 'empty faint' }, 'Pick a group chat, or start a new one.'));
+  else conv.replaceChildren(h('div', { class: 'empty faint' }, t('groups.render.pick_a_group_chat_or')));
   return () => { st.gone = true; unsub(); offState(); window.removeEventListener('parlance:mutes-changed', onMutes); };
 }
 
@@ -228,12 +230,12 @@ async function newGroupDialog(navigate) {
   const d = document.createElement('dialog');
   d.className = 'adm-dialog';
   d.dataset.testid = 'new-group-dialog';
-  const name = h('input', { name: 'name', maxlength: '50', required: true, placeholder: 'e.g. Rate watchers', 'data-testid': 'new-group-name' });
-  const cands = h('div', { class: 'cand-list', 'data-testid': 'new-group-candidates' }, h('span', { class: 'faint' }, 'Loading…'));
+  const name = h('input', { name: 'name', maxlength: '50', required: true, placeholder: t('groups.new_group_dialog.e_g_rate_watchers'), 'data-testid': 'new-group-name' });
+  const cands = h('div', { class: 'cand-list', 'data-testid': 'new-group-candidates' }, h('span', { class: 'faint' }, t('groups.new_group_dialog.loading')));
   const err = h('div', { class: 'form-error', role: 'alert' });
-  const create = h('button', { class: 'btn btn-primary', type: 'submit', 'data-testid': 'new-group-create' }, 'Create group');
-  const cancel = h('button', { class: 'btn', type: 'button' }, 'Cancel');
-  const form = h('form', { class: 'adm-confirm' }, h('h3', {}, 'New group chat'), h('label', { class: 'field' }, h('span', {}, 'Name'), name), h('h4', {}, 'People'), h('p', { class: 'faint m-0' }, 'You can add people who follow you back or are in your Inner Circle.'), cands, err, h('div', { class: 'adm-form-actions' }, cancel, create));
+  const create = h('button', { class: 'btn btn-primary', type: 'submit', 'data-testid': 'new-group-create' }, t('groups.new_group_dialog.create_group'));
+  const cancel = h('button', { class: 'btn', type: 'button' }, t('groups.new_group_dialog.cancel'));
+  const form = h('form', { class: 'adm-confirm' }, h('h3', {}, t('groups.new_group_dialog.new_group_chat')), h('label', { class: 'field' }, h('span', {}, t('groups.new_group_dialog.name')), name), h('h4', {}, t('groups.new_group_dialog.people')), h('p', { class: 'faint m-0' }, t('groups.new_group_dialog.you_can_add_people_who')), cands, err, h('div', { class: 'adm-form-actions' }, cancel, create));
   d.append(form);
   document.body.append(d);
   d.addEventListener('close', () => d.remove());
@@ -241,12 +243,12 @@ async function newGroupDialog(navigate) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const members = [...cands.querySelectorAll('input:checked')].map((x) => x.value);
-    if (!members.length) { err.textContent = 'Pick at least one person.'; return; }
+    if (!members.length) { err.textContent = t('groups.new_group_dialog.pick_at_least_one_person'); return; }
     try { const { group } = await api.createGroup(session.uid, { name: name.value, members }); d.close(); navigate(`/messages/${encodeURIComponent(group.id)}`); } catch (ex) { err.textContent = ex.message; }
   };
   d.showModal();
   try {
     const { candidates } = await api.groupCandidates(session.uid);
-    cands.replaceChildren(...(candidates.length ? candidates.map((c) => h('label', { class: 'opt-row', 'data-testid': 'new-group-candidate' }, h('input', { type: 'checkbox', value: c.nickname }), `@${c.nickname}`, c.in_circle ? h('span', { class: 'faint' }, ' · Inner Circle') : null)) : [h('span', { class: 'faint', 'data-testid': 'no-candidates' }, 'Follow people who follow you back, or add them to your Inner Circle, to start a group.')]));
+    cands.replaceChildren(...(candidates.length ? candidates.map((c) => h('label', { class: 'opt-row', 'data-testid': 'new-group-candidate' }, h('input', { type: 'checkbox', value: c.nickname }), `@${c.nickname}`, c.in_circle ? h('span', { class: 'faint' }, (' ' + t('groups.new_group_dialog.inner_circle'))) : null)) : [h('span', { class: 'faint', 'data-testid': 'no-candidates' }, t('groups.new_group_dialog.follow_people_who_follow_you'))]));
   } catch (ex) { cands.replaceChildren(h('span', { class: 'form-error' }, ex.message)); }
 }

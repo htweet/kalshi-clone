@@ -9,7 +9,8 @@
 //   USD:           the original display ($25.00, 64¢, 64.5¢); inputs take dollars.
 // Only imports the keyed wording module (content/currency-strings.js), so lib.js and every view can use it without cycles.
 import { t } from './content/currency-strings.js';
-const DEFAULT = { code: 'NGN', symbol: '₦', name: 'Nigerian naira', minor_unit: 'kobo', contract_value: 100, contract_value_display: '₦100', per_internal_dollar: 100, locale: 'en-NG', timezone: 'Africa/Lagos' };
+import { setFormatters } from './i18n.js'; // typed catalog variables ({amount} declared as money) format here
+const DEFAULT = { code: 'NGN', symbol: '₦', name: t('name.default_NGN'), minor_unit: 'kobo', contract_value: 100, contract_value_display: '₦100', per_internal_dollar: 100, locale: 'en-NG', timezone: 'Africa/Lagos' };
 export const currency = { ...DEFAULT };
 const listeners = new Set();
 
@@ -18,7 +19,7 @@ const validTz = (tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz 
 export function setCurrency(d) {
   if (!d || typeof d !== 'object' || !['NGN', 'USD'].includes(d.code)) return false;
   const next = {
-    ...DEFAULT, ...(d.code === 'USD' ? { symbol: '$', name: 'US dollar', minor_unit: 'cent', contract_value: 1, contract_value_display: '$1.00', per_internal_dollar: 1, locale: 'en-US' } : {}),
+    ...DEFAULT, ...(d.code === 'USD' ? { symbol: '$', name: t('name.default_USD'), minor_unit: 'cent', contract_value: 1, contract_value_display: '$1.00', per_internal_dollar: 1, locale: 'en-US' } : {}),
     code: d.code, locale: typeof d.locale === 'string' && d.locale ? d.locale : d.code === 'USD' ? 'en-US' : 'en-NG', timezone: typeof d.timezone === 'string' && validTz(d.timezone) ? d.timezone : DEFAULT.timezone,
   };
   const changed = ['code', 'locale', 'timezone'].some((k) => currency[k] !== next[k]);
@@ -105,3 +106,5 @@ export function dayKey(x = Date.now()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: currency.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(x)).map((q) => [q.type, q.value]));
   return `${p.year}-${p.month}-${p.day}`;
 }
+// Typed catalog variables (CLONE_SPEC.md §32.3): a variable declared `money` takes integer cents.
+setFormatters({ money: (c) => moneyCents(Number(c)), number: (n) => Number(n).toLocaleString(currency.locale) });

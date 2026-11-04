@@ -1,6 +1,7 @@
 // Transport layer (spec §2): one method per endpoint, cookie session + x-csrf-token header.
 import { getLocalWithExpiry, setLocalWithExpiry, removeLocal } from './lib.js';
 import { refreshClientToken, isClientTokenError } from './security.js';
+import { errorText } from './i18n.js'; // error.<code> catalog keys (CLONE_SPEC.md §32.3)
 
 export const CSRF_KEY = 'csrfToken';
 export const FE_SESSION_KEY = 'fe-session-id';
@@ -9,9 +10,11 @@ const CSRF_TTL = 30 * 24 * 3600 * 1000;
 export class ApiError extends Error {
   constructor(status, body) {
     const e = (body && body.error) || {};
-    super(e.details ? `${e.message}: ${e.details}` : e.message || body?.msg || `HTTP ${status}`);
+    const code = e.code || (status === 400 ? 'bad_request' : 'error');
+    // The admin-managed error.<code> text (default "{message}": the server's own wording).
+    super(errorText(code, e.details ? `${e.message}: ${e.details}` : e.message || body?.msg || `HTTP ${status}`, e.details));
     this.status = status;
-    this.code = e.code || (status === 400 ? 'bad_request' : 'error');
+    this.code = code;
     // Error classification mirrors the observed client (spec §5.4).
     this.notFound = status === 404;
     this.unauthorized = status === 401;

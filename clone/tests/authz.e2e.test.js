@@ -256,6 +256,19 @@ const EXPECT = {
   'POST /v1/admin/incentives/programs/:id/payout': perm('users.money'), 'POST /v1/admin/incentives/snapshot': perm('markets.ops'),
   'GET /v1/admin/incentives/settings': perm('settings.write'), 'PUT /v1/admin/incentives/settings': perm('settings.write'),
   'GET /v1/hubs/senate_map': P, 'GET /v1/hubs/fed_funds_outlook': P, 'GET /v1/series/:s/events/:e/forecast_history': P,
+  // ---- Phase 5C: content management (CLONE_SPEC.md §32). The published bundle, brand stylesheet and pages are public
+  // reads (drafts never reach them: the preview bundle is staff-only); editors (content.write) save drafts, preview,
+  // test-send, upload and export; publishing, scheduling and rollback need content.publish (legal pages also step-up).
+  'GET /v1/content/bundle': P, 'GET /v1/content/theme.css': P, 'GET /v1/pages': P, 'GET /v1/pages/:a': P, 'GET /v1/pages/:a/:b': P,
+  'GET /content-bundle.js': P,
+  'GET /v1/admin/cms/overview': perm('content.write'), 'GET /v1/admin/cms/texts': perm('content.write'), 'GET /v1/admin/cms/templates': perm('content.write'),
+  'GET /v1/admin/cms/pages': perm('content.write'), 'GET /v1/admin/cms/media': perm('content.write'), 'POST /v1/admin/cms/media': perm('content.write'),
+  'GET /v1/admin/cms/:type/entry': perm('content.write'), 'PUT /v1/admin/cms/:type/draft': perm('content.write'), 'DELETE /v1/admin/cms/:type/draft': perm('content.write'),
+  'POST /v1/admin/cms/:type/publish': perm('content.publish'), 'POST /v1/admin/cms/:type/unschedule': perm('content.publish'), 'POST /v1/admin/cms/:type/rollback': perm('content.publish'),
+  'GET /v1/admin/cms/preview_bundle': perm('content.write'), 'GET /v1/admin/cms/preview_theme.css': perm('content.write'),
+  'POST /v1/admin/cms/templates/preview': perm('content.write'), 'POST /v1/admin/cms/templates/test_send': perm('content.write'),
+  'GET /v1/admin/cms/export': perm('content.write'), 'POST /v1/admin/cms/import': perm('content.write'),
+  'GET RE:^\\/media\\/([a-z0-9_]+)\\.(png|jpg)$': { who: 'public', probe: '/media/authz_nope.png' },
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };
@@ -349,7 +362,7 @@ test('every registered route is classified in the authorization table (and the t
   const stale = Object.keys(EXPECT).filter((k) => !keys.has(k));
   assert.deepEqual(stale, [], 'EXPECT lists routes that are no longer registered');
   // The role model used for expectations is the live one.
-  assert.deepEqual(ROLES.sort(), ['admin', 'editor', 'moderator', 'resolver', 'risk', 'support']);
+  assert.deepEqual(ROLES.sort(), ['admin', 'editor', 'moderator', 'publisher', 'resolver', 'risk', 'support']); // publisher: CMS (CLONE_SPEC.md §32.2)
 });
 
 test('object-level IDOR: user B cannot read or change user A\'s orders, perps orders, RFQs, quotes, posts, chat, alerts or sessions', async () => {

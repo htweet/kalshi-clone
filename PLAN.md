@@ -130,6 +130,18 @@ so later phases build on it.
 - Security gate: all CMS content escaped or sanitised (allowlist), no raw HTML or script, logic-free templates with
   declared variables only, upload validation and re-encoding, permission checks, rate limits.
 
+### Phase 5D — Admin feature flags (M–L)
+Owner requirement: every feature and module can be switched and rolled out from the admin panel; runs after Phase 5C.
+- Admin › Feature flags with a flag for every feature and module: trading mechanics, combos/RFQ, perps, sports, social
+  and chat, payments per rail, identity and sign-in methods, AI summaries, ballot, incentives, hubs, notification
+  channels, PWA, currency switch.
+- Each flag: on/off, percentage rollout, allow/deny by user, role or region, schedule, kill switch.
+- Server enforcement: `feature_disabled` on routes, jobs paused. Client: UI hidden.
+- Live via WS; audit, reason and step-up; change history.
+- Env vars stay only as technical overrides.
+- Tests: switching a flag off hides the UI and blocks the API; rollout, region and schedule work; persistence; an
+  enforcement test that fails when a feature lacks a flag.
+
 ### Phase 6 — Perps completion (M)
 - P6.1 Amend/decrease, order groups, subaccounts and transfers, trailing stops.
 - P6.2 Size-tiered margin and the portfolio maintenance-margin model; fractional perps.
@@ -251,6 +263,7 @@ The project is complete only when **all** of the following hold:
 | 5 Markets & content | pending |
 | 5B Markets & content | ✅ built on `phase-5b` (CLONE_SPEC.md §29): P5.2 sports derivatives (spread and total events per game, Monte Carlo fair values from the game's own simulation, settled from the final score), G9 (Icebound Hockey League with periods, power plays, OT and shootout; running clocks for every sport incl. tennis match time and esports map time; live event header label), calendar `event_limits` with "+N more" (U16 resolved as a design choice), P5.3 ballot lookup on invented jurisdictions (no address stored; only a saved jurisdiction id; rate limited), P5.4 AI news summaries + timeline (offline extractive default with citations; optional Claude adapter only with `ANTHROPIC_API_KEY` + `AI_SUMMARY_MODEL`; cache by news-set hash; daily request/token budget with extractive fallback; delimited input, validated output, blocklist; admin hide/regenerate audited and rate limited), A13 Liquidity Incentive Program (programs, Active/Upcoming, monthly/lifetime rewards, region gating, terms, accrual formula from resting liquidity, cash/credit payouts through the journal, admin), A15 hub widgets (Senate map, Fed funds outlook, event forecast history); `markets-content` suite (8 scenarios). Phase 5A items (sub-cent grids, fee accumulator, scalar markets, order review, flip sell, collateral return, resolution reversal, combos) are on `phase-5a` |
 | 5C Content management (CMS) | pending: next after the Naira and PWA branches merge (owner requirement 2026-11-04: all user-facing content admin-managed) |
+| 5D Feature flags | pending: after 5C |
 | Currency & defaults (NGN) | ✅ built on `naira` (CLONE_SPEC.md §30): NGN display default (a contract pays ₦100, 1 internal cent = ₦1, kobo on sub-cent grids, perps ×100), display-only (engine, ledger, journal, DB and API unchanged); `GET /v1/exchange/display_currency`; DB-backed currency, locale and time zone switched live over WebSocket; Admin › Settings › Currency & defaults (preview, reason, step-up, hash-chained audit) with new-account defaults (theme, order review, flip sell, market preview, notification channels); one formatter per side for views, toasts, notifications, emails, memos, errors, CSV and PDF; calendar days in the configured zone; keyed wording modules for Phase 5C; `currency` suite (7 scenarios). Residual: past notifications and memos keep the wording of their time; limits and reports stay on UTC days |
 | PWA | ✅ built on `pwa` (CLONE_SPEC.md §31; tracked here at the owner's request): web app manifest (standalone, brand theme colour, shortcuts to Markets / Portfolio / Deposit) with own icons drawn by `clone/scripts/make-icons.js`; service worker versioned by the build hash that precaches only the public hashed assets (fetched without credentials), never caches navigations, `/v1`, `/trade-api` or the WebSocket and passes everything else through untouched; static offline page under its own strict CSP; "New version available — Reload" toast with user-confirmed `skipWaiting`; "Install app" in the ☰ menus (`beforeinstallprompt`, iOS Add-to-Home-Screen steps, hidden when standalone); caches and this browser's push subscription cleared at sign-out; real Web Push for the Push channel (VAPID RFC 8292 keys encrypted at rest, aes128gcm RFC 8291 with `node:crypto` only, subscriptions API with an https + push-service allowlist, device list with test send and remove, persisted encrypted outbox with backoff, 404/410 cleanup, resumable after restart); CMS-ready content: every PWA string keyed in `public/js/content/pwa-strings.js` / `server/content/pwa.js`, the offline page rendered from them at build time, the manifest built from one config object (§31.12); `pwa` suite (9 scenarios, production bundle, local fake push service). Residual: at-least-once delivery, lock-screen text, VAPID key tied to the master key (§31.11) |
 | 6 Perps completion | pending |

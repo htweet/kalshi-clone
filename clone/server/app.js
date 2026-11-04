@@ -25,6 +25,7 @@ const { mountAccountArea } = require('./account-area'); // Phase 3: account area
 const { mountPayments } = require('./payments'); // Phase 4: payments, sandbox only (CLONE_SPEC.md §26)
 const journal = require('./journal'); // Phase 4: double-entry journal (CLONE_SPEC.md §26.6)
 const { mountMarketsContent } = require('./markets-content'); // Phase 5B: ballot, AI summaries, incentives, hubs (§29)
+const { mountCms } = require('./cms'); // Phase 5C: content management (CLONE_SPEC.md §32)
 const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
 const { createAuth } = require('./auth');
@@ -57,7 +58,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -142,6 +143,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   mountPositions({ v1, db, engine, requireUser });
   app.locals.marketsContent = mountMarketsContent({ v1, db, engine, auth, admin, identity: app.locals.identity, feat, security, requireUser, eventFull, getEvent, options: marketsContent || {} });
   app.locals.tradingCore = mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify: feat.notify });
+  app.locals.cms = mountCms({ v1, app, db, engine, admin, auth, options: cmsOptions || {} }); // texts, templates, media, pages, branding (§32)
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
@@ -562,6 +564,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
 
   // Static SPA: explicit allowlist, hashed immutable assets (dist) or sources (dev), page template with the CSP nonce and
   // boot proof, bot challenge for suspicious HTML requests; everything else 404 (server/security.js, P1.11/P1.12).
+  app.locals.cms.mountStatic(app); // /content-bundle.js and /media/* (CLONE_SPEC.md §32.4, §32.6)
   security.mountStatic(app);
 
   // Error envelopes (spec §5.4).

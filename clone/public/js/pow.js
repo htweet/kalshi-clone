@@ -2,6 +2,8 @@
 // 429 too_many_attempts with {pow: {token, id, bits}} instead of locking the account; the browser finds a nonce with
 // SHA-256("<id>:<nonce>") having `bits` leading zero bits (≈4k–262k hashes) and retries. Pure JS SHA-256 (synchronous,
 // works on plain-http origins where crypto.subtle is missing), in slices so the page stays responsive.
+import { t as tx } from './i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import './content/pow-strings.js';
 const K = new Uint32Array([0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
   0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d,
   0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
@@ -43,7 +45,7 @@ export function sha256Words(str) {
 const zeroBits = (w) => (w === 0 ? 32 : Math.clz32(w));
 
 export async function solvePow({ id, bits }) {
-  if (!id || !(bits > 0 && bits <= 28)) throw new Error('invalid sign-in check');
+  if (!id || !(bits > 0 && bits <= 28)) throw new Error(tx('pow.solve_pow.invalid_sign_in_check'));
   for (let n = 0; ; n += 1) {
     if (zeroBits(sha256Words(`${id}:${n}`)[0]) >= bits) return String(n);
     if (n % 20000 === 19999) await new Promise((r) => setTimeout(r, 0)); // yield to the page

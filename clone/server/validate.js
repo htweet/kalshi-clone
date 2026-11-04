@@ -26,6 +26,8 @@ const BODY_LIMITS = [
   [/^\/v1\/users\/[^/]+\/groups\b/, '8kb'], // group chats (Phase 2, server/groups.js)
   [/^\/v1\/users\/[^/]+\/(mfa|notifications|push_subscriptions)\b/, '4kb'], // push_subscriptions: Web Push (CLONE_SPEC §31)
   [/^\/v1\/admin\/catalog\/import$/, '256kb'], // CSV import: a few hundred rows
+  [/^\/v1\/admin\/cms\/media$/, '12mb'], // one image upload, base64 (CMS media library, CLONE_SPEC.md §32.6)
+  [/^\/v1\/admin\/cms\/import$/, '8mb'], // a full content export
   [/^\/v1\/admin\//, '64kb'],
 ];
 const limitFor = (p) => (BODY_LIMITS.find(([re]) => re.test(p)) || [null, DEFAULT_LIMIT])[1];

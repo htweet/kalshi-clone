@@ -1,4 +1,6 @@
 // Shared helpers: escaping, formatting, local storage with expiry (spec §8.2 pattern).
+import { ts } from './i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import './content/lib-strings.js';
 import { vars } from './dynstyle.js';
 import { uiPrefs } from './prefs.js';
 import { fmtDate } from './currency.js'; // display currency, locale and time zone (CLONE_SPEC.md §30)
@@ -75,7 +77,7 @@ export function toast(msg, kind = '') {
 
 export const CATEGORIES = ['Politics', 'Sports', 'Elections', 'Crypto', 'Climate and Weather', 'Economics', 'Entertainment', 'Companies', 'Financials', 'Science and Technology'];
 // Short display labels used in navigation (spec §15.1); data keeps the full names.
-const CAT_LABELS = { 'Climate and Weather': 'Climate', Entertainment: 'Culture', Financials: 'Finance', 'Science and Technology': 'Tech & Science' };
+const CAT_LABELS = { 'Climate and Weather': 'Climate', Entertainment: 'Culture', Financials: 'Finance', 'Science and Technology': ts('lib.cat_labels.tech_science') };
 export const catLabel = (c) => CAT_LABELS[c] || c;
 export const catSlug = (c) => c.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 export const catFromSlug = (s) => CATEGORIES.find((c) => catSlug(c) === s) || null;

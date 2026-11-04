@@ -1,6 +1,8 @@
 // Live / Calendar (spec §13.4, §15.5): left rail (featured, "What's next", categories with counts),
 // "LIVE · N" section with rolling Above/Below cards and live events, then dated sections; right rail with
 // the most recently determined window.
+import { t, te } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/calendar-strings.js';
 import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { socket } from '../ws.js';
@@ -12,8 +14,8 @@ import { applySportsFilter, drawSportsNav } from './sports.js'; // sports league
 const fmtDate = (d) => {
   const today = dayKey();
   const tomorrow = new Date(Date.parse(today + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10); // the next calendar date
-  if (d === today) return 'Today';
-  if (d === tomorrow) return 'Tomorrow';
+  if (d === today) return t('calendar.fmt_date.today');
+  if (d === tomorrow) return t('calendar.fmt_date.tomorrow');
   return new Date(d + 'T12:00:00Z').toLocaleDateString(currency.locale, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); // a calendar date: no zone shift
 };
 function spark(prices, target) {
@@ -44,36 +46,36 @@ function cappedCards(sec, liveSection = false) {
     const h = hide.get(e.event_ticker);
     const out = h ? `<div class="cal-capped" data-family="${esc(h)}" data-testid="cal-capped" hidden>${card}</div>` : card;
     const more = lastShown.get(e.event_ticker);
-    return more ? `${out}<button class="card cal-more" data-more="${esc(more.key)}" data-testid="cal-more" aria-expanded="false" data-n="${esc(more.n)}" data-title="${esc(more.title)}">+${esc(more.n)} more · ${esc(more.title)}</button>` : out;
+    return more ? `${out}<button class="card cal-more" data-more="${esc(more.key)}" data-testid="cal-more" aria-expanded="false" data-n="${esc(more.n)}" data-title="${esc(more.title)}">${te('calendar.capped_cards.more', { n: esc(more.n), title: esc(more.title) })}</button>` : out;
   }).join('');
 }
 
 export async function render({ el, params, query, navigate }) {
   const liveOnly = !!params.live;
-  document.title = liveOnly ? 'Live · Parlance' : 'Calendar · Parlance';
+  document.title = liveOnly ? t('calendar.render.live_parlance') : t('calendar.render.calendar_parlance');
   const category = query.get('category') || '';
   const data = applySportsFilter(await api.calendar({ category }), query);
   const f = data.filters;
   const liveSec = data.sections.find((s) => s.is_live);
   const dated = data.sections.filter((s) => !s.is_live);
-  const row = (name, c, on) => `<button data-cat="${esc(name)}" class="${on ? 'on' : ''}"><span>${esc(name ? catLabel(name) : 'All')}</span><span class="n">${esc(c ? c.count : 0)}${c && c.live_count ? ` · <span class="c-live">${esc(c.live_count)} live</span>` : ''}</span></button>`;
+  const row = (name, c, on) => `<button data-cat="${esc(name)}" class="${on ? 'on' : ''}"><span>${esc(name ? catLabel(name) : t('calendar.render.all'))}</span><span class="n">${esc(c ? c.count : 0)}${c && c.live_count ? ` · <span class="c-live">${te('calendar.render.live', { live_count: esc(c.live_count) })}</span>` : ''}</span></button>`;
   el.innerHTML = `<div class="live-layout">
-    <nav class="live-side" aria-label="Calendar categories" data-testid="cal-filters">
-      <div class="overline">Featured</div>
-      <div id="sports-featured" class="sb-featured" data-testid="sports-featured"></div><a href="/category/elections" data-link>Harbor 2026</a><a href="/category/crypto" data-link>Crypto · 15 min</a>
-      <a href="/calendar" data-link class="next mt-12">What's next</a>
+    <nav class="live-side" aria-label="${te('calendar.render.calendar_categories')}" data-testid="cal-filters">
+      <div class="overline">${te('calendar.render.featured')}</div>
+      <div id="sports-featured" class="sb-featured" data-testid="sports-featured"></div><a href="/category/elections" data-link>${te('calendar.render.harbor_2026')}</a><a href="/category/crypto" data-link>${te('calendar.render.crypto_15_min')}</a>
+      <a href="/calendar" data-link class="next mt-12">${te('calendar.render.what_s_next')}</a>
       <div id="sports-tree" class="sb-treebox" data-testid="sports-tree"></div>
       ${row('', f.all, !category)}${CATEGORIES.filter((c) => f.categories[c]).map((c) => row(c, f.categories[c], c === category)).join('')}
     </nav>
     <div class="minw-0">
-      <h1 class="live-title" data-testid="live-title">LIVE · ${liveSec ? liveSec.events.length : 0}</h1>
+      <h1 class="live-title" data-testid="live-title">${te('calendar.render.live_2', { value: liveSec ? liveSec.events.length : 0 })}</h1>
       <div id="flash"></div>
-      ${liveSec ? `<section class="cal-section" data-testid="cal-section" data-date="${esc(liveSec.date)}" data-live="true"><div class="grid grid-1col">${cappedCards(liveSec, true)}</div></section>` : '<div class="card empty">Nothing is live right now.</div>'}
+      ${liveSec ? `<section class="cal-section" data-testid="cal-section" data-date="${esc(liveSec.date)}" data-live="true"><div class="grid grid-1col">${cappedCards(liveSec, true)}</div></section>` : `<div class="card empty">${te('calendar.render.nothing_is_live_right_now')}</div>`}
       ${liveOnly ? '' : dated.map((s) => `<section class="cal-section" data-testid="cal-section" data-date="${esc(s.date)}" data-live="false">
           <h2 class="cal-date">${esc(fmtDate(s.date))}<span class="faint">${s.events.length}</span></h2>
           <div class="grid">${cappedCards(s)}</div></section>`).join('')}
     </div>
-    <aside class="live-rail"><a class="combo-btn" href="/combos" data-link data-testid="combo-rail-btn" aria-label="Build a combo">◇ COMBO</a><div id="determined"></div></aside>
+    <aside class="live-rail"><a class="combo-btn" href="/combos" data-link data-testid="combo-rail-btn" aria-label="${te('calendar.render.build_a_combo')}">${te('calendar.render.combo')}</a><div id="determined"></div></aside>
   </div>`;
   drawSportsNav(el, query);
   el.addEventListener('click', (e) => {
@@ -83,7 +85,7 @@ export async function render({ el, params, query, navigate }) {
     const open = b.getAttribute('aria-expanded') !== 'true';
     for (const c of sec.querySelectorAll(`[data-family="${CSS.escape(b.dataset.more)}"]`)) c.hidden = !open;
     b.setAttribute('aria-expanded', String(open));
-    b.textContent = open ? 'Show less' : `+${b.dataset.n} more · ${b.dataset.title}`;
+    b.textContent = open ? t('calendar.render.show_less') : t('calendar.render.more', { n: b.dataset.n, title: b.dataset.title });
   });
   for (const b of el.querySelectorAll('[data-cat]')) b.onclick = () => navigate(b.dataset.cat ? `${location.pathname}?category=${encodeURIComponent(b.dataset.cat)}` : location.pathname, { replace: true });
 
@@ -101,10 +103,10 @@ export async function render({ el, params, query, navigate }) {
       const href = eventHref({ ...ev, series_slug: 'plx-token-price' });
       box.innerHTML = `<article class="card flash-card mb-16" data-testid="flash-card" data-event="${esc(w.event_ticker)}">
         <div><div class="d-flex gap-12 ai-center">${evIcon({ category: 'Crypto', title: 'P' }, 'sm')}<span class="overline">${esc(w.label)}</span></div>
-          <div class="target" data-testid="flash-target">Target ${money(w.target_dollars)}</div><div class="dist ${dist < 0 ? 'down' : ''}">${dist < 0 ? '↓' : '↑'} ${money(Math.abs(dist))} ${dist < 0 ? 'Below' : 'Above'}</div></div>
+          <div class="target" data-testid="flash-target">${te('calendar.render.target', { money: money(w.target_dollars) })}</div><div class="dist ${dist < 0 ? 'down' : ''}">${dist < 0 ? '↓' : '↑'} ${money(Math.abs(dist))} ${dist < 0 ? te('calendar.render.below') : te('calendar.render.above')}</div></div>
         <div>${spark(prices, Number(w.target_dollars))}</div>
-        <div class="ab"><a href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link>Above · ${up}%</a><a href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link>Below · ${100 - up}%</a></div>
-        <div class="faint col-full">${money(ev.dollar_volume || 0)} vol · closes ${esc(fmtTime(w.end_time, true))}</div></article>`;
+        <div class="ab"><a href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link>${te('calendar.render.above_2', { up })}</a><a href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link>${te('calendar.render.below_2', { value: 100 - up })}</a></div>
+        <div class="faint col-full">${te('calendar.render.vol_closes', { money: money(ev.dollar_volume || 0), fmt_time: esc(fmtTime(w.end_time, true)) })}</div></article>`;
     } catch { /* no window yet */ }
   }
   async function drawDetermined() {
@@ -113,8 +115,8 @@ export async function render({ el, params, query, navigate }) {
     try {
       const { windows } = await api.rollingDetermined();
       const w = windows[0];
-      box.innerHTML = w ? `<section class="card determined" data-testid="determined"><span class="overline">${esc(w.label)}</span><h3>Determined</h3><div class="muted">Outcome: <strong class="c-${w.result === 'yes' ? 'yes' : 'no'}">${w.result === 'yes' ? 'Up' : 'Down'}</strong></div>
-        <div class="faint mt-6">Target ${money(w.target_dollars)} → close ${money(w.current_dollars)}</div><a href="/category/crypto" data-link class="d-block mt-16">Explore Crypto</a></section>` : '';
+      box.innerHTML = w ? `<section class="card determined" data-testid="determined"><span class="overline">${esc(w.label)}</span><h3>${te('calendar.render.determined')}</h3><div class="muted">${te('calendar.render.outcome')} <strong class="c-${w.result === 'yes' ? 'yes' : 'no'}">${w.result === 'yes' ? te('calendar.render.up') : te('calendar.render.down')}</strong></div>
+        <div class="faint mt-6">${te('calendar.render.target_close', { money: money(w.target_dollars), money_2: money(w.current_dollars) })}</div><a href="/category/crypto" data-link class="d-block mt-16">${te('calendar.render.explore_crypto')}</a></section>` : '';
     } catch { /* optional */ }
   }
   drawFlash(); drawDetermined();

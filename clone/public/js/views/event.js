@@ -1,6 +1,8 @@
 // Event detail (spec §4.3, §13.5, §15.4): header with actions (calendar file, social, share, CSV), head-to-head bar,
 // multi-line chart with ranges, outcome table, series events, Social / Activity / Order book / Rules / Top holders,
 // "People are also trading", news; ticket with BUY/SELL, Dollars / Contracts / Limit modes, interest, max payout.
+import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/event-strings.js';
 import { t as T, tHtml } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
@@ -23,11 +25,11 @@ const isScalar = (m) => m.market_type === 'scalar';
 const unitOf = (m) => m.scalar_unit || '';
 const fmtVal = (m, v) => `${Number(v).toLocaleString('en-US', { maximumFractionDigits: 4 })}${unitOf(m)}`;
 const scalarRange = (m) => `${fmtVal(m, m.floor_strike)} to ${fmtVal(m, m.cap_strike)}`;
-const TABS = [['ideas', 'Social'], ['trades', 'Activity'], ['book', 'Order book'], ['rules', 'Rules'], ['holders', 'Top holders']];
+const TABS = [['ideas', 'Social'], ['trades', ts('event.tabs.activity')], ['book', ts('event.tabs.order_book')], ['rules', ts('event.tabs.rules')], ['holders', ts('event.tabs.top_holders')]];
 // The amount mode keeps its key (`dollars`, the API order type) and is labelled in the display currency: Naira / Dollars.
-const MODES = [['dollars', 'Dollars'], ['market', 'Contracts'], ['limit', 'Limit order']];
+const MODES = [['dollars', 'Dollars'], ['market', ts('event.modes.contracts')], ['limit', ts('event.modes.limit_order')]];
 const modeLabel = (k, l) => (k === 'dollars' ? amountLabel() : l);
-const RFQ_MODE = ['rfq', 'Request quote']; // shown when the rfq_enabled user property is on (spec §17.6)
+const RFQ_MODE = ['rfq', ts('event.rfq_mode.request_quote')]; // shown when the rfq_enabled user property is on (spec §17.6)
 const COMBO_SERIES = 'PLXCOMBO';
 const SVG = {
   cal: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="4.5" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4" stroke="currentColor" stroke-width="1.6"/></svg>',
@@ -47,7 +49,7 @@ export async function render({ el, params, query, navigate }) {
   const eventTicker = params.event.toUpperCase();
   const { event: ev } = await api.event(eventTicker);
   const { series } = await api.series(ev.series_ticker);
-  document.title = `${ev.title} · Parlance`;
+  document.title = tx('event.render.parlance_2', { title: ev.title });
   if (session.user) api.visit(session.uid, ev.event_ticker).catch(() => {});
 
   const props = session.props;
@@ -85,38 +87,38 @@ export async function render({ el, params, query, navigate }) {
           <h1 data-testid="event-title">${esc(ev.title)}</h1><div class="muted fs-lg">${esc(ev.sub_title)}</div>
           ${ev.live_data ? `<div class="ev-live-label mt-8" data-testid="ev-live-label" data-live-ms="${esc(ev.live_data.milestone_id)}" data-sb-part="evlabel" data-status="${esc(ev.live_data.status)}">${evLabelInner(ev.live_data)}</div>`
     : ev.sports_lines ? `<div class="ev-live-label mt-8" data-testid="ev-live-label" data-live-ms="${esc(ev.sports_lines.milestone_id)}" data-sb-part="evlabel"></div>`
-      : ev.is_live ? `<div class="live-dot mt-8">Live · ${esc(ev.live_label)}</div>` : ''}
-          ${ev.sports_lines && ev.sports_lines.game_event_ticker ? `<a class="faint d-block mt-8" data-testid="moneyline-link" href="/markets/${esc(ev.series_ticker.toLowerCase())}/${esc(series.slug)}/${esc(ev.sports_lines.game_event_ticker.toLowerCase())}" data-link>Moneyline: ${esc(ev.sports_lines.title)} ›</a>` : ''}</div>
+      : ev.is_live ? `<div class="live-dot mt-8">${te('event.render.live', { live_label: esc(ev.live_label) })}</div>` : ''}
+          ${ev.sports_lines && ev.sports_lines.game_event_ticker ? `<a class="faint d-block mt-8" data-testid="moneyline-link" href="/markets/${esc(ev.series_ticker.toLowerCase())}/${esc(series.slug)}/${esc(ev.sports_lines.game_event_ticker.toLowerCase())}" data-link>${te('event.render.moneyline', { title: esc(ev.sports_lines.title) })}</a>` : ''}</div>
         <div class="ev-actions">
-          <button class="icon-btn" id="ics-btn" data-testid="ics-btn" title="Add to calendar" aria-label="Add to calendar">${SVG.cal}</button>
-          <button class="icon-btn" id="chat-btn" title="Discussion" aria-label="Go to discussion">${SVG.chat}</button>
-          <button class="icon-btn" id="share-btn" title="Copy link" aria-label="Copy link">${SVG.share}</button>
-          <button class="icon-btn" id="csv-btn" data-testid="csv-btn" title="Download price history" aria-label="Download price history">${SVG.dl}</button>
+          <button class="icon-btn" id="ics-btn" data-testid="ics-btn" title="${te('event.render.add_to_calendar')}" aria-label="${te('event.render.add_to_calendar')}">${SVG.cal}</button>
+          <button class="icon-btn" id="chat-btn" title="${te('event.render.discussion')}" aria-label="${te('event.render.go_to_discussion')}">${SVG.chat}</button>
+          <button class="icon-btn" id="share-btn" title="${te('event.render.copy_link')}" aria-label="${te('event.render.copy_link')}">${SVG.share}</button>
+          <button class="icon-btn" id="csv-btn" data-testid="csv-btn" title="${te('event.render.download_price_history')}" aria-label="${te('event.render.download_price_history')}">${SVG.dl}</button>
           <button class="btn btn-pill" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}"></button>
         </div>
       </div>
       ${ev.live_data || ev.sports_lines ? '<div id="sports-board" class="sb-mount"></div>' : ''}
-      ${ev.lines_event_ticker ? '<section class="card sb-lines" id="sb-lines" data-testid="lines-section" aria-label="Spread and Total"></section>' : ''}
+      ${ev.lines_event_ticker ? `<section class="card sb-lines" id="sb-lines" data-testid="lines-section" aria-label="${te('event.render.spread_and_total')}"></section>` : ''}
       ${h2h ? `<div class="h2h" data-testid="h2h"></div>` : ''}
-      ${isCombo ? '<section class="card combo-legs" id="combo-legs" data-testid="combo-legs" aria-label="Combo legs"></section>' : ''}
+      ${isCombo ? `<section class="card combo-legs" id="combo-legs" data-testid="combo-legs" aria-label="${te('event.render.combo_legs')}"></section>` : ''}
       <section class="chart-box">
-        <div class="chart-head"><div class="legend" id="legend"></div><span class="watermark">Parlance</span></div>
+        <div class="chart-head"><div class="legend" id="legend"></div><span class="watermark">${te('event.render.parlance')}</span></div>
         <div class="d-flex gap-16 ai-baseline mt-6"><span class="faint" id="chart-label"></span><span class="num" id="chart-prob" data-testid="chart-prob"></span><span class="change-chips" id="changes" data-testid="changes"></span></div>
         <div id="chart"></div>
-        <div class="range-row"><span class="num" id="ev-vol"></span><div class="seg" role="tablist" aria-label="Chart range">${Object.keys(RANGES).map((r) => `<button data-range="${esc(r)}" class="${r === state.range ? 'on' : ''}">${esc(r.toUpperCase())}</button>`).join('')}</div></div>
+        <div class="range-row"><span class="num" id="ev-vol"></span><div class="seg" role="tablist" aria-label="${te('event.render.chart_range')}">${Object.keys(RANGES).map((r) => `<button data-range="${esc(r)}" class="${r === state.range ? 'on' : ''}">${esc(r.toUpperCase())}</button>`).join('')}</div></div>
       </section>
       <div id="scalar-card"></div>
-      <table class="mkt-table" aria-label="Outcomes"><thead><tr><th class="ta-l"></th><th>Chance</th><th></th><th></th></tr></thead><tbody id="mkt-rows"></tbody></table>
+      <table class="mkt-table" aria-label="${te('event.render.outcomes')}"><thead><tr><th class="ta-l"></th><th>${te('event.render.chance')}</th><th></th><th></th></tr></thead><tbody id="mkt-rows"></tbody></table>
       <div id="series-events"></div>
-      <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${esc(t)}" class="${t === state.bottomTab ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       <div id="bottom"></div>
-      <div class="sec-head mt-48"><h2>People are also trading</h2></div><div id="also"></div>
+      <div class="sec-head mt-48"><h2>${te('event.render.people_are_also_trading')}</h2></div><div id="also"></div>
       ${ev.news_items ? '<div id="ai-summary" class="ai-mount"></div>' : ''}
-      ${ev.news || ev.news_items ? `<div class="sec-head"><h2>News</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${fmtDay(Date.now() - 86400000)}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
+      ${ev.news || ev.news_items ? `<div class="sec-head"><h2>${te('event.render.news')}</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${te('event.render.parlance_newsroom', { ev_icon: evIcon({ category: ev.category, title: 'P' }, 'sm'), fmt_day: fmtDay(Date.now() - 86400000) })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
     </div>
     <aside>
-      ${comboEligible ? '<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" aria-pressed="false">◇ COMBO</button><div id="combo-mini"></div>' : ''}
-      <section class="card tkt ticket" id="ticket" aria-label="Trade ticket"></section>
+      ${comboEligible ? `<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" aria-pressed="false">${te('event.render.combo')}</button><div id="combo-mini"></div>` : ''}
+      <section class="card tkt ticket" id="ticket" aria-label="${te('event.render.trade_ticket')}"></section>
       <div id="position"></div>
       <div id="alerts"></div>
       <div id="admin"></div>
@@ -128,7 +130,7 @@ export async function render({ el, params, query, navigate }) {
   // ---------- header actions ----------
   function drawWatch() {
     const b = $('#watch-btn');
-    b.innerHTML = state.watching ? `${ICON.star} Watching` : '☆ Watch';
+    b.innerHTML = state.watching ? `${te('event.render.watching', { star: ICON.star })}` : te('event.render.watch');
     b.setAttribute('aria-pressed', String(state.watching));
   }
   $('#watch-btn').onclick = async () => {
@@ -137,7 +139,7 @@ export async function render({ el, params, query, navigate }) {
       if (state.watching) await api.unwatch(session.uid, ev.event_ticker); else await api.watch(session.uid, ev.event_ticker);
       state.watching = !state.watching;
       drawWatch();
-      toast(state.watching ? 'Added to watchlist' : 'Removed from watchlist');
+      toast(state.watching ? tx('event.render.added_to_watchlist') : tx('event.render.removed_from_watchlist'));
     } catch (e) { toast(e.message, 'error'); }
   };
   // File formats (spec §9, §15.4): iCalendar reminder for the close time, CSV of the chart's price history.
@@ -159,7 +161,7 @@ export async function render({ el, params, query, navigate }) {
     download(`${ev.event_ticker.toLowerCase()}-prices.csv`, 'text/csv', rows.join('\n') + '\n');
   };
   $('#share-btn').onclick = async () => {
-    try { await navigator.clipboard.writeText(location.href); toast('Link copied'); } catch { toast(location.href); }
+    try { await navigator.clipboard.writeText(location.href); toast(tx('event.render.link_copied')); } catch { toast(location.href); }
   };
   $('#chat-btn').onclick = () => { selectTab('ideas'); $('.big-tabs').scrollIntoView({ behavior: 'smooth' }); };
 
@@ -168,7 +170,7 @@ export async function render({ el, params, query, navigate }) {
     if (!h2h) return;
     const [a, b] = state.ev.markets;
     const pa = prob(a) ?? 50; const pb = prob(b) ?? 50;
-    $('[data-testid=h2h]').innerHTML = `${ocAvatar(a, 'lg')}<b>${esc(a.yes_sub_title)}</b><div class="bar" aria-label="${esc(a.yes_sub_title)} ${pa}% vs ${esc(b.yes_sub_title)} ${pb}%"><span class="v-flex v-bg"${vars({ '--flex': pa, '--bg': seriesColor(a, 0) })}></span><span class="v-flex v-bg"${vars({ '--flex': pb, '--bg': seriesColor(b, 1) })}></span></div><b>${esc(b.yes_sub_title)}</b>${ocAvatar(b, 'lg')}<span class="date">${new Date(closeIso()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>`;
+    $('[data-testid=h2h]').innerHTML = `${ocAvatar(a, 'lg')}<b>${esc(a.yes_sub_title)}</b><div class="bar" aria-label="${te('event.render.vs', { yes_sub_title: esc(a.yes_sub_title), pa, yes_sub_title_2: esc(b.yes_sub_title), pb })}"><span class="v-flex v-bg"${vars({ '--flex': pa, '--bg': seriesColor(a, 0) })}></span><span class="v-flex v-bg"${vars({ '--flex': pb, '--bg': seriesColor(b, 1) })}></span></div><b>${esc(b.yes_sub_title)}</b>${ocAvatar(b, 'lg')}<span class="date">${new Date(closeIso()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>`;
   }
   function drawLegend() {
     $('#legend').innerHTML = ranked().slice(0, 3).map((m, i) => `<span><i class="v-bg"${vars({ '--bg': seriesColor(m, i) })}></i>${esc(m.yes_sub_title)} <b>${prob(m) ?? '—'}%</b></span>`).join('');
@@ -182,13 +184,13 @@ export async function render({ el, params, query, navigate }) {
       const p = prob(m);
       const tradable = m.status === 'active';
       const d = p != null && m.previous_day_price_dollars != null ? p - cents(m.previous_day_price_dollars) : 0;
-      const statusNote = tradable ? (isScalar(m) ? `<div class="faint" data-testid="scalar-range">Scalar · pays by value, ${esc(scalarRange(m))}</div>` : '')
-        : `<div class="faint">${m.status === 'finalized' || m.status === 'determined' ? (isScalar(m) ? `Settled at ${esc(fmtVal(m, m.expiration_value))} · YES ${esc(px(m.settlement_value_dollars))}` : 'Resolved ' + esc(m.result.toUpperCase())) : esc(m.status)}</div>`;
+      const statusNote = tradable ? (isScalar(m) ? `<div class="faint" data-testid="scalar-range">${te('event.render.scalar_pays_by_value', { scalar_range: esc(scalarRange(m)) })}</div>` : '')
+        : `<div class="faint">${m.status === 'finalized' || m.status === 'determined' ? (isScalar(m) ? te('event.render.settled_at_yes', { fmt_val: esc(fmtVal(m, m.expiration_value)), px: esc(px(m.settlement_value_dollars)) }) : (te('event.render.resolved') + ' ') + esc(m.result.toUpperCase())) : esc(m.status)}</div>`;
       return `<tr data-ticker="${esc(m.ticker)}" class="${m.ticker === state.selected ? 'selected' : ''}">
-        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-xl">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${showShares() ? `Yes ${esc(px(m.yes_ask_dollars))} · No ${esc(px(m.no_ask_dollars))}` : multiplier(m)}</div></div></div></td>
+        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-xl">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${te('event.render.traded', { qty: qty(m.volume_fp), value: showShares() ? te('event.render.yes_no', { px: esc(px(m.yes_ask_dollars)), px_2: esc(px(m.no_ask_dollars)) }) : multiplier(m) })}</div></div></div></td>
         <td class="ta-c nowrap"><span class="prob" data-testid="prob-${esc(m.ticker)}">${p == null ? '—' : p + '%'}</span>${d ? ` <span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</td>
-        <td class="ta-r"><button class="yes-btn ${pickOn(m, 'yes') ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${esc(px(m.yes_ask_dollars))}</button></td>
-        <td><button class="no-btn ${pickOn(m, 'no') ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${esc(px(m.no_ask_dollars))}</button></td></tr>`;
+        <td class="ta-r"><button class="yes-btn ${pickOn(m, 'yes') ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>${te('event.render.yes', { px: esc(px(m.yes_ask_dollars)) })}</button></td>
+        <td><button class="no-btn ${pickOn(m, 'no') ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>${te('event.render.no', { px: esc(px(m.no_ask_dollars)) })}</button></td></tr>`;
     }).join('');
     for (const tr of el.querySelectorAll('#mkt-rows tr')) {
       tr.onclick = (e) => {
@@ -212,24 +214,24 @@ export async function render({ el, params, query, navigate }) {
     const span = m.cap_strike - m.floor_strike;
     const mid = m.floor_strike + span / 2;
     const settled = ['determined', 'finalized'].includes(m.status) && m.settlement_value_dollars != null;
-    box.innerHTML = `<section class="card scalar-card" data-testid="scalar-card"><h3>How this market pays</h3>
-      <p class="muted">${tHtml('ticket.scalar_card', { value: esc(contractValue()), floor: `<b>${esc(fmtVal(m, m.floor_strike))}</b>`, zero: esc(money(0)), cap: `<b>${esc(fmtVal(m, m.cap_strike))}</b>` })} (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, span))}. NO pays the rest. Values outside the range pay at the nearest end.</p>
-      <div class="tkt-row"><span>Example: value ${esc(fmtVal(m, mid))}</span><strong class="num">YES ${esc(money(0.5))} · NO ${esc(money(0.5))}</strong></div>
-      ${settled ? `<div class="tkt-row" data-testid="scalar-result"><span>Settled at ${esc(fmtVal(m, m.expiration_value))}</span><strong class="num">YES ${esc(money(m.settlement_value_dollars))} · NO ${esc(money(1 - Number(m.settlement_value_dollars)))}</strong></div>` : ''}</section>`;
+    box.innerHTML = `<section class="card scalar-card" data-testid="scalar-card"><h3>${te('event.render.how_this_market_pays')}</h3>
+      <p class="muted">${te('event.render.value_no_pays_the_rest', { t_html: tHtml('ticket.scalar_card', { value: esc(contractValue()), floor: `<b>${esc(fmtVal(m, m.floor_strike))}</b>`, zero: esc(money(0)), cap: `<b>${esc(fmtVal(m, m.cap_strike))}</b>` }), fmt_val: esc(fmtVal(m, m.floor_strike)), fmt_val_2: esc(fmtVal(m, span)) })}</p>
+      <div class="tkt-row"><span>${te('event.render.example_value', { fmt_val: esc(fmtVal(m, mid)) })}</span><strong class="num">${te('event.render.yes_no_2', { money: esc(money(0.5)), money_2: esc(money(0.5)) })}</strong></div>
+      ${settled ? `<div class="tkt-row" data-testid="scalar-result"><span>${te('event.render.settled_at', { fmt_val: esc(fmtVal(m, m.expiration_value)) })}</span><strong class="num">${te('event.render.yes_no_2', { money: esc(money(m.settlement_value_dollars)), money_2: esc(money(1 - Number(m.settlement_value_dollars))) })}</strong></div>` : ''}</section>`;
   }
 
   function drawHeadline() {
     const m = market();
     const p = prob(m);
     $('#chart-label').textContent = m.yes_sub_title;
-    $('#chart-prob').textContent = p == null ? '' : `${p}% chance`;
+    $('#chart-prob').textContent = p == null ? '' : tx('event.render.chance_3', { p });
     const chip = (label, prev) => {
       if (p == null || prev == null) return '';
       const d = p - cents(prev);
       return `<span>${esc(label)} <span class="${d >= 0 ? 'delta-up' : 'delta-down'}">${d >= 0 ? '▲' : '▼'}${Math.abs(d)}</span></span>`;
     };
     $('#changes').innerHTML = chip('1H', m.previous_hour_price_dollars) + chip('1D', m.previous_day_price_dollars) + chip('1W', m.previous_week_price_dollars);
-    $('#ev-vol').textContent = `${money0(state.ev.markets.reduce((a, x) => a + Number(x.dollar_volume || 0), 0))} vol`;
+    $('#ev-vol').textContent = tx('event.render.vol', { money0: money0(state.ev.markets.reduce((a, x) => a + Number(x.dollar_volume || 0), 0)) });
   }
 
   async function drawChart() {
@@ -242,7 +244,7 @@ export async function render({ el, params, query, navigate }) {
         return { name: m.yes_sub_title, color: seriesColor(m, i), points: c.candlesticks.map((k) => ({ t: k.end_period_ts, v: ccOf(k.price.close_dollars) / 100 })) }; // sub-cent prices keep their decimals
       }));
       $('#chart').innerHTML = multiChart(series2, { height: 300, endLabels: ms.length > 1 });
-    } catch (e) { $('#chart').innerHTML = `<p class="faint">Chart unavailable: ${esc(e.message)}</p>`; }
+    } catch (e) { $('#chart').innerHTML = `<p class="faint">${te('event.render.chart_unavailable', { message: esc(e.message) })}</p>`; }
   }
   for (const b of el.querySelectorAll('[data-range]')) {
     b.onclick = () => {
@@ -281,8 +283,8 @@ export async function render({ el, params, query, navigate }) {
     if (ticketPrice == null) ticketPrice = defaultPrice();
     const t = $('#ticket');
     if (m.status !== 'active') {
-      const res = !m.result ? '' : isScalar(m) ? ` Settled at <strong data-testid="scalar-settled">${esc(fmtVal(m, m.expiration_value))}</strong>: YES pays ${esc(px(m.settlement_value_dollars))}, NO pays ${esc(pxc(10000 - ccOf(m.settlement_value_dollars)))}.` : ` Result: <strong>${esc(m.result.toUpperCase())}</strong>`;
-      t.innerHTML = `<div class="tkt-body"><div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div><p class="muted" data-testid="ticket-closed">Trading is ${m.status === 'initialized' ? 'not open yet. Opens ' + shortDate(m.open_time) : 'closed for this market'}.${res}</p></div>`;
+      const res = !m.result ? '' : isScalar(m) ? ` ${te('event.render.settled_at_2')} <strong data-testid="scalar-settled">${esc(fmtVal(m, m.expiration_value))}</strong>${te('event.render.yes_pays_no_pays', { px: esc(px(m.settlement_value_dollars)), pxc: esc(pxc(10000 - ccOf(m.settlement_value_dollars))) })}` : ` ${te('event.render.result')} <strong>${esc(m.result.toUpperCase())}</strong>`;
+      t.innerHTML = `<div class="tkt-body"><div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div><p class="muted" data-testid="ticket-closed">${te('event.render.trading_is', { value: m.status === 'initialized' ? (te('event.render.not_open_yet_opens') + ' ') + shortDate(m.open_time) : te('event.render.closed_for_this_market'), res })}</p></div>`;
       return;
     }
     const selling = state.action === 'sell';
@@ -294,28 +296,28 @@ export async function render({ el, params, query, navigate }) {
     const yesAsk = ccOf(m.yes_ask_dollars); const noAsk = ccOf(m.no_ask_dollars);
     const tick = minTickCc(m); // price input step in cents: 1, 0.1 or 0.01
     const held = state.held[state.side];
-    t.innerHTML = `<div class="tkt-head"><button data-action="buy" class="${!selling ? 'on' : ''}">BUY</button><button data-action="sell" class="${selling ? 'on' : ''}" data-testid="sell-tab">SELL</button>
+    t.innerHTML = `<div class="tkt-head"><button data-action="buy" class="${!selling ? 'on' : ''}">${te('event.render.buy_2')}</button><button data-action="sell" class="${selling ? 'on' : ''}" data-testid="sell-tab">${te('event.render.sell_2')}</button>
         <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(modeLabel(mode, MODE_LIST.find(([k]) => k === mode)[1]).toUpperCase())} ▾</button>
         <div class="menu mode-menu" id="t-mode-menu" hidden>${MODE_LIST.map(([k, l]) => `<button data-otype="${esc(k)}" ${selling && (k === 'dollars' || k === 'rfq') ? 'disabled' : ''}>${esc(modeLabel(k, l))}</button>`).join('')}</div></div></div>
       <div class="tkt-body">
         <div class="tkt-q">${esc(state.ev.title)}</div>
         <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
         <div class="d-flex ai-center jc-between gap-12 fw-wrap">
-          <div class="yn-toggle side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">YES ${esc(pxc(selling ? ccOf(m.yes_bid_dollars) : yesAsk))}</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">NO ${esc(pxc(selling ? ccOf(m.no_bid_dollars) : noAsk))}</button></div>
-          <button class="interest-link" id="interest-btn" type="button">3.5% Interest</button>
+          <div class="yn-toggle side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">${te('event.render.yes_3', { pxc: esc(pxc(selling ? ccOf(m.yes_bid_dollars) : yesAsk)) })}</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">${te('event.render.no_3', { pxc: esc(pxc(selling ? ccOf(m.no_bid_dollars) : noAsk)) })}</button></div>
+          <button class="interest-link" id="interest-btn" type="button">${te('event.render.n3_5_interest')}</button>
         </div>
-        ${selling ? `<div class="tkt-row" data-testid="held"><span>You hold</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
+        ${selling ? `<div class="tkt-row" data-testid="held"><span>${te('event.render.you_hold')}</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
         ${mode === 'dollars' ? `<label class="tkt-input">${esc(amountLabel())}<input id="t-amount" type="number" min="1" step="${esc(moneyStep())}" placeholder="${esc(sym())}0" inputmode="decimal" aria-label="${esc(amountLabel())}" data-testid="t-amount"></label>` : ''}
         ${mode === 'limit' ? `<label class="tkt-input">${esc(T('input.limit_price', { unit: priceUnit() }))}<input id="t-price" type="number" min="${esc(tick / 100)}" max="${esc(100 - tick / 100)}" step="${esc(tick / 100)}" value="${esc((selling ? sellPrice() : ticketPrice) / 100)}" inputmode="decimal" data-testid="t-price"></label>
-          ${tick < 100 ? `<div class="faint tkt-grid" data-testid="t-grid">Ticks: ${esc(m.price_ranges.map((r) => `${pxc(ccOf(r.step))} from ${pxc(ccOf(r.start))}`).join(' · '))}</div>` : ''}` : ''}
-        ${mode === 'limit' ? `<label class="tkt-input tkt-select">Expires<select id="t-expiry" data-testid="t-expiry" aria-label="Order expiry"><option value="never">Never (GTC)</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label>
-          <input id="t-expiry-at" class="tkt-expiry-at" type="datetime-local" hidden aria-label="Expiry time">` : ''}
-        ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="${step}" step="${step}" value="${esc(selling ? held || 1 : 10)}" inputmode="${frac ? 'decimal' : 'numeric'}" data-testid="t-count"></label>` : ''}
-        ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">Scalar: YES pays (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, m.cap_strike - m.floor_strike))} ${esc(T('ticket.scalar_note_tail', { value: contractValue() }))}</div>` : ''}
+          ${tick < 100 ? `<div class="faint tkt-grid" data-testid="t-grid">${te('event.render.ticks', { value: esc(m.price_ranges.map((r) => `${pxc(ccOf(r.step))} from ${pxc(ccOf(r.start))}`).join(' · ')) })}</div>` : ''}` : ''}
+        ${mode === 'limit' ? `<label class="tkt-input tkt-select">${te('event.render.expires')}<select id="t-expiry" data-testid="t-expiry" aria-label="${te('event.render.order_expiry')}"><option value="never">${te('event.render.never_gtc')}</option><option value="eod">${te('event.render.end_of_day')}</option><option value="custom">${te('event.render.custom')}</option></select></label>
+          <input id="t-expiry-at" class="tkt-expiry-at" type="datetime-local" hidden aria-label="${te('event.render.expiry_time')}">` : ''}
+        ${mode !== 'dollars' ? `<label class="tkt-input">${te('event.render.contracts')}<input id="t-count" type="number" min="${step}" step="${step}" value="${esc(selling ? held || 1 : 10)}" inputmode="${frac ? 'decimal' : 'numeric'}" data-testid="t-count"></label>` : ''}
+        ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">${te('event.render.scalar_yes_pays_value', { fmt_val: esc(fmtVal(m, m.floor_strike)), fmt_val_2: esc(fmtVal(m, m.cap_strike - m.floor_strike)), t: esc(T('ticket.scalar_note_tail', { value: contractValue() })) })}</div>` : ''}
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
         <div id="t-review"></div>
-        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? 'Sign up to trade' : mode === 'rfq' ? 'Request quote' : `${!tp().trade_skip_review ? 'Review · ' : ''}${selling ? 'Sell' : 'Buy'} ${state.side === 'yes' ? 'Yes' : 'No'}`}</button>
+        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? te('event.render.sign_up_to_trade') : mode === 'rfq' ? te('event.render.request_quote') : `${!tp().trade_skip_review ? (te('event.render.review') + ' ') : ''}${selling ? te('event.render.sell') : te('event.render.buy')} ${state.side === 'yes' ? te('event.render.yes_2') : te('event.render.no_2')}`}</button>
         <div id="t-after"></div>
       </div>`;
     for (const b of t.querySelectorAll('[data-side]')) b.onclick = () => { state.side = b.dataset.side; drawRows(); drawTicket(defaultPrice()); };
@@ -326,12 +328,12 @@ export async function render({ el, params, query, navigate }) {
       b.onclick = () => { state.mode = b.dataset.otype; menu.hidden = true; if (session.user) session.setProp('ticket_mode', state.mode).catch(() => {}); drawTicket(); };
     }
     t.querySelector('#interest-btn').onclick = async () => {
-      if (!session.user) { toast('Cash and open positions earn 3.5% APY, credited daily.'); return; }
-      try { const r = await api.interest(session.uid); toast(`3.5% APY on cash and positions, credited daily. Earned so far: ${money(r.total_dollars)}`); } catch (e) { toast(e.message, 'error'); }
+      if (!session.user) { toast(tx('event.render.cash_and_open_positions_earn')); return; }
+      try { const r = await api.interest(session.uid); toast(tx('event.render.n3_5_apy_on_cash', { money: money(r.total_dollars) })); } catch (e) { toast(e.message, 'error'); }
     };
     const recalc = () => {
       const sum = t.querySelector('#t-summary');
-      const closeLabel = `<span>Max payout<div class="faint">${shortDate(m.close_time)}</div></span>`;
+      const closeLabel = `<span>${te('event.render.max_payout')}<div class="faint">${shortDate(m.close_time)}</div></span>`;
       if (mode === 'dollars') {
         const raw = t.querySelector('#t-amount').value;
         const amt = raw === '' ? 0 : validMoneyInput(raw) ? toApiDollars(raw) : NaN; // naira ÷ 100 = the API's dollars (whole naira)
@@ -340,8 +342,8 @@ export async function render({ el, params, query, navigate }) {
         const per = p ? pc + Math.ceil((FEE_RATE * pc * (100 - pc)) / 100) : 0;
         const c = p && amt > 0 ? (frac ? Math.floor((amt * 10000) / per) / 100 : Math.floor((amt * 100) / per)) : 0; // floor to 0.01 where fractional
         if (Number.isNaN(amt)) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${esc(T(isNgn() ? 'error.amount_whole' : 'error.amount_cents'))}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
-        sum.innerHTML = `<div class="tkt-row"><span>Odds</span><strong>${p ? Math.round(state.side === 'yes' ? pc : 100 - pc) : '—'}% chance</strong></div>
-          <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${qty(c)} contracts at ${esc(pxc(p))}</div>`;
+        sum.innerHTML = `<div class="tkt-row"><span>${te('event.render.odds')}</span><strong>${te('event.render.chance_2', { value: p ? Math.round(state.side === 'yes' ? pc : 100 - pc) : '—' })}</strong></div>
+          <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${te('event.render.contracts_at', { qty: qty(c), pxc: esc(pxc(p)) })}</div>`;
         t.querySelector('#t-submit').disabled = !!session.user && !(c > 0);
         return;
       }
@@ -350,8 +352,8 @@ export async function render({ el, params, query, navigate }) {
       const flip = selling && flipOn && c > held ? Math.round((c - held) * 100) / 100 : 0; // A8: the part that buys the other side
       const sizeOk = validQty(c, frac || (selling && c === held)) && (!flip || frac || Number.isInteger(flip));
       if (mode === 'rfq') {
-        sum.innerHTML = sizeOk ? `<div class="faint" data-testid="rfq-hint">Makers reply with Yes and No prices for ${qty(c)} contracts. Accept one side in <a href="/portfolio?tab=rfqs" data-link>Portfolio → RFQs</a>.</div>`
-          : `<span class="faint">Enter ${frac ? 'at least 0.01 contracts (2 decimals)' : 'a whole number of contracts'}.</span>`;
+        sum.innerHTML = sizeOk ? `<div class="faint" data-testid="rfq-hint">${te('event.render.makers_reply_with_yes_and', { qty: qty(c) })} <a href="/portfolio?tab=rfqs" data-link>${te('event.render.portfolio_rfqs')}</a>.</div>`
+          : `<span class="faint">${te('event.render.enter', { value: frac ? te('event.render.at_least_0_01_contracts') : te('event.render.a_whole_number_of_contracts') })}</span>`;
         t.querySelector('#t-submit').disabled = !!session.user && !sizeOk;
         return;
       }
@@ -360,22 +362,22 @@ export async function render({ el, params, query, navigate }) {
       const exp = t.querySelector('#t-expiry');
       if (exp) {
         t.querySelector('#t-expiry-at').hidden = exp.value !== 'custom';
-        if (exp.value === 'custom' && !(Date.parse(t.querySelector('#t-expiry-at').value) > Date.now())) { sum.innerHTML = '<span class="faint" data-testid="t-invalid">Pick an expiry time in the future.</span>'; t.querySelector('#t-submit').disabled = !!session.user; return; }
+        if (exp.value === 'custom' && !(Date.parse(t.querySelector('#t-expiry-at').value) > Date.now())) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${te('event.render.pick_an_expiry_time_in')}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
       }
       const ok = onGrid(m, p) && sizeOk && (!selling || c <= held || flip > 0);
       if (!ok) {
-        const why = selling && c > held && !flipOn ? `You hold ${qty(held)} contracts. Turn on Flip sell in Settings to sell more and buy the other side.`
-          : !onGrid(m, p) ? `Enter a price on this market's grid (${pxc(minTickCc(m))} steps, between ${pxc(minTickCc(m))} and ${pxc(10000 - minTickCc(m))}).`
+        const why = selling && c > held && !flipOn ? tx('event.render.you_hold_contracts_turn_on', { qty: qty(held) })
+          : !onGrid(m, p) ? tx('event.render.enter_a_price_on_this', { pxc: pxc(minTickCc(m)), pxc_2: pxc(minTickCc(m)), pxc_3: pxc(10000 - minTickCc(m)) })
             : `Enter ${frac ? 'at least 0.01 contracts (up to 2 decimals)' : 'a whole number of contracts'}.`;
         sum.innerHTML = `<span class="faint" data-testid="t-invalid">${esc(why)}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return;
       }
       const other = state.side === 'yes' ? 'NO' : 'YES';
-      const flipLine = flip ? `Sells ${qty(held)} ${state.side.toUpperCase()} you hold and buys ${qty(flip)} ${other} at ${pxc(10000 - p)}` : '';
+      const flipLine = flip ? tx('event.render.sells_you_hold_and_buys', { qty: qty(held), to_upper_case: state.side.toUpperCase(), qty_2: qty(flip), other, pxc: pxc(10000 - p) }) : '';
       sum.innerHTML = selling
-        ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. proceeds' : 'Proceeds at limit'}</span><strong class="num" data-testid="t-cost">${money((p * Math.min(c, held)) / 10000)}</strong></div>
-           ${flip ? `<div class="tkt-flip" data-testid="flip-line">Flip sell: ${esc(flipLine)}</div>` : ''}`
-        : `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 10000)}</strong></div>
-           <div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num" data-testid="t-fee">${money(feeDollars(c, p))}</strong></div>
+        ? `<div class="tkt-row"><span>${mode === 'market' ? te('event.render.est_proceeds') : te('event.render.proceeds_at_limit')}</span><strong class="num" data-testid="t-cost">${money((p * Math.min(c, held)) / 10000)}</strong></div>
+           ${flip ? `<div class="tkt-flip" data-testid="flip-line">${te('event.render.flip_sell', { flip_line: esc(flipLine) })}</div>` : ''}`
+        : `<div class="tkt-row"><span>${mode === 'market' ? te('event.render.est_cost') : te('event.render.max_cost')}</span><strong class="num" data-testid="t-cost">${money((p * c) / 10000)}</strong></div>
+           <div class="tkt-row"><span>${te('event.render.est_fee_if_taken')}</span><strong class="num" data-testid="t-fee">${money(feeDollars(c, p))}</strong></div>
            <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div>`;
       state.review = { c, p, flip, flipLine, fee: selling ? null : feeDollars(c, p) };
       t.querySelector('#t-submit').disabled = false;
@@ -404,14 +406,14 @@ export async function render({ el, params, query, navigate }) {
       const r = state.review || {};
       const box = t.querySelector('#t-review');
       const c = mode === 'dollars' ? null : body.count;
-      const priceLine = mode === 'dollars' ? `Spend up to ${money(body.amount_dollars)} at ${pxc(selling ? sellPrice() : defaultPrice())}` : mode === 'market' ? `Market order (best available, ${pxc(r.p)} now)` : `Limit ${px(body.price_dollars)}${body.expiration_time ? ` · expires ${fmtDateTime(body.expiration_time)}` : ' · good til canceled'}`;
-      box.innerHTML = `<section class="tkt-review" data-testid="order-review" aria-label="Review order"><h4>Review order</h4>
-        <div class="tkt-row"><span>Order</span><strong>${esc(selling ? 'Sell' : 'Buy')} ${c != null ? `${esc(qty(c))} ` : ''}${esc(state.side.toUpperCase())} · ${esc(m.yes_sub_title)}</strong></div>
-        <div class="tkt-row"><span>Price</span><strong data-testid="review-price">${esc(priceLine)}</strong></div>
-        ${c != null && !selling ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="review-cost">${money((r.p * c) / 10000)}</strong></div><div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num" data-testid="review-fee">${money(r.fee || 0)}</strong></div>` : ''}
-        ${c != null && !selling ? `<div class="tkt-row"><span>${isScalar(m) ? 'Payout range' : 'Payout if right'}</span><strong class="num">${isScalar(m) ? esc(T('ticket.payout_range', { zero: money(0), max: money(c) })) : money(c)}</strong></div>` : ''}
-        ${r.flip ? `<p class="tkt-flip" data-testid="review-flip">Flip sell: ${esc(r.flipLine)}.</p>` : ''}
-        <div class="tkt-review-actions"><button class="btn" type="button" data-testid="review-edit">Edit</button><button class="btn btn-primary" type="button" data-testid="review-confirm">Place order</button></div></section>`;
+      const priceLine = mode === 'dollars' ? tx('event.render.spend_up_to_at', { money: money(body.amount_dollars), pxc: pxc(selling ? sellPrice() : defaultPrice()) }) : mode === 'market' ? tx('event.render.market_order_best_available_now', { pxc: pxc(r.p) }) : tx('event.render.limit_line', { px: px(body.price_dollars), expiry: body.expiration_time ? tx('event.render.limit_expires', { time: fmtDateTime(body.expiration_time) }) : tx('event.render.limit_gtc') });
+      box.innerHTML = `<section class="tkt-review" data-testid="order-review" aria-label="${te('event.render.review_order')}"><h4>${te('event.render.review_order')}</h4>
+        <div class="tkt-row"><span>${te('event.render.order')}</span><strong>${esc(selling ? tx('event.render.sell') : tx('event.render.buy'))} ${c != null ? `${esc(qty(c))} ` : ''}${esc(state.side.toUpperCase())} · ${esc(m.yes_sub_title)}</strong></div>
+        <div class="tkt-row"><span>${te('event.render.price')}</span><strong data-testid="review-price">${esc(priceLine)}</strong></div>
+        ${c != null && !selling ? `<div class="tkt-row"><span>${mode === 'market' ? te('event.render.est_cost') : te('event.render.max_cost')}</span><strong class="num" data-testid="review-cost">${money((r.p * c) / 10000)}</strong></div><div class="tkt-row"><span>${te('event.render.est_fee_if_taken')}</span><strong class="num" data-testid="review-fee">${money(r.fee || 0)}</strong></div>` : ''}
+        ${c != null && !selling ? `<div class="tkt-row"><span>${isScalar(m) ? te('event.render.payout_range') : te('event.render.payout_if_right')}</span><strong class="num">${isScalar(m) ? esc(T('ticket.payout_range', { zero: money(0), max: money(c) })) : money(c)}</strong></div>` : ''}
+        ${r.flip ? `<p class="tkt-flip" data-testid="review-flip">${te('event.render.flip_sell_2', { flip_line: esc(r.flipLine) })}</p>` : ''}
+        <div class="tkt-review-actions"><button class="btn" type="button" data-testid="review-edit">${te('event.render.edit')}</button><button class="btn btn-primary" type="button" data-testid="review-confirm">${te('event.render.place_order')}</button></div></section>`;
       focusPanel('#t-review');
       box.querySelector('[data-testid=review-edit]').onclick = () => { box.innerHTML = ''; focusPanel(null); };
       box.querySelector('[data-testid=review-confirm]').onclick = async (e) => { e.target.disabled = true; focusPanel(null); box.innerHTML = ''; await place(body); };
@@ -423,20 +425,20 @@ export async function render({ el, params, query, navigate }) {
       const filled = Number(o.fill_count_fp);
       const avg = ccOf(avgDollars) || defaultPrice();
       const target = snapCc(m, Math.min(10000 - minTickCc(m), avg + Math.max(minTickCc(m), 1000)));
-      box.innerHTML = `<section class="tkt-autosell" data-testid="auto-sell-prompt" aria-label="Auto-sell"><h4>Set an automatic sell?</h4>
-        <p class="faint">Filled ${esc(qty(filled))} ${esc(o.side.toUpperCase())} at ${esc(pxc(avg))} on average. A resting sell takes profit if the price gets there.</p>
+      box.innerHTML = `<section class="tkt-autosell" data-testid="auto-sell-prompt" aria-label="${te('event.render.auto_sell')}"><h4>${te('event.render.set_an_automatic_sell')}</h4>
+        <p class="faint">${te('event.render.filled_at_on_average_a', { qty: esc(qty(filled)), to_upper_case: esc(o.side.toUpperCase()), pxc: esc(pxc(avg)) })}</p>
         <label class="tkt-input">${esc(T('input.sell_at', { unit: priceUnit() }))}<input type="number" data-testid="auto-sell-price" step="${esc(minTickCc(m) / 100)}" min="${esc(minTickCc(m) / 100)}" max="${esc(100 - minTickCc(m) / 100)}" value="${esc(target / 100)}" inputmode="decimal"></label>
         <div class="form-error" role="alert" data-testid="auto-sell-error"></div>
-        <div class="tkt-review-actions"><button class="btn" type="button" data-testid="auto-sell-dismiss">No thanks</button><button class="btn btn-primary" type="button" data-testid="auto-sell-place">Place sell for ${esc(qty(filled))}</button></div></section>`;
+        <div class="tkt-review-actions"><button class="btn" type="button" data-testid="auto-sell-dismiss">${te('event.render.no_thanks')}</button><button class="btn btn-primary" type="button" data-testid="auto-sell-place">${te('event.render.place_sell_for', { qty: esc(qty(filled)) })}</button></div></section>`;
       focusPanel('#t-after');
       box.querySelector('[data-testid=auto-sell-dismiss]').onclick = () => { box.innerHTML = ''; focusPanel(null); };
       box.querySelector('[data-testid=auto-sell-place]').onclick = async () => {
         const cc = Math.round(Number(box.querySelector('[data-testid=auto-sell-price]').value) * 100);
         const err = box.querySelector('[data-testid=auto-sell-error]');
-        if (!onGrid(m, cc)) { err.textContent = `Pick a price on the grid (${pxc(minTickCc(m))} steps).`; return; }
+        if (!onGrid(m, cc)) { err.textContent = tx('event.render.pick_a_price_on_the', { pxc: pxc(minTickCc(m)) }); return; }
         try {
           const r = await api.submitOrder(session.uid, { ticker: m.ticker, side: o.side, action: 'sell', type: 'limit', count: filled, price_dollars: ccDollars(cc) });
-          toast(`Auto-sell placed: ${qty(r.order.remaining_count_fp)} ${o.side.toUpperCase()} at ${pxc(cc)}${Number(r.order.fill_count_fp) ? ` (${qty(r.order.fill_count_fp)} sold now)` : ''}`);
+          toast(tx('event.render.auto_sell_placed_at', { qty: qty(r.order.remaining_count_fp), to_upper_case: o.side.toUpperCase(), pxc: pxc(cc), value: Number(r.order.fill_count_fp) ? (' ' + tx('event.render.sold_now', { qty: qty(r.order.fill_count_fp) })) : '' }));
           box.innerHTML = ''; focusPanel(null);
           drawPosition();
         } catch (ex) { err.textContent = ex.message; }
@@ -447,18 +449,18 @@ export async function render({ el, params, query, navigate }) {
       const errEl = t.querySelector('#t-error');
       errEl.textContent = '';
       const label = btn.textContent;
-      btn.disabled = true; btn.textContent = 'Submitting…';
+      btn.disabled = true; btn.textContent = tx('event.render.submitting');
       try {
         const r = await api.submitOrder(session.uid, body);
         const o = r.order;
-        if (selling) toast(r.flip ? `Flip sell: closed ${qty(r.flip.closed_fp)}, opening ${qty(r.flip.opened_fp)} ${r.flip.opened_side.toUpperCase()} (${o.status === 'resting' ? `${qty(o.remaining_count_fp)} resting` : 'filled'})` : `Sold ${qty(o.fill_count_fp)} ${state.side.toUpperCase()}${o.status === 'resting' ? `, ${qty(o.remaining_count_fp)} listed` : ''}`);
-        else toast(o.status === 'executed' ? `Filled ${qty(o.fill_count_fp)} ${o.side.toUpperCase()}` : o.status === 'resting' ? `Order resting · ${qty(o.fill_count_fp)} filled, ${qty(o.remaining_count_fp)} open` : `Order ${o.status} · ${qty(o.fill_count_fp)} filled`);
+        if (selling) toast(r.flip ? tx('event.render.flip_sell_closed_opening', { qty: qty(r.flip.closed_fp), qty_2: qty(r.flip.opened_fp), to_upper_case: r.flip.opened_side.toUpperCase(), value: o.status === 'resting' ? tx('event.render.resting', { qty: qty(o.remaining_count_fp) }) : 'filled' }) : tx('event.render.sold', { qty: qty(o.fill_count_fp), to_upper_case: state.side.toUpperCase(), value: o.status === 'resting' ? tx('event.render.listed', { qty: qty(o.remaining_count_fp) }) : '' }));
+        else toast(o.status === 'executed' ? tx('event.render.filled', { qty: qty(o.fill_count_fp), to_upper_case: o.side.toUpperCase() }) : o.status === 'resting' ? tx('event.render.order_resting_filled_open', { qty: qty(o.fill_count_fp), qty_2: qty(o.remaining_count_fp) }) : tx('event.render.order_filled', { status: o.status, qty: qty(o.fill_count_fp) }));
         queries.invalidate(['home']);
         drawPosition();
         if (selling) { await refreshHeld(); drawTicket(); return; }
         if (tp().trade_auto_sell_prompt && Number(o.fill_count_fp) > 0) showAutoSell(o, r.fill_avg_price_dollars);
       } catch (e) {
-        errEl.textContent = e.unauthorized ? 'Your session expired. Please log in again.' : e.message;
+        errEl.textContent = e.unauthorized ? tx('event.render.your_session_expired_please_log') : e.message;
       } finally { if (btn.isConnected) { btn.disabled = false; btn.textContent = label; } }
     };
     t.querySelector('#t-submit').onclick = async () => {
@@ -467,7 +469,7 @@ export async function render({ el, params, query, navigate }) {
         const errEl = t.querySelector('#t-error');
         try {
           const r = await api.createRfq({ market_ticker: m.ticker, contracts_fp: Number(t.querySelector('#t-count').value).toFixed(2) });
-          toast(`RFQ sent for ${qty(r.rfq.contracts_fp)} contracts`);
+          toast(tx('event.render.rfq_sent_for_contracts', { qty: qty(r.rfq.contracts_fp) }));
         } catch (e) { errEl.textContent = e.message; }
         return;
       }
@@ -514,7 +516,7 @@ export async function render({ el, params, query, navigate }) {
     box.dataset.tab = tab;
     if (tab === 'rules') {
       box.innerHTML = `<div class="card rules p-20" data-testid="rules"><p>${esc(m.rules_primary)}</p><p>${esc(series.rules)}</p>
-        <p class="faint">Settlement source: ${series.settlement_sources.map((s) => esc(s.name)).join(', ')} · Closes ${shortDate(m.close_time)} · Market ${esc(m.ticker)}</p></div>`;
+        <p class="faint">${te('event.render.settlement_source_closes_market', { value: series.settlement_sources.map((s) => esc(s.name)).join(', '), short_date: shortDate(m.close_time), ticker: esc(m.ticker) })}</p></div>`;
     } else if (tab === 'book') {
       // "Hide fractional shares" (order-book setting, DB-persisted): sizes round down to whole contracts for display.
       const shown = (entries) => (state.hideFrac ? entries.map(([p, c]) => [p, Math.floor(c + 1e-9)]).filter(([, c]) => c > 0) : entries);
@@ -522,9 +524,9 @@ export async function render({ el, params, query, navigate }) {
       const bids = shown([...state.book.yes.entries()]).sort((a, b) => b[0] - a[0]).slice(0, 8);
       const max = Math.max(1, ...asks.map((a) => a[1]), ...bids.map((b) => b[1]));
       const row = (p, c, color) => `<div class="book-row"><span class="bar v-w v-bg"${vars({ '--w': `${(c / max) * 100}%`, '--bg': color })}></span><span data-testid="book-price">${esc(pxc(p))}</span><span class="ta-r">${qty(c)}</span></div>`;
-      box.innerHTML = `<div class="card p-20" data-testid="orderbook"><div class="book-head"><span class="faint">${esc(m.yes_sub_title)}${m.price_level_structure && m.price_level_structure !== 'linear_cent' ? ` · <span data-testid="book-grid">${esc(m.price_level_structure.replace(/_/g, ' '))} ticks</span>` : ''}</span><label class="book-setting"><input type="checkbox" id="hide-frac" data-testid="hide-fractional" ${state.hideFrac ? 'checked' : ''}> Hide fractional shares</label></div><div class="book">
-        <div><h4 class="c-no">Offers to sell YES</h4>${asks.map(([p, c]) => row(p, c, 'var(--no)')).join('') || '<p class="faint">None</p>'}</div>
-        <div><h4 class="c-yes">Bids to buy YES</h4>${bids.map(([p, c]) => row(p, c, 'var(--yes)')).join('') || '<p class="faint">None</p>'}</div></div></div>`;
+      box.innerHTML = `<div class="card p-20" data-testid="orderbook"><div class="book-head"><span class="faint">${esc(m.yes_sub_title)}${m.price_level_structure && m.price_level_structure !== 'linear_cent' ? ` · <span data-testid="book-grid">${te('event.render.ticks_2', { replace: esc(m.price_level_structure.replace(/_/g, ' ')) })}</span>` : ''}</span><label class="book-setting"><input type="checkbox" id="hide-frac" data-testid="hide-fractional" ${state.hideFrac ? 'checked' : ''}> ${te('event.render.hide_fractional_shares')}</label></div><div class="book">
+        <div><h4 class="c-no">${te('event.render.offers_to_sell_yes')}</h4>${asks.map(([p, c]) => row(p, c, 'var(--no)')).join('') || `<p class="faint">${te('event.render.none')}</p>`}</div>
+        <div><h4 class="c-yes">${te('event.render.bids_to_buy_yes')}</h4>${bids.map(([p, c]) => row(p, c, 'var(--yes)')).join('') || `<p class="faint">${te('event.render.none')}</p>`}</div></div></div>`;
       box.querySelector('#hide-frac').onchange = (e) => {
         state.hideFrac = e.target.checked;
         if (session.user) session.setProp('orderbook_hide_fractional_shares', state.hideFrac).catch(() => {});
@@ -534,14 +536,14 @@ export async function render({ el, params, query, navigate }) {
       try {
         const r = await api.socialTrades({ event_ticker: ev.event_ticker });
         if (stale()) return;
-        box.innerHTML = `<div class="card p-4-20"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
-          ${r.trades.slice(0, 25).map((t) => { const tpx = pxc(t.taker_side === 'yes' ? ccOf(t.price_dollars) : 10000 - ccOf(t.price_dollars)); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : '<span class="faint">Anonymous</span>'}</td><td>${esc(t.outcome)}</td><td><strong class="c-${esc(t.taker_side)}">${esc(t.taker_side.toUpperCase())}</strong></td><td class="num">${esc(tpx)}</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
-      } catch (e) { box.innerHTML = `<p class="faint">${esc(e.tooManyRequests ? 'Too many requests, try again shortly.' : e.message)}</p>`; }
+        box.innerHTML = `<div class="card p-4-20"><table class="table" data-testid="trades"><thead><tr><th>${te('event.render.trader')}</th><th>${te('event.render.outcome')}</th><th>${te('event.render.bought')}</th><th class="num">${te('event.render.price')}</th><th class="num">${te('event.render.contracts')}</th><th class="num">${te('event.render.when')}</th></tr></thead><tbody>
+          ${r.trades.slice(0, 25).map((t) => { const tpx = pxc(t.taker_side === 'yes' ? ccOf(t.price_dollars) : 10000 - ccOf(t.price_dollars)); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : `<span class="faint">${te('event.render.anonymous')}</span>`}</td><td>${esc(t.outcome)}</td><td><strong class="c-${esc(t.taker_side)}">${esc(t.taker_side.toUpperCase())}</strong></td><td class="num">${esc(tpx)}</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || `<tr><td colspan="6" class="faint">${te('event.render.no_trades_yet')}</td></tr>`}</tbody></table></div>`;
+      } catch (e) { box.innerHTML = `<p class="faint">${esc(e.tooManyRequests ? tx('event.render.too_many_requests_try_again') : e.message)}</p>`; }
     } else if (tab === 'ideas') {
       const r = await api.posts({ event_ticker: ev.event_ticker });
       if (stale()) return;
       const draft = box.querySelector('#composer textarea')?.value || '';
-      box.innerHTML = `${composer(ev.event_ticker)}<div class="card mt-12" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || '<div class="empty" data-testid="no-ideas">No posts yet. Be the first to share your view.</div>'}</div>`;
+      box.innerHTML = `${composer(ev.event_ticker)}<div class="card mt-12" id="ev-posts" data-testid="event-posts">${r.posts.map((p) => postCard(p, { showEvent: false })).join('') || `<div class="empty" data-testid="no-ideas">${te('event.render.no_posts_yet_be_the')}</div>`}</div>`;
       wirePosts(box.querySelector('#ev-posts'), { navigate });
       wireComposer(box, (post) => { const list = box.querySelector('#ev-posts'); list.querySelector('[data-testid=no-ideas]')?.remove(); list.insertAdjacentHTML('afterbegin', postCard(post, { showEvent: false })); });
       const ta = box.querySelector('#composer textarea');
@@ -549,8 +551,8 @@ export async function render({ el, params, query, navigate }) {
     } else {
       const r = await api.topHolders(m.ticker);
       if (stale()) return;
-      const col = (title, rows, side) => `<div><h4 class="c-${esc(side)}">${esc(title)}</h4>${rows.map((h, i) => `<a class="rank-row rank-3" href="/social/profile/${encodeURIComponent(h.nickname)}" data-link><span class="faint">${i + 1}</span><span class="t">@${esc(h.nickname)}</span><span class="num">${qty(h.position_fp)}</span></a>`).join('') || '<p class="faint">No public holders yet.</p>'}</div>`;
-      box.innerHTML = `<div class="card p-20" data-testid="holders"><div class="faint mb-8">${esc(m.yes_sub_title)}</div><div class="book">${col('Yes holders', r.yes, 'yes')}${col('No holders', r.no, 'no')}</div></div>`;
+      const col = (title, rows, side) => `<div><h4 class="c-${esc(side)}">${esc(title)}</h4>${rows.map((h, i) => `<a class="rank-row rank-3" href="/social/profile/${encodeURIComponent(h.nickname)}" data-link><span class="faint">${i + 1}</span><span class="t">@${esc(h.nickname)}</span><span class="num">${qty(h.position_fp)}</span></a>`).join('') || `<p class="faint">${te('event.render.no_public_holders_yet')}</p>`}</div>`;
+      box.innerHTML = `<div class="card p-20" data-testid="holders"><div class="faint mb-8">${esc(m.yes_sub_title)}</div><div class="book">${col(tx('event.render.yes_holders'), r.yes, 'yes')}${col(tx('event.render.no_holders'), r.no, 'no')}</div></div>`;
     }
   }
   function selectTab(tab) {
@@ -567,14 +569,14 @@ export async function render({ el, params, query, navigate }) {
     try {
       const r = await api.related(ev.event_ticker);
       if (r.series_events.length) {
-        $('#series-events').innerHTML = `<div class="sec-head"><h2>More in ${esc(series.title)}</h2></div>${r.series_events.map((x) => {
+        $('#series-events').innerHTML = `<div class="sec-head"><h2>${te('event.render.more_in', { title: esc(series.title) })}</h2></div>${r.series_events.map((x) => {
           const top = [...x.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0))[0];
           return `<a class="list-row jc-between bb-line" href="${eventHref(x)}" data-link><span>${esc(x.title)}</span><span class="muted">${esc(top.yes_sub_title)} ${prob(top) ?? '—'}%</span></a>`;
         }).join('')}`;
       }
       const also = r.people_also_trading;
       const drawAlso = (n) => {
-        $('#also').innerHTML = also.slice(0, n).map((x) => `<a class="list-row" href="${eventHref(x)}" data-link data-testid="also-row">${evIcon(x, 'sm')}<span>${esc(x.title)}</span></a>`).join('') + (also.length > n ? '<button class="btn btn-pill h-48 c-brand" id="also-more">Show more</button>' : '');
+        $('#also').innerHTML = also.slice(0, n).map((x) => `<a class="list-row" href="${eventHref(x)}" data-link data-testid="also-row">${evIcon(x, 'sm')}<span>${esc(x.title)}</span></a>`).join('') + (also.length > n ? `<button class="btn btn-pill h-48 c-brand" id="also-more">${te('event.render.show_more')}</button>` : '');
         const more = $('#also-more');
         if (more) more.onclick = () => drawAlso(also.length);
       };
@@ -590,9 +592,9 @@ export async function render({ el, params, query, navigate }) {
       const [{ positions }, { orders }] = await Promise.all([api.positions(session.uid), api.orders(session.uid, 'resting')]);
       const mine = positions.filter((p) => p.event_ticker === ev.event_ticker && p.side);
       const resting = orders.filter((o) => state.ev.markets.some((m) => m.ticker === o.ticker));
-      box.innerHTML = (mine.length || resting.length) ? `<section class="card side-card" data-testid="my-position"><h3>Your position</h3>
+      box.innerHTML = (mine.length || resting.length) ? `<section class="card side-card" data-testid="my-position"><h3>${te('event.render.your_position')}</h3>
         ${mine.map((p) => `<div class="outcome-row"><span class="outcome-name">${esc(p.outcome)} · <strong>${esc(p.side.toUpperCase())}</strong></span><span class="num">${qty(p.position_fp)} @ ${esc(px(p.avg_price_dollars))}</span></div>`).join('')}
-        ${resting.length ? `<div class="faint mt-6">${resting.length} resting order(s) — manage in <a href="/portfolio" data-link>Portfolio</a></div>` : ''}</section>` : '';
+        ${resting.length ? `<div class="faint mt-6">${te('event.render.resting_order_s_manage_in', { value: resting.length })} <a href="/portfolio" data-link>${te('event.render.portfolio')}</a></div>` : ''}</section>` : '';
     } catch { box.innerHTML = ''; }
   }
 
@@ -604,15 +606,15 @@ export async function render({ el, params, query, navigate }) {
     try { list = (await api.priceTargets(session.uid, m.ticker)).price_targets; } catch { /* ignore */ }
     if (market() !== m) return;
     const p = prob(m) ?? 50;
-    box.innerHTML = `<section class="card side-card" data-testid="alert-card"><h3 class="d-flex ai-center gap-6">${ICON.bell.replace('<svg', '<svg width="16" height="16"')} Price alert</h3>
-      <form class="inline-form" id="alert-form"><label class="field flex-90">When Yes is<select name="direction"><option value="above">above</option><option value="below">below</option></select></label>
-      <label class="field flex-70">${esc(T('input.price', { unit: priceUnit() }))}<input name="price" type="number" min="1" max="99" value="${Math.min(99, p + 5)}" required></label><button class="btn" type="submit">Add</button></form>
+    box.innerHTML = `<section class="card side-card" data-testid="alert-card"><h3 class="d-flex ai-center gap-6">${te('event.render.price_alert', { replace: ICON.bell.replace('<svg', '<svg width="16" height="16"') })}</h3>
+      <form class="inline-form" id="alert-form"><label class="field flex-90">${te('event.render.when_yes_is')}<select name="direction"><option value="above">${te('event.render.above')}</option><option value="below">${te('event.render.below')}</option></select></label>
+      <label class="field flex-70">${esc(T('input.price', { unit: priceUnit() }))}<input name="price" type="number" min="1" max="99" value="${Math.min(99, p + 5)}" required></label><button class="btn" type="submit">${te('event.render.add')}</button></form>
       <div class="form-error" id="alert-error" role="alert"></div>
-      ${list.map((t) => `<div class="outcome-row" data-alert="${esc(t.id)}"><span class="outcome-name">${esc(t.direction)} ${esc(pxCents(cents(t.price_dollars)))} <span class="faint">${t.triggered_time ? '· triggered' : '· active'}</span></span><button class="btn btn-sm btn-ghost" data-del-alert>Remove</button></div>`).join('')}</section>`;
+      ${list.map((t) => `<div class="outcome-row" data-alert="${esc(t.id)}"><span class="outcome-name">${esc(t.direction)} ${esc(pxCents(cents(t.price_dollars)))} <span class="faint">${t.triggered_time ? te('event.render.triggered') : te('event.render.active')}</span></span><button class="btn btn-sm btn-ghost" data-del-alert>${te('event.render.remove')}</button></div>`).join('')}</section>`;
     const f = box.querySelector('#alert-form');
     f.onsubmit = async (e) => {
       e.preventDefault();
-      try { await api.addPriceTarget(session.uid, { market_ticker: m.ticker, direction: f.direction.value, price_cents: Number(f.price.value) }); toast('Price alert set'); drawAlerts(); } catch (ex) { box.querySelector('#alert-error').textContent = ex.message; }
+      try { await api.addPriceTarget(session.uid, { market_ticker: m.ticker, direction: f.direction.value, price_cents: Number(f.price.value) }); toast(tx('event.render.price_alert_set')); drawAlerts(); } catch (ex) { box.querySelector('#alert-error').textContent = ex.message; }
     };
     for (const b of box.querySelectorAll('[data-del-alert]')) b.onclick = async () => { await api.deletePriceTarget(session.uid, b.closest('[data-alert]').dataset.alert); drawAlerts(); };
   }
@@ -620,16 +622,16 @@ export async function render({ el, params, query, navigate }) {
   function drawAdmin() {
     if (!session.user || !session.user.is_admin) return;
     const m = market();
-    $('#admin').innerHTML = `<section class="card admin-box" data-testid="admin-panel"><strong>Exchange admin · ${esc(m.ticker)}</strong> <span class="faint">(${esc(m.status)})</span>
+    $('#admin').innerHTML = `<section class="card admin-box" data-testid="admin-panel"><strong>${te('event.render.exchange_admin', { ticker: esc(m.ticker) })}</strong> <span class="faint">(${esc(m.status)})</span>
       <div class="d-flex gap-6 fw-wrap mt-8">
-        <button class="btn" data-admin="deactivate">Pause</button><button class="btn" data-admin="activate">Resume</button>
-        <button class="btn" data-admin="close">Close</button>
-        ${isScalar(m) ? `<label class="field">Value (${esc(unitOf(m) || 'units')})<input type="number" step="any" data-testid="admin-scalar-value" id="admin-scalar-value"></label><button class="btn" data-admin="determine" data-scalar="1">Resolve at value</button>`
-    : '<button class="btn" data-admin="determine" data-result="yes">Resolve YES</button><button class="btn" data-admin="determine" data-result="no">Resolve NO</button>'}</div></section>`;
+        <button class="btn" data-admin="deactivate">${te('event.render.pause')}</button><button class="btn" data-admin="activate">${te('event.render.resume')}</button>
+        <button class="btn" data-admin="close">${te('event.render.close')}</button>
+        ${isScalar(m) ? `<label class="field">${te('event.render.value', { value: esc(unitOf(m) || 'units') })}<input type="number" step="any" data-testid="admin-scalar-value" id="admin-scalar-value"></label><button class="btn" data-admin="determine" data-scalar="1">${te('event.render.resolve_at_value')}</button>`
+    : `<button class="btn" data-admin="determine" data-result="yes">${te('event.render.resolve_yes')}</button><button class="btn" data-admin="determine" data-result="no">${te('event.render.resolve_no')}</button>`}</div></section>`;
     for (const b of el.querySelectorAll('[data-admin]')) {
       b.onclick = async () => {
         const body = b.dataset.result ? { result: b.dataset.result } : b.dataset.scalar ? { expiration_value: Number($('#admin-scalar-value').value) } : {};
-        try { await api.admin(m.ticker, b.dataset.admin, body); toast(`Market ${b.dataset.admin} ok`); await refreshEvent(); } catch (e) { toast(e.message, 'error'); }
+        try { await api.admin(m.ticker, b.dataset.admin, body); toast(tx('event.render.market_ok', { admin: b.dataset.admin })); await refreshEvent(); } catch (e) { toast(e.message, 'error'); }
       };
     }
   }
@@ -648,10 +650,10 @@ export async function render({ el, params, query, navigate }) {
     btn.classList.toggle('on', state.comboMode);
     if (!state.comboMode) { box.innerHTML = ''; return; }
     const legs = state.slip ? state.slip.legs : [];
-    box.innerHTML = `<section class="card combo-mini" data-testid="combo-mini"><div class="combo-mini-head"><strong>Combo slip</strong><span class="faint" data-testid="combo-leg-count">${legs.length}/6 legs</span></div>
-      ${legs.map((l) => `<div class="combo-leg-row" data-leg="${esc(l.market_ticker)}">${legRow(l, `<span class="num">${esc(l.prob)}%</span>`)}</div>`).join('') || '<p class="faint">Tap Yes or No on an outcome to add it as a leg.</p>'}
-      ${legs.length ? `<div class="tkt-row"><span>Combined odds</span><strong data-testid="combo-odds">${esc(state.slip.combined_prob)}%</strong></div>` : ''}
-      <a class="cta combo-open" href="/combos" data-link data-testid="combo-open">${legs.length >= 2 ? 'Get a quote' : 'Open combo builder'}</a></section>`;
+    box.innerHTML = `<section class="card combo-mini" data-testid="combo-mini"><div class="combo-mini-head"><strong>${te('event.render.combo_slip')}</strong><span class="faint" data-testid="combo-leg-count">${te('event.render.n6_legs', { value: legs.length })}</span></div>
+      ${legs.map((l) => `<div class="combo-leg-row" data-leg="${esc(l.market_ticker)}">${legRow(l, `<span class="num">${esc(l.prob)}%</span>`)}</div>`).join('') || `<p class="faint">${te('event.render.tap_yes_or_no_on')}</p>`}
+      ${legs.length ? `<div class="tkt-row"><span>${te('event.render.combined_odds')}</span><strong data-testid="combo-odds">${esc(state.slip.combined_prob)}%</strong></div>` : ''}
+      <a class="cta combo-open" href="/combos" data-link data-testid="combo-open">${legs.length >= 2 ? te('event.render.get_a_quote') : te('event.render.open_combo_builder')}</a></section>`;
   }
   async function toggleLeg(ticker, side) {
     if (!session.user) return navigate('/sign-in?next=' + encodeURIComponent(location.pathname));
@@ -662,7 +664,7 @@ export async function render({ el, params, query, navigate }) {
     if (i >= 0 && legs[i].side === side) next = legs.filter((_, j) => j !== i);
     else {
       next = legs.filter((l) => l.event_ticker !== m.event_ticker); // one leg per event
-      if (next.length >= 6) { toast('A combo can have at most 6 legs', 'error'); return; }
+      if (next.length >= 6) { toast(tx('event.render.a_combo_can_have_at'), 'error'); return; }
       next.push({ market_ticker: ticker, side, event_ticker: m.event_ticker });
     }
     try { state.slip = (await api.saveComboSlip(session.uid, { legs: next.map((l) => ({ market_ticker: l.market_ticker, side: l.side })), amount_dollars: state.slip?.amount_dollars ?? null })).slip; } catch (e) { toast(e.message, 'error'); }
@@ -681,7 +683,7 @@ export async function render({ el, params, query, navigate }) {
     try {
       const { combo } = await api.combo(state.ev.markets[0].ticker);
       const label = { pending: 'Pending', won: 'Won', lost: 'Lost' };
-      box.innerHTML = `<div class="combo-mini-head"><h3>Combo legs</h3><span class="faint">${combo.legs.length} legs · combined odds ${esc(combo.combined_prob)}%</span></div>
+      box.innerHTML = `<div class="combo-mini-head"><h3>${te('event.render.combo_legs')}</h3><span class="faint">${te('event.render.legs_combined_odds', { value: combo.legs.length, combined_prob: esc(combo.combined_prob) })}</span></div>
         ${combo.legs.map((l) => `<a class="combo-leg-row" href="${esc(l.link)}" data-link data-testid="combo-leg" data-leg-status="${esc(l.leg_status)}">${legRow(l, `<span class="leg-status ${esc(l.leg_status)}">${label[l.leg_status]}</span>`)}</a>`).join('')}`;
     } catch (e) { box.innerHTML = `<p class="faint">${esc(e.message)}</p>`; }
   }

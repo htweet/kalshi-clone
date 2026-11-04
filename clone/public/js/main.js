@@ -1,4 +1,8 @@
 // App shell: router, header (nav, live count, notifications, account menu), category strip (spec §3, §4.1, §13.1).
+import { t as tx, te } from './i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import './content/shell-strings.js';
+import './content/errors-strings.js'; // error.<code> keys for API errors (CLONE_SPEC.md §32.3)
+import { initContent, media } from './content-live.js'; // managed content: bundle, live updates, preview (§32.4)
 import { vars, watchVars } from './dynstyle.js';
 import { session, queries, applyTheme, localTheme } from './store.js';
 import { socket } from './ws.js';
@@ -89,7 +93,7 @@ const routes = [
   [/^\/hubs\/([a-z]+)$/, hubsView, (m) => ({ hub: m[1] })],
   [/^\/ballot$/, hubsView, () => ({ hub: 'ballot' })],
   [/^\/(docs)$/, placeholderView, (m) => ({ slug: m[1] })],
-  [/^\/(trust|research|support)\/([a-z-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })],
+  [/^\/(trust|research|support|legal)\/([a-z0-9-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })], // CMS pages (CLONE_SPEC.md §32.7)
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
   [/^\/setup$/, auth, () => ({ mode: 'setup' })], // first-admin setup link (CLONE_SPEC §22.5)
@@ -120,8 +124,8 @@ async function render() {
   const gated = match && featureGate(url.pathname); // admin feature switches (views/admin/site.js)
   if (gated) { view.innerHTML = gated; return; }
   if (!match) {
-    view.innerHTML = `<div class="empty center-60"><h1 class="typ-title-x10 m-0">Page not found</h1><p class="muted m-0">That page doesn't exist.</p><div><a class="btn" href="/" data-link>Go home</a></div></div>`;
-    document.title = 'Not found · Parlance';
+    view.innerHTML = `<div class="empty center-60"><h1 class="typ-title-x10 m-0">${te('shell.render.page_not_found')}</h1><p class="muted m-0">${te('shell.render.that_page_doesn_t_exist')}</p><div><a class="btn" href="/" data-link>${te('shell.render.go_home')}</a></div></div>`;
+    document.title = tx('shell.render.not_found_parlance');
     return;
   }
   try {
@@ -129,7 +133,7 @@ async function render() {
   } catch (e) {
     console.error(e);
     const limit = e.code === 'session_time_limit_reached';
-    view.innerHTML = `<div class="card empty" role="alert" data-testid="${limit ? 'session-limit' : 'page-error'}"><h1 class="typ-title-x20">${limit ? 'Daily session limit reached' : e.notFound ? 'Not found' : 'Something went wrong'}</h1><p class="muted">${esc(e.message)}</p><a class="btn" href="/" data-link>Go home</a></div>`;
+    view.innerHTML = `<div class="card empty" role="alert" data-testid="${limit ? 'session-limit' : 'page-error'}"><h1 class="typ-title-x20">${limit ? te('shell.render.daily_session_limit_reached') : e.notFound ? te('shell.render.not_found') : te('shell.render.something_went_wrong')}</h1><p class="muted">${esc(e.message)}</p><a class="btn" href="/" data-link>${te('shell.render.go_home')}</a></div>`;
   }
 }
 
@@ -140,10 +144,10 @@ function renderCategoryStrip(url) {
   // Short labels on the strip; a featured hub sits after Trending (spec §15.1).
   strip.innerHTML = [
     categoryIndexButton(), // list icon → category index (CLONE_SPEC §13.16)
-    `<a href="/" data-link class="${current === 'trending' ? 'active' : ''}">Trending</a>`,
+    `<a href="/" data-link class="${current === 'trending' ? 'active' : ''}">${te('shell.render_category_strip.trending')}</a>`,
     // Featured tab and category order / labels / visibility come from the CMS (defaults when unconfigured).
     `<a href="${esc(site.nav.featured.href)}" data-link class="featured ${site.nav.featured.color ? 'v-color ' : ''}${p === site.nav.featured.href || (current && site.nav.featured.href === `/category/${current}`) ? 'active' : ''}" data-testid="featured-tab"${vars({ '--color': site.nav.featured.color })}>${esc(site.nav.featured.label)}</a>`,
-    `<a href="/browse?order_by=newest" data-link class="${current === 'new' ? 'active' : ''}">New</a>`,
+    `<a href="/browse?order_by=newest" data-link class="${current === 'new' ? 'active' : ''}">${te('shell.render_category_strip.new')}</a>`,
     '<span class="sep" aria-hidden="true"></span>',
     ...(site.nav.categories || CATEGORIES.map((name) => ({ name }))).filter((c) => !c.hidden).map(({ name: c, label }) => `<a href="/category/${catSlug(c)}" data-link class="${current === catSlug(c) ? 'active' : ''}">${esc(label || catLabel(c))}</a>`),
   ].join('');
@@ -186,28 +190,28 @@ function toggleMenu(btn, html, cls = '') {
 }
 function notifList(items) {
   return items.length ? items.map((n) => `<a class="notif ${n.read ? '' : 'unread'}" href="${esc(n.link || '/notifications')}" data-link data-nid="${esc(n.id)}"><span class="ind"></span><span><div class="t">${esc(n.title)}</div><div class="faint">${esc(n.body)}</div></span><span class="faint">${relTime(n.created_time)}</span></a>`).join('')
-    : '<div class="empty faint">No notifications yet.</div>';
+    : `<div class="empty faint">${te('shell.notif_list.no_notifications_yet')}</div>`;
 }
 
 function renderAccount() {
   const el = document.getElementById('account-area');
   if (!session.loaded) { el.innerHTML = ''; return; }
   if (!session.user) {
-    el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>Log in</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>Sign up</a>${guestMenuButton()}`;
+    el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>${te('shell.render_account.log_in')}</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>${te('shell.render_account.sign_up')}</a>${guestMenuButton()}`;
     const g = el.querySelector('#guest-btn'); // signed-out ☰, only while the app can be installed (CLONE_SPEC §31.6)
     if (g) g.onclick = (e) => { const m = toggleMenu(e.currentTarget, guestMenuHtml(), 'hamburger-menu'); if (m) wireGuestMenu(m, { close: closeMenus }); };
     return;
   }
   const nick = session.nickname || session.user.display_name;
-  el.innerHTML = `<a class="balance-chip" href="/portfolio" data-link title="Cash available"><span class="label">Cash</span><span class="value" data-testid="header-balance">${money(session.balance)}</span></a>
-    <div class="menu-wrap"><button class="icon-btn" id="bell-btn" data-menu-btn aria-label="Notifications" data-testid="bell">${ICON.bell}</button></div>
-    <a class="icon-btn messages-btn" href="/messages" data-link aria-label="Group chats" title="Group chats" data-testid="messages-btn">${ICON.chat}</a>
-    <a class="icon-btn trophy-btn" href="/social/leaderboard" data-link aria-label="Leaderboard" title="Leaderboard" data-testid="trophy">${ICON.trophy}</a>
-    <div class="menu-wrap"><button class="icon-btn hamburger-btn" id="me-btn" data-menu-btn aria-label="Menu" aria-haspopup="true" data-testid="account-menu">${ICON.menu}<span class="sr-only">${esc(nick)}</span></button></div>
+  el.innerHTML = `<a class="balance-chip" href="/portfolio" data-link title="${te('shell.render_account.cash_available')}"><span class="label">${te('shell.render_account.cash')}</span><span class="value" data-testid="header-balance">${money(session.balance)}</span></a>
+    <div class="menu-wrap"><button class="icon-btn" id="bell-btn" data-menu-btn aria-label="${te('shell.render_account.notifications')}" data-testid="bell">${ICON.bell}</button></div>
+    <a class="icon-btn messages-btn" href="/messages" data-link aria-label="${te('shell.render_account.group_chats')}" title="${te('shell.render_account.group_chats')}" data-testid="messages-btn">${ICON.chat}</a>
+    <a class="icon-btn trophy-btn" href="/social/leaderboard" data-link aria-label="${te('shell.render_account.leaderboard')}" title="${te('shell.render_account.leaderboard')}" data-testid="trophy">${ICON.trophy}</a>
+    <div class="menu-wrap"><button class="icon-btn hamburger-btn" id="me-btn" data-menu-btn aria-label="${te('shell.render_account.menu')}" aria-haspopup="true" data-testid="account-menu">${ICON.menu}<span class="sr-only">${esc(nick)}</span></button></div>
     <span class="faint" data-testid="header-user" hidden>${esc(session.user.display_name)}</span>`;
   drawBell();
   el.querySelector('#bell-btn').onclick = async (e) => {
-    const m = toggleMenu(e.currentTarget, '<div class="menu-head d-flex jc-between ai-center"><strong>Notifications</strong><button class="btn btn-sm btn-ghost w-auto" id="read-all">Mark all read</button></div><div id="notif-items"></div><a class="faint jc-center" href="/notifications" data-link>See all</a>', 'notif-menu');
+    const m = toggleMenu(e.currentTarget, `<div class="menu-head d-flex jc-between ai-center"><strong>${te('shell.render_account.notifications')}</strong><button class="btn btn-sm btn-ghost w-auto" id="read-all">${te('shell.render_account.mark_all_read')}</button></div><div id="notif-items"></div><a class="faint jc-center" href="/notifications" data-link>${te('shell.render_account.see_all')}</a>`, 'notif-menu');
     if (!m) return;
     await loadNotifications();
     m.querySelector('#notif-items').innerHTML = notifList(notif.items.slice(0, 8));
@@ -236,8 +240,8 @@ function showBrowserPush(p) {
 
 // MORE menu (spec §15.1): secondary destinations.
 document.getElementById('more-btn').addEventListener('click', (e) => {
-  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>Calendar</a><a href="/sports" data-link data-testid="more-sports">Sports scores</a><a href="/social" data-link>Social</a><a href="/messages" data-link data-testid="more-messages">Group chats</a><a href="/social/circle" data-link>Inner Circle</a><a href="/social/leaderboard" data-link>Leaderboard</a>
-    <a href="/watchlist" data-link>Watchlist</a><a href="/browse" data-link>Browse all markets</a><a href="/hubs/elections" data-link data-testid="more-election-hub">Harbor 2026 hub</a><a href="/hubs/economics" data-link data-testid="more-rates">Rates outlook</a><a href="/incentives" data-link>Liquidity rewards</a><hr><a href="/account/limits" data-link>Responsible trading</a><button id="more-theme">Toggle light / dark</button>`);
+  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>${te('shell.common.calendar')}</a><a href="/sports" data-link data-testid="more-sports">${te('shell.common.sports_scores')}</a><a href="/social" data-link>${te('shell.common.social')}</a><a href="/messages" data-link data-testid="more-messages">${te('shell.common.group_chats')}</a><a href="/social/circle" data-link>${te('shell.common.inner_circle')}</a><a href="/social/leaderboard" data-link>${te('shell.common.leaderboard')}</a>
+    <a href="/watchlist" data-link>${te('shell.common.watchlist')}</a><a href="/browse" data-link>${te('shell.common.browse_all_markets')}</a><a href="/hubs/elections" data-link data-testid="more-election-hub">${te('shell.common.harbor_2026_hub')}</a><a href="/hubs/economics" data-link data-testid="more-rates">${te('shell.common.rates_outlook')}</a><a href="/incentives" data-link>${te('shell.common.liquidity_rewards')}</a><hr><a href="/account/limits" data-link>${te('shell.common.responsible_trading')}</a><button id="more-theme">${te('shell.common.toggle_light_dark')}</button>`);
   const t = document.getElementById('more-theme');
   if (t) t.onclick = () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; if (session.user) session.setProp('theme', next); else { applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } closeMenus(); };
 });
@@ -286,8 +290,8 @@ document.getElementById('category-strip').addEventListener('click', (e) => {
   const b = e.target.closest('[data-category-index]');
   if (!b) return;
   e.preventDefault();
-  const m = toggleMenu(b, '<div class="cat-index" data-testid="category-index"><div class="faint">Loading categories…</div></div>', 'cat-index-menu');
-  if (m) api.categories().then((r) => { m.innerHTML = categoryIndexList(r.categories); }).catch(() => { m.innerHTML = '<div class="faint">Categories are unavailable.</div>'; });
+  const m = toggleMenu(b, `<div class="cat-index" data-testid="category-index"><div class="faint">${te('shell.common.loading_categories')}</div></div>`, 'cat-index-menu');
+  if (m) api.categories().then((r) => { m.innerHTML = categoryIndexList(r.categories); }).catch(() => { m.innerHTML = `<div class="faint">${te('shell.common.categories_are_unavailable')}</div>`; });
 });
 session.subscribe(renderAccount);
 renderAccount();
@@ -295,6 +299,20 @@ renderAccount();
 socket.subscribe({ channels: ['display_currency'] }, (m) => { if (m.type === 'display_currency') setCurrency(m.msg); });
 let booted = false;
 onCurrency(() => { renderAccount(); if (booted) render(); });
+// Shell markup in index.html carries catalog keys (data-t / data-t-attr="attr:key;…"): filled from the catalog at boot
+// and after every content change; the logo slot replaces the wordmark text when an admin sets one (CLONE_SPEC.md §32).
+function applyShell() {
+  for (const n of document.querySelectorAll('[data-t]')) n.textContent = tx(n.dataset.t);
+  for (const n of document.querySelectorAll('[data-t-attr]')) for (const pair of n.dataset.tAttr.split(';')) { const [a, k] = pair.split(':'); if (a && k) n.setAttribute(a.trim(), tx(k.trim())); }
+  const logo = media('logo'); const box = document.getElementById('brand-logo');
+  if (box) {
+    box.hidden = !logo;
+    box.replaceChildren();
+    if (logo) { const img = document.createElement('img'); img.src = logo.url; img.alt = logo.alt || ''; img.width = 28; img.height = 28; img.dataset.testid = 'brand-logo-img'; box.append(img); }
+  }
+}
+applyShell();
+initContent({ socket, onChange: () => { applyShell(); renderAccount(); if (booted) render(); } });
 initPwa();
 window.addEventListener('parlance:install-state', () => { if (!session.user) renderAccount(); }); // signed-out ☰ with "Install app"
 Promise.all([session.load(), loadSite()]).then(() => { booted = true; socket.connect(); render(); });

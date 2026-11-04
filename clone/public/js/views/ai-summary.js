@@ -1,6 +1,8 @@
 // AI news summary and timeline on the event page (Phase 5B, PLAN P5.4; CLONE_SPEC.md §29.6). Server-generated from the
 // event's own news items: each sentence carries numbered citations that jump to the news item it came from. Updates
 // (an admin hides or regenerates the summary) arrive on the public `event_content` channel.
+import { te, t as tx } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/ai-summary-strings.js';
 import { request } from '../api.js';
 import { socket } from '../ws.js';
 import { esc, fmtDay } from '../lib.js';
@@ -10,17 +12,17 @@ const fmt = (iso) => fmtDay(iso);
 function html(d) {
   const tl = d.timeline || [];
   const timeline = tl.length ? `<ol class="ai-timeline" data-testid="ai-timeline">${tl.map((t) => `<li data-news="${esc(t.id)}"><span class="ai-n">${esc(t.n)}</span><span class="faint">${esc(fmt(t.date))} · ${esc(t.source)}</span><span>${esc(t.headline)}</span></li>`).join('')}</ol>` : '';
-  if (d.hidden) return `<section class="card ai-card" data-testid="ai-summary" data-state="hidden"><div class="ai-head"><h2>Summary</h2></div><p class="faint" data-testid="ai-summary-hidden">The summary for this event is not available.</p>${timeline}</section>`;
+  if (d.hidden) return `<section class="card ai-card" data-testid="ai-summary" data-state="hidden"><div class="ai-head"><h2>${te('ai-summary.html.summary')}</h2></div><p class="faint" data-testid="ai-summary-hidden">${te('ai-summary.html.the_summary_for_this_event')}</p>${timeline}</section>`;
   if (!d.summary) return '';
   const s = d.summary;
   const body = s.sentences.length
-    ? s.sentences.map((x) => `<span class="ai-sentence" data-testid="ai-sentence">${esc(x.text)}${x.citations.map((c) => `<a class="ai-cite" href="#news-${esc(c.id)}" data-cite="${esc(c.id)}" data-testid="ai-cite" aria-label="Source ${esc(c.n)}">${esc(c.n)}</a>`).join('')}</span>`).join(' ')
-    : '<span class="faint">Not enough news to summarise yet.</span>';
+    ? s.sentences.map((x) => `<span class="ai-sentence" data-testid="ai-sentence">${esc(x.text)}${x.citations.map((c) => `<a class="ai-cite" href="#news-${esc(c.id)}" data-cite="${esc(c.id)}" data-testid="ai-cite" aria-label="${te('ai-summary.html.source', { n: esc(c.n) })}">${esc(c.n)}</a>`).join('')}</span>`).join(' ')
+    : `<span class="faint">${te('ai-summary.html.not_enough_news_to_summarise')}</span>`;
   return `<section class="card ai-card" data-testid="ai-summary" data-state="shown" data-provider="${esc(s.provider)}" data-summary-id="${esc(s.id)}">
-    <div class="ai-head"><h2>Summary</h2><span class="ai-badge" data-testid="ai-provider">${esc(s.provider === 'extractive' ? 'Extractive' : 'AI')}</span></div>
+    <div class="ai-head"><h2>${te('ai-summary.html.summary')}</h2><span class="ai-badge" data-testid="ai-provider">${esc(s.provider === 'extractive' ? tx('ai-summary.html.extractive') : tx('ai-summary.html.ai'))}</span></div>
     <p class="ai-text" data-testid="ai-summary-text">${body}</p>
-    <div class="ai-meta faint">${esc(s.provider_label)} · from ${esc(s.item_count)} news item${s.item_count === 1 ? '' : 's'} · ${esc(fmt(s.generated_time))}. Summaries can be wrong; check the sources. Not trading advice.</div>
-    ${timeline ? `<h3 class="ai-sub">Timeline</h3>${timeline}` : ''}</section>`;
+    <div class="ai-meta faint">${te('ai-summary.html.from_news_item_summaries_can', { provider_label: esc(s.provider_label), item_count: esc(s.item_count), value: s.item_count === 1 ? '' : 's', fmt: esc(fmt(s.generated_time)) })}</div>
+    ${timeline ? `<h3 class="ai-sub">${te('ai-summary.html.timeline')}</h3>${timeline}` : ''}</section>`;
 }
 
 export function mountAiSummary(box, ev) {

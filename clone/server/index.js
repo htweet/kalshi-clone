@@ -51,7 +51,7 @@ function listen(server, port, fallback) {
 // lockout / step-up timings (server/auth.js DEFAULTS). `push` tunes Web Push (server/webpush.js, CLONE_SPEC §31):
 // subject, allowedHosts, insecureEndpointHosts (tests only), retryBaseMs, maxAttempts, timeoutMs.
 async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports,
-  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
+  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -66,7 +66,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const keyDir = dbFile === ':memory:' ? undefined : path.dirname(path.resolve(dbFile)); // secret.key lives next to the database
   let app; let boot;
   try {
-    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
+    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
     const envAdmin = process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD ? { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD } : null;
     boot = app.locals.auth.bootstrap({ admin: admin || envAdmin, demoPassword });
   } catch (e) { try { app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
@@ -89,7 +89,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   if (setupUrl && !quiet) console.log(`No admin account can sign in yet. Create the first admin within 60 minutes (single use):\n  ${setupUrl}\nor set ADMIN_EMAIL and ADMIN_PASSWORD, or run: npm run create-admin`);
   return {
     port: bound, db, engine, server, setupUrl, setupPath: boot.setupPath,
-    close: () => new Promise((r) => { clearInterval(ticker); hub.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { db.close(); r(); }); server.closeAllConnections?.(); }),
+    close: () => new Promise((r) => { clearInterval(ticker); hub.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { db.close(); r(); }); server.closeAllConnections?.(); }),
   };
 }
 

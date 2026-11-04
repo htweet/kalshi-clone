@@ -1,6 +1,9 @@
 // Admin UI toolkit: API calls with field errors, dense tables (search / sort / paginate), forms with inline
 // validation, confirm + reason dialogs, SVG bar charts. Styles live in /admin.css.
+import { t as tx, te } from '../../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../../content/admin.ui-strings.js';
 import { vars } from '../../dynstyle.js';
+import { errorText } from '../../i18n.js'; // error.<code> catalog keys (CLONE_SPEC.md §32.3)
 import { csrf } from '../../api.js';
 import { refreshClientToken } from '../../security.js';
 import { esc, toast } from '../../lib.js';
@@ -11,7 +14,7 @@ export { esc, toast };
 export class AdminError extends Error {
   constructor(status, body) {
     const e = (body && body.error) || {};
-    super(e.details && !e.fields ? `${e.message}: ${e.details}` : e.fields ? 'Please fix the highlighted fields' : e.message || `HTTP ${status}`);
+    super(errorText(e.code, e.details && !e.fields ? `${e.message}: ${e.details}` : e.fields ? tx('admin.ui.common.please_fix_the_highlighted_fields') : e.message || `HTTP ${status}`, e.details));
     this.status = status; this.code = e.code; this.fields = e.fields || null; this.details = e.details;
   }
 }
@@ -49,12 +52,12 @@ export const statusBadge = (s) => badge(s, STATUS_KIND[s] || '');
 
 // ---------------------------------------------------------------- table
 // cols: [{key, label, num?, sort?:fn|false, render?:(row)=>html}]; returns {el, setRows}
-export function dataTable(host, { cols, rows = [], search = true, pageSize = 25, empty = 'Nothing here yet.', rowAttrs = () => '', testid = '', searchText } = {}) {
+export function dataTable(host, { cols, rows = [], search = true, pageSize = 25, empty = tx('admin.ui.data_table.nothing_here_yet'), rowAttrs = () => '', testid = '', searchText } = {}) {
   const st = { rows, q: '', sort: null, dir: 1, page: 0 };
   host.innerHTML = `<div class="adm-table" ${testid ? `data-testid="${esc(testid)}"` : ''}>
-    ${search ? '<div class="adm-table-tools"><input type="search" class="adm-input" placeholder="Filter rows" aria-label="Filter rows" data-filter></div>' : ''}
+    ${search ? `<div class="adm-table-tools"><input type="search" class="adm-input" placeholder="${te('admin.ui.data_table.filter_rows')}" aria-label="${te('admin.ui.data_table.filter_rows')}" data-filter></div>` : ''}
     <div class="adm-scroll"><table class="table adm-grid"><thead><tr>${cols.map((c, i) => `<th class="${c.num ? 'num' : ''}">${c.sort === false ? esc(c.label) : `<button type="button" data-sort="${i}">${esc(c.label)}<span class="arrow"></span></button>`}</th>`).join('')}</tr></thead><tbody></tbody></table></div>
-    <div class="adm-pager"><span class="faint" data-count></span><span class="grow"></span><button class="btn btn-sm" data-prev type="button">Prev</button><span class="faint" data-page></span><button class="btn btn-sm" data-next type="button">Next</button></div></div>`;
+    <div class="adm-pager"><span class="faint" data-count></span><span class="grow"></span><button class="btn btn-sm" data-prev type="button">${te('admin.ui.data_table.prev')}</button><span class="faint" data-page></span><button class="btn btn-sm" data-next type="button">${te('admin.ui.data_table.next')}</button></div></div>`;
   const tbody = host.querySelector('tbody');
   const text = searchText || ((r) => cols.map((c) => (typeof r[c.key] === 'object' ? '' : r[c.key] ?? '')).join(' '));
   function draw() {
@@ -70,7 +73,7 @@ export function dataTable(host, { cols, rows = [], search = true, pageSize = 25,
     const slice = list.slice(st.page * pageSize, (st.page + 1) * pageSize);
     tbody.innerHTML = slice.length ? slice.map((r) => `<tr ${rowAttrs(r) /* eslint-disable-line parlance/no-unescaped-html -- rowAttrs and column render() are caller-supplied markup builders (checked where defined); plain cells are esc()'d */}>${cols.map((c) => `<td class="${c.num ? 'num' : ''}">${c.render ? c.render(r) : esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')
       : `<tr><td colspan="${cols.length}" class="faint adm-empty">${esc(empty)}</td></tr>`;
-    host.querySelector('[data-count]').textContent = `${list.length} row${list.length === 1 ? '' : 's'}`;
+    host.querySelector('[data-count]').textContent = tx('admin.ui.data_table.row', { value: list.length, value_2: list.length === 1 ? '' : 's' });
     host.querySelector('[data-page]').textContent = `${st.page + 1} / ${pages}`;
     host.querySelector('[data-prev]').disabled = st.page === 0;
     host.querySelector('[data-next]').disabled = st.page >= pages - 1;
@@ -96,7 +99,7 @@ export function formHtml(fields, { submit = 'Save', id = '', extra = '', testid 
     else if (x.type === 'select') input = `<select ${common}>${x.options.map((o) => { const [val, lab] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(lab)}</option>`; }).join('')}</select>`;
     else if (x.type === 'checkbox') return `<label class="adm-check ${x.span ? 'span2' : ''}"><input type="checkbox" ${common} ${v ? 'checked' : ''}> <span>${esc(x.label)}</span></label>`;
     else if (x.type === 'datetime') input = `<input type="datetime-local" ${common} value="${esc(toLocalInput(v))}">`;
-    else if (x.type === 'color') input = `<span class="adm-color"><input type="color" value="${esc(v || '#008751')}" data-color-for="${esc(x.name)}" aria-label="${esc(x.label)} picker"><input type="text" ${common} value="${esc(v)}" maxlength="7"></span>`;
+    else if (x.type === 'color') input = `<span class="adm-color"><input type="color" value="${esc(v || '#008751')}" data-color-for="${esc(x.name)}" aria-label="${te('admin.ui.form_html.picker', { label: esc(x.label) })}"><input type="text" ${common} value="${esc(v)}" maxlength="7"></span>`;
     else input = `<input type="${x.type === 'number' ? 'number' : x.type === 'date' ? 'date' : 'text'}" ${x.step ? `step="${esc(x.step)}"` : ''} ${common} value="${esc(v)}">`;
     return `<label class="field ${x.span ? 'span2' : ''}" for="f-${esc(id)}-${esc(x.name)}"><span>${esc(x.label)}${x.required ? ' *' : ''}</span>${input}${x.hint ? `<small class="faint">${esc(x.hint)}</small>` : ''}<small class="adm-err" id="e-${esc(id)}-${esc(x.name)}" role="alert"></small></label>`;
   };
@@ -135,12 +138,12 @@ export function wireForm(form, fields, onSubmit) {
     showErrors(errs);
     const fe = form.querySelector('[data-form-error]');
     fe.textContent = '';
-    if (Object.keys(errs).length) { fe.textContent = 'Please fix the highlighted fields'; return; }
+    if (Object.keys(errs).length) { fe.textContent = tx('admin.ui.wire_form.please_fix_the_highlighted_fields'); return; }
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
     try { await onSubmit(v); }
     catch (ex) {
-      if (ex.fields) { showErrors(ex.fields); const other = Object.entries(ex.fields).filter(([k]) => !fields.some((x) => x.name === k)); fe.textContent = other.length ? other.map(([k, m]) => `${k} ${m}`).join('; ') : 'Please fix the highlighted fields'; }
+      if (ex.fields) { showErrors(ex.fields); const other = Object.entries(ex.fields).filter(([k]) => !fields.some((x) => x.name === k)); fe.textContent = other.length ? other.map(([k, m]) => `${k} ${m}`).join('; ') : tx('admin.ui.wire_form.please_fix_the_highlighted_fields'); }
       else fe.textContent = ex.message;
     } finally { btn.disabled = false; }
   });
@@ -162,12 +165,12 @@ export function dialog(html, { onOpen, wide = false, testid = 'adm-dialog' } = {
   return d;
 }
 // Resolves to the entered reason (or true when no reason is asked), or null when canceled.
-export function confirmAction({ title, body = '', confirm = 'Confirm', danger = false, reason = false, reasonLabel = 'Reason (required, recorded in the audit log)', extraHtml = '' }) {
+export function confirmAction({ title, body = '', confirm = 'Confirm', danger = false, reason = false, reasonLabel = tx('admin.ui.confirm_action.reason_required_recorded_in_the'), extraHtml = '' }) {
   return new Promise((resolve) => {
     let done = false;
     const d = dialog(`<form method="dialog" class="adm-confirm" data-testid="confirm-dialog"><h3>${esc(title)}</h3>${body ? `<p class="muted">${body /* eslint-disable-line parlance/no-unescaped-html -- body/extraHtml are markup from admin views, built with esc() */}</p>` : ''}${extraHtml}
       ${reason ? `<label class="field"><span>${esc(reasonLabel)}</span><textarea name="reason" rows="2" data-testid="confirm-reason"></textarea><small class="adm-err" role="alert" data-reason-err></small></label>` : ''}
-      <div class="adm-form-actions"><button class="btn" value="cancel" type="button" data-cancel>Cancel</button><button class="btn ${danger ? 'btn-danger-solid' : 'btn-primary'}" type="submit" data-testid="confirm-ok">${esc(confirm)}</button></div></form>`);
+      <div class="adm-form-actions"><button class="btn" value="cancel" type="button" data-cancel>${te('admin.ui.confirm_action.cancel')}</button><button class="btn ${danger ? 'btn-danger-solid' : 'btn-primary'}" type="submit" data-testid="confirm-ok">${esc(confirm)}</button></div></form>`);
     const f = d.querySelector('form');
     d.querySelector('[data-cancel]').onclick = () => d.close();
     d.addEventListener('close', () => { if (!done) resolve(null); });
@@ -175,7 +178,7 @@ export function confirmAction({ title, body = '', confirm = 'Confirm', danger = 
       e.preventDefault();
       if (reason) {
         const r = f.reason.value.trim();
-        if (r.length < 3) { f.querySelector('[data-reason-err]').textContent = 'A reason of at least 3 characters is required'; return; }
+        if (r.length < 3) { f.querySelector('[data-reason-err]').textContent = tx('admin.ui.confirm_action.a_reason_of_at_least'); return; }
         done = true; resolve({ reason: r, form: f }); d.close(); return;
       }
       done = true; resolve({ form: f }); d.close();
@@ -186,7 +189,7 @@ export function confirmAction({ title, body = '', confirm = 'Confirm', danger = 
 // ---------------------------------------------------------------- charts (single-series bars, own SVG)
 // points: [{label, value, display}]; one series → no legend (the card title names it); hover shows a tooltip.
 export function barChart(points, { height = 180, format = (v) => String(v), color = 'var(--brand)', label = 'Chart' } = {}) {
-  if (!points.length) return '<p class="faint">No data in this range.</p>';
+  if (!points.length) return `<p class="faint">${te('admin.ui.bar_chart.no_data_in_this_range')}</p>`;
   const W = 640; const H = height; const padL = 8; const padR = 56; const padT = 10; const padB = 24;
   const max = Math.max(...points.map((p) => p.value), 0);
   const top = max > 0 ? niceMax(max) : 1;
@@ -233,5 +236,5 @@ export function section(title, sub = '', actions = '') {
   return `<div class="adm-head"><div><h2>${esc(title)}</h2>${sub ? `<p class="muted">${sub}</p>` : ''}</div><div class="adm-head-actions">${actions}</div></div>`; // eslint-disable-line parlance/no-unescaped-html -- sub/actions are markup from admin views (escaped parts, static buttons)
 }
 export function subTabs(tabs, current, base) {
-  return `<nav class="adm-subtabs" aria-label="Sections">${tabs.map(([k, l]) => `<a href="${esc(base)}/${esc(k)}" data-link class="${k === current ? 'on' : ''}" data-subtab="${esc(k)}">${esc(l)}</a>`).join('')}</nav>`;
+  return `<nav class="adm-subtabs" aria-label="${te('admin.ui.sub_tabs.sections')}">${tabs.map(([k, l]) => `<a href="${esc(base)}/${esc(k)}" data-link class="${k === current ? 'on' : ''}" data-subtab="${esc(k)}">${esc(l)}</a>`).join('')}</nav>`;
 }

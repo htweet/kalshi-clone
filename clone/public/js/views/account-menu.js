@@ -2,6 +2,8 @@
 // two round icon buttons (Leaderboard, Rewards), the account destinations, collapsible Trust / Research / Support
 // groups, "Enter promo code" and "Log out". Destinations whose feature belongs to a later phase open a placeholder page
 // that says so (views/placeholder.js). Staff also get "Admin"; a quick light/dark switch stays for convenience.
+import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/account-menu-strings.js';
 import { session, applyTheme } from '../store.js';
 import { idApi } from '../identity-api.js';
 import { esc, toast, money, catSlug, catLabel, ICON } from '../lib.js';
@@ -9,14 +11,14 @@ import { installMenuItem, installApp, installMode } from '../pwa.js'; // "Instal
 import { t } from '../content/pwa-strings.js';
 
 const ITEMS = [
-  ['/account', 'Account & security', 'menu-account'], ['/account/activity', 'Your activity', 'menu-activity'], ['/perps', 'Invest', 'menu-invest'],
-  ['/incentives', 'Liquidity Rewards', 'menu-incentives'], ['/account/taxes', 'Documents', 'menu-documents'], ['/docs', 'API Docs', 'menu-api-docs'],
-  ['/account/settings', 'Settings', 'menu-settings'],
+  ['/account', ts('account-menu.items.account_security'), 'menu-account'], ['/account/activity', ts('account-menu.items.your_activity'), 'menu-activity'], ['/perps', ts('account-menu.items.invest'), 'menu-invest'],
+  ['/incentives', ts('account-menu.items.liquidity_rewards'), 'menu-incentives'], ['/account/taxes', ts('account-menu.items.documents'), 'menu-documents'], ['/docs', ts('account-menu.items.api_docs'), 'menu-api-docs'],
+  ['/account/settings', ts('account-menu.items.settings'), 'menu-settings'],
 ];
 export const GROUPS = [
-  ['trust', 'Trust', [['security', 'Security'], ['privacy', 'Privacy'], ['regulation', 'Regulation']]],
-  ['research', 'Research', [['blog', 'Blog'], ['data', 'Market data'], ['papers', 'Papers']]],
-  ['support', 'Support', [['help-center', 'Help center'], ['contact', 'Contact support'], ['fees', 'Fee schedule']]],
+  ['trust', ts('account-menu.groups.trust'), [['security', ts('account-menu.groups.security')], ['privacy', ts('account-menu.groups.privacy')], ['regulation', ts('account-menu.groups.regulation')]]],
+  ['research', ts('account-menu.groups.research'), [['blog', ts('account-menu.groups.blog')], ['data', ts('account-menu.groups.market_data')], ['papers', ts('account-menu.groups.papers')]]],
+  ['support', ts('account-menu.groups.support'), [['help-center', ts('account-menu.groups.help_center')], ['contact', ts('account-menu.groups.contact_support')], ['fees', ts('account-menu.groups.fee_schedule')]]],
 ];
 
 export function menuHtml() {
@@ -24,18 +26,18 @@ export function menuHtml() {
   const staff = u.is_admin || (u.admin_roles || []).length;
   const dark = document.documentElement.dataset.theme === 'dark';
   return `<div class="menu-head"><strong>${esc(u.display_name)}</strong><div class="faint">${session.nickname ? '@' + esc(session.nickname) : esc(u.email)}</div></div>
-    <div class="menu-round"><a href="/social/leaderboard" data-link data-testid="menu-leaderboard"><span class="round-ic">${ICON.trophy}</span>Leaderboard</a><a href="/rewards" data-link data-testid="menu-rewards"><span class="round-ic">${ICON.gift}</span>Rewards</a></div>
-    ${ITEMS.map(([href, label, id]) => `<a href="${href}" data-link data-testid="${id}">${esc(label)}</a>`).join('')}
-    <a href="/portfolio" data-link>Portfolio</a>
-    <a href="/funds" data-link data-testid="menu-transfers">Deposit &amp; withdraw</a>
-    ${staff ? '<a href="/admin" data-link data-testid="admin-link">Admin</a>' : ''}
+    <div class="menu-round"><a href="/social/leaderboard" data-link data-testid="menu-leaderboard"><span class="round-ic">${ICON.trophy}</span>${te('account-menu.menu_html.leaderboard')}</a><a href="/rewards" data-link data-testid="menu-rewards"><span class="round-ic">${ICON.gift}</span>${te('account-menu.menu_html.rewards')}</a></div>
+    ${ITEMS.map(([href, label, id]) => `<a href="${esc(href)}" data-link data-testid="${esc(id)}">${esc(label)}</a>`).join('')}
+    <a href="/portfolio" data-link>${te('account-menu.menu_html.portfolio')}</a>
+    <a href="/funds" data-link data-testid="menu-transfers">${te('account-menu.menu_html.deposit_withdraw')}</a>
+    ${staff ? `<a href="/admin" data-link data-testid="admin-link">${te('account-menu.menu_html.admin')}</a>` : ''}
     <hr>
-    ${GROUPS.map(([key, label, links]) => `<details class="menu-group" data-testid="menu-group-${key}"><summary>${esc(label)}</summary>${links.map(([slug, l]) => `<a href="/${esc(key)}/${esc(slug)}" data-link>${esc(l)}</a>`).join('')}</details>`).join('')}
+    ${GROUPS.map(([key, label, links]) => `<details class="menu-group" data-testid="menu-group-${esc(key)}"><summary>${esc(label)}</summary>${links.map(([slug, l]) => `<a href="/${esc(key)}/${esc(slug)}" data-link>${esc(l)}</a>`).join('')}</details>`).join('')}
     <hr>
-    <button id="promo-btn" data-testid="menu-promo">Enter promo code</button>
+    <button id="promo-btn" data-testid="menu-promo">${te('account-menu.menu_html.enter_promo_code')}</button>
     ${installMenuItem()}
-    <button id="theme-toggle" data-testid="theme-toggle">${dark ? 'Light mode' : 'Dark mode'}</button>
-    <button id="logout-btn" data-testid="menu-logout">Log out</button>`;
+    <button id="theme-toggle" data-testid="theme-toggle">${dark ? te('account-menu.menu_html.light_mode') : te('account-menu.menu_html.dark_mode')}</button>
+    <button id="logout-btn" data-testid="menu-logout">${te('account-menu.menu_html.log_out')}</button>`;
 }
 
 export function wireMenu(m, { close, logout }) {
@@ -68,10 +70,10 @@ export function promoDialog() {
   const d = document.createElement('dialog');
   d.className = 'ob-dialog';
   d.dataset.testid = 'promo-dialog';
-  d.innerHTML = `<form method="dialog" novalidate><h2>Enter promo code</h2><p class="muted">Codes add a credit to your cash balance. Each code works once per account.</p>
-    <label class="field">Promo code<input name="code" maxlength="32" autocomplete="off" autocapitalize="characters" spellcheck="false" required data-testid="promo-input"></label>
+  d.innerHTML = `<form method="dialog" novalidate><h2>${te('account-menu.promo_dialog.enter_promo_code')}</h2><p class="muted">${te('account-menu.promo_dialog.codes_add_a_credit_to')}</p>
+    <label class="field">${te('account-menu.promo_dialog.promo_code')}<input name="code" maxlength="32" autocomplete="off" autocapitalize="characters" spellcheck="false" required data-testid="promo-input"></label>
     <div class="form-error" role="alert" data-testid="promo-error"></div>
-    <div class="ob-dialog-actions"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn btn-primary" data-testid="promo-submit">Apply</button></div></form>`;
+    <div class="ob-dialog-actions"><button type="button" class="btn" data-close>${te('account-menu.promo_dialog.cancel')}</button><button type="submit" class="btn btn-primary" data-testid="promo-submit">${te('account-menu.promo_dialog.apply')}</button></div></form>`;
   const f = d.querySelector('form');
   const close = () => { d.close(); d.remove(); };
   d.querySelector('[data-close]').onclick = close;
@@ -84,11 +86,11 @@ export function promoDialog() {
     try {
       const r = await idApi.redeemPromo(session.uid, f.code.value.trim());
       session.balance = r.balance_dollars; session.notify();
-      toast(`Promo code applied: ${money(r.amount_dollars)} credit`);
+      toast(tx('account-menu.promo_dialog.promo_code_applied_credit', { money: money(r.amount_dollars) }));
       close();
     } catch (ex) {
       if (ex.code === 'identity_verification_required') { close(); return; } // the compliance dialog explains
-      err.textContent = ex.code === 'promo_invalid' ? 'That code isn’t valid. Check it and try again.' : ex.code === 'promo_already_redeemed' ? 'You already used this code.' : ex.code === 'promo_exhausted' ? 'This code has been fully redeemed.' : ex.message;
+      err.textContent = ex.code === 'promo_invalid' ? tx('account-menu.promo_dialog.that_code_isn_t_valid') : ex.code === 'promo_already_redeemed' ? tx('account-menu.promo_dialog.you_already_used_this_code') : ex.code === 'promo_exhausted' ? tx('account-menu.promo_dialog.this_code_has_been_fully') : ex.message;
       btn.disabled = false;
     }
   };
@@ -98,8 +100,8 @@ export function promoDialog() {
 }
 
 // Category index (list icon at the start of the category strip).
-export const categoryIndexButton = () => `<span class="menu-wrap cat-index-wrap"><button class="cat-index-btn" id="cat-index-btn" data-category-index data-menu-btn aria-label="All categories" aria-haspopup="true" data-testid="category-index-btn">${ICON.catIndex}</button></span>`;
+export const categoryIndexButton = () => `<span class="menu-wrap cat-index-wrap"><button class="cat-index-btn" id="cat-index-btn" data-category-index data-menu-btn aria-label="${te('account-menu.category_index_button.all_categories')}" aria-haspopup="true" data-testid="category-index-btn">${ICON.catIndex}</button></span>`;
 export function categoryIndexList(cats = []) {
-  return `<div class="cat-index" data-testid="category-index"><h3>All categories</h3><div class="cat-index-grid">${cats.map((c) => `<div class="cat-index-col"><a class="cat-index-head" href="/category/${esc(catSlug(c.name))}" data-link>${esc(catLabel(c.name))}</a>
+  return `<div class="cat-index" data-testid="category-index"><h3>${te('account-menu.category_index_list.all_categories')}</h3><div class="cat-index-grid">${cats.map((c) => `<div class="cat-index-col"><a class="cat-index-head" href="/category/${esc(catSlug(c.name))}" data-link>${esc(catLabel(c.name))}</a>
     ${c.subcategories.slice(0, 8).map((t) => `<a href="/category/${esc(catSlug(c.name))}/${encodeURIComponent(t)}" data-link>${esc(t)}</a>`).join('')}</div>`).join('')}</div></div>`;
 }

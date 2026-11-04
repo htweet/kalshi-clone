@@ -88,9 +88,11 @@ const STRINGS = {
   'admin.segment.funded': 'Funded accounts (cash > {zero})',
 };
 
-// Fill a template: `{name}` → vars.name (left as is when the variable is missing).
+// Fill a template: `{name}` → vars.name (left as is when the variable is missing). An admin override published in
+// Admin › Content › Texts (key `server.currency.<key>`, CLONE_SPEC.md §32.3) replaces the default.
+const catalog = require('./catalog');
 function t(key, vars = {}) {
-  const s = Object.prototype.hasOwnProperty.call(STRINGS, key) ? STRINGS[key] : key;
+  const s = catalog.override(`server.currency.${key}`) ?? (Object.prototype.hasOwnProperty.call(STRINGS, key) ? STRINGS[key] : key);
   return s.replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
 }
 

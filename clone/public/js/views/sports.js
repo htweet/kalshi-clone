@@ -2,6 +2,8 @@
 // Upcoming / Results), the event-page scoreboard (full board, play-by-play, box score), and the Live page's sports
 // sidebar (FEATURED leagues with icons, collapsible sports with counts) and URL filter (?sport= / ?league=).
 // Live updates arrive on the `live_data` WebSocket channel; each view falls back to polling while it is down.
+import { t as tx, te } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/sports-strings.js';
 import { request } from '../api.js';
 import { socket } from '../ws.js';
 import { esc, cents, eventHref, pxCents } from '../lib.js';
@@ -16,15 +18,15 @@ export async function render({ el, params, query }) {
   const sport = (query.get('sport') || '').toLowerCase();
   const nav = await get('/v1/sports/leagues');
   const lg = league ? nav.leagues.find((l) => l.id === league) : null;
-  if (league && !lg) { const e = new Error('Unknown league'); e.notFound = true; throw e; }
-  if (sport && !SPORT_LABEL[sport]) { const e = new Error('Unknown sport'); e.notFound = true; throw e; }
+  if (league && !lg) { const e = new Error(tx('sports.render.unknown_league')); e.notFound = true; throw e; }
+  if (sport && !SPORT_LABEL[sport]) { const e = new Error(tx('sports.render.unknown_sport')); e.notFound = true; throw e; }
   const title = lg ? lg.name : sport ? SPORT_LABEL[sport] : 'Sports';
-  document.title = `${title} · Parlance`;
+  document.title = tx('sports.render.parlance', { title });
   el.innerHTML = `<div class="sports-hub" data-testid="sports-hub" data-league="${esc(league)}" data-sport="${esc(sport)}">
-    <div class="sb-hub-head"><div><div class="overline">Live scores</div><h1 class="page-title" data-testid="hub-title">${lg ? sportIcon(lg.sport, 28) + ' ' : ''}${esc(title)}</h1></div>
-      <a class="btn btn-pill" href="/live" data-link>Live markets</a></div>
-    <nav class="sb-tabs" data-testid="league-tabs" aria-label="Leagues"><a href="/sports" data-link class="${!league && !sport ? 'on' : ''}">${sportIcon('all', 16)}All</a>${nav.leagues.map((l) => `<a href="/sports/${esc(l.id.toLowerCase())}" data-link data-league="${esc(l.id)}" class="${l.id === league ? 'on' : ''}">${sportIcon(l.sport, 16)}${esc(l.short_name)}${l.live_count ? `<span class="sb-tab-live" data-testid="tab-live-count">${esc(l.live_count)}</span>` : ''}</a>`).join('')}</nav>
-    ${league ? '' : `<div class="chips sb-chips" data-testid="sport-chips"><a class="chip ${!sport ? 'on' : ''}" href="/sports" data-link>All sports</a>${nav.sports.map((s) => `<a class="chip ${s.sport === sport ? 'on' : ''}" href="/sports?sport=${esc(s.sport)}" data-link data-sport="${esc(s.sport)}">${sportIcon(s.sport, 14)}${esc(s.label)} <span class="n">${esc(s.count)}</span></a>`).join('')}</div>`}
+    <div class="sb-hub-head"><div><div class="overline">${te('sports.render.live_scores')}</div><h1 class="page-title" data-testid="hub-title">${lg ? sportIcon(lg.sport, 28) + ' ' : ''}${esc(title)}</h1></div>
+      <a class="btn btn-pill" href="/live" data-link>${te('sports.render.live_markets')}</a></div>
+    <nav class="sb-tabs" data-testid="league-tabs" aria-label="${te('sports.render.leagues')}"><a href="/sports" data-link class="${!league && !sport ? 'on' : ''}">${te('sports.render.all', { sport_icon: sportIcon('all', 16) })}</a>${nav.leagues.map((l) => `<a href="/sports/${esc(l.id.toLowerCase())}" data-link data-league="${esc(l.id)}" class="${l.id === league ? 'on' : ''}">${sportIcon(l.sport, 16)}${esc(l.short_name)}${l.live_count ? `<span class="sb-tab-live" data-testid="tab-live-count">${esc(l.live_count)}</span>` : ''}</a>`).join('')}</nav>
+    ${league ? '' : `<div class="chips sb-chips" data-testid="sport-chips"><a class="chip ${!sport ? 'on' : ''}" href="/sports" data-link>${te('sports.render.all_sports')}</a>${nav.sports.map((s) => `<a class="chip ${s.sport === sport ? 'on' : ''}" href="/sports?sport=${esc(s.sport)}" data-link data-sport="${esc(s.sport)}">${sportIcon(s.sport, 14)}${esc(s.label)} <span class="n">${esc(s.count)}</span></a>`).join('')}</div>`}
     <div id="hub-body"></div></div>`;
   const body = el.querySelector('#hub-body');
   let gen = 0;
@@ -35,7 +37,7 @@ export async function render({ el, params, query }) {
     if (my !== gen || !body.isConnected) return;
     const sec = (key, name, items, empty) => `<section class="sb-section" data-testid="hub-${esc(key)}"><h2 class="sb-h">${esc(name)} <span class="n">${items.length}</span></h2>
       ${items.length ? `<div class="grid sb-grid">${items.map(gameCard).join('')}</div>` : `<div class="card empty faint">${esc(empty)}</div>`}</section>`;
-    body.innerHTML = sec('live', 'Live now', feed.live, 'No games are live right now.') + sec('upcoming', 'Upcoming', feed.upcoming, 'Nothing scheduled.') + sec('results', 'Results', feed.results, 'No results yet.');
+    body.innerHTML = sec('live', tx('sports.render.live_now'), feed.live, tx('sports.render.no_games_are_live_right')) + sec('upcoming', tx('sports.render.upcoming'), feed.upcoming, tx('sports.render.nothing_scheduled')) + sec('results', tx('sports.render.results'), feed.results, tx('sports.render.no_results_yet'));
   }
   await draw();
   // Re-sort when a game changes state (scheduled → live → final); clocks/scores patch in place (scoreboard.js).
@@ -59,8 +61,8 @@ export function mountEventScoreboard(box, ev) {
   const id = ld.milestone_id;
   let plays = [];
   let tab = 'pbp';
-  box.innerHTML = `<section class="card sb-full ${esc(ld.sport)}" data-testid="scoreboard" data-milestone-id="${esc(id)}" aria-label="Scoreboard"><div id="sb-board"></div></section>
-    <div class="sb-panel"><div class="seg sb-subtabs" role="tablist"><button data-sbtab="pbp" class="on" data-testid="tab-pbp">Play-by-play</button><button data-sbtab="box" data-testid="tab-box">Box score</button></div><div id="sb-tab"></div></div>`;
+  box.innerHTML = `<section class="card sb-full ${esc(ld.sport)}" data-testid="scoreboard" data-milestone-id="${esc(id)}" aria-label="${te('sports.mount_event_scoreboard.scoreboard')}"><div id="sb-board"></div></section>
+    <div class="sb-panel"><div class="seg sb-subtabs" role="tablist"><button data-sbtab="pbp" class="on" data-testid="tab-pbp">${te('sports.mount_event_scoreboard.play_by_play')}</button><button data-sbtab="box" data-testid="tab-box">${te('sports.mount_event_scoreboard.box_score')}</button></div><div id="sb-tab"></div></div>`;
   const $ = (s) => box.querySelector(s);
   const drawBoard = () => { $('#sb-board').innerHTML = fullBoard(ld); box.querySelector('.sb-full').dataset.status = ld.status; };
   const drawTab = () => { $('#sb-tab').innerHTML = tab === 'pbp' ? playsList(plays.slice(0, 60), ld) : boxScore(ld); };
@@ -116,12 +118,12 @@ export function mountLinesSection(box, ev) {
       const ya = cents(m.yes_ask_dollars); const na = cents(m.no_ask_dollars);
       return `<div class="sb-line-row" data-testid="line-row" data-ticker="${esc(m.ticker)}"><span class="sb-line-name">${esc(m.yes_sub_title)}</span>
         <span class="sb-line-p num" data-line-p>${p == null ? '—' : `${p}%`}</span>
-        ${open ? `<a class="btn btn-sm yes-btn" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link data-testid="line-yes">Yes ${ya ? esc(pxCents(ya)) : '—'}</a><a class="btn btn-sm no-btn" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link data-testid="line-no">No ${na ? esc(pxCents(na)) : '—'}</a>`
-    : `<span class="sb-line-res" data-testid="line-result">${m.result ? `Resolved ${esc(String(m.result).toUpperCase())}` : esc(m.status)}</span><span></span>`}</div>`;
+        ${open ? `<a class="btn btn-sm yes-btn" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link data-testid="line-yes">${te('sports.mount_lines_section.yes', { value: ya ? esc(pxCents(ya)) : '—' })}</a><a class="btn btn-sm no-btn" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link data-testid="line-no">${te('sports.mount_lines_section.no', { value: na ? esc(pxCents(na)) : '—' })}</a>`
+    : `<span class="sb-line-res" data-testid="line-result">${m.result ? te('sports.mount_lines_section.resolved', { to_upper_case: esc(String(m.result).toUpperCase()) }) : esc(m.status)}</span><span></span>`}</div>`;
     };
     const spreads = le.markets.filter((m) => /-SP[A-Z0-9]+$/.test(m.ticker)); const totals = le.markets.filter((m) => /-TOT\d+$/.test(m.ticker));
-    box.innerHTML = `<div class="sb-lines-head"><h2>Spread and Total</h2><a href="${href}" data-link class="faint" data-testid="lines-event-link">All lines ›</a></div>
-      <div class="sb-lines-group"><div class="overline">Spread</div>${spreads.map(row).join('')}</div><div class="sb-lines-group"><div class="overline">Total</div>${totals.map(row).join('')}</div>`;
+    box.innerHTML = `<div class="sb-lines-head"><h2>${te('sports.mount_lines_section.spread_and_total')}</h2><a href="${href}" data-link class="faint" data-testid="lines-event-link">${te('sports.mount_lines_section.all_lines')}</a></div>
+      <div class="sb-lines-group"><div class="overline">${te('sports.mount_lines_section.spread')}</div>${spreads.map(row).join('')}</div><div class="sb-lines-group"><div class="overline">${te('sports.mount_lines_section.total')}</div>${totals.map(row).join('')}</div>`;
     unsub = socket.subscribe({ channels: ['ticker'], market_tickers: le.markets.map((m) => m.ticker) }, (msg) => {
       const n = box.querySelector(`[data-ticker="${CSS.escape(msg.msg.market_ticker)}"] [data-line-p]`);
       const p = pct(msg.msg);
@@ -154,16 +156,16 @@ export async function drawSportsNav(root, query) {
   const { league, sport } = sportsQuery(query);
   if (league || sport) root.querySelector('#flash')?.setAttribute('hidden', '');
   let r;
-  try { r = await get('/v1/sports/leagues'); } catch { if (fb) fb.innerHTML = '<a href="/category/sports" data-link>Sports</a>'; return; } // sports engine off
+  try { r = await get('/v1/sports/leagues'); } catch { if (fb) fb.innerHTML = `<a href="/category/sports" data-link>${te('sports.draw_sports_nav.sports')}</a>`; return; } // sports engine off
   if (!root.isConnected) return;
   const base = location.pathname;
-  const n = (x) => (x.live_count ? `<span class="n"><span class="sb-live-n">${esc(x.live_count)} live</span></span>` : `<span class="n">${esc(x.count)}</span>`);
+  const n = (x) => (x.live_count ? `<span class="n"><span class="sb-live-n">${te('sports.draw_sports_nav.live', { live_count: esc(x.live_count) })}</span></span>` : `<span class="n">${esc(x.count)}</span>`);
   if (fb) fb.innerHTML = r.featured.map((l) => `<a href="${esc(base)}?league=${esc(l.id)}" data-link data-league="${esc(l.id)}" class="sb-feat ${l.id === league ? 'on' : ''}" data-testid="featured-league"><span class="sb-feat-name">${sportIcon(l.sport)}${esc(l.short_name)}</span>${n(l)}</a>`).join('');
   if (tb) {
-    tb.innerHTML = `<div class="overline sb-tree-head">Sports</div>${r.sports.map((s) => `<details class="sb-tree" data-sport="${esc(s.sport)}" data-testid="sport-group" ${s.sport === sport || s.leagues.some((l) => l.id === league) ? 'open' : ''}>
-      <summary><span class="sb-feat-name">${sportIcon(s.sport)}<span data-testid="sport-count">${esc(s.label)} (${esc(s.count)})</span></span>${s.live_count ? `<span class="sb-live-n">${esc(s.live_count)} live</span>` : ''}</summary>
-      <a href="${esc(base)}?sport=${esc(s.sport)}" data-link class="${s.sport === sport && !league ? 'on' : ''}">All ${esc(s.label)}</a>
+    tb.innerHTML = `<div class="overline sb-tree-head">${te('sports.draw_sports_nav.sports')}</div>${r.sports.map((s) => `<details class="sb-tree" data-sport="${esc(s.sport)}" data-testid="sport-group" ${s.sport === sport || s.leagues.some((l) => l.id === league) ? 'open' : ''}>
+      <summary><span class="sb-feat-name">${sportIcon(s.sport)}<span data-testid="sport-count">${esc(s.label)} (${esc(s.count)})</span></span>${s.live_count ? `<span class="sb-live-n">${te('sports.draw_sports_nav.live', { live_count: esc(s.live_count) })}</span>` : ''}</summary>
+      <a href="${esc(base)}?sport=${esc(s.sport)}" data-link class="${s.sport === sport && !league ? 'on' : ''}">${te('sports.draw_sports_nav.all', { label: esc(s.label) })}</a>
       ${s.leagues.map((l) => `<a href="${esc(base)}?league=${esc(l.id)}" data-link data-league="${esc(l.id)}" class="${l.id === league ? 'on' : ''}"><span>${esc(l.name)}</span>${n(l)}</a>`).join('')}</details>`).join('')}
-      ${league || sport ? `<a href="${esc(base)}" data-link class="sb-clear" data-testid="sports-clear">Clear sports filter</a>` : ''}<a href="/sports" data-link class="sb-hub-link">All scores ›</a>`;
+      ${league || sport ? `<a href="${esc(base)}" data-link class="sb-clear" data-testid="sports-clear">${te('sports.draw_sports_nav.clear_sports_filter')}</a>` : ''}<a href="/sports" data-link class="sb-hub-link">${te('sports.draw_sports_nav.all_scores')}</a>`;
   }
 }

@@ -5,6 +5,8 @@
 // Security: every piece of user content (nickname, body, reply excerpt, lock reason) is written with textContent or
 // text nodes via h(); no user content ever goes through innerHTML. Links are http(s) only, built with the URL parser
 // and opened with rel="noopener noreferrer nofollow ugc".
+import { t as tx, ts, tes } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/chat-strings.js';
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
@@ -13,8 +15,8 @@ import { REACTIONS, openStickerPicker, mutedNicks } from './social2.js'; // reac
 
 const MAX = 280;
 const PAGE = 40;
-const SLOW = [[0, 'Off'], [5, '5s'], [10, '10s'], [30, '30s'], [60, '1m'], [120, '2m'], [300, '5m']];
-const REPORT_REASONS = [['Spam or scam', 'spam'], ['Harassment or hate', 'abuse'], ['Off-topic', 'offtopic']];
+const SLOW = [[0, ts('chat.slow.off')], [5, '5s'], [10, '10s'], [30, '30s'], [60, '1m'], [120, '2m'], [300, '5m']];
+const REPORT_REASONS = [[ts('chat.report_reasons.spam_or_scam'), 'spam'], [ts('chat.report_reasons.harassment_or_hate'), 'abuse'], [ts('chat.report_reasons.off_topic'), 'offtopic']];
 const MUTES = [[10, '10 min'], [60, '1 hour'], [1440, '24 hours']];
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const EDIT_MS = 5 * 60 * 1000; // own messages can be edited for 5 minutes (server/chat-extras.js)
@@ -47,22 +49,22 @@ const clock = (iso) => fmtDt(iso, { hour: 'numeric', minute: '2-digit' });
 
 // Static markup only (no data interpolated).
 const PANEL = `<header class="chat-head">
-    <div class="chat-title-row"><h2 class="chat-title" id="chat-title"><span class="chat-live" data-live aria-hidden="true"></span>Live chat</h2>
+    <div class="chat-title-row"><h2 class="chat-title" id="chat-title"><span class="chat-live" data-live aria-hidden="true"></span>${tes('chat.panel.live_chat')}</h2>
       <span class="chat-online faint" data-online data-testid="chat-online"></span><span class="grow"></span>
-      <button class="icon-btn chat-icon" type="button" data-mod-toggle data-testid="chat-mod-toggle" hidden aria-expanded="false" aria-label="Moderation tools" title="Moderation tools"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 17V3.5M5 4h9l-2 3.5 2 3.5H5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
-      <button class="icon-btn chat-icon" type="button" data-close data-testid="chat-close" aria-label="Close chat"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+      <button class="icon-btn chat-icon" type="button" data-mod-toggle data-testid="chat-mod-toggle" hidden aria-expanded="false" aria-label="${tes('chat.panel.moderation_tools')}" title="${tes('chat.panel.moderation_tools')}"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 17V3.5M5 4h9l-2 3.5 2 3.5H5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+      <button class="icon-btn chat-icon" type="button" data-close data-testid="chat-close" aria-label="${tes('chat.panel.close_chat')}"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
     <div class="chat-modbar" data-modbar data-testid="chat-modbar" hidden>
-      <label class="chat-mod-field">Slow mode <select data-slow data-testid="chat-slow" aria-label="Slow mode"></select></label>
+      <label class="chat-mod-field">${tes('chat.panel.slow_mode')} <select data-slow data-testid="chat-slow" aria-label="${tes('chat.panel.slow_mode')}"></select></label>
       <button class="btn btn-sm" type="button" data-lock data-testid="chat-lock"></button>
-      <a class="btn btn-sm btn-ghost" data-admin-link data-link>Open in admin</a></div>
+      <a class="btn btn-sm btn-ghost" data-admin-link data-link>${tes('chat.panel.open_in_admin')}</a></div>
     <div class="chat-pinned" data-pinned data-testid="chat-pinned" hidden><span class="chat-pin-ic" aria-hidden="true">📌</span><div class="chat-pin-text"><b data-pin-nick></b> <span data-pin-body></span></div>
-      <button class="btn btn-sm btn-ghost" type="button" data-unpin data-testid="chat-unpin" hidden>Unpin</button></div>
+      <button class="btn btn-sm btn-ghost" type="button" data-unpin data-testid="chat-unpin" hidden>${tes('chat.panel.unpin')}</button></div>
     <div class="chat-state" data-state data-testid="chat-state" hidden></div>
   </header>
   <div class="chat-list" data-list data-testid="chat-list" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
-    <div class="chat-older" data-older></div><div class="chat-msgs" data-msgs></div><div class="chat-empty faint" data-empty hidden>No messages yet. Say hello.</div>
+    <div class="chat-older" data-older></div><div class="chat-msgs" data-msgs></div><div class="chat-empty faint" data-empty hidden>${tes('chat.panel.no_messages_yet_say_hello')}</div>
   </div>
-  <button class="chat-jump" type="button" data-jump data-testid="chat-jump" hidden>Jump to latest</button>
+  <button class="chat-jump" type="button" data-jump data-testid="chat-jump" hidden>${tes('chat.panel.jump_to_latest')}</button>
   <footer class="chat-foot" data-foot></footer>`;
 
 export function mountChat({ el, ev }) {
@@ -75,10 +77,10 @@ export function mountChat({ el, ev }) {
 
   // ---------------- entry points: header pill (+ compact entry under a sports scoreboard)
   const pill = h('button', { class: 'chat-pill', type: 'button', 'data-testid': 'chat-pill', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'chat-panel' },
-    h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', { class: 'chat-pill-label' }, 'Live chat'), h('span', { class: 'chat-pill-badge', 'data-testid': 'chat-unread', hidden: true }));
+    h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', { class: 'chat-pill-label' }, tx('chat.mount_chat.live_chat')), h('span', { class: 'chat-pill-badge', 'data-testid': 'chat-unread', hidden: true }));
   actions.prepend(pill);
   const sb = el.querySelector('#sports-board');
-  const sbEntry = sb ? h('button', { class: 'chat-sb-entry', type: 'button', 'data-testid': 'chat-sb-entry' }, h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', {}, 'Live chat'), h('span', { class: 'faint', 'data-sb-online': '' })) : null;
+  const sbEntry = sb ? h('button', { class: 'chat-sb-entry', type: 'button', 'data-testid': 'chat-sb-entry' }, h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', {}, tx('chat.mount_chat.live_chat')), h('span', { class: 'faint', 'data-sb-online': '' })) : null;
   if (sbEntry) sb.after(sbEntry);
 
   // ---------------- panel
@@ -110,7 +112,7 @@ export function mountChat({ el, ev }) {
 
   // ---------------- messages
   function quoteEl(r) {
-    if (r.deleted) return h('div', { class: 'chat-quote deleted', 'data-testid': 'chat-quote' }, 'Original message was deleted');
+    if (r.deleted) return h('div', { class: 'chat-quote deleted', 'data-testid': 'chat-quote' }, tx('chat.mount_chat.original_message_was_deleted'));
     return h('div', { class: 'chat-quote', 'data-testid': 'chat-quote', 'data-quote': r.id }, h('b', {}, `@${r.nickname}`), ' ', r.excerpt);
   }
   function msgEl(m) {
@@ -118,17 +120,17 @@ export function mountChat({ el, ev }) {
     const row = h('div', { class: `chat-msg${mine ? ' mine' : ''}`, 'data-id': m.id, 'data-testid': 'chat-msg', 'data-nick': m.author.nickname });
     if (m.reply_to) row.append(quoteEl(m.reply_to));
     const acts = h('div', { class: 'chat-acts' });
-    if (st.viewer?.signed_in) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'reply', 'data-testid': 'chat-reply', title: 'Reply' }, 'Reply'));
-    if (mine || isMod()) acts.append(h('button', { class: 'chat-act danger', type: 'button', 'data-act': 'delete', 'data-testid': 'chat-del', title: 'Delete' }, 'Delete'));
-    if (mine && Date.now() - Date.parse(m.created_time) < EDIT_MS) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'edit', 'data-testid': 'chat-edit', title: 'Edit' }, 'Edit'));
-    if ((st.viewer?.signed_in && !mine) || isMod()) acts.append(h('button', { class: 'chat-act more', type: 'button', 'data-act': 'more', 'data-testid': 'chat-more', 'aria-haspopup': 'menu', 'aria-label': 'More actions' }, '⋯'));
+    if (st.viewer?.signed_in) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'reply', 'data-testid': 'chat-reply', title: tx('chat.mount_chat.reply') }, tx('chat.mount_chat.reply')));
+    if (mine || isMod()) acts.append(h('button', { class: 'chat-act danger', type: 'button', 'data-act': 'delete', 'data-testid': 'chat-del', title: tx('chat.mount_chat.delete') }, tx('chat.mount_chat.delete')));
+    if (mine && Date.now() - Date.parse(m.created_time) < EDIT_MS) acts.append(h('button', { class: 'chat-act', type: 'button', 'data-act': 'edit', 'data-testid': 'chat-edit', title: tx('chat.mount_chat.edit') }, tx('chat.mount_chat.edit')));
+    if ((st.viewer?.signed_in && !mine) || isMod()) acts.append(h('button', { class: 'chat-act more', type: 'button', 'data-act': 'more', 'data-testid': 'chat-more', 'aria-haspopup': 'menu', 'aria-label': tx('chat.mount_chat.more_actions') }, '⋯'));
     row.append(h('div', { class: 'chat-meta' },
       h('span', { class: 'chat-nick', 'data-testid': 'chat-nick' }, `@${m.author.nickname}`),
-      m.author.verified ? h('span', { class: 'verified-badge', title: 'Verified profile', 'aria-label': 'Verified', 'data-testid': 'chat-verified' }, '✓') : null,
+      m.author.verified ? h('span', { class: 'verified-badge', title: tx('chat.mount_chat.verified_profile'), 'aria-label': tx('chat.mount_chat.verified'), 'data-testid': 'chat-verified' }, '✓') : null,
       h('time', { class: 'chat-time', datetime: m.created_time, title: fmtDateTime(m.created_time) }, relTime(m.created_time)), acts));
     const body = h('div', { class: 'chat-body', 'data-testid': 'chat-body' });
     linkify(body, m.body);
-    if (m.edited) body.append(h('span', { class: 'chat-edited faint', 'data-testid': 'chat-edited', title: m.edited_time ? fmtDateTime(m.edited_time) : '' }, ' (edited)'));
+    if (m.edited) body.append(h('span', { class: 'chat-edited faint', 'data-testid': 'chat-edited', title: m.edited_time ? fmtDateTime(m.edited_time) : '' }, (' ' + tx('chat.mount_chat.edited'))));
     row.append(body);
     if (m.sticker) row.append(h('img', { class: 'chat-sticker', src: m.sticker.url, alt: m.sticker.label, title: m.sticker.label, width: '72', height: '72', 'data-testid': 'chat-sticker' }));
     row.dataset.created = m.created_time;
@@ -144,7 +146,7 @@ export function mountChat({ el, ev }) {
       if (!n) continue;
       box.append(h('button', { class: `chat-react${mine.has(k) ? ' on' : ''}`, type: 'button', 'data-react': k, 'aria-pressed': String(mine.has(k)), 'aria-label': `${label} (${n})`, 'data-testid': `chat-react-${k}` }, `${emoji} `, h('span', { 'data-testid': 'chat-react-count' }, String(n))));
     }
-    if (st.viewer?.signed_in) box.append(h('button', { class: 'chat-react add', type: 'button', 'data-react-add': '', 'aria-label': 'Add a reaction', 'data-testid': 'chat-react-add' }, '+'));
+    if (st.viewer?.signed_in) box.append(h('button', { class: 'chat-react add', type: 'button', 'data-react-add': '', 'aria-label': tx('chat.mount_chat.add_a_reaction'), 'data-testid': 'chat-react-add' }, '+'));
     return box;
   }
   function add(m, { prepend = false } = {}) {
@@ -166,8 +168,8 @@ export function mountChat({ el, ev }) {
   function drawOlder() {
     const box = $('[data-older]');
     box.replaceChildren();
-    if (st.hasMore) box.append(h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'data-load-older': '', 'data-testid': 'chat-older' }, st.loadingOlder ? 'Loading…' : 'Load earlier messages'));
-    else if (st.ids.size) box.append(h('span', { class: 'faint' }, 'Beginning of the chat'));
+    if (st.hasMore) box.append(h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'data-load-older': '', 'data-testid': 'chat-older' }, st.loadingOlder ? tx('chat.mount_chat.loading') : tx('chat.mount_chat.load_earlier_messages')));
+    else if (st.ids.size) box.append(h('span', { class: 'faint' }, tx('chat.mount_chat.beginning_of_the_chat')));
   }
   async function loadOlder() {
     if (!st.hasMore || st.loadingOlder || !st.oldest) return;
@@ -185,7 +187,7 @@ export function mountChat({ el, ev }) {
   function drawJump() {
     const j = $('[data-jump]');
     j.hidden = !(st.unseen > 0 || (st.open && !nearBottom() && list.scrollHeight > list.clientHeight + 200));
-    j.textContent = st.unseen ? `Jump to latest · ${st.unseen} new` : 'Jump to latest';
+    j.textContent = st.unseen ? tx('chat.mount_chat.jump_to_latest_new', { unseen: st.unseen }) : tx('chat.mount_chat.jump_to_latest');
   }
 
   // ---------------- room chrome
@@ -196,22 +198,22 @@ export function mountChat({ el, ev }) {
     st.lastSlow = r.slow_mode_sec;
     const open = r.status === 'open';
     pill.classList.toggle('on', open);
-    pill.setAttribute('aria-label', `Live chat${open ? '' : r.status === 'locked' ? ' (locked)' : ' (read-only)'}`);
+    pill.setAttribute('aria-label', tx('chat.mount_chat.live_chat', { value: open ? '' : r.status === 'locked' ? (' ' + tx('chat.mount_chat.locked')) : (' ' + tx('chat.mount_chat.read_only')) }));
     pill.dataset.status = r.status;
     $('[data-live]').classList.toggle('on', open);
-    $('[data-online]').textContent = `${r.online} online`;
-    if (sbEntry) { sbEntry.classList.toggle('on', open); sbEntry.querySelector('[data-sb-online]').textContent = `${r.online} online`; }
+    $('[data-online]').textContent = tx('chat.mount_chat.online', { online: r.online });
+    if (sbEntry) { sbEntry.classList.toggle('on', open); sbEntry.querySelector('[data-sb-online]').textContent = tx('chat.mount_chat.online', { online: r.online }); }
     const stateBox = $('[data-state]');
     stateBox.replaceChildren();
-    if (r.status === 'locked') stateBox.append(h('div', { 'data-testid': 'chat-locked' }, 'Chat locked by a moderator', r.lock_reason ? h('span', { class: 'faint' }, ` · ${r.lock_reason}`) : null));
-    else if (r.status === 'read_only') stateBox.append(h('div', { 'data-testid': 'chat-readonly-banner' }, 'This event has closed. The chat is read-only.'));
-    if (r.slow_mode_sec && r.status === 'open') stateBox.append(h('div', { 'data-testid': 'chat-slow-banner' }, `Slow mode: one message every ${r.slow_mode_sec}s`));
+    if (r.status === 'locked') stateBox.append(h('div', { 'data-testid': 'chat-locked' }, tx('chat.mount_chat.chat_locked_by_a_moderator'), r.lock_reason ? h('span', { class: 'faint' }, ` · ${r.lock_reason}`) : null));
+    else if (r.status === 'read_only') stateBox.append(h('div', { 'data-testid': 'chat-readonly-banner' }, tx('chat.mount_chat.this_event_has_closed_the')));
+    if (r.slow_mode_sec && r.status === 'open') stateBox.append(h('div', { 'data-testid': 'chat-slow-banner' }, tx('chat.mount_chat.slow_mode_one_message_every', { slow_mode_sec: r.slow_mode_sec })));
     stateBox.hidden = !stateBox.childNodes.length;
     drawPinned();
     // moderator tools
     $('[data-mod-toggle]').hidden = !isMod();
     $('[data-slow]').value = String(r.slow_mode_sec);
-    $('[data-lock]').textContent = r.locked ? 'Unlock chat' : 'Lock chat';
+    $('[data-lock]').textContent = r.locked ? tx('chat.mount_chat.unlock_chat') : tx('chat.mount_chat.lock_chat');
     drawFoot();
   }
   function drawPinned() {
@@ -235,13 +237,13 @@ export function mountChat({ el, ev }) {
     foot.replaceChildren();
     const b = block();
     if (b === 'signed_out') {
-      const a = h('a', { class: 'btn btn-sm btn-primary', href: `/sign-in?next=${encodeURIComponent(location.pathname)}`, 'data-link': '' }, 'Log in');
-      foot.append(h('div', { class: 'chat-prompt', 'data-testid': 'chat-signin' }, h('span', {}, 'Log in to join the conversation.'), a));
+      const a = h('a', { class: 'btn btn-sm btn-primary', href: `/sign-in?next=${encodeURIComponent(location.pathname)}`, 'data-link': '' }, tx('chat.mount_chat.log_in'));
+      foot.append(h('div', { class: 'chat-prompt', 'data-testid': 'chat-signin' }, h('span', {}, tx('chat.mount_chat.log_in_to_join_the')), a));
     } else if (b === 'no_nickname') {
       const form = h('form', { class: 'chat-nick-form', 'data-testid': 'chat-nick-form' },
-        h('label', { class: 'chat-prompt-text', for: 'chat-nick-input' }, 'Pick a nickname to chat. It is shown next to your messages.'),
+        h('label', { class: 'chat-prompt-text', for: 'chat-nick-input' }, tx('chat.mount_chat.pick_a_nickname_to_chat')),
         h('div', { class: 'chat-nick-row' }, h('input', { id: 'chat-nick-input', name: 'nickname', autocomplete: 'off', placeholder: 'nickname', pattern: '[A-Za-z0-9_]{3,20}', required: true, maxlength: '20', 'data-testid': 'chat-nick-input', 'aria-describedby': 'chat-nick-err' }),
-          h('button', { class: 'btn btn-sm btn-primary', type: 'submit' }, 'Save')),
+          h('button', { class: 'btn btn-sm btn-primary', type: 'submit' }, tx('chat.mount_chat.save'))),
         h('div', { class: 'form-error', id: 'chat-nick-err', role: 'alert' }));
       form.onsubmit = async (e) => {
         e.preventDefault();
@@ -255,23 +257,23 @@ export function mountChat({ el, ev }) {
       foot.append(form);
     } else if (b) {
       const text = {
-        banned: 'Your posting privileges were removed by a moderator.',
-        feature_disabled: 'Social features are turned off right now.',
-        locked: 'A moderator locked this chat. You can still read it.',
-        closed: 'This event has closed. The chat is read-only.',
-        muted: `You're muted in this chat until ${st.viewer?.muted_until ? clock(st.viewer.muted_until) : 'later'}.`,
+        banned: tx('chat.mount_chat.your_posting_privileges_were_removed'),
+        feature_disabled: tx('chat.mount_chat.social_features_are_turned_off'),
+        locked: tx('chat.mount_chat.a_moderator_locked_this_chat'),
+        closed: tx('chat.mount_chat.this_event_has_closed_the'),
+        muted: tx('chat.mount_chat.you_re_muted_in_this', { value: st.viewer?.muted_until ? clock(st.viewer.muted_until) : 'later' }),
       }[b];
       foot.append(h('div', { class: `chat-prompt blocked ${b}`, 'data-testid': `chat-blocked`, 'data-block': b }, text));
       foot.append(h('div', { class: 'form-error chat-err', 'data-err': '', role: 'alert', 'data-testid': 'chat-error' }));
     } else {
-      const input = h('textarea', { class: 'chat-input', 'data-input': '', rows: '1', placeholder: 'Say something…', 'aria-label': 'Chat message', 'data-testid': 'chat-input', enterkeyhint: 'send', spellcheck: 'true' });
-      const send = h('button', { class: 'btn btn-primary btn-sm chat-send', type: 'submit', 'data-send': '', 'data-testid': 'chat-send', disabled: true }, 'Send');
-      const stickerBtn = h('button', { class: 'btn btn-sm btn-ghost chat-sticker-btn', type: 'button', 'data-sticker-btn': 'chat', 'data-testid': 'chat-sticker-btn', 'aria-label': 'Send a sticker' }, '☺');
+      const input = h('textarea', { class: 'chat-input', 'data-input': '', rows: '1', placeholder: tx('chat.mount_chat.say_something'), 'aria-label': tx('chat.mount_chat.chat_message'), 'data-testid': 'chat-input', enterkeyhint: 'send', spellcheck: 'true' });
+      const send = h('button', { class: 'btn btn-primary btn-sm chat-send', type: 'submit', 'data-send': '', 'data-testid': 'chat-send', disabled: true }, tx('chat.mount_chat.send'));
+      const stickerBtn = h('button', { class: 'btn btn-sm btn-ghost chat-sticker-btn', type: 'button', 'data-sticker-btn': 'chat', 'data-testid': 'chat-sticker-btn', 'aria-label': tx('chat.mount_chat.send_a_sticker') }, '☺');
       stickerBtn.onclick = (e) => openStickerPicker(e.currentTarget, (sk) => submit({ sticker_id: sk.id }));
       const form = h('form', { class: 'chat-form', 'data-form': '' }, stickerBtn, input, send);
       foot.append(
-        h('div', { class: 'chat-replying', 'data-reply': '', 'data-testid': 'chat-replying', hidden: true }, h('span', { class: 'chat-replying-text' }, 'Replying to ', h('b', { 'data-reply-nick': '' })),
-          h('button', { class: 'chat-act', type: 'button', 'data-reply-cancel': '', 'aria-label': 'Cancel reply' }, '✕')),
+        h('div', { class: 'chat-replying', 'data-reply': '', 'data-testid': 'chat-replying', hidden: true }, h('span', { class: 'chat-replying-text' }, (tx('chat.mount_chat.replying_to') + ' '), h('b', { 'data-reply-nick': '' })),
+          h('button', { class: 'chat-act', type: 'button', 'data-reply-cancel': '', 'aria-label': tx('chat.mount_chat.cancel_reply') }, '✕')),
         form,
         h('div', { class: 'chat-foot-row' }, h('span', { class: 'chat-cool', 'data-cool': '', 'data-testid': 'chat-cooldown', hidden: true }), h('span', { class: 'grow' }), h('span', { class: 'chat-count', 'data-count': '', 'data-testid': 'chat-count' }, `0/${MAX}`)),
         h('div', { class: 'form-error chat-err', 'data-err': '', role: 'alert', 'data-testid': 'chat-error' }));
@@ -294,7 +296,7 @@ export function mountChat({ el, ev }) {
     const cool = Math.max(0, Math.ceil((st.coolUntil - Date.now()) / 1000));
     const c = $('[data-cool]');
     c.hidden = !cool;
-    c.textContent = cool ? `Slow mode · wait ${cool}s` : '';
+    c.textContent = cool ? tx('chat.mount_chat.slow_mode_wait_s', { cool }) : '';
     $('[data-send]').disabled = !input.value.trim() || n > MAX || cool > 0 || st.sending;
   }
   function startCooldown(sec) {
@@ -325,7 +327,7 @@ export function mountChat({ el, ev }) {
       else if (e.code === 'chat_locked' || e.code === 'chat_closed') { st.room.status = e.code === 'chat_locked' ? 'locked' : 'read_only'; drawRoom(); showErr(e.message); }
       else if (e.code === 'social_profile_required') { st.viewer.block = 'no_nickname'; drawFoot(); }
       else if (e.code === 'posting_banned') { st.viewer.block = 'banned'; drawFoot(); showErr(e.message); }
-      else showErr(e.unauthorized ? 'Your session expired. Please log in again.' : e.message);
+      else showErr(e.unauthorized ? tx('chat.mount_chat.your_session_expired_please_log') : e.message);
     } finally { st.sending = false; updateComposer(); }
   }
 
@@ -337,13 +339,13 @@ export function mountChat({ el, ev }) {
     const mine = row.classList.contains('mine');
     const menu = h('div', { class: 'chat-menu', role: 'menu', 'data-testid': 'chat-menu' });
     if (st.viewer?.signed_in && !mine) {
-      menu.append(h('div', { class: 'chat-menu-head' }, 'Report'));
+      menu.append(h('div', { class: 'chat-menu-head' }, tx('chat.mount_chat.report')));
       for (const [label, code] of REPORT_REASONS) menu.append(h('button', { type: 'button', role: 'menuitem', 'data-report': code, 'data-testid': `chat-report-${code}` }, label));
     }
     if (isMod()) {
-      menu.append(h('div', { class: 'chat-menu-head' }, 'Moderate'));
-      menu.append(h('button', { type: 'button', role: 'menuitem', 'data-pin': id, 'data-testid': 'chat-pin' }, 'Pin message'));
-      if (!mine) for (const [min, label] of MUTES) menu.append(h('button', { type: 'button', role: 'menuitem', 'data-mute': min, 'data-testid': `chat-mute-${min}` }, `Mute author ${label}`));
+      menu.append(h('div', { class: 'chat-menu-head' }, tx('chat.mount_chat.moderate')));
+      menu.append(h('button', { type: 'button', role: 'menuitem', 'data-pin': id, 'data-testid': 'chat-pin' }, tx('chat.mount_chat.pin_message')));
+      if (!mine) for (const [min, label] of MUTES) menu.append(h('button', { type: 'button', role: 'menuitem', 'data-mute': min, 'data-testid': `chat-mute-${min}` }, tx('chat.mount_chat.mute_author', { label })));
     }
     row.append(menu);
     st.menu = menu;
@@ -365,19 +367,19 @@ export function mountChat({ el, ev }) {
       if (e.target.closest('[data-react-add]')) { openReactionPicker(row); return; }
       const pick = e.target.closest('[data-react-pick]');
       if (pick) { closeMenu(); const r = await api.chatReact(session.uid, T, id, pick.dataset.reactPick, true); applyReactions(id, r.reactions, r.my_reactions); return; }
-      if (act === 'delete') { await api.chatDelete(session.uid, T, id); removeMsg(id); toast('Message deleted'); return; }
+      if (act === 'delete') { await api.chatDelete(session.uid, T, id); removeMsg(id); toast(tx('chat.mount_chat.message_deleted')); return; }
       if (act === 'more') { if (st.menu && st.menu.parentElement === row) closeMenu(); else openMenu(row, e.target); return; }
       const rep = e.target.closest('[data-report]');
       if (rep) {
         const label = REPORT_REASONS.find(([, c]) => c === rep.dataset.report)[0];
         closeMenu();
         await api.chatReport(session.uid, T, id, label);
-        toast('Thanks. A moderator will review this message.');
+        toast(tx('chat.mount_chat.thanks_a_moderator_will_review'));
         return;
       }
-      if (e.target.closest('[data-pin]')) { closeMenu(); const r = await api.chatMod(T, 'pin', { message_id: id }); st.room.pinned = r.room.pinned; drawPinned(); toast('Message pinned'); return; }
+      if (e.target.closest('[data-pin]')) { closeMenu(); const r = await api.chatMod(T, 'pin', { message_id: id }); st.room.pinned = r.room.pinned; drawPinned(); toast(tx('chat.mount_chat.message_pinned')); return; }
       const mute = e.target.closest('[data-mute]');
-      if (mute) { closeMenu(); const r = await api.chatMod(T, 'mute', { message_id: id, minutes: Number(mute.dataset.mute), reason: 'muted from the event chat' }); toast(`@${r.nickname} muted until ${clock(r.muted_until)}`); }
+      if (mute) { closeMenu(); const r = await api.chatMod(T, 'mute', { message_id: id, minutes: Number(mute.dataset.mute), reason: 'muted from the event chat' }); toast(tx('chat.mount_chat.muted_until', { nickname: r.nickname, clock: clock(r.muted_until) })); }
     } catch (ex) { closeMenu(); toast(ex.message, 'error'); }
   });
   function openReactionPicker(row) {
@@ -396,13 +398,13 @@ export function mountChat({ el, ev }) {
   function startEdit(row) {
     if (row.querySelector('[data-edit-form]')) return;
     const bodyEl = row.querySelector('[data-testid=chat-body]');
-    const input = h('input', { class: 'chat-edit-input', maxlength: String(MAX * 2), 'aria-label': 'Edit message', 'data-testid': 'chat-edit-input' });
+    const input = h('input', { class: 'chat-edit-input', maxlength: String(MAX * 2), 'aria-label': tx('chat.mount_chat.edit_message'), 'data-testid': 'chat-edit-input' });
     input.value = [...bodyEl.childNodes].filter((n) => !(n.classList && n.classList.contains('chat-edited'))).map((n) => n.textContent).join('');
-    const form = h('form', { class: 'chat-edit', 'data-edit-form': '' }, input, h('button', { class: 'btn btn-sm btn-primary', type: 'submit', 'data-testid': 'chat-edit-save' }, 'Save'), Object.assign(h('button', { class: 'btn btn-sm', type: 'button' }, 'Cancel'), { onclick: () => { form.remove(); bodyEl.hidden = false; } }));
+    const form = h('form', { class: 'chat-edit', 'data-edit-form': '' }, input, h('button', { class: 'btn btn-sm btn-primary', type: 'submit', 'data-testid': 'chat-edit-save' }, tx('chat.mount_chat.save')), Object.assign(h('button', { class: 'btn btn-sm', type: 'button' }, tx('chat.mount_chat.cancel')), { onclick: () => { form.remove(); bodyEl.hidden = false; } }));
     bodyEl.hidden = true; bodyEl.after(form); input.focus();
     form.onsubmit = async (e) => {
       e.preventDefault();
-      try { const r = await api.chatEdit(session.uid, T, row.dataset.id, input.value); replaceMsg(r.message); } catch (ex) { toast(ex.code === 'edit_window_closed' ? 'Messages can be edited for 5 minutes.' : ex.message, 'error'); }
+      try { const r = await api.chatEdit(session.uid, T, row.dataset.id, input.value); replaceMsg(r.message); } catch (ex) { toast(ex.code === 'edit_window_closed' ? tx('chat.mount_chat.messages_can_be_edited_for') : ex.message, 'error'); }
     };
   }
   function replaceMsg(m) {
@@ -422,11 +424,11 @@ export function mountChat({ el, ev }) {
   $('[data-unpin]').onclick = async () => { try { const r = await api.chatMod(T, 'unpin', {}); st.room.pinned = r.room.pinned; drawPinned(); } catch (ex) { toast(ex.message, 'error'); } };
   $('[data-mod-toggle]').onclick = () => { const bar = $('[data-modbar]'); bar.hidden = !bar.hidden; $('[data-mod-toggle]').setAttribute('aria-expanded', String(!bar.hidden)); };
   $('[data-slow]').onchange = async (e) => {
-    try { const r = await api.chatMod(T, 'slow_mode', { seconds: Number(e.target.value), reason: 'set from the event chat' }); st.room = { ...st.room, ...r.room }; drawRoom(); toast(Number(e.target.value) ? `Slow mode: ${e.target.value}s` : 'Slow mode off'); } catch (ex) { toast(ex.message, 'error'); }
+    try { const r = await api.chatMod(T, 'slow_mode', { seconds: Number(e.target.value), reason: 'set from the event chat' }); st.room = { ...st.room, ...r.room }; drawRoom(); toast(Number(e.target.value) ? tx('chat.mount_chat.slow_mode_s', { value: e.target.value }) : tx('chat.mount_chat.slow_mode_off')); } catch (ex) { toast(ex.message, 'error'); }
   };
   $('[data-lock]').onclick = async () => {
     const lock = !st.room.locked;
-    try { const r = await api.chatMod(T, lock ? 'lock' : 'unlock', { reason: lock ? 'locked from the event chat' : '' }); st.room = { ...st.room, ...r.room }; drawRoom(); toast(lock ? 'Chat locked' : 'Chat unlocked'); } catch (ex) { toast(ex.message, 'error'); }
+    try { const r = await api.chatMod(T, lock ? 'lock' : 'unlock', { reason: lock ? 'locked from the event chat' : '' }); st.room = { ...st.room, ...r.room }; drawRoom(); toast(lock ? tx('chat.mount_chat.chat_locked') : tx('chat.mount_chat.chat_unlocked')); } catch (ex) { toast(ex.message, 'error'); }
   };
   document.addEventListener('click', onDocClick);
   function onDocClick(e) { if (st.menu && !e.target.closest('.chat-menu') && !e.target.closest('[data-act=more]') && !e.target.closest('[data-react-add]')) closeMenu(); }

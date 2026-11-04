@@ -1,7 +1,7 @@
 'use strict';
 // parlance/require-disable-justification: an eslint-disable comment for a security rule must say why
 // (`// eslint-disable-next-line parlance/no-unescaped-html -- value is a server-generated id`).
-const SECURITY_RULES = /\b(parlance\/no-unescaped-html|no-unsanitized\/(?:method|property)|no-eval|no-implied-eval|no-new-func|no-script-url)\b/;
+const SECURITY_RULES = /\b(parlance\/no-unescaped-html|parlance\/no-hardcoded-text|no-unsanitized\/(?:method|property)|no-eval|no-implied-eval|no-new-func|no-script-url)\b/;
 
 module.exports = {
   meta: {

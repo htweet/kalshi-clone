@@ -15,6 +15,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const { createBot } = require('./bot');
 const { mountPwaStatic } = require('./pwa-static');
+const { PWA_CONFIG: pwaConfigDefault } = require('./content/pwa');
 const { ApiError } = require('./util');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -255,7 +256,9 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
     setSiteCsp(req, res, nonce);
     const ch = bot.shouldChallenge(req, trustworthy(req), parseCookies);
     if (ch) return bot.challenge(req, res, nonce, ch.reasons);
-    const html = page().replace(/__CSP_NONCE__/g, nonce).replace(/__PLX_BOOT__/g, bot.bootProof(req));
+    let html = page().replace(/__CSP_NONCE__/g, nonce).replace(/__PLX_BOOT__/g, bot.bootProof(req));
+    // CMS (CLONE_SPEC.md §32.8): app name, description, theme-color, favicon and per-page SEO title / description.
+    if (app.locals.pageTransform) { try { html = app.locals.pageTransform(html, req); } catch (e) { console.error('page transform', e); } }
     res.setHeader('Cache-Control', 'no-store');
     res.type('html');
     res.send(html);
@@ -274,7 +277,8 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
       target.use('/fonts', onlyExt(['.woff2', '.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400')));
     }
     target.use('/fonts', onlyExt(['.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400'))); // OFL licences
-    mountPwaStatic(target, { assets, notFound }); // /manifest.webmanifest, /sw.js, /offline.html, /icons/* (CLONE_SPEC §31)
+    // The manifest is built from the CMS brand and app-icon slot when present (CLONE_SPEC.md §32.8), else PWA_CONFIG.
+    mountPwaStatic(target, { assets, notFound, config: () => (app.locals.pwaConfig ? app.locals.pwaConfig() : pwaConfigDefault) }); // /manifest.webmanifest, /sw.js, /offline.html, /icons/* (CLONE_SPEC §31)
     target.use(spa);
   }
 

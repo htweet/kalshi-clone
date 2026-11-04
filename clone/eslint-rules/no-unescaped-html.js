@@ -87,6 +87,25 @@ module.exports = {
 
     // ALL_CAPS bindings are module constants by convention (icon SVG markup, label tables): trusted static content.
     const isConstName = (n) => /^[A-Z][A-Z0-9_]*$/.test(n) && n.length > 1;
+    // …unless the constant holds catalog text (ts('…')): admin-editable, so it is checked like any other value.
+    const rawTextIn = new Map();
+    function holdsRawText(id) {
+      const v = variableOf(id);
+      if (!v) return false;
+      if (rawTextIn.has(v)) return rawTextIn.get(v);
+      rawTextIn.set(v, false);
+      let found = false;
+      const visit = (n) => {
+        if (found || !n || typeof n.type !== 'string') return;
+        if (n.type === 'CallExpression' && unwrap(n.callee).type === 'Identifier' && catalogKind(unwrap(n.callee)) === 'raw') { found = true; return; }
+        if (n.type === 'Identifier' && n !== id && isConstName(n.name) && n.parent && !(n.parent.type === 'MemberExpression' && n.parent.property === n && !n.parent.computed) && holdsRawText(n)) { found = true; return; }
+        for (const k of Object.keys(n)) { if (k === 'parent') continue; const c = n[k]; if (Array.isArray(c)) c.forEach(visit); else if (c && typeof c.type === 'string') visit(c); }
+      };
+      for (const d of v.defs) if (d.type === 'Variable' && d.node.init) visit(d.node.init);
+      rawTextIn.set(v, found);
+      return found;
+    }
+    const trustedConst = (id) => isConstName(id.name) && !holdsRawText(id);
     const rootOf = (m) => { let o = unwrap(m); while (o && o.type === 'MemberExpression') o = unwrap(o.object); return o; };
     // A const object/array literal whose values are all safe (e.g. `const label = { open: 'Open', … }`).
     function constTable(id, seen) {
@@ -102,7 +121,7 @@ module.exports = {
     function memberSafe(node, seen) {
       if (['length', 'size'].includes(propName(node))) return true;
       const root = rootOf(node);
-      if (root && root.type === 'Identifier' && isConstName(root.name)) return true;
+      if (root && root.type === 'Identifier' && trustedConst(root)) return true;
       const obj = unwrap(node.object);
       if (obj.type !== 'Identifier') return false;
       const t = constTable(obj, seen);
@@ -148,7 +167,7 @@ module.exports = {
 
     function identifierSafe(id, seen) {
       if (id.name === 'undefined') return true;
-      if (isConstName(id.name)) return true;
+      if (trustedConst(id)) return true;
       const v = variableOf(id);
       if (!v || !v.defs.length || seen.has(v)) return seen.has(v); // unknown global → unsafe; recursion → assume ok
       seen.add(v);
@@ -173,11 +192,34 @@ module.exports = {
       return true;
     }
 
+    // Text-catalog helpers (public/js/i18n.js, CLONE_SPEC.md §32.3), recognised by what they are imported as:
+    //   t / ts (and the content modules' t)  plain, admin-editable text: NOT safe in HTML (wrap in esc());
+    //   te / tes / tHtml / tr                 escaped template text: safe when every variable passed is safe.
+    function catalogKind(id) {
+      const v = variableOf(id);
+      const d = v && v.defs.length === 1 ? v.defs[0] : null;
+      if (!d || d.type !== 'ImportBinding' || !d.parent || d.parent.type !== 'ImportDeclaration') return null;
+      if (!/(^|\/)(i18n|[\w.-]+-strings)\.js$/.test(String(d.parent.source.value))) return null;
+      const imported = d.node.imported ? d.node.imported.name : null;
+      if (imported === 't' || imported === 'ts') return 'raw';
+      if (['te', 'tes', 'tHtml', 'tr'].includes(imported)) return 'escaped';
+      return null;
+    }
+    function catalogVarsSafe(node, seen) {
+      const v = unwrap(node.arguments[1]);
+      if (!v) return true;
+      if (v.type !== 'ObjectExpression') return safe(v, seen);
+      return v.properties.every((p) => p.type === 'Property' && safe(p.value, seen));
+    }
+
     function callSafe(node, seen) {
       const callee = unwrap(node.callee);
       if (callee.type === 'Identifier') {
         if (escapers.has(callee.name) || NUMERIC_GLOBALS.has(callee.name)) return true;
         if (callee.name === 'String') return node.arguments.every((a) => safe(a, seen));
+        const kind = catalogKind(callee);
+        if (kind === 'raw') return false;
+        if (kind === 'escaped') return catalogVarsSafe(node, seen);
         return isBuilder(callee); // a function declared/imported in this module: an HTML builder
       }
       if (callee.type !== 'MemberExpression') return false;

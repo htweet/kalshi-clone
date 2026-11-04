@@ -48,7 +48,9 @@ const SERVER_STRINGS = {
   'push.error_service_unsupported': 'this browser\'s push service is not supported',
   'push.error_too_many_devices': 'at most {max} devices can receive push notifications; remove one first',
 };
-const s = (key, vars = {}) => String(SERVER_STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+// Admin overrides (Admin › Content › Texts, key `server.pwa.<key>`, CLONE_SPEC.md §32.3) replace the defaults.
+const catalog = require('./catalog');
+const s = (key, vars = {}) => String(catalog.override(`server.pwa.${key}`) ?? SERVER_STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 
 // The manifest served at /manifest.webmanifest, from a config object (defaults: PWA_CONFIG).
 function manifestOf(cfg = PWA_CONFIG) {

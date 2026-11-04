@@ -65,7 +65,7 @@ test('frame, ☰ menu, trophy and category index; placeholder pages; earlier acc
   await page.click('[data-testid=account-menu]');
   await page.click('[data-testid=menu-group-support] summary');
   await page.click('[data-testid=menu-group-support] a:has-text("Fee schedule")');
-  await page.waitForSelector('[data-testid=placeholder-page][data-page="support/fees"]');
+  await page.waitForSelector('[data-testid=cms-page][data-page="support/fees"]'); // a CMS page since Phase 5C (CLONE_SPEC.md §32.7)
   // Category index (list icon at the start of the category strip).
   await page.click('[data-testid=category-index-btn]');
   await page.waitForSelector('[data-testid=category-index] .cat-index-head');

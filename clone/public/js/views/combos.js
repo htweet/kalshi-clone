@@ -1,5 +1,7 @@
 // Combo builder (spec §17.3, §17.7): pick outcomes from open markets into a slip (DB-persisted per user), see the
 // combined odds, request a quote (RFQ), accept it before it expires, then follow Confirming… → executed.
+import { t as tx, te } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/combos-strings.js';
 import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { api } from '../api.js';
 import { session } from '../store.js';
@@ -10,7 +12,7 @@ import { evIcon } from './components.js';
 const MAX_LEGS = 6;
 
 export async function render({ el, navigate }) {
-  document.title = 'Build a combo · Parlance';
+  document.title = tx('combos.render.build_a_combo_parlance');
   const { multivariate_contract: coll } = await api.comboCollection();
   const events = coll.events;
   const marketBy = new Map();
@@ -28,11 +30,11 @@ export async function render({ el, navigate }) {
 
   el.innerHTML = `<div class="page-head"><h1 class="page-title" data-testid="combos-title">${esc(coll.title)}</h1><p class="muted">${esc(coll.description)}</p></div>
     <div class="combos-layout">
-      <section class="combo-picker" aria-label="Outcomes">
-        <input class="combo-search" id="combo-search" type="search" placeholder="Filter events" aria-label="Filter events">
+      <section class="combo-picker" aria-label="${te('combos.render.outcomes')}">
+        <input class="combo-search" id="combo-search" type="search" placeholder="${te('combos.render.filter_events')}" aria-label="${te('combos.render.filter_events')}">
         <div id="combo-events"></div>
       </section>
-      <aside class="combo-side"><section class="card combo-slip" data-testid="combo-slip" aria-label="Combo slip"></section></aside>
+      <aside class="combo-side"><section class="card combo-slip" data-testid="combo-slip" aria-label="${te('combos.render.combo_slip')}"></section></aside>
     </div>`;
   const $ = (s) => el.querySelector(s);
 
@@ -51,8 +53,8 @@ export async function render({ el, navigate }) {
         const p = prob(m) ?? 50;
         const leg = state.legs.find((l) => l.market_ticker === m.ticker);
         return `<div class="combo-mkt" data-testid="combo-market" data-ticker="${esc(m.ticker)}"><span class="combo-mkt-name">${esc(m.yes_sub_title)}<span class="faint">${p}%</span></span>
-          <button class="yes-btn ${leg?.side === 'yes' ? 'on' : ''}" data-leg-side="yes" aria-pressed="${leg?.side === 'yes'}">Yes ${p}%</button><button class="no-btn ${leg?.side === 'no' ? 'on' : ''}" data-leg-side="no" aria-pressed="${leg?.side === 'no'}">No ${100 - p}%</button></div>`;
-      }).join('')}</article>`).join('') || '<div class="card empty">No open markets match.</div>';
+          <button class="yes-btn ${leg?.side === 'yes' ? 'on' : ''}" data-leg-side="yes" aria-pressed="${leg?.side === 'yes'}">${te('combos.render.yes', { p })}</button><button class="no-btn ${leg?.side === 'no' ? 'on' : ''}" data-leg-side="no" aria-pressed="${leg?.side === 'no'}">${te('combos.render.no', { value: 100 - p })}</button></div>`;
+      }).join('')}</article>`).join('') || `<div class="card empty">${te('combos.render.no_open_markets_match')}</div>`;
   }
 
   function toggle(ticker, side) {
@@ -61,7 +63,7 @@ export async function render({ el, navigate }) {
     if (i >= 0 && state.legs[i].side === side) state.legs.splice(i, 1);
     else {
       const rest = state.legs.filter((l) => l.event_ticker !== e.event_ticker); // one leg per event
-      if (rest.length >= MAX_LEGS) { toast(`A combo can have at most ${MAX_LEGS} legs`, 'error'); return; }
+      if (rest.length >= MAX_LEGS) { toast(tx('combos.render.a_combo_can_have_at', { max_legs: MAX_LEGS }), 'error'); return; }
       state.legs = [...rest, { market_ticker: ticker, event_ticker: e.event_ticker, side }];
     }
     resetQuote();
@@ -77,16 +79,16 @@ export async function render({ el, navigate }) {
 
   function quoteBox() {
     const q = state.quote;
-    if (state.phase === 'requesting' || (state.phase === 'waiting' && !q)) return '<div class="combo-quote" data-testid="quote-state">Requesting a quote…</div>';
+    if (state.phase === 'requesting' || (state.phase === 'waiting' && !q)) return `<div class="combo-quote" data-testid="quote-state">${te('combos.render.requesting_a_quote')}</div>`;
     if (state.phase === 'quoted' && q) {
-      return `<div class="combo-quote" data-testid="combo-quote"><div class="tkt-row"><span>Quote</span><strong data-testid="quote-price">Yes ${esc(px(q.buy_yes_price_dollars))}</strong></div>
-        <div class="tkt-row"><span>Contracts</span><strong class="num" data-testid="quote-contracts">${qty(q.no_contracts_fp)}</strong></div>
-        <div class="tkt-row"><span>Pays if every leg hits</span><strong class="payout">${money(q.no_contracts_fp)}</strong></div>
-        <button class="cta" data-testid="accept-quote" id="accept-quote">Accept · <span data-countdown="${esc(q.expires_time)}">${secsLeft(q.expires_time)}s</span></button></div>`;
+      return `<div class="combo-quote" data-testid="combo-quote"><div class="tkt-row"><span>${te('combos.render.quote')}</span><strong data-testid="quote-price">${te('combos.render.yes_2', { px: esc(px(q.buy_yes_price_dollars)) })}</strong></div>
+        <div class="tkt-row"><span>${te('combos.render.contracts')}</span><strong class="num" data-testid="quote-contracts">${qty(q.no_contracts_fp)}</strong></div>
+        <div class="tkt-row"><span>${te('combos.render.pays_if_every_leg_hits')}</span><strong class="payout">${money(q.no_contracts_fp)}</strong></div>
+        <button class="cta" data-testid="accept-quote" id="accept-quote">${te('combos.render.accept')} <span data-countdown="${esc(q.expires_time)}">${secsLeft(q.expires_time)}s</span></button></div>`;
     }
-    if (state.phase === 'expired') return '<div class="combo-quote" data-testid="quote-state">Quote expired · fetching a new one…</div>';
-    if (state.phase === 'accepting' || state.phase === 'confirming') return `<div class="combo-quote"><button class="cta" disabled data-testid="quote-state">${state.phase === 'accepting' ? 'Accepting…' : 'Confirming…'}</button></div>`;
-    if (state.phase === 'executed' && state.executed) return `<div class="combo-quote done" data-testid="quote-executed">Executed: ${qty(state.executed.executed_contracts_fp)} contracts at ${esc(px(state.executed.buy_yes_price_dollars))} · <a href="${esc(state.executed.link)}" data-link data-testid="combo-link">View combo</a></div>`;
+    if (state.phase === 'expired') return `<div class="combo-quote" data-testid="quote-state">${te('combos.render.quote_expired_fetching_a_new')}</div>`;
+    if (state.phase === 'accepting' || state.phase === 'confirming') return `<div class="combo-quote"><button class="cta" disabled data-testid="quote-state">${state.phase === 'accepting' ? te('combos.render.accepting') : te('combos.render.confirming')}</button></div>`;
+    if (state.phase === 'executed' && state.executed) return `<div class="combo-quote done" data-testid="quote-executed">${te('combos.render.executed_contracts_at', { qty: qty(state.executed.executed_contracts_fp), px: esc(px(state.executed.buy_yes_price_dollars)) })} <a href="${esc(state.executed.link)}" data-link data-testid="combo-link">${te('combos.render.view_combo')}</a></div>`;
     return '';
   }
 
@@ -96,15 +98,15 @@ export async function render({ el, navigate }) {
     // Display units in, API dollars out (naira ÷ 100, whole naira; CLONE_SPEC.md §30); at least one contract's value.
     const amountOk = validMoneyInput(state.amount) && toApiDollars(state.amount) >= 1;
     const busy = ['requesting', 'accepting', 'confirming'].includes(state.phase);
-    $('[data-testid=combo-slip]').innerHTML = `<div class="combo-mini-head"><h2>Combo slip</h2><span class="faint" data-testid="slip-count">${n}/${MAX_LEGS} legs</span></div>
-      ${n ? state.legs.map((l) => { const x = marketBy.get(l.market_ticker); return `<div class="combo-leg-row" data-testid="slip-leg" data-leg="${esc(l.market_ticker)}"><span class="combo-leg-name"><span><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${esc(l.side.toUpperCase())}</b> ${esc(x.m.yes_sub_title)}</span><span class="faint">${esc(x.e.title)}</span></span><span class="num">${Math.round(legProb(l))}%</span><button class="icon-btn sm" data-remove-leg="${esc(l.market_ticker)}" aria-label="Remove leg">×</button></div>`; }).join('')
-        : '<p class="faint">Pick Yes or No on at least two outcomes from different events.</p>'}
-      ${n ? `<div class="tkt-row"><span>Combined odds</span><strong data-testid="slip-odds">${odds.toFixed(odds < 10 ? 2 : 1)}%</strong></div><div class="tkt-row"><span>Payout</span><strong>${odds > 0 ? (100 / odds).toFixed(2) : '—'}x</strong></div>` : ''}
+    $('[data-testid=combo-slip]').innerHTML = `<div class="combo-mini-head"><h2>${te('combos.render.combo_slip')}</h2><span class="faint" data-testid="slip-count">${te('combos.render.legs', { n, max_legs: MAX_LEGS })}</span></div>
+      ${n ? state.legs.map((l) => { const x = marketBy.get(l.market_ticker); return `<div class="combo-leg-row" data-testid="slip-leg" data-leg="${esc(l.market_ticker)}"><span class="combo-leg-name"><span><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${esc(l.side.toUpperCase())}</b> ${esc(x.m.yes_sub_title)}</span><span class="faint">${esc(x.e.title)}</span></span><span class="num">${Math.round(legProb(l))}%</span><button class="icon-btn sm" data-remove-leg="${esc(l.market_ticker)}" aria-label="${te('combos.render.remove_leg')}">×</button></div>`; }).join('')
+        : `<p class="faint">${te('combos.render.pick_yes_or_no_on')}</p>`}
+      ${n ? `<div class="tkt-row"><span>${te('combos.render.combined_odds')}</span><strong data-testid="slip-odds">${odds.toFixed(odds < 10 ? 2 : 1)}%</strong></div><div class="tkt-row"><span>${te('combos.render.payout')}</span><strong>${odds > 0 ? (100 / odds).toFixed(2) : '—'}x</strong></div>` : ''}
       <label class="tkt-input">${esc(T('input.amount_symbol', { symbol: sym() }))}<input id="combo-amount" type="number" min="1" step="${esc(moneyStep())}" value="${esc(state.amount)}" inputmode="decimal" aria-label="${esc(T('input.amount_aria', { mode: amountLabel().toLowerCase() }))}"></label>
-      <div class="form-error" id="combo-error" role="alert">${n && n < 2 ? 'Add at least one more leg.' : !amountOk && state.amount !== '' ? esc(T('error.amount_at_least', { min: money(1), hint: moneyInputHint() })) : ''}</div>
-      <button class="cta" data-testid="request-quote" id="request-quote" ${n >= 2 && amountOk && !busy ? '' : 'disabled'}>${session.user ? 'Request quote' : 'Sign up to request a quote'}</button>
+      <div class="form-error" id="combo-error" role="alert">${n && n < 2 ? te('combos.render.add_at_least_one_more') : !amountOk && state.amount !== '' ? esc(T('error.amount_at_least', { min: money(1), hint: moneyInputHint() })) : ''}</div>
+      <button class="cta" data-testid="request-quote" id="request-quote" ${n >= 2 && amountOk && !busy ? '' : 'disabled'}>${session.user ? te('combos.render.request_quote') : te('combos.render.sign_up_to_request_a')}</button>
       <div id="combo-quote-box">${quoteBox()}</div>
-      ${n ? '<button class="btn btn-ghost w-full mt-8" id="clear-slip" data-testid="clear-slip">Clear slip</button>' : ''}`;
+      ${n ? `<button class="btn btn-ghost w-full mt-8" id="clear-slip" data-testid="clear-slip">${te('combos.render.clear_slip')}</button>` : ''}`;
     const amountEl = $('#combo-amount');
     amountEl.oninput = () => { state.amount = amountEl.value; resetQuote(); drawSlipSoon(); };
     amountEl.onchange = () => persist();
@@ -159,12 +161,12 @@ export async function render({ el, navigate }) {
     if (done) {
       state.phase = 'executed'; state.executed = done; state.rfq = null;
       if (prev !== 'executed') {
-        toast(`Combo executed: ${qty(done.executed_contracts_fp)} contracts`);
+        toast(tx('combos.render.combo_executed_contracts', { qty: qty(done.executed_contracts_fp) }));
         state.legs = []; drawEvents();
         if (session.user) api.clearComboSlip(session.uid).catch(() => {});
       }
     } else if (pending) state.phase = 'confirming';
-    else if (open) { state.phase = 'quoted'; state.quote = open; } else if (['cancelled', 'expired'].includes(r.status)) { state.phase = 'idle'; state.rfq = null; $('#combo-error') && ($('#combo-error').textContent = 'The request closed. Request a new quote.'); } else state.phase = r.quotes.length ? 'expired' : 'waiting';
+    else if (open) { state.phase = 'quoted'; state.quote = open; } else if (['cancelled', 'expired'].includes(r.status)) { state.phase = 'idle'; state.rfq = null; $('#combo-error') && ($('#combo-error').textContent = tx('combos.render.the_request_closed_request_a')); } else state.phase = r.quotes.length ? 'expired' : 'waiting';
     if (prev !== state.phase || (state.quote && state.quote.id) !== prevQ) drawSlip();
   }
 

@@ -32,34 +32,39 @@
   <link rel="stylesheet" href="/trading.css" nonce="__CSP_NONCE__">
   <link rel="stylesheet" href="/pwa.css" nonce="__CSP_NONCE__">
   <link rel="stylesheet" href="/utilities.css" nonce="__CSP_NONCE__">
+  <!-- CMS (CLONE_SPEC.md §32): brand colours as CSS custom properties, and the published content bundle (texts, media,
+       footer) loaded before the app modules so strings read while they evaluate already see the published values. -->
+  <link rel="stylesheet" id="cms-theme" href="/v1/content/theme.css" nonce="__CSP_NONCE__">
+  <script nonce="__CSP_NONCE__" src="/content-bundle.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="container">
       <div class="topbar-row">
-        <a class="brand" href="/" data-link aria-label="Parlance home">
-          <span class="brand-name">Parlance</span>
+        <a class="brand" href="/" data-link aria-label="Parlance home" data-t-attr="aria-label:shell.html.brand_home">
+          <span class="brand-logo" id="brand-logo" hidden></span><span class="brand-name" data-t="shell.html.brand_name">Parlance</span>
         </a>
-        <nav class="primary-nav" aria-label="Primary">
-          <a href="/browse" data-link data-nav="markets">Markets</a>
-          <a href="/perps" data-link data-nav="invest">Invest</a>
-          <a href="/live" data-link data-nav="live">Live <span class="live-badge" id="live-count" aria-label="live events">·</span></a>
-          <a href="/pro" data-link data-nav="pro">Pro</a>
-          <div class="nav-more"><button id="more-btn" data-menu-btn aria-haspopup="true" aria-label="More">More <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div>
+        <nav class="primary-nav" aria-label="Primary" data-t-attr="aria-label:shell.html.nav_primary">
+          <a href="/browse" data-link data-nav="markets" data-t="shell.html.nav_markets">Markets</a>
+          <a href="/perps" data-link data-nav="invest" data-t="shell.html.nav_invest">Invest</a>
+          <a href="/live" data-link data-nav="live"><span data-t="shell.html.nav_live">Live</span> <span class="live-badge" id="live-count" aria-label="live events" data-t-attr="aria-label:shell.html.live_events">·</span></a>
+          <a href="/pro" data-link data-nav="pro" data-t="shell.html.nav_pro">Pro</a>
+          <div class="nav-more"><button id="more-btn" data-menu-btn aria-haspopup="true" aria-label="More" data-t-attr="aria-label:shell.html.nav_more"><span data-t="shell.html.nav_more">More</span> <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div>
         </nav>
         <form class="search" id="search-form" role="search">
           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <input id="search-input" name="q" type="search" placeholder="Trade on anything" aria-label="Search markets" autocomplete="off">
+          <input id="search-input" name="q" type="search" placeholder="Trade on anything" aria-label="Search markets" autocomplete="off" data-t-attr="placeholder:shell.html.search_placeholder;aria-label:shell.html.search_label">
         </form>
         <div class="account" id="account-area"></div>
       </div>
-      <nav class="category-strip" id="category-strip" aria-label="Categories"></nav>
+      <nav class="category-strip" id="category-strip" aria-label="Categories" data-t-attr="aria-label:shell.html.categories"></nav>
     </div>
   </header>
-  <div class="banner" id="conn-banner" hidden>Reconnecting to live prices…</div>
+  <div class="banner" id="conn-banner" hidden data-t="shell.html.reconnecting">Reconnecting to live prices…</div>
   <main id="view" tabindex="-1"></main>
   <div class="toast-host" id="toasts" aria-live="polite"></div>
   <footer class="footer">
+    <!-- Footer: tagline and link columns from the CMS (Admin › Content › Pages & footer), rendered by content-live.js. -->
     <div class="container"><span>Parlance Exchange · demo build · simulated funds only</span><span><a href="/browse" data-link>Markets</a> · <a href="/calendar" data-link>Calendar</a> · <a href="/social" data-link>Social</a></span></div>
   </footer>
   <script type="module" nonce="__CSP_NONCE__" src="/js/main.js"></script>

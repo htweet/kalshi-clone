@@ -4,6 +4,8 @@
 // Usage: const m = qrMatrix(text) → { size, modules: boolean[][] (true = dark) }; qrSvg(text) → SVG markup string.
 
 // EC level M, versions 1..10: EC codewords per block and number of blocks.
+import { t } from './i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import './content/qr-strings.js';
 const ECC_PER_BLOCK = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
 const NUM_BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
 const MAX_VERSION = 10;
@@ -60,7 +62,7 @@ export function qrMatrix(text, { mask: forcedMask = -1 } = {}) {
     const ccBits = ver <= 9 ? 8 : 16;
     if (4 + ccBits + bytes.length * 8 <= dataCodewords(ver) * 8) break;
   }
-  if (ver > MAX_VERSION) throw new Error('text too long for a QR code');
+  if (ver > MAX_VERSION) throw new Error(t('qr.qr_matrix.text_too_long_for_a'));
   const size = ver * 4 + 17;
   const capacity = dataCodewords(ver) * 8;
 
@@ -193,7 +195,7 @@ export function qrMatrix(text, { mask: forcedMask = -1 } = {}) {
 }
 
 // SVG with a 4-module quiet zone. Only attributes, no inline style (strict style CSP).
-export function qrSvg(text, { px = 4, label = 'QR code' } = {}) {
+export function qrSvg(text, { px = 4, label = t('qr.qr_svg.qr_code') } = {}) {
   const m = qrMatrix(text);
   const n = m.size + 8;
   let d = '';

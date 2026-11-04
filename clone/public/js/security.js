@@ -3,6 +3,8 @@
 // boot proof in the HTML it serves (only after any bot challenge has been passed); this module exchanges it at
 // /v1/client_token for an HMAC-signed token bound to this client, sends it as `X-Client-Token` on every /v1 call and as
 // `ct` on the WebSocket URL, and refreshes it at half its lifetime. The same token is also set as an HttpOnly cookie.
+import { t } from './i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import './content/security-strings.js';
 
 const ENDPOINT = '/v1/client_token';
 let token = null;
@@ -17,7 +19,7 @@ async function fetchToken() {
   if (token) headers['X-Client-Token'] = token; // refresh with the current (or recently expired) token
   const res = await fetch(ENDPOINT, { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify({ boot: bootProof() }) });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.token) throw new Error((data.error && data.error.message) || `client token request failed (${res.status})`);
+  if (!res.ok || !data.token) throw new Error((data.error && data.error.message) || t('security.fetch_token.client_token_request_failed', { status: res.status }));
   token = data.token;
   expiresAt = Date.now() + data.expires_in * 1000;
   clearTimeout(timer);

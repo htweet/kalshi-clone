@@ -3,6 +3,8 @@
 // Prices travel per contract in dollars (4 dp); the UI shows the underlying level = contract price / contract size, in the
 // display currency (NGN: ×100, the same rule as event contracts, so nothing on a page mixes currencies; CLONE_SPEC.md §30).
 // Price inputs (limit, take profit, stop loss) take display levels and convert back with assetToApi.
+import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import '../content/perps-strings.js';
 import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { vars } from '../dynstyle.js';
 import { perpsApi as P } from '../perps-api.js';
@@ -13,7 +15,7 @@ import { assetToApi, assetFromApi } from '../currency.js'; // perps ×100 displa
 
 const ASSET_ORDER = ['Crypto', 'Equities', 'Metals', 'FX', 'Energy', 'Indices', 'Rates', 'Compute', 'GPU', 'EventContracts'];
 const RANGES = { '1H': { period: 1, span: 3600 }, '1D': { period: 15, span: 86400 }, '1W': { period: 60, span: 7 * 86400 } };
-const PERPS_TABS = [['positions', 'Positions'], ['orders', 'Open orders'], ['history', 'History']];
+const PERPS_TABS = [['positions', ts('perps.perps_tabs.positions')], ['orders', ts('perps.perps_tabs.open_orders')], ['history', ts('perps.perps_tabs.history')]];
 
 // ---------------------------------------------------------------- formatting
 const n = (s) => Number(s ?? 0);
@@ -60,23 +62,23 @@ export async function render(ctx) {
 
 // ================================================================ list
 async function renderList({ el, params }) {
-  document.title = 'Perps · Parlance';
+  document.title = tx('perps.render_list.perps_parlance');
   const [{ markets }, { asset_classes: classes }] = await Promise.all([P.markets(), P.assetClasses()]);
   const want = params.assetClass ? classes.find((c) => c.slug === String(params.assetClass).toLowerCase()) : null;
   if (params.assetClass && !want) {
-    el.innerHTML = '<div class="card empty" data-testid="page-error"><h1 class="typ-title-x20">Unknown category</h1><a class="btn" href="/perps" data-link>All perps</a></div>';
+    el.innerHTML = `<div class="card empty" data-testid="page-error"><h1 class="typ-title-x20">${te('perps.render_list.unknown_category')}</h1><a class="btn" href="/perps" data-link>${te('perps.render_list.all_perps')}</a></div>`;
     return undefined;
   }
   const shown = markets.filter((m) => !want || m.asset_class === want.name).sort((a, b) => ASSET_ORDER.indexOf(a.asset_class) - ASSET_ORDER.indexOf(b.asset_class));
   el.innerHTML = `<div class="perps" data-testid="perps-list">
-    <div class="perps-hero"><h1 class="page-title">Perps</h1>
-      <p class="muted">Perpetual futures on simulated indices. Go long or short with leverage, no expiry. Funding payments keep each contract near its index.</p></div>
-    <nav class="perps-chips" aria-label="Asset classes" data-testid="perps-chips">
-      <a href="/perps" data-link class="${want ? '' : 'on'}" data-class="all">All <span>${markets.length}</span></a>
+    <div class="perps-hero"><h1 class="page-title">${te('perps.render_list.perps')}</h1>
+      <p class="muted">${te('perps.render_list.perpetual_futures_on_simulated_indices')}</p></div>
+    <nav class="perps-chips" aria-label="${te('perps.render_list.asset_classes')}" data-testid="perps-chips">
+      <a href="/perps" data-link class="${want ? '' : 'on'}" data-class="all">${te('perps.render_list.all')} <span>${markets.length}</span></a>
       ${classes.map((c) => `<a href="/perps/categories/${esc(c.slug)}" data-link class="${want && want.slug === c.slug ? 'on' : ''}" data-class="${esc(c.name)}">${esc(c.name)} <span>${esc(c.count)}</span></a>`).join('')}
     </nav>
     <div class="perps-table-wrap card"><table class="perps-table" data-testid="perps-table">
-      <thead><tr><th>Market</th><th class="num">Price</th><th class="num">24h</th><th class="num perps-hide-sm">Funding</th><th class="num perps-hide-sm">Max leverage</th><th class="num perps-hide-md">24h volume</th></tr></thead>
+      <thead><tr><th>${te('perps.render_list.market')}</th><th class="num">${te('perps.render_list.price')}</th><th class="num">24h</th><th class="num perps-hide-sm">${te('perps.render_list.funding')}</th><th class="num perps-hide-sm">${te('perps.render_list.max_leverage')}</th><th class="num perps-hide-md">${te('perps.render_list.n24h_volume')}</th></tr></thead>
       <tbody>${shown.map(rowHtml).join('')}</tbody></table></div>
   </div>`;
   const byT = new Map(shown.map((m) => [m.ticker, m]));
@@ -109,12 +111,12 @@ function rowHtml(m) {
 // ================================================================ shared: transfer box
 function transferBox() {
   return `<section class="card perps-box perps-transfer" data-testid="perp-transfer">
-    <h3 class="perps-box-title">Transfer funds</h3>
-    <div class="perps-kv"><span>Predictions cash</span><strong data-testid="pred-cash">${session.balance != null ? money(session.balance) : '—'}</strong></div>
-    <div class="perps-kv"><span>Perps available</span><strong data-testid="perps-available">—</strong></div>
+    <h3 class="perps-box-title">${te('perps.transfer_box.transfer_funds')}</h3>
+    <div class="perps-kv"><span>${te('perps.transfer_box.predictions_cash')}</span><strong data-testid="pred-cash">${session.balance != null ? money(session.balance) : '—'}</strong></div>
+    <div class="perps-kv"><span>${te('perps.transfer_box.perps_available')}</span><strong data-testid="perps-available">—</strong></div>
     <form class="perps-xfer" data-testid="perp-transfer-form">
       <input id="px-amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" placeholder="${esc(T('input.amount_placeholder', { symbol: sym() }))}" aria-label="${esc(T('input.transfer_aria', { mode: amountLabel().toLowerCase() }))}" data-testid="xfer-amount">
-      <div class="perps-xfer-btns"><button class="btn btn-primary" type="submit" data-dir="to_perps" data-testid="xfer-to-perps">To Perps</button><button class="btn" type="button" data-dir="to_predictions" data-testid="xfer-to-predictions">To Predictions</button></div>
+      <div class="perps-xfer-btns"><button class="btn btn-primary" type="submit" data-dir="to_perps" data-testid="xfer-to-perps">${te('perps.transfer_box.to_perps')}</button><button class="btn" type="button" data-dir="to_predictions" data-testid="xfer-to-predictions">${te('perps.transfer_box.to_predictions')}</button></div>
       <div class="form-error" role="alert" data-testid="xfer-error"></div>
     </form></section>`;
 }
@@ -130,7 +132,7 @@ function wireTransfer(root, onDone) {
     try {
       await P.transfer(dir, amt);
       form.querySelector('#px-amount').value = '';
-      toast(`Moved ${money(amt)} ${dir === 'to_perps' ? 'to Perps' : 'to Predictions'}`);
+      toast(tx('perps.wire_transfer.moved', { money: money(amt), value: dir === 'to_perps' ? tx('perps.wire_transfer.to_perps') : tx('perps.wire_transfer.to_predictions') }));
       await onDone();
     } catch (e) { err.textContent = e.message; }
   };
@@ -143,24 +145,24 @@ function wireTransfer(root, onDone) {
 // ================================================================ shared: account panels
 // Positions table with live PnL recomputed from the mark on every perp_ticker message.
 function positionsHtml(positions, metas, { showMarket = true } = {}) {
-  if (!positions.length) return '<div class="empty" data-testid="perp-no-positions">No open perps positions.</div>';
+  if (!positions.length) return `<div class="empty" data-testid="perp-no-positions">${te('perps.positions_html.no_open_perps_positions')}</div>`;
   return `<div class="perps-scroll"><table class="table perps-pos-table" data-testid="perp-positions">
-    <thead><tr>${showMarket ? '<th>Market</th>' : ''}<th>Side</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Mark</th><th class="num">Liq. price</th><th class="num">Position value</th><th class="num">PnL (ROI)</th><th>TP / SL</th><th></th></tr></thead>
+    <thead><tr>${showMarket ? `<th>${te('perps.positions_html.market')}</th>` : ''}<th>${te('perps.positions_html.side')}</th><th class="num">${te('perps.positions_html.size')}</th><th class="num">${te('perps.positions_html.entry')}</th><th class="num">${te('perps.positions_html.mark')}</th><th class="num">${te('perps.positions_html.liq_price')}</th><th class="num">${te('perps.positions_html.position_value')}</th><th class="num">${te('perps.positions_html.pnl_roi')}</th><th>${te('perps.positions_html.tp_sl')}</th><th></th></tr></thead>
     <tbody>${positions.map((p) => {
       const m = metas.get(p.market_ticker);
       const long = n(p.position) > 0;
       const tr = p.exit_trigger;
       return `<tr data-testid="perp-position" data-ticker="${esc(p.market_ticker)}">
         ${showMarket ? `<td><a class="perps-mkt sm" href="/perps/${esc(p.market_ticker)}" data-link>${icon(m)}<strong>${esc(m.title)}</strong></a></td>` : ''}
-        <td><span class="perps-side ${long ? 'long' : 'short'}" data-f="side">${long ? 'Long' : 'Short'}</span> <span class="faint" data-f="leverage">${lev(p.leverage)}</span></td>
+        <td><span class="perps-side ${long ? 'long' : 'short'}" data-f="side">${long ? te('perps.positions_html.long') : te('perps.positions_html.short')}</span> <span class="faint" data-f="leverage">${lev(p.leverage)}</span></td>
         <td class="num"><span data-f="size">${Math.abs(n(p.position)).toLocaleString('en-US')}</span><div class="faint">${money(p.position_notional)}</div></td>
         <td class="num" data-f="entry">${fmtPx(m, p.entry_price)}</td>
         <td class="num" data-f="mark">${fmtPx(m, p.mark_price)}</td>
         <td class="num" data-f="liq">${fmtPx(m, p.estimated_liquidation_price)}</td>
         <td class="num" data-f="value">${money(p.position_value)}</td>
         <td class="num perps-pnl ${cls(n(p.unrealized_pnl))}" data-f="pnl" data-upnl="${n(p.unrealized_pnl)}">${pnlText(n(p.unrealized_pnl), p.roe)}</td>
-        <td data-f="tpsl"><button class="btn btn-sm btn-ghost" data-tpsl="${esc(p.market_ticker)}" data-testid="tpsl-btn">${tr ? `${tr.take_profit_price ? `TP ${fmtPx(m, tr.take_profit_price)}` : ''}${tr.take_profit_price && tr.stop_loss_price ? ' · ' : ''}${tr.stop_loss_price ? `SL ${fmtPx(m, tr.stop_loss_price)}` : ''}` : 'Add TP/SL'}</button></td>
-        <td><button class="btn btn-sm" data-close="${esc(p.market_ticker)}" data-testid="close-position">Close</button></td></tr>`;
+        <td data-f="tpsl"><button class="btn btn-sm btn-ghost" data-tpsl="${esc(p.market_ticker)}" data-testid="tpsl-btn">${tr ? `${tr.take_profit_price ? te('perps.positions_html.tp', { fmt_px: fmtPx(m, tr.take_profit_price) }) : ''}${tr.take_profit_price && tr.stop_loss_price ? ' · ' : ''}${tr.stop_loss_price ? te('perps.positions_html.sl', { fmt_px: fmtPx(m, tr.stop_loss_price) }) : ''}` : te('perps.positions_html.add_tp_sl')}</button></td>
+        <td><button class="btn btn-sm" data-close="${esc(p.market_ticker)}" data-testid="close-position">${te('perps.positions_html.close')}</button></td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
 // Live refreshes must not wipe a TP/SL editor the user is typing in: keep the table while one is open.
@@ -192,7 +194,7 @@ function wirePositions(root, positions, metas, refresh) {
   for (const b of root.querySelectorAll('[data-close]')) {
     b.onclick = async () => {
       b.disabled = true;
-      try { const r = await P.closePosition(b.dataset.close); toast(`Closed ${n(r.order.fill_count)} contracts`); } catch (e) { toast(e.message, 'error'); }
+      try { const r = await P.closePosition(b.dataset.close); toast(tx('perps.wire_positions.closed_contracts', { n: n(r.order.fill_count) })); } catch (e) { toast(e.message, 'error'); }
       refresh();
     };
   }
@@ -208,10 +210,10 @@ function wirePositions(root, positions, metas, refresh) {
       const long = n(p.position) > 0;
       const cols = tr.children.length;
       tr.insertAdjacentHTML('afterend', `<tr class="perps-tpsl-row"><td colspan="${cols}"><form class="perps-tpsl" data-testid="tpsl-form" data-ticker="${esc(t)}">
-        <label>Take profit <input name="tp" type="number" step="any" inputmode="decimal" placeholder="${long ? 'above' : 'below'} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.take_profit_price ? lvlFromApi(m, under(m, x.take_profit_price)) : ''}" data-testid="tp-input"></label>
-        <label>Stop loss <input name="sl" type="number" step="any" inputmode="decimal" placeholder="${long ? 'below' : 'above'} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.stop_loss_price ? lvlFromApi(m, under(m, x.stop_loss_price)) : ''}" data-testid="sl-input"></label>
-        <button class="btn btn-sm btn-primary" type="submit" data-testid="tpsl-save">Save</button>
-        ${x ? '<button class="btn btn-sm btn-ghost" type="button" data-clear data-testid="tpsl-clear">Remove</button>' : ''}
+        <label>${te('perps.wire_positions.take_profit')} <input name="tp" type="number" step="any" inputmode="decimal" placeholder="${long ? te('perps.wire_positions.above') : te('perps.wire_positions.below')} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.take_profit_price ? lvlFromApi(m, under(m, x.take_profit_price)) : ''}" data-testid="tp-input"></label>
+        <label>${te('perps.wire_positions.stop_loss')} <input name="sl" type="number" step="any" inputmode="decimal" placeholder="${long ? te('perps.wire_positions.below') : te('perps.wire_positions.above')} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.stop_loss_price ? lvlFromApi(m, under(m, x.stop_loss_price)) : ''}" data-testid="sl-input"></label>
+        <button class="btn btn-sm btn-primary" type="submit" data-testid="tpsl-save">${te('perps.wire_positions.save')}</button>
+        ${x ? `<button class="btn btn-sm btn-ghost" type="button" data-clear data-testid="tpsl-clear">${te('perps.wire_positions.remove')}</button>` : ''}
         <span class="form-error" role="alert" data-testid="tpsl-error"></span></form></td></tr>`);
       const f = tr.nextElementSibling.querySelector('form');
       f.onsubmit = async (e) => {
@@ -219,45 +221,45 @@ function wirePositions(root, positions, metas, refresh) {
         const tp = f.tp.value.trim(); const sl = f.sl.value.trim();
         try {
           await P.setExitTrigger(t, { take_profit_price: tp ? toContract(m, tp) : null, stop_loss_price: sl ? toContract(m, sl) : null });
-          toast('Exit trigger saved');
+          toast(tx('perps.wire_positions.exit_trigger_saved'));
           f.closest('tr').remove();
           refresh();
         } catch (er) { f.querySelector('[data-testid=tpsl-error]').textContent = er.message; }
       };
       const clr = f.querySelector('[data-clear]');
-      if (clr) clr.onclick = async () => { try { await P.clearExitTrigger(t); toast('Exit trigger removed'); f.closest('tr').remove(); refresh(); } catch (er) { toast(er.message, 'error'); } };
+      if (clr) clr.onclick = async () => { try { await P.clearExitTrigger(t); toast(tx('perps.wire_positions.exit_trigger_removed')); f.closest('tr').remove(); refresh(); } catch (er) { toast(er.message, 'error'); } };
     };
   }
 }
 function ordersHtml(orders, metas, { showMarket = true } = {}) {
-  if (!orders.length) return '<div class="empty" data-testid="perp-no-orders">No open orders.</div>';
-  return `<div class="perps-scroll"><table class="table" data-testid="perp-orders"><thead><tr>${showMarket ? '<th>Market</th>' : ''}<th>Side</th><th>Type</th><th class="num">Price</th><th class="num">Filled / Size</th><th class="num">Leverage</th><th class="num">Margin held</th><th>Placed</th><th></th></tr></thead><tbody>
-    ${orders.map((o) => { const m = metas.get(o.ticker); return `<tr data-testid="perp-order" data-order="${esc(o.order_id)}">${showMarket ? `<td>${esc(m.title)}</td>` : ''}<td><span class="perps-side ${o.side === 'bid' ? 'long' : 'short'}">${o.side === 'bid' ? 'Long' : 'Short'}</span></td><td>${o.type === 'market' ? 'Market' : 'Limit'}</td><td class="num" data-f="price">${fmtPx(m, o.price)}</td><td class="num">${n(o.fill_count)} / ${n(o.count)}</td><td class="num">${lev(o.leverage)}</td><td class="num">${money(o.reserved_margin)}</td><td>${dateTime(o.created_time)}</td><td><button class="btn btn-sm" data-cancel="${esc(o.order_id)}" data-testid="cancel-order">Cancel</button></td></tr>`; }).join('')}</tbody></table></div>`;
+  if (!orders.length) return `<div class="empty" data-testid="perp-no-orders">${te('perps.orders_html.no_open_orders')}</div>`;
+  return `<div class="perps-scroll"><table class="table" data-testid="perp-orders"><thead><tr>${showMarket ? `<th>${te('perps.orders_html.market')}</th>` : ''}<th>${te('perps.orders_html.side')}</th><th>${te('perps.orders_html.type')}</th><th class="num">${te('perps.orders_html.price')}</th><th class="num">${te('perps.orders_html.filled_size')}</th><th class="num">${te('perps.orders_html.leverage')}</th><th class="num">${te('perps.orders_html.margin_held')}</th><th>${te('perps.orders_html.placed')}</th><th></th></tr></thead><tbody>
+    ${orders.map((o) => { const m = metas.get(o.ticker); return `<tr data-testid="perp-order" data-order="${esc(o.order_id)}">${showMarket ? `<td>${esc(m.title)}</td>` : ''}<td><span class="perps-side ${o.side === 'bid' ? 'long' : 'short'}">${o.side === 'bid' ? te('perps.orders_html.long') : te('perps.orders_html.short')}</span></td><td>${o.type === 'market' ? te('perps.orders_html.market') : te('perps.orders_html.limit')}</td><td class="num" data-f="price">${fmtPx(m, o.price)}</td><td class="num">${n(o.fill_count)} / ${n(o.count)}</td><td class="num">${lev(o.leverage)}</td><td class="num">${money(o.reserved_margin)}</td><td>${dateTime(o.created_time)}</td><td><button class="btn btn-sm" data-cancel="${esc(o.order_id)}" data-testid="cancel-order">${te('perps.orders_html.cancel')}</button></td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function wireOrders(root, refresh) {
   for (const b of root.querySelectorAll('[data-cancel]')) {
-    b.onclick = async () => { b.disabled = true; try { await P.cancelOrder(b.dataset.cancel); toast('Order canceled'); } catch (e) { toast(e.message, 'error'); } refresh(); };
+    b.onclick = async () => { b.disabled = true; try { await P.cancelOrder(b.dataset.cancel); toast(tx('perps.wire_orders.order_canceled')); } catch (e) { toast(e.message, 'error'); } refresh(); };
   }
 }
 function fundingHtml(rows, metas) {
-  if (!rows.length) return '<div class="empty" data-testid="perp-no-funding">No funding payments yet. Funding is exchanged between longs and shorts on each market\'s schedule.</div>';
-  return `<div class="perps-scroll"><table class="table" data-testid="perp-funding"><thead><tr><th>Time</th><th>Market</th><th class="num">Position</th><th class="num">Rate</th><th class="num">Mark</th><th class="num">Payment</th></tr></thead><tbody>
-    ${rows.map((f) => { const m = metas.get(f.market_ticker); const a = n(f.funding_amount); return `<tr data-testid="perp-funding-row" data-amount="${a}" data-qty="${n(f.quantity)}"><td>${dateTime(f.funding_time)}</td><td>${esc(m ? m.title : f.market_ticker)}</td><td class="num">${n(f.quantity) > 0 ? 'Long' : 'Short'} ${Math.abs(n(f.quantity))}</td><td class="num">${fundingPct(f.funding_rate)}</td><td class="num">${esc(m ? fmtPx(m, f.mark_price) : f.mark_price)}</td><td class="num perps-pnl ${cls(a)}">${signedUsd(a, 4)}</td></tr>`; }).join('')}</tbody></table></div>`;
+  if (!rows.length) return `<div class="empty" data-testid="perp-no-funding">${te('perps.funding_html.no_funding_payments_yet_funding')}</div>`;
+  return `<div class="perps-scroll"><table class="table" data-testid="perp-funding"><thead><tr><th>${te('perps.funding_html.time')}</th><th>${te('perps.funding_html.market')}</th><th class="num">${te('perps.funding_html.position')}</th><th class="num">${te('perps.funding_html.rate')}</th><th class="num">${te('perps.funding_html.mark')}</th><th class="num">${te('perps.funding_html.payment')}</th></tr></thead><tbody>
+    ${rows.map((f) => { const m = metas.get(f.market_ticker); const a = n(f.funding_amount); return `<tr data-testid="perp-funding-row" data-amount="${a}" data-qty="${n(f.quantity)}"><td>${dateTime(f.funding_time)}</td><td>${esc(m ? m.title : f.market_ticker)}</td><td class="num">${n(f.quantity) > 0 ? te('perps.funding_html.long') : te('perps.funding_html.short')} ${Math.abs(n(f.quantity))}</td><td class="num">${fundingPct(f.funding_rate)}</td><td class="num">${esc(m ? fmtPx(m, f.mark_price) : f.mark_price)}</td><td class="num perps-pnl ${cls(a)}">${signedUsd(a, 4)}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function fillsHtml(fills, metas) {
-  if (!fills.length) return '<div class="empty">No perps trades yet.</div>';
-  return `<div class="perps-scroll"><table class="table" data-testid="perp-fills"><thead><tr><th>Time</th><th>Market</th><th>Side</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">Fee</th><th class="num">Realized PnL</th><th>Source</th></tr></thead><tbody>
-    ${fills.map((f) => { const m = metas.get(f.ticker); const r = n(f.realized_pnl); return `<tr data-testid="perp-fill-row" data-source="${esc(f.source_detail)}"><td>${dateTime(f.created_time)}</td><td>${esc(m.title)}</td><td>${f.side === 'bid' ? 'Buy' : 'Sell'}</td><td class="num">${fmtPx(m, f.price)}</td><td class="num">${n(f.count)}</td><td class="num">${money(f.fees)}</td><td class="num perps-pnl ${cls(r)}">${r ? signedUsd(r) : '—'}</td><td>${esc({ user: 'You', exit_trigger: 'TP/SL', liquidation: 'Liquidation', liquidity: 'Maker' }[f.source_detail] || f.source_detail)}</td></tr>`; }).join('')}</tbody></table></div>`;
+  if (!fills.length) return `<div class="empty">${te('perps.fills_html.no_perps_trades_yet')}</div>`;
+  return `<div class="perps-scroll"><table class="table" data-testid="perp-fills"><thead><tr><th>${te('perps.fills_html.time')}</th><th>${te('perps.fills_html.market')}</th><th>${te('perps.fills_html.side')}</th><th class="num">${te('perps.fills_html.price')}</th><th class="num">${te('perps.fills_html.contracts')}</th><th class="num">${te('perps.fills_html.fee')}</th><th class="num">${te('perps.fills_html.realized_pnl')}</th><th>${te('perps.fills_html.source')}</th></tr></thead><tbody>
+    ${fills.map((f) => { const m = metas.get(f.ticker); const r = n(f.realized_pnl); return `<tr data-testid="perp-fill-row" data-source="${esc(f.source_detail)}"><td>${dateTime(f.created_time)}</td><td>${esc(m.title)}</td><td>${f.side === 'bid' ? te('perps.fills_html.buy') : te('perps.fills_html.sell')}</td><td class="num">${fmtPx(m, f.price)}</td><td class="num">${n(f.count)}</td><td class="num">${money(f.fees)}</td><td class="num perps-pnl ${cls(r)}">${r ? signedUsd(r) : '—'}</td><td>${esc({ user: 'You', exit_trigger: 'TP/SL', liquidation: 'Liquidation', liquidity: 'Maker' }[f.source_detail] || f.source_detail)}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function liquidationsHtml(rows, metas) {
   if (!rows.length) return '';
-  return `<h4 class="perps-sub">Liquidations</h4><div class="perps-scroll"><table class="table" data-testid="perp-liquidations"><thead><tr><th>Time</th><th>Market</th><th>Side</th><th class="num">Contracts</th><th class="num">Entry</th><th class="num">Closed at</th><th class="num">Margin lost</th><th class="num">Returned</th></tr></thead><tbody>
-    ${rows.map((l) => { const m = metas.get(l.ticker); return `<tr data-testid="perp-liquidation-row"><td>${dateTime(l.created_time)}</td><td>${esc(m.title)}</td><td>${l.side === 'long' ? 'Long' : 'Short'}</td><td class="num">${n(l.count)}</td><td class="num">${fmtPx(m, l.entry_price)}</td><td class="num">${fmtPx(m, l.mark_price)}</td><td class="num">${money(n(l.margin) - n(l.returned))}</td><td class="num">${money(l.returned)}</td></tr>`; }).join('')}</tbody></table></div>`;
+  return `<h4 class="perps-sub">${te('perps.liquidations_html.liquidations')}</h4><div class="perps-scroll"><table class="table" data-testid="perp-liquidations"><thead><tr><th>${te('perps.liquidations_html.time')}</th><th>${te('perps.liquidations_html.market')}</th><th>${te('perps.liquidations_html.side')}</th><th class="num">${te('perps.liquidations_html.contracts')}</th><th class="num">${te('perps.liquidations_html.entry')}</th><th class="num">${te('perps.liquidations_html.closed_at')}</th><th class="num">${te('perps.liquidations_html.margin_lost')}</th><th class="num">${te('perps.liquidations_html.returned')}</th></tr></thead><tbody>
+    ${rows.map((l) => { const m = metas.get(l.ticker); return `<tr data-testid="perp-liquidation-row"><td>${dateTime(l.created_time)}</td><td>${esc(m.title)}</td><td>${l.side === 'long' ? te('perps.liquidations_html.long') : te('perps.liquidations_html.short')}</td><td class="num">${n(l.count)}</td><td class="num">${fmtPx(m, l.entry_price)}</td><td class="num">${fmtPx(m, l.mark_price)}</td><td class="num">${money(n(l.margin) - n(l.returned))}</td><td class="num">${money(l.returned)}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function transfersHtml(rows) {
   if (!rows.length) return '';
-  return `<h4 class="perps-sub">Transfers</h4><div class="perps-scroll"><table class="table" data-testid="perp-transfers"><thead><tr><th>Time</th><th>From</th><th>To</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>
-    ${rows.map((t) => `<tr data-testid="perp-transfer-row"><td>${dateTime(t.created_time)}</td><td>${t.source === 'margined' ? 'Perps' : 'Predictions'}</td><td>${t.destination === 'margined' ? 'Perps' : 'Predictions'}</td><td class="num">${money(t.amount_dollars)}</td><td>${esc(t.status)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<h4 class="perps-sub">${te('perps.transfers_html.transfers')}</h4><div class="perps-scroll"><table class="table" data-testid="perp-transfers"><thead><tr><th>${te('perps.transfers_html.time')}</th><th>${te('perps.transfers_html.from')}</th><th>${te('perps.transfers_html.to')}</th><th class="num">${te('perps.transfers_html.amount')}</th><th>${te('perps.transfers_html.status')}</th></tr></thead><tbody>
+    ${rows.map((t) => `<tr data-testid="perp-transfer-row"><td>${dateTime(t.created_time)}</td><td>${t.source === 'margined' ? te('perps.transfers_html.perps') : te('perps.transfers_html.predictions')}</td><td>${t.destination === 'margined' ? te('perps.transfers_html.perps') : te('perps.transfers_html.predictions')}</td><td class="num">${money(t.amount_dollars)}</td><td>${esc(t.status)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 // ================================================================ market page
@@ -266,7 +268,7 @@ async function renderMarket({ el, params, navigate }) {
   const [{ market }, ob, tr] = await Promise.all([P.market(ticker), P.orderbook(ticker), P.trades(ticker)]);
   let m = market;
   const metas = new Map([[m.ticker, m]]);
-  document.title = `${m.title} perpetual · Parlance`;
+  document.title = tx('perps.render_market.perpetual_parlance', { title: m.title });
   const authed = !!session.user;
   const maxLev = n(m.max_leverage);
   const t = { side: 'long', type: 'market', unit: 'usd', lev: Math.min(5, maxLev), reduce: false };
@@ -277,39 +279,39 @@ async function renderMarket({ el, params, navigate }) {
   let tab = 'positions';
 
   el.innerHTML = `<div class="perps perps-market" data-testid="perp-market" data-ticker="${esc(m.ticker)}">
-    <a class="perps-back faint" href="/perps" data-link>← All perps</a>
+    <a class="perps-back faint" href="/perps" data-link>${te('perps.render_market.all_perps')}</a>
     <header class="perps-head">
       ${icon(m)}
-      <div class="perps-head-name"><h1 class="typ-title-x20">${esc(m.title)} <span class="faint">Perpetual</span></h1><div class="faint">${esc(m.product_metadata?.asset_name || '')} · ${esc(m.ticker)} · ${esc(m.asset_class)}</div></div>
+      <div class="perps-head-name"><h1 class="typ-title-x20">${esc(m.title)} <span class="faint">${te('perps.render_market.perpetual')}</span></h1><div class="faint">${esc(m.product_metadata?.asset_name || '')} · ${esc(m.ticker)} · ${esc(m.asset_class)}</div></div>
       <div class="perps-head-price"><div class="perps-big" data-testid="perp-mark">${fmtPx(m, m.mark_price)}</div><div class="perps-chg" data-testid="perp-chg"></div></div>
     </header>
     <div class="perps-stats" data-testid="perp-stats">
-      <div><span>Mark</span><strong data-s="mark"></strong></div>
-      <div><span>Index</span><strong data-s="index"></strong></div>
-      <div><span>Funding</span><strong data-s="funding"></strong><em class="faint" data-s="countdown"></em></div>
-      <div><span>Open interest</span><strong data-s="oi"></strong></div>
-      <div><span>24h volume</span><strong data-s="vol"></strong></div>
-      <div><span>Max leverage</span><strong>${lev(maxLev)}</strong></div>
+      <div><span>${te('perps.render_market.mark')}</span><strong data-s="mark"></strong></div>
+      <div><span>${te('perps.render_market.index')}</span><strong data-s="index"></strong></div>
+      <div><span>${te('perps.render_market.funding')}</span><strong data-s="funding"></strong><em class="faint" data-s="countdown"></em></div>
+      <div><span>${te('perps.render_market.open_interest')}</span><strong data-s="oi"></strong></div>
+      <div><span>${te('perps.render_market.n24h_volume')}</span><strong data-s="vol"></strong></div>
+      <div><span>${te('perps.render_market.max_leverage')}</span><strong>${lev(maxLev)}</strong></div>
     </div>
     <div class="perps-layout">
       <div class="perps-main">
         <section class="card perps-box perps-chart-card">
-          <div class="perps-chart-head"><span class="faint">Mark price</span><div class="perps-seg" role="tablist" data-testid="perp-ranges">${Object.keys(RANGES).map((k) => `<button data-range="${esc(k)}" class="${k === range ? 'on' : ''}">${esc(k)}</button>`).join('')}</div></div>
+          <div class="perps-chart-head"><span class="faint">${te('perps.render_market.mark_price')}</span><div class="perps-seg" role="tablist" data-testid="perp-ranges">${Object.keys(RANGES).map((k) => `<button data-range="${esc(k)}" class="${k === range ? 'on' : ''}">${esc(k)}</button>`).join('')}</div></div>
           <div class="perps-chart" data-testid="perp-chart"></div>
         </section>
         <div class="perps-duo">
-          <section class="card perps-box"><h3 class="perps-box-title">Order book</h3><div class="perps-book" data-testid="perp-book"></div></section>
-          <section class="card perps-box"><h3 class="perps-box-title">Recent trades</h3><div class="perps-trades" data-testid="perp-trades"></div></section>
+          <section class="card perps-box"><h3 class="perps-box-title">${te('perps.render_market.order_book')}</h3><div class="perps-book" data-testid="perp-book"></div></section>
+          <section class="card perps-box"><h3 class="perps-box-title">${te('perps.render_market.recent_trades')}</h3><div class="perps-trades" data-testid="perp-trades"></div></section>
         </div>
         ${authed ? `<section class="card perps-box perps-account" data-testid="perp-account">
-          <div class="perps-tabs" role="tablist">${[['positions', 'Positions'], ['orders', 'Open orders'], ['funding', 'Funding'], ['history', 'History']].map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
+          <div class="perps-tabs" role="tablist">${[['positions', tx('perps.render_market.positions')], ['orders', tx('perps.render_market.open_orders')], ['funding', tx('perps.render_market.funding')], ['history', tx('perps.render_market.history')]].map(([k, l]) => `<button data-tab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
           <div data-testid="perp-panel" class="perps-panel"></div></section>` : ''}
-        <section class="card perps-box perps-about"><h3 class="perps-box-title">About ${esc(m.title)}</h3><p class="muted">${esc(m.product_metadata?.description || '')}</p>
-          <dl class="perps-dl"><div><dt>Contract size</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? 'index points' : 'units')}</dd></div><div><dt>Tick</dt><dd>${esc(money(m.tick_size, { exact: 4 }))} per contract</dd></div><div><dt>Initial / maintenance margin</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>Fees (maker / taker)</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>Funding schedule</dt><dd>every ${Math.round(m.funding_interval_ms / 3600000) || '<1'}h <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>Index</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl></section>
+        <section class="card perps-box perps-about"><h3 class="perps-box-title">${te('perps.render_market.about', { title: esc(m.title) })}</h3><p class="muted">${esc(m.product_metadata?.description || '')}</p>
+          <dl class="perps-dl"><div><dt>${te('perps.render_market.contract_size')}</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? tx('perps.render_market.index_points') : tx('perps.render_market.units'))}</dd></div><div><dt>${te('perps.render_market.tick')}</dt><dd>${te('perps.render_market.per_contract', { money: esc(money(m.tick_size, { exact: 4 })) })}</dd></div><div><dt>${te('perps.render_market.initial_maintenance_margin')}</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>${te('perps.render_market.fees_maker_taker')}</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>${te('perps.render_market.funding_schedule')}</dt><dd>${te('perps.render_market.every_h', { value: Math.round(m.funding_interval_ms / 3600000) || '<1' })} <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>${te('perps.render_market.index')}</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl></section>
       </div>
       <aside class="perps-side-col">
         <section class="card perps-box perps-ticket" data-testid="perp-ticket">
-          ${authed ? ticketHtml() : `<h3 class="perps-box-title">Trade ${esc(m.title)}</h3><p class="muted">Log in to go long or short.</p><a class="btn btn-primary perps-submit" href="/sign-in?next=/perps/${esc(m.ticker)}" data-link>Log in to trade</a>`}
+          ${authed ? ticketHtml() : `<h3 class="perps-box-title">${te('perps.render_market.trade', { title: esc(m.title) })}</h3><p class="muted">${te('perps.render_market.log_in_to_go_long')}</p><a class="btn btn-primary perps-submit" href="/sign-in?next=/perps/${esc(m.ticker)}" data-link>${te('perps.render_market.log_in_to_trade')}</a>`}
         </section>
         ${authed ? transferBox() : ''}
       </aside>
@@ -319,24 +321,24 @@ async function renderMarket({ el, params, navigate }) {
   const $ = (s) => root.querySelector(s);
 
   function ticketHtml() {
-    return `<div class="perps-seg perps-side-seg" data-testid="perp-side">${['long', 'short'].map((s) => `<button data-side="${s}" class="${s === t.side ? `on ${s}` : ''}">${s === 'long' ? 'Long' : 'Short'}</button>`).join('')}</div>
-      <div class="perps-seg sm" data-testid="perp-type">${['market', 'limit'].map((s) => `<button data-type="${s}" class="${s === t.type ? 'on' : ''}">${s === 'market' ? 'Market' : 'Limit'}</button>`).join('')}</div>
-      <label class="perps-field" data-limit hidden><span>Limit price</span><input id="pt-price" type="number" step="any" inputmode="decimal" data-testid="perp-limit-price" aria-label="Limit price"></label>
-      <div class="perps-field"><span>Amount <span class="perps-unit" data-testid="perp-unit">${['usd', 'contracts'].map((u) => `<button type="button" data-unit="${u}" class="${u === t.unit ? 'on' : ''}">${u === 'usd' ? esc(sym()) : 'Contracts'}</button>`).join('')}</span></span>
-        <input id="pt-amount" type="number" min="0" step="any" inputmode="decimal" placeholder="0" data-testid="perp-amount" aria-label="Amount"></div>
-      <div class="perps-field"><span>Leverage <output id="pt-lev-out" data-testid="perp-leverage-out">${lev(t.lev)}</output></span>
-        <input id="pt-lev" type="range" min="1" max="${maxLev}" step="1" value="${t.lev}" data-testid="perp-leverage" aria-label="Leverage">
+    return `<div class="perps-seg perps-side-seg" data-testid="perp-side">${['long', 'short'].map((s) => `<button data-side="${s}" class="${s === t.side ? `on ${s}` : ''}">${s === 'long' ? te('perps.render_market.long_2') : te('perps.render_market.short')}</button>`).join('')}</div>
+      <div class="perps-seg sm" data-testid="perp-type">${['market', 'limit'].map((s) => `<button data-type="${s}" class="${s === t.type ? 'on' : ''}">${s === 'market' ? te('perps.render_market.market') : te('perps.render_market.limit')}</button>`).join('')}</div>
+      <label class="perps-field" data-limit hidden><span>${te('perps.render_market.limit_price')}</span><input id="pt-price" type="number" step="any" inputmode="decimal" data-testid="perp-limit-price" aria-label="${te('perps.render_market.limit_price')}"></label>
+      <div class="perps-field"><span>${te('perps.render_market.amount')} <span class="perps-unit" data-testid="perp-unit">${['usd', 'contracts'].map((u) => `<button type="button" data-unit="${u}" class="${u === t.unit ? 'on' : ''}">${u === 'usd' ? esc(sym()) : te('perps.render_market.contracts')}</button>`).join('')}</span></span>
+        <input id="pt-amount" type="number" min="0" step="any" inputmode="decimal" placeholder="0" data-testid="perp-amount" aria-label="${te('perps.render_market.amount')}"></div>
+      <div class="perps-field"><span>${te('perps.render_market.leverage')} <output id="pt-lev-out" data-testid="perp-leverage-out">${lev(t.lev)}</output></span>
+        <input id="pt-lev" type="range" min="1" max="${maxLev}" step="1" value="${t.lev}" data-testid="perp-leverage" aria-label="${te('perps.render_market.leverage')}">
         <div class="perps-lev-marks faint"><span>1x</span><span>${lev(Math.round(maxLev / 2))}</span><span>${lev(maxLev)}</span></div></div>
-      <label class="perps-check" data-market-only><input type="checkbox" id="pt-reduce" data-testid="perp-reduce-only"> Reduce only</label>
+      <label class="perps-check" data-market-only><input type="checkbox" id="pt-reduce" data-testid="perp-reduce-only"> ${te('perps.render_market.reduce_only')}</label>
       <dl class="perps-summary" data-testid="perp-summary">
-        <div><dt>Contracts</dt><dd data-o="contracts">—</dd></div>
-        <div><dt>Total size</dt><dd data-o="notional">—</dd></div>
-        <div><dt>Cost (margin)</dt><dd data-o="cost">—</dd></div>
-        <div><dt>Est. fees</dt><dd data-o="fees">—</dd></div>
-        <div><dt>Est. liq. price</dt><dd data-o="liq" data-testid="perp-est-liq">—</dd></div>
-        <div><dt>Perps available</dt><dd data-o="avail" data-testid="perp-available-ticket">—</dd></div>
+        <div><dt>${te('perps.render_market.contracts')}</dt><dd data-o="contracts">—</dd></div>
+        <div><dt>${te('perps.render_market.total_size')}</dt><dd data-o="notional">—</dd></div>
+        <div><dt>${te('perps.render_market.cost_margin')}</dt><dd data-o="cost">—</dd></div>
+        <div><dt>${te('perps.render_market.est_fees')}</dt><dd data-o="fees">—</dd></div>
+        <div><dt>${te('perps.render_market.est_liq_price')}</dt><dd data-o="liq" data-testid="perp-est-liq">—</dd></div>
+        <div><dt>${te('perps.render_market.perps_available')}</dt><dd data-o="avail" data-testid="perp-available-ticket">—</dd></div>
       </dl>
-      <button class="btn btn-primary perps-submit" id="pt-submit" data-testid="perp-submit" disabled>Long ${esc(m.title)}</button>
+      <button class="btn btn-primary perps-submit" id="pt-submit" data-testid="perp-submit" disabled>${te('perps.render_market.long', { title: esc(m.title) })}</button>
       <div class="form-error" role="alert" data-testid="perp-order-error"></div>`;
   }
 
@@ -355,7 +357,7 @@ async function renderMarket({ el, params, navigate }) {
     s('funding').className = cls(n(m.funding_rate?.rate)) === 'down' ? 'down' : '';
     s('oi').textContent = `${n(m.open_interest).toLocaleString('en-US')} · ${compactUsd(m.open_interest_notional_value_dollars)}`;
     s('vol').textContent = compactUsd(m.volume_24h_notional_value_dollars);
-    s('countdown').textContent = m.funding_rate?.next_funding_time_ms ? `in ${countdown(m.funding_rate.next_funding_time_ms)}` : '';
+    s('countdown').textContent = m.funding_rate?.next_funding_time_ms ? tx('perps.render_market.in', { countdown: countdown(m.funding_rate.next_funding_time_ms) }) : '';
   }
 
   // ---- chart (SVG line of mark closes)
@@ -368,7 +370,7 @@ async function renderMarket({ el, params, navigate }) {
   }
   function drawChart() {
     const box = $('[data-testid=perp-chart]');
-    if (!series.length) { box.innerHTML = '<div class="empty faint">No price history yet.</div>'; return; }
+    if (!series.length) { box.innerHTML = `<div class="empty faint">${te('perps.render_market.no_price_history_yet')}</div>`; return; }
     const W = 600; const H = 220; const pad = 6;
     const ys = series.map((p) => p[1]);
     const lo = Math.min(...ys); const hi = Math.max(...ys);
@@ -378,7 +380,7 @@ async function renderMarket({ el, params, navigate }) {
     const Y = (y) => pad + (1 - (y - lo) / span) * (H - 2 * pad);
     const pts = series.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(' ');
     const up = ys[ys.length - 1] >= ys[0];
-    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="perps-svg ${up ? 'up' : 'down'}" role="img" aria-label="${esc(m.title)} mark price chart">
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="perps-svg ${up ? 'up' : 'down'}" role="img" aria-label="${te('perps.render_market.mark_price_chart', { title: esc(m.title) })}">
       <polygon class="area" points="${pad},${H - pad} ${pts} ${W - pad},${H - pad}"/><polyline class="line" points="${pts}" vector-effect="non-scaling-stroke"/></svg>
       <div class="perps-axis faint"><span>${fmtPx(m, hi)}</span><span>${fmtPx(m, lo)}</span></div>`;
   }
@@ -399,14 +401,14 @@ async function renderMarket({ el, params, navigate }) {
     const maxQ = Math.max(1, ...[...asks, ...bids].map((l) => n(l[1])));
     const row = (l, side) => `<button type="button" class="perps-lvl ${esc(side)}" data-px="${esc(l[0])}"${vars({ '--perps-depth': `${((n(l[1]) / maxQ) * 100).toFixed(1)}%` })}><span>${fmtPx(m, l[0])}</span><span>${n(l[1]).toLocaleString('en-US')}</span></button>`;
     const spread = b.asks.length && b.bids.length ? n(b.asks[0][0]) - n(b.bids[0][0]) : null;
-    $('[data-testid=perp-book]').innerHTML = `<div class="perps-lvl head faint"><span>Price</span><span>Contracts</span></div>
-      <div data-testid="perp-asks">${asks.map((l) => row(l, 'ask')).join('') || '<div class="faint">No asks</div>'}</div>
-      <div class="perps-spread faint">Mark ${fmtPx(m, m.mark_price)}${spread != null ? ` · spread ${fmtLevel(m, spread / n(m.contract_size))}` : ''}</div>
-      <div data-testid="perp-bids">${bids.map((l) => row(l, 'bid')).join('') || '<div class="faint">No bids</div>'}</div>`;
+    $('[data-testid=perp-book]').innerHTML = `<div class="perps-lvl head faint"><span>${te('perps.render_market.price')}</span><span>${te('perps.render_market.contracts')}</span></div>
+      <div data-testid="perp-asks">${asks.map((l) => row(l, 'ask')).join('') || `<div class="faint">${te('perps.render_market.no_asks')}</div>`}</div>
+      <div class="perps-spread faint">${te('perps.render_market.mark_2', { fmt_px: fmtPx(m, m.mark_price), value: spread != null ? (' ' + te('perps.render_market.spread', { fmt_level: fmtLevel(m, spread / n(m.contract_size)) })) : '' })}</div>
+      <div data-testid="perp-bids">${bids.map((l) => row(l, 'bid')).join('') || `<div class="faint">${te('perps.render_market.no_bids')}</div>`}</div>`;
   }
   let trades = tr.trades;
   function drawTrades() {
-    $('[data-testid=perp-trades]').innerHTML = trades.length ? `<div class="perps-lvl trade head faint"><span>Price</span><span>Size</span><span>Time</span></div>${trades.slice(0, 18).map((x) => `<div class="perps-lvl trade ${x.taker_side === 'bid' ? 'bid' : 'ask'}"><span>${fmtPx(m, x.price)}${x.is_liquidation ? ' <em class="faint">liq</em>' : ''}</span><span>${n(x.count).toLocaleString('en-US')}</span><span class="faint">${time(x.created_time)}</span></div>`).join('')}` : '<div class="empty faint">No trades yet.</div>';
+    $('[data-testid=perp-trades]').innerHTML = trades.length ? `<div class="perps-lvl trade head faint"><span>${te('perps.render_market.price')}</span><span>${te('perps.render_market.size')}</span><span>${te('perps.render_market.time')}</span></div>${trades.slice(0, 18).map((x) => `<div class="perps-lvl trade ${x.taker_side === 'bid' ? 'bid' : 'ask'}"><span>${fmtPx(m, x.price)}${x.is_liquidation ? ` <em class="faint">${te('perps.render_market.liq')}</em>` : ''}</span><span>${n(x.count).toLocaleString('en-US')}</span><span class="faint">${time(x.created_time)}</span></div>`).join('')}` : `<div class="empty faint">${te('perps.render_market.no_trades_yet')}</div>`;
   }
 
   // ---- ticket
@@ -444,7 +446,7 @@ async function renderMarket({ el, params, navigate }) {
     o('avail').textContent = bal ? money(bal.available_dollars) : '—';
     const btn = $('#pt-submit');
     btn.disabled = !c.contracts;
-    btn.textContent = `${t.reduce ? 'Reduce' : t.side === 'long' ? 'Long' : 'Short'} ${m.title}${c.contracts ? ` · ${c.contracts.toLocaleString('en-US')}` : ''}`;
+    btn.textContent = `${t.reduce ? tx('perps.render_market.reduce') : t.side === 'long' ? tx('perps.render_market.long_2') : tx('perps.render_market.short')} ${m.title}${c.contracts ? ` · ${c.contracts.toLocaleString('en-US')}` : ''}`;
     btn.className = `btn perps-submit ${t.side}`;
     el.querySelector('[data-limit]').hidden = t.type !== 'limit';
     el.querySelector('[data-market-only]').hidden = t.type !== 'market';
@@ -481,7 +483,7 @@ async function renderMarket({ el, params, navigate }) {
       try {
         const r = await P.placeOrder(body);
         const o = r.order;
-        toast(o.status === 'resting' ? `Limit order placed: ${n(o.remaining_count)} at ${fmtPx(m, o.price)}` : n(o.fill_count) ? `Filled ${n(o.fill_count)} at ${fmtPx(m, o.average_fill_price)}` : 'Order was not filled');
+        toast(o.status === 'resting' ? tx('perps.render_market.limit_order_placed_at', { n: n(o.remaining_count), fmt_px: fmtPx(m, o.price) }) : n(o.fill_count) ? tx('perps.render_market.filled_at', { n: n(o.fill_count), fmt_px: fmtPx(m, o.average_fill_price) }) : tx('perps.render_market.order_was_not_filled'));
         $('#pt-amount').value = '';
         await refreshAccount();
       } catch (e) { err.textContent = e.message; toast(e.message, 'error'); }
@@ -519,7 +521,7 @@ async function renderMarket({ el, params, navigate }) {
       panel.innerHTML = fundingHtml(fh, metas);
     } else {
       const [{ fills }, { liquidations }] = await Promise.all([P.fills({ ticker: m.ticker }), P.liquidations()]);
-      panel.innerHTML = liquidationsHtml(liquidations.filter((l) => l.ticker === m.ticker), metas) + `<h4 class="perps-sub">Trades</h4>${fillsHtml(fills, metas)}`;
+      panel.innerHTML = liquidationsHtml(liquidations.filter((l) => l.ticker === m.ticker), metas) + `<h4 class="perps-sub">${te('perps.render_market.trades')}</h4>${fillsHtml(fills, metas)}`;
     }
   }
   for (const b of el.querySelectorAll('[data-tab]')) {
@@ -557,7 +559,7 @@ async function renderMarket({ el, params, navigate }) {
       refreshSoon();
     }));
   }
-  const clock = setInterval(() => { const c = el.querySelector('[data-s=countdown]'); if (c && m.funding_rate?.next_funding_time_ms) c.textContent = `in ${countdown(m.funding_rate.next_funding_time_ms)}`; }, 1000);
+  const clock = setInterval(() => { const c = el.querySelector('[data-s=countdown]'); if (c && m.funding_rate?.next_funding_time_ms) c.textContent = tx('perps.render_market.in', { countdown: countdown(m.funding_rate.next_funding_time_ms) }); }, 1000);
   void navigate;
   return () => { unsubs.forEach((u) => u()); unsubXfer(); refreshSoon.cancel(); clearInterval(clock); };
 }
@@ -565,23 +567,23 @@ async function renderMarket({ el, params, navigate }) {
 // ================================================================ portfolio (Perps product)
 export async function renderPerpsPortfolio({ el, query, navigate }) {
   if (!session.user) { navigate(`/sign-in?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true }); return undefined; }
-  document.title = 'Perps portfolio · Parlance';
+  document.title = tx('perps.render_perps_portfolio.perps_portfolio_parlance');
   let tab = PERPS_TABS.some(([k]) => k === query.get('perpsTab')) ? query.get('perpsTab') : 'positions';
   const { markets } = await P.markets();
   const metas = new Map(markets.map((m) => [m.ticker, m]));
   let positions = [];
   el.innerHTML = `<div class="perps perps-portfolio" data-testid="perps-portfolio">
-    <div class="page-head"><h1 class="page-title">Portfolio</h1></div>
-    <nav class="perps-product" aria-label="Product"><a href="/portfolio" data-link data-testid="product-predictions">Predictions</a><a href="/portfolio?perpsTab=positions" data-link class="on" data-testid="product-perps">Perps</a></nav>
+    <div class="page-head"><h1 class="page-title">${te('perps.render_perps_portfolio.portfolio')}</h1></div>
+    <nav class="perps-product" aria-label="${te('perps.render_perps_portfolio.product')}"><a href="/portfolio" data-link data-testid="product-predictions">${te('perps.render_perps_portfolio.predictions')}</a><a href="/portfolio?perpsTab=positions" data-link class="on" data-testid="product-perps">${te('perps.render_perps_portfolio.perps')}</a></nav>
     <div class="perps-stat-row">
-      <div class="card perps-stat"><span>Account equity</span><strong data-testid="perps-equity">—</strong></div>
-      <div class="card perps-stat"><span>Available</span><strong data-testid="perps-port-available">—</strong></div>
-      <div class="card perps-stat"><span>Unrealized PnL</span><strong data-testid="perps-upnl">—</strong></div>
-      <div class="card perps-stat"><span>Margin in use</span><strong data-testid="perps-margin">—</strong></div>
+      <div class="card perps-stat"><span>${te('perps.render_perps_portfolio.account_equity')}</span><strong data-testid="perps-equity">—</strong></div>
+      <div class="card perps-stat"><span>${te('perps.render_perps_portfolio.available')}</span><strong data-testid="perps-port-available">—</strong></div>
+      <div class="card perps-stat"><span>${te('perps.render_perps_portfolio.unrealized_pnl')}</span><strong data-testid="perps-upnl">—</strong></div>
+      <div class="card perps-stat"><span>${te('perps.render_perps_portfolio.margin_in_use')}</span><strong data-testid="perps-margin">—</strong></div>
     </div>
     <div class="perps-layout">
       <div class="perps-main"><section class="card perps-box">
-        <div class="perps-tabs" role="tablist" data-testid="perps-port-tabs">${PERPS_TABS.map(([k, l]) => `<button data-ptab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}<a class="btn btn-sm btn-ghost perps-tabs-link" href="/perps" data-link>Browse perps</a></div>
+        <div class="perps-tabs" role="tablist" data-testid="perps-port-tabs">${PERPS_TABS.map(([k, l]) => `<button data-ptab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}<a class="btn btn-sm btn-ghost perps-tabs-link" href="/perps" data-link>${te('perps.render_perps_portfolio.browse_perps')}</a></div>
         <div class="perps-panel" data-testid="perps-port-panel"></div></section></div>
       <aside class="perps-side-col">${transferBox()}</aside>
     </div></div>`;
@@ -613,7 +615,7 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
       wireOrders(p, refresh);
     } else {
       const [{ fills }, { funding_history: fh }, { liquidations }, { transfers }] = await Promise.all([P.fills(), P.fundingHistory(), P.liquidations(), P.transfers()]);
-      p.innerHTML = `${liquidationsHtml(liquidations, metas)}<h4 class="perps-sub">Trades</h4>${fillsHtml(fills, metas)}<h4 class="perps-sub">Funding payments</h4>${fundingHtml(fh, metas)}${transfersHtml(transfers)}`;
+      p.innerHTML = `${liquidationsHtml(liquidations, metas)}<h4 class="perps-sub">${te('perps.render_perps_portfolio.trades')}</h4>${fillsHtml(fills, metas)}<h4 class="perps-sub">${te('perps.render_perps_portfolio.funding_payments')}</h4>${fundingHtml(fh, metas)}${transfersHtml(transfers)}`;
     }
   }
   async function refresh() { await Promise.all([drawStats(), drawPanel()]); }

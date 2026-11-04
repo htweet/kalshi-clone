@@ -5,6 +5,8 @@
 // Values are plain text; callers escape them where they go into HTML.
 // Key groups: install.* (☰ entry, signed-out menu, iOS steps) · update.* (toast) · offline.* (offline page, worker
 // fallback) · push.* (Settings › Notifications › System notifications, the worker's default title).
+import { register, t as catalogT } from '../i18n.js';
+
 export const PWA_STRINGS = /* PWA_STRINGS_JSON_BEGIN */ {
   "install.item": "Install app",
   "install.menu_label": "Menu",
@@ -58,5 +60,7 @@ export const PWA_STRINGS = /* PWA_STRINGS_JSON_BEGIN */ {
   "push.error_not_ready": "The service worker is not ready yet. Reload the page and try again."
 } /* PWA_STRINGS_JSON_END */;
 
-// Lookup with a visible fallback, so a missing key shows up in review instead of rendering "undefined".
-export const t = (key) => (Object.prototype.hasOwnProperty.call(PWA_STRINGS, key) ? PWA_STRINGS[key] : key);
+// In the text catalog (CLONE_SPEC.md §32.3) under the `pwa.` prefix, so Admin › Content › Texts manages these too; the
+// lookup keeps the short keys (a missing key shows up in review instead of rendering "undefined").
+register(Object.fromEntries(Object.entries(PWA_STRINGS).map(([k, v]) => [`pwa.${k}`, v])));
+export const t = (key, vars) => catalogT(`pwa.${key}`, vars);
