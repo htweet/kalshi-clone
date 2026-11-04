@@ -458,15 +458,17 @@ test('Web Push: subscribe in the browser, a fill is delivered to the fake push s
   cdp.on('ServiceWorker.workerRegistrationUpdated', (e) => regs.push(...e.registrations));
   await cdp.send('ServiceWorker.enable');
   const swReg = await until(() => regs.find((r) => r.scopeURL === `${BASE}/` && !r.isDeleted), 5000, 'registration id');
-  await cdp.send('ServiceWorker.deliverPushMessage', { origin: BASE, registrationId: swReg.registrationId, data: JSON.stringify(got.payload) });
-  const shown = await until(() => page.evaluate(() => navigator.serviceWorker.ready.then((r) => r.getNotifications()).then((ns) => ns.map((n) => ({ title: n.title, body: n.body, icon: n.icon, link: n.data && n.data.link, tag: n.tag })))).then((ns) => ns.length && ns), 8000, 'notification shown');
+  // DevTools push delivery can be dropped while the worker is still starting under load; like a real push service, redeliver
+  // until it shows (same tag, so a repeat replaces rather than duplicates).
+  const listShown = () => page.evaluate(() => navigator.serviceWorker.ready.then((r) => r.getNotifications()).then((ns) => ns.map((n) => ({ title: n.title, body: n.body, icon: n.icon, link: n.data && n.data.link, tag: n.tag }))));
+  const deliver = async (data, seen, label) => { for (let i = 0; ; i++) { await cdp.send('ServiceWorker.deliverPushMessage', { origin: BASE, registrationId: swReg.registrationId, data }); try { return await until(seen, 5000, label); } catch (e) { if (i >= 3) throw e; } } };
+  const shown = await deliver(JSON.stringify(got.payload), () => listShown().then((ns) => ns.length && ns), 'notification shown');
   assert.deepEqual(shown[0], { title: got.payload.title, body: got.payload.body, icon: `${BASE}/icons/icon-192.png`, link: got.payload.link, tag: got.payload.tag });
   const worker = ctx.serviceWorkers().find((w) => w.url() === `${BASE}/sw.js`);
   await worker.evaluate(async () => { const [n] = await self.registration.getNotifications(); try { self.dispatchEvent(new NotificationEvent('notificationclick', { notification: n })); } catch { /* untrusted event: waitUntil throws after routing starts */ } });
   await until(() => new URL(page.url()).pathname === got.payload.link, 8000, 'deep link opened');
   // A hostile payload cannot point the click anywhere else.
-  await cdp.send('ServiceWorker.deliverPushMessage', { origin: BASE, registrationId: swReg.registrationId, data: JSON.stringify({ title: 'x', body: 'y', link: '//evil.example/phish', tag: 'evil' }) });
-  const evil = await until(() => page.evaluate(() => navigator.serviceWorker.ready.then((r) => r.getNotifications({ tag: 'evil' }))).then((ns) => ns.length && ns), 8000, 'hostile notification');
+  const evil = await deliver(JSON.stringify({ title: 'x', body: 'y', link: '//evil.example/phish', tag: 'evil' }), () => page.evaluate(() => navigator.serviceWorker.ready.then((r) => r.getNotifications({ tag: 'evil' }))).then((ns) => ns.length && ns), 'hostile notification');
   assert.equal(evil.length, 1);
   assert.equal(await page.evaluate(() => navigator.serviceWorker.ready.then((r) => r.getNotifications({ tag: 'evil' })).then((ns) => ns[0].data.link)), '/');
 
