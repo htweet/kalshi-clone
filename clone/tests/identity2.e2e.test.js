@@ -53,7 +53,11 @@ async function signedUp(k, name = 'Ida Tester') {
 async function logOutUi(page) {
   await page.click('[data-testid=account-menu]');
   await page.click('#logout-btn');
-  await page.waitForSelector('a:has-text("Log in")');
+  // The header's guest buttons (not any "Log in" text on the page), and then the server must agree: the tab only shows
+  // signed out once the session has ended (store.js logout), so a later navigation cannot find it alive.
+  await page.waitForSelector('header a[href="/sign-in"]');
+  const who = async () => (await (await page.context().request.get(WEB + '/v1/session')).json()).user;
+  assert.equal(await who(), null, 'the server session has ended when the tab shows signed out');
 }
 
 test('email verification: link from the dev mailbox verifies once; tampered or reused links fail; changing the email asks again', async () => {
