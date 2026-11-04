@@ -4,7 +4,7 @@ import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { queries, session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, eventHref, cents, multiplier, prob, previewPct, catSlug, catLabel, toast } from '../lib.js';
+import { esc, eventHref, cents, multiplier, prob, previewPct, catSlug, catLabel, toast, dayKey, fmtTime, fmtDay } from '../lib.js';
 import { eventCard, rankList, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 
 const INFO = [
@@ -17,9 +17,8 @@ const INFO_ICON = { shield: INFO[0][3], bars: INFO[1][3], clock: INFO[2][3], sta
 const infoCards = (home) => (home.info_cards ? home.info_cards.map((c) => [c.title, c.subtitle, c.link, INFO_ICON[c.icon] || INFO_ICON.info]) /* escaped where rendered */ : INFO);
 const promoCard = (p) => `<a class="card promo cms-promo" href="${esc(p.link)}" ${p.link.startsWith('/') ? 'data-link' : 'target="_blank" rel="noopener"'} data-testid="promo-card"${vars({ '--promo': p.color })}><span>${p.overline ? `<span class="overline">${esc(p.overline)}</span>` : ''}<b>${esc(p.title)}</b>${p.subtitle ? `<span class="sub">${esc(p.subtitle)}</span>` : ''}</span><span class="faint ml-auto">›</span></a>`;
 const fmtWhen = (iso) => {
-  const d = new Date(iso);
-  const sameDay = d.toDateString() === new Date().toDateString();
-  return sameDay ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const sameDay = dayKey(iso) === dayKey(); // the configured time zone (CLONE_SPEC.md §30)
+  return sameDay ? fmtTime(iso) : fmtDay(iso);
 };
 
 export async function render({ el, navigate }) {

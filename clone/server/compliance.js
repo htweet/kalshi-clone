@@ -9,6 +9,7 @@
 // Fraud: a random per-browser ID (sent as X-Device-Id, stored only as an HMAC) and a user-agent hash — no fingerprinting
 // beyond that — plus velocity rules give a risk score per money movement. A withdrawal at or above the threshold is
 // held for staff review (funds leave the balance into the hold; release completes it, reverse refunds it).
+const Cur = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const { newId, ApiError, E, dollars } = require('./util');
 const kc = require('./crypto');
@@ -161,7 +162,7 @@ function createCompliance(ctx) {
     return id;
   }
   function holdNotice(uid, cents, link) {
-    try { notify(uid, { type: 'security', title: 'Withdrawal under review', body: `Your withdrawal of $${(cents / 100).toFixed(2)} is being reviewed. This usually takes less than one business day.`, link }); } catch { /* ignore */ }
+    try { notify(uid, { type: 'security', title: 'Withdrawal under review', body: `Your withdrawal of ${Cur.moneyCents(cents)} is being reviewed. This usually takes less than one business day.`, link }); } catch { /* ignore */ }
   }
   // Release / reverse listeners (server/payments.js sends a held rail withdrawal to its provider on release). A listener
   // returns true when it posted the journal entry for a release; otherwise the funds leave as a demo payout.
@@ -221,7 +222,7 @@ function createCompliance(ctx) {
         audit(req, `fraud.hold_${action}`, h.user_id, { hold: h.id, status: 'held' }, { hold: h.id, status: action === 'release' ? 'released' : 'reversed', amount_cents: h.amount_cents }, reason);
       });
       engine.emit('user_balance', h.user_id, engine.balance(h.user_id));
-      try { notify(h.user_id, { type: 'security', title: action === 'release' ? 'Withdrawal sent' : 'Withdrawal reversed', body: action === 'release' ? `Your withdrawal of $${(h.amount_cents / 100).toFixed(2)} was approved.` : `Your withdrawal of $${(h.amount_cents / 100).toFixed(2)} was returned to your balance.`, link: '/account/privacy' }); } catch { /* ignore */ }
+      try { notify(h.user_id, { type: 'security', title: action === 'release' ? 'Withdrawal sent' : 'Withdrawal reversed', body: action === 'release' ? `Your withdrawal of ${Cur.moneyCents(h.amount_cents)} was approved.` : `Your withdrawal of ${Cur.moneyCents(h.amount_cents)} was returned to your balance.`, link: '/account/privacy' }); } catch { /* ignore */ }
       res.json({ hold: holdVo(db.prepare('SELECT * FROM withdrawal_holds WHERE id=?').get(h.id)) });
     });
   }

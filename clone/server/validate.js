@@ -155,6 +155,8 @@ const SCHEMAS = {
   cryptoSimulate: { amount_dollars: { type: ['number', 'string'], maxLen: 16, required: true } },
   paymentChallenge: { result: { type: 'string', enum: ['approve', 'fail'], required: true } },
   empty: {},
+  // Admin › Settings › Currency & defaults (server/admin.js, CLONE_SPEC.md §30); nested objects are checked by the handler.
+  adminCurrency: { display_currency: { type: 'object' }, account_defaults: { type: 'object' }, reason: { type: 'string', maxLen: 500 } }, // reason required by the handler (authorization errors keep precedence)
 };
 
 // Route table: method, path relative to /v1, schema, options, who is validated ('owner' = signed-in user acting on
@@ -174,6 +176,7 @@ const ROUTES = [
   ['POST', /^\/admin\/resolution\/[^/]+\/correct$/, 'adminCorrect', { unknown: 'reject' }, 'staff'],
   ['POST', /^\/admin\/resolution\/approvals\/[^/]+\/(approve|reject)$/, 'adminApproval', { unknown: 'reject' }, 'staff'],
   ['PUT', /^\/admin\/resolution\/policy$/, 'adminResolutionPolicy', { unknown: 'reject' }, 'staff'],
+  ['PUT', /^\/admin\/settings\/currency$/, 'adminCurrency', { unknown: 'reject' }, 'staff'],
   ['POST', /^\/users\/([^/]+)\/collateral_returns\/refresh$/, 'empty', { unknown: 'reject' }, 'owner'],
   ['POST', /^\/users\/([^/]+)\/social\/posts$/, 'socialPost', {}, 'owner'],
   ['POST', /^\/users\/([^/]+)\/social\/posts\/[^/]+\/comments$/, 'socialComment', {}, 'owner'],

@@ -1,4 +1,5 @@
 'use strict';
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 // Price grids, fixed-point prices and the sub-cent taker-fee accumulator (Phase 5A; CLONE_SPEC.md §28).
 //
 // Prices of event contracts are integer **centi-cents** ("cc"): 1 cc = $0.0001, so $1.00 = 10,000 cc and a price is
@@ -68,7 +69,7 @@ function ccFromCents(v) {
   return Math.abs(cc - n * CC_PER_CENT) < 1e-6 ? cc : null;
 }
 // Human label: "45¢", "45.3¢", "0.05¢" (trailing zeros dropped).
-const centsLabel = (cc) => (cc == null ? '—' : `${(cc / CC_PER_CENT).toFixed(2).replace(/\.?0+$/, '')}¢`);
+const centsLabel = (cc) => C.priceCc(cc); // display price: ₦45 / ₦45.30 (NGN) or 45¢ / 45.3¢ (USD), CLONE_SPEC.md §30
 
 // ------------------------------------------------------------------------------------------- money for a fill
 // q units at taker price p cc: the YES/NO pair costs exactly q cents; the taker pays ceil(q·p/10,000) and the maker the

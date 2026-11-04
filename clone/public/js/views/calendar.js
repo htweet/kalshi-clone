@@ -4,16 +4,17 @@
 import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { socket } from '../ws.js';
-import { esc, CATEGORIES, catLabel, eventHref, money, cents } from '../lib.js';
+import { esc, CATEGORIES, catLabel, eventHref, money, cents, currency, dayKey, fmtTime } from '../lib.js';
 import { eventCard, evIcon } from './components.js';
 import { applySportsFilter, drawSportsNav } from './sports.js'; // sports leagues sidebar + ?league= / ?sport= filter
 
+// Sections are local days in the configured time zone (server/currency.js dayKey; CLONE_SPEC.md §30).
 const fmtDate = (d) => {
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = dayKey();
+  const tomorrow = new Date(Date.parse(today + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10); // the next calendar date
   if (d === today) return 'Today';
   if (d === tomorrow) return 'Tomorrow';
-  return new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return new Date(d + 'T12:00:00Z').toLocaleDateString(currency.locale, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); // a calendar date: no zone shift
 };
 function spark(prices, target) {
   if (prices.length < 2) return '';
@@ -103,7 +104,7 @@ export async function render({ el, params, query, navigate }) {
           <div class="target" data-testid="flash-target">Target ${money(w.target_dollars)}</div><div class="dist ${dist < 0 ? 'down' : ''}">${dist < 0 ? '↓' : '↑'} ${money(Math.abs(dist))} ${dist < 0 ? 'Below' : 'Above'}</div></div>
         <div>${spark(prices, Number(w.target_dollars))}</div>
         <div class="ab"><a href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link>Above · ${up}%</a><a href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link>Below · ${100 - up}%</a></div>
-        <div class="faint col-full">${money(ev.dollar_volume || 0)} vol · closes ${new Date(w.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></article>`;
+        <div class="faint col-full">${money(ev.dollar_volume || 0)} vol · closes ${esc(fmtTime(w.end_time, true))}</div></article>`;
     } catch { /* no window yet */ }
   }
   async function drawDetermined() {

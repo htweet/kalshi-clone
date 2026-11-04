@@ -4,6 +4,7 @@ import { session, queries, applyTheme, localTheme } from './store.js';
 import { socket } from './ws.js';
 import { api } from './api.js';
 import { esc, money, CATEGORIES, catSlug, catLabel, relTime, ICON, toast } from './lib.js';
+import { setCurrency, onCurrency } from './currency.js'; // display currency (CLONE_SPEC.md §30)
 import * as home from './views/home.js';
 import * as browse from './views/browse.js';
 import * as eventView from './views/event.js';
@@ -287,5 +288,9 @@ document.getElementById('category-strip').addEventListener('click', (e) => {
 });
 session.subscribe(renderAccount);
 renderAccount();
-Promise.all([session.load(), loadSite()]).then(() => { socket.connect(); render(); });
+// Admin › Currency & defaults: a change reaches every open page live and re-renders it (CLONE_SPEC.md §30).
+socket.subscribe({ channels: ['display_currency'] }, (m) => { if (m.type === 'display_currency') setCurrency(m.msg); });
+let booted = false;
+onCurrency(() => { renderAccount(); if (booted) render(); });
+Promise.all([session.load(), loadSite()]).then(() => { booted = true; socket.connect(); render(); });
 window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

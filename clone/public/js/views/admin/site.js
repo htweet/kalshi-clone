@@ -3,6 +3,7 @@
 import { request } from '../../api.js';
 import { session } from '../../store.js';
 import { esc, toast } from '../../lib.js';
+import { setCurrency, fmtDate, fmtDay } from '../../currency.js';
 
 const DEFAULT_NAV = { categories: null, featured: { label: 'Harbor 2026', href: '/category/elections', color: '' } };
 export const site = { banners: [], nav: DEFAULT_NAV, features: { social: true, perps: true, combos: true }, loaded: false };
@@ -11,6 +12,7 @@ export async function loadSite() {
   try {
     const r = await request('GET', '/v1/site_config');
     site.banners = r.banners || []; site.nav = r.nav || DEFAULT_NAV; site.features = r.features || site.features;
+    setCurrency(r.display_currency); // display currency, locale, time zone (CLONE_SPEC.md §30)
   } catch { /* keep defaults */ }
   site.loaded = true;
   applyFeatures();
@@ -74,13 +76,13 @@ export const helpView = {
     try { pages = (await request('GET', '/v1/help')).pages; } catch { /* optional */ }
     document.title = `${r.page.title} · Help · Parlance`;
     el.innerHTML = `<div class="help-layout"><nav class="help-nav card" aria-label="Help pages"><h2>Help</h2>${pages.map((p) => `<a href="/help/${esc(p.slug)}" data-link class="${p.slug === r.page.slug ? 'on' : ''}">${esc(p.title)}</a>`).join('')}</nav>
-      <article class="card help-page" data-testid="help-page"><h1 class="typ-title-x10">${esc(r.page.title)}</h1><div class="help-body" data-testid="help-body">${renderHelpText(r.page.body)}</div><p class="faint">Updated ${new Date(r.page.updated_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p></article></div>`;
+      <article class="card help-page" data-testid="help-page"><h1 class="typ-title-x10">${esc(r.page.title)}</h1><div class="help-body" data-testid="help-body">${renderHelpText(r.page.body)}</div><p class="faint">Updated ${fmtDate(r.page.updated_time)}</p></article></div>`;
   },
 };
 
 // ---------------------------------------------------------------- event news items
 export function newsItemsHtml(ev) {
-  return (ev.news_items || []).map((n) => `<div class="news-item" data-testid="news-item" id="news-${esc(n.id)}" data-news-id="${esc(n.id)}"><div class="src"><span class="news-src">${esc(n.source.toUpperCase())}</span> · ${esc(new Date(n.published_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}</div><b>${esc(n.headline)}</b>${n.summary ? `<span class="muted">${esc(n.summary)}</span>` : ''}</div>`).join('');
+  return (ev.news_items || []).map((n) => `<div class="news-item" data-testid="news-item" id="news-${esc(n.id)}" data-news-id="${esc(n.id)}"><div class="src"><span class="news-src">${esc(n.source.toUpperCase())}</span> · ${esc(fmtDay(n.published_time))}</div><b>${esc(n.headline)}</b>${n.summary ? `<span class="muted">${esc(n.summary)}</span>` : ''}</div>`).join('');
 }
 
 // ---------------------------------------------------------------- report menu on posts / replies

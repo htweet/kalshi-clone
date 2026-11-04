@@ -2,6 +2,7 @@
 // Matching engine for binary contracts (spec §4.3, §4.4, §5).
 // One book per market: a YES bid at p is equivalent to a NO ask at 100-p (cents).
 // Every order is a *buy* of YES or NO; holding both sides nets to $1 per pair.
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { EventEmitter } = require('node:events');
 const { tx } = require('./db');
 const { nowIso, newId, E, ApiError, ustr } = require('./util');
@@ -156,7 +157,7 @@ class Engine extends EventEmitter {
     if (!['yes', 'no'].includes(side)) throw E.badRequest('side must be yes or no');
     if (!['gtc', 'ioc'].includes(time_in_force)) throw E.badRequest('time_in_force must be gtc or ioc');
     const pcc = price_cc != null ? price_cc : Number.isInteger(price) ? price * P.CC_PER_CENT : NaN;
-    if (!Number.isInteger(pcc) || pcc < 1 || pcc >= P.CC) throw E.badRequest('price must be between $0.0001 and $0.9999 (1¢ to 99¢ on whole-cent markets)');
+    if (!Number.isInteger(pcc) || pcc < 1 || pcc >= P.CC) throw E.badRequest(`price must be between ${C.priceCc(1)} and ${C.priceCc(9999)} (${C.priceCents(1)} to ${C.priceCents(99)} on whole-cent markets)`);
     if (!Number.isInteger(count) || count < 1 || count > MAX_UNITS) throw E.badRequest(`count must be between 0.01 and ${MAX_COUNT} contracts`);
     let exact = exact_reserve && time_in_force === 'ioc';
     if (expiration_ts != null) {
@@ -221,7 +222,7 @@ class Engine extends EventEmitter {
       if (max_cost_cents != null && pl.required > max_cost_cents) throw new Error('invariant: cost-capped plan exceeds its cap');
       if (post_only && pl.fills.length) throw E.conflict('post_only_cross', 'post-only order would cross the book');
       const reserve = pl.required;
-      if (this.balance(userId) < reserve) throw E.conflict('insufficient_balance', 'insufficient balance', `order requires $${(reserve / 100).toFixed(2)} including max fees`);
+      if (this.balance(userId) < reserve) throw E.conflict('insufficient_balance', 'insufficient balance', `order requires ${C.moneyCents(reserve)} including max fees`);
 
       const id = reuse_order_id || newId('o_');
       const ts = nowIso();
@@ -296,7 +297,7 @@ class Engine extends EventEmitter {
     if (charge.cents === 0 && charge.toRounding === 0) return;
     const lid = newId('l_');
     if (charge.cents !== 0) this.db.prepare('INSERT INTO ledger(id,user_id,kind,amount_cents,ref,memo,created_at) VALUES(?,?,?,?,?,?,?)').run(lid, userId, 'fee', -charge.cents, tradeId, 'taker fee', nowIso());
-    journal.post(this.db, { kind: 'fee', ref: tradeId, userId, memo: `taker fee (exact $${(charge.micro / 1e6).toFixed(6)})`, ledgerId: charge.cents !== 0 ? lid : null },
+    journal.post(this.db, { kind: 'fee', ref: tradeId, userId, memo: `taker fee (exact ${C.moneyCents(charge.micro / 1e4, { exact: C.config().code === 'USD' ? 6 : 4 })})`, ledgerId: charge.cents !== 0 ? lid : null },
       [[journal.accounts.reserved(userId), -charge.cents], ['house:fees', charge.toFees], ['house:fees:rounding', charge.toRounding]]);
   }
 
@@ -511,7 +512,7 @@ class Engine extends EventEmitter {
           .run(newId('s_'), p.user_id, ticker, m.result, p.yes_count, p.no_count, payout, cost, nowIso(), s, payout);
         this.db.prepare('UPDATE positions SET yes_count=0, no_count=0, yes_cost_cents=0, no_cost_cents=0, realized_pnl_cents=realized_pnl_cents+?, updated_at=? WHERE user_id=? AND market_ticker=?')
           .run(payout - cost, nowIso(), p.user_id, ticker);
-        this.credit(p.user_id, payout, 'settlement', ticker, m.result === 'scalar' ? `settled at $${P.ccToDollars(s)} per YES` : `settled ${m.result.toUpperCase()}`);
+        this.credit(p.user_id, payout, 'settlement', ticker, m.result === 'scalar' ? `settled at ${C.priceCc(s)} per YES` : `settled ${m.result.toUpperCase()}`);
         touched.add(p.user_id);
         paid.push({ user_id: p.user_id, market_ticker: ticker, result: m.result, payout_cents: payout });
       }
@@ -557,7 +558,7 @@ class Engine extends EventEmitter {
         this.db.prepare('UPDATE settlements SET effective_payout_cents=?, corrected_at=? WHERE id=?').run(next, nowIso(), r.id);
         if (delta) {
           this.db.prepare('UPDATE positions SET realized_pnl_cents=realized_pnl_cents+?, updated_at=? WHERE user_id=? AND market_ticker=?').run(delta, nowIso(), r.user_id, ticker);
-          this.credit(r.user_id, delta, 'settlement_correction', ticker, `${memo}: ${newResult === 'scalar' ? `now $${P.ccToDollars(s)} per YES` : `now ${newResult.toUpperCase()}`}`);
+          this.credit(r.user_id, delta, 'settlement_correction', ticker, `${memo}: ${newResult === 'scalar' ? `now ${C.priceCc(s)} per YES` : `now ${newResult.toUpperCase()}`}`);
         }
         changes.push({ user_id: r.user_id, before_cents: eff, after_cents: next, delta_cents: delta });
       }

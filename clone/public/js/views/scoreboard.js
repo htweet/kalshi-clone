@@ -3,7 +3,7 @@
 // the page-wide live patcher that applies `live_data` WebSocket messages (polling fallback) to whatever is shown.
 // Monograms and sport icons are generated here (no logos or photos).
 import { vars } from '../dynstyle.js';
-import { esc, cents, eventHref } from '../lib.js';
+import { esc, cents, eventHref, dayKey, fmtDt, fmtDay } from '../lib.js';
 import { socket } from '../ws.js';
 import { request } from '../api.js';
 
@@ -28,8 +28,8 @@ export function startText(isoStr) {
   const d = new Date(isoStr); const mins = Math.round((d - Date.now()) / 60000);
   if (mins <= 0) return 'Starting';
   if (mins < 60) return `Starts in ${mins}m`;
-  const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  return d.toDateString() === new Date().toDateString() ? `Today ${t}` : `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · ${t}`;
+  const t = fmtDt(d, { hour: 'numeric', minute: '2-digit' });
+  return dayKey(d) === dayKey() ? `Today ${t}` : `${fmtDay(d)} · ${t}`;
 }
 export const statusText = (ld) => (ld.status === 'live' ? ld.live_label : isFinal(ld) ? 'Final' : startText(ld.start_date));
 

@@ -44,9 +44,9 @@ async function signUp(page, u, dollars) {
   await page.click('button[type=submit]');
   await page.waitForSelector('[data-testid=account-menu]');
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', String(dollars));
+  await page.fill('#f-amount', String(dollars * 100)); // naira (CLONE_SPEC.md §30)
   await page.click('[data-act=deposit]');
-  await page.waitForSelector(`[data-testid=header-balance]:has-text("$${dollars}.00")`);
+  await page.waitForSelector(`[data-testid=header-balance]:has-text("₦${(dollars * 100).toLocaleString('en-NG')}")`);
 }
 async function logIn(page, u) {
   await page.goto(BASE + '/sign-in');
@@ -126,8 +126,8 @@ test('B quotes (UI validation first); A sees it live and accepts; B confirms; ex
   const q = dbq('SELECT * FROM rfq_quotes WHERE rfq_id=?', rfqId)[0];
   assert.deepEqual([q.maker_id, q.yes_bid_cents, q.no_bid_cents, q.yes_units, q.no_units, q.status], [uid(B), 55, 40, 500, 500, 'open']);
   // Live on A's side: "Buy YES 60¢" (accepting the 40¢ NO bid) and "Buy NO 45¢" (accepting the 55¢ YES bid).
-  await pa.waitForSelector(`tr[data-rfq="${rfqId}"] [data-accept][data-side=no]:has-text("Buy YES 60¢")`);
-  assert.match(await pa.textContent(`tr[data-rfq="${rfqId}"] [data-accept][data-side=yes]`), /Buy NO 45¢/);
+  await pa.waitForSelector(`tr[data-rfq="${rfqId}"] [data-accept][data-side=no]:has-text("Buy YES ₦60")`);
+  assert.match(await pa.textContent(`tr[data-rfq="${rfqId}"] [data-accept][data-side=yes]`), /Buy NO ₦45/);
   assert.equal(dbq("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND type='rfq_quote'", uid(A))[0].c, 1);
   const aBefore = bal(A); const bBefore = bal(B);
   await pa.click(`tr[data-rfq="${rfqId}"] [data-accept][data-side=no]`);

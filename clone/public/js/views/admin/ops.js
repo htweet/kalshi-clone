@@ -1,5 +1,6 @@
 // Market ops (exchange switch, pause/resume, series fees, liquidity bot, combo eligibility, rolling windows) and
 // Perps ops (halt/resume, max leverage, run funding now).
+import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, statusBadge, badge, fmtTime, fmtQty } from './ui.js';
 
 export async function render({ el, section: sec }) {
@@ -13,10 +14,10 @@ export async function render({ el, section: sec }) {
     cols: [
       { key: 'status', label: 'Status', render: (r) => statusBadge(r.status) },
       { key: 'ticker', label: 'Market', render: (r) => `<div><code>${esc(r.ticker)}</code></div><div class="faint">${esc(r.outcome)}</div>` },
-      { key: 'last_price_dollars', label: 'Last', num: true, render: (r) => (r.last_price_dollars == null ? '—' : `${Math.round(r.last_price_dollars * 100)}¢`) },
+      { key: 'last_price_dollars', label: 'Last', num: true, render: (r) => (r.last_price_dollars == null ? '—' : esc(pxCents(Math.round(r.last_price_dollars * 100)))) },
       { key: 'yes_bid_dollars', label: 'Bid / Ask', num: true, render: (r) => `${r.yes_bid_dollars == null ? '—' : Math.round(r.yes_bid_dollars * 100)} / ${r.yes_ask_dollars == null ? '—' : Math.round(r.yes_ask_dollars * 100)}` },
       { key: 'volume_fp', label: 'Volume', num: true, render: (r) => fmtQty(r.volume_fp) },
-      { key: 'liquidity', label: 'Liquidity bot', sort: (r) => (r.liquidity?.enabled ? 1 : 0), render: (r) => (r.liquidity ? (r.liquidity.enabled ? badge(`${r.liquidity.size_contracts} × ${r.liquidity.levels} @ ${r.liquidity.spread_cents}¢`, 'ok') : badge('off')) : '<span class="faint">seed only</span>') },
+      { key: 'liquidity', label: 'Liquidity bot', sort: (r) => (r.liquidity?.enabled ? 1 : 0), render: (r) => (r.liquidity ? (r.liquidity.enabled ? badge(`${r.liquidity.size_contracts} × ${r.liquidity.levels} @ ${pxCents(r.liquidity.spread_cents)}`, 'ok') : badge('off')) : '<span class="faint">seed only</span>') },
       ...(data?.combos_available !== false ? [{ key: 'combo_eligible', label: 'Combos', render: (r) => `<label class="adm-toggle"><input type="checkbox" data-combo="${esc(r.ticker)}" ${r.combo_eligible ? 'checked' : ''} aria-label="Combo eligible ${esc(r.ticker)}"><span></span></label>` }] : []),
       { key: '_a', label: '', sort: false, render: (r) => `<span class="adm-actions">${r.status === 'active' ? `<button class="btn btn-sm" data-pause="${esc(r.ticker)}">Pause</button>` : r.status === 'inactive' ? `<button class="btn btn-sm btn-primary" data-resume="${esc(r.ticker)}">Resume</button>` : ''}<button class="btn btn-sm" data-liq="${esc(r.ticker)}">Liquidity…</button></span>` },
     ] });
@@ -33,9 +34,9 @@ export async function render({ el, section: sec }) {
     st.setRows(data.series);
     const r = data.rolling;
     el.querySelector('#ops-rolling').innerHTML = r ? `<dl class="adm-dl" data-testid="rolling-view"><dt>Window</dt><dd>${esc(r.window_seconds)} s</dd><dt>Series</dt><dd><code>${esc(r.series_ticker)}</code></dd><dt>Windows so far</dt><dd>${esc(r.windows_total)}</dd>
-      <dt>Current</dt><dd>${r.current ? `${esc(fmtTime(r.current.start_time))} → ${esc(fmtTime(r.current.end_time))}, target $${esc(Number(r.current.target_dollars).toFixed(2))}` : '—'}</dd></dl>
+      <dt>Current</dt><dd>${r.current ? `${esc(fmtTime(r.current.start_time))} → ${esc(fmtTime(r.current.end_time))}, target ${esc(money(r.current.target_dollars))}` : '—'}</dd></dl>
       <p class="faint">Window length is set at boot (${esc(r.configurable)}).</p>
-      <table class="table"><thead><tr><th>Ended</th><th class="num">Target</th><th class="num">Close</th><th>Result</th></tr></thead><tbody>${r.recent.map((w) => `<tr><td>${esc(fmtTime(w.end_time))}</td><td class="num">$${Number(w.target_dollars).toFixed(2)}</td><td class="num">$${Number(w.close_dollars).toFixed(2)}</td><td>${w.result === 'yes' ? 'Above' : 'Below'}</td></tr>`).join('') || '<tr><td colspan="4" class="faint">None yet</td></tr>'}</tbody></table>` : '<p class="faint">Rolling markets are not running.</p>';
+      <table class="table"><thead><tr><th>Ended</th><th class="num">Target</th><th class="num">Close</th><th>Result</th></tr></thead><tbody>${r.recent.map((w) => `<tr><td>${esc(fmtTime(w.end_time))}</td><td class="num">${esc(money(w.target_dollars))}</td><td class="num">${esc(money(w.close_dollars))}</td><td>${w.result === 'yes' ? 'Above' : 'Below'}</td></tr>`).join('') || '<tr><td colspan="4" class="faint">None yet</td></tr>'}</tbody></table>` : '<p class="faint">Rolling markets are not running.</p>';
   }
   await load();
   el.addEventListener('change', async (e) => {
@@ -67,7 +68,7 @@ export async function render({ el, section: sec }) {
       } else if (b.dataset.liq) {
         const m = data.markets.find((x) => x.ticker === b.dataset.liq);
         const l = m.liquidity || data.publish_liquidity;
-        const fields = [{ name: 'enabled', label: 'Quote this market', type: 'checkbox', value: m.liquidity ? m.liquidity.enabled : true, span: true }, { name: 'spread_cents', label: 'Spread (¢, 2-40)', type: 'number', value: l.spread_cents, required: true },
+        const fields = [{ name: 'enabled', label: 'Quote this market', type: 'checkbox', value: m.liquidity ? m.liquidity.enabled : true, span: true }, { name: 'spread_cents', label: `Spread (${priceUnit()}, 2-40)`, type: 'number', value: l.spread_cents, required: true },
           { name: 'size_contracts', label: 'Size per level (contracts)', type: 'number', value: l.size_contracts, required: true }, { name: 'levels', label: 'Levels per side (1-5)', type: 'number', value: l.levels, required: true }];
         const d = dialog(`<h3>Liquidity bot · ${esc(m.ticker)}</h3><p class="muted">Saving cancels the liquidity account's resting orders here and re-quotes around the last price.</p>${formHtml(fields, { submit: 'Save and re-quote', id: 'liq', extra: '<button class="btn" type="button" data-close>Cancel</button>', testid: 'liquidity-form' })}`);
         d.querySelector('[data-close]').onclick = () => d.close();

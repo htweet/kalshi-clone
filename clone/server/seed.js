@@ -2,6 +2,7 @@
 // Seed data: entirely invented content (no third-party data or assets).
 // Quantities are written in units (hundredths of a contract, spec §16). Fractional trading is enabled on every
 // seeded market except the Harbor State election series (PLXSTATE), which stays whole-contract (spec §16.3).
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { open, tx, QTY_UNITS_KEY } = require('./db');
 const { nowIso, newId, hashPassword, slugify } = require('./util');
 const passwords = require('./passwords');
@@ -59,8 +60,8 @@ const CATALOG = [
         { t: 'PLXFILM-27PIC-ORCHARD', yes: 'Orchard Road', fair: 17, color: '#2b8a3e' }] },
   ] },
   { s: 'PLXCOIN', title: 'Token price levels', cat: 'Crypto', tags: ['Prices'], events: [
-    { e: 'PLXCOIN-26DEC', title: 'Will the PLX token close above $5 on Dec 31?', sub: 'Year-end close',
-      markets: [{ t: 'PLXCOIN-26DEC-T5', yes: 'Above $5', no: 'At or below $5', fair: 37 }] },
+    { e: 'PLXCOIN-26DEC', title: `Will the PLX token close above ${C.moneyCents(500)} on Dec 31?`, sub: 'Year-end close',
+      markets: [{ t: 'PLXCOIN-26DEC-T5', yes: `Above ${C.moneyCents(500)}`, no: `At or below ${C.moneyCents(500)}`, fair: 37 }] },
   ] },
   { s: 'PLXRAIN', title: 'Monthly rainfall', cat: 'Climate and Weather', tags: ['Rain'], events: [
     { e: 'PLXRAIN-26NOV', title: 'Harbor City rainfall in November', sub: 'Total inches',
@@ -131,7 +132,7 @@ function seed(db, { reset = false, demoPassword = null, quiet = false } = {}) {
       db.prepare('INSERT INTO series(ticker,title,slug,category,tags,frequency,fee_type,fee_multiplier,settlement_sources,rules) VALUES(?,?,?,?,?,?,?,?,?,?)')
         .run(s.s, s.title, slugify(s.title), s.cat, JSON.stringify(s.tags), 'custom', 'quadratic', 1,
           JSON.stringify([{ name: 'Parlance Resolution Desk', url: 'https://example.org/resolution' }]),
-          `Contracts in the ${s.title} series resolve from the named settlement source. Each contract pays $1.00 if its outcome occurs, otherwise $0.00.`);
+          `Contracts in the ${s.title} series resolve from the named settlement source. Each contract pays ${C.contractValue()} if its outcome occurs, otherwise ${C.moneyCents(0)}.`);
       for (const ev of s.events) {
         evIndex += 1;
         db.prepare('INSERT INTO events(ticker,series_ticker,title,sub_title,category,mutually_exclusive,is_live,live_label,news,featured,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')

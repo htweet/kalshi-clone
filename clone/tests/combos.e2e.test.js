@@ -63,9 +63,9 @@ test('Live rail ◇ COMBO opens the builder; the slip and amount persist in the 
   await page.click('button[type=submit]');
   await page.waitForSelector('[data-testid=account-menu]');
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', '200');
+  await page.fill('#f-amount', '20000');
   await page.click('[data-act=deposit]');
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$200.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦20,000")');
   await page.goto(BASE + '/live');
   await page.click('[data-testid=combo-rail-btn]');
   await page.waitForURL(BASE + '/combos');
@@ -84,7 +84,7 @@ test('Live rail ◇ COMBO opens the builder; the slip and amount persist in the 
   const r = await call(page, 'GET', `/trade-api/v2/markets/${RAV}`);
   const pc = Math.round(Number(q.b.market.last_price_dollars) * 100); const pr = Math.round(Number(r.b.market.last_price_dollars) * 100);
   assert.equal(await page.textContent('[data-testid=slip-odds]'), `${((pc / 100) * ((100 - pr) / 100) * 100).toFixed(1)}%`);
-  await page.fill('#combo-amount', '12.5');
+  await page.fill('#combo-amount', '1250');
   await page.locator('#combo-amount').blur();
   await page.waitForTimeout(500);
   const slip = dbq('SELECT * FROM combo_slips WHERE user_id=?', uid())[0];
@@ -109,7 +109,7 @@ test('request quote → countdown → Accept → Confirming… → executed thro
   await page.click('[data-testid=request-quote]');
   await page.waitForSelector('[data-testid=accept-quote]', { timeout: 10000 });
   assert.match(await page.textContent('[data-testid=accept-quote]'), /Accept · \d+s/);
-  const price = Number((await page.textContent('[data-testid=quote-price]')).match(/Yes (\d+)¢/)[1]);
+  const price = Number((await page.textContent('[data-testid=quote-price]')).match(/Yes ₦(\d+)/)[1]);
   const qtyShown = await page.textContent('[data-testid=quote-contracts]');
   const rfq = dbq('SELECT * FROM rfqs WHERE user_id=?', uid())[0];
   comboTicker = rfq.market_ticker;

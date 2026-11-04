@@ -302,11 +302,11 @@ test('browser: each action sends a fresh Idempotency-Key and the automatic retry
   });
   await page.goto(BASE + '/portfolio');
   await page.waitForSelector('#f-amount');
-  await page.fill('#f-amount', '25');
+  await page.fill('#f-amount', '2500');
   await page.click('#funds [data-act=deposit]');
   await page.waitForFunction(() => document.querySelector('#f-amount').value === '');
   // A second, separate click is a new action with a new key.
-  await page.fill('#f-amount', '5');
+  await page.fill('#f-amount', '500');
   await page.click('#funds [data-act=deposit]');
   await page.waitForFunction(() => document.querySelector('#f-amount').value === '');
   const deps = seen.filter((s) => s.path.endsWith('/deposits'));

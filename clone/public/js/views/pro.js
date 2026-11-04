@@ -2,7 +2,7 @@
 // volume, sortable, live-updating over the ticker channel, one click to the order ticket.
 import { api } from '../api.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, eventHref, qty, catLabel } from '../lib.js';
+import { esc, cents, prob, eventHref, qty, catLabel, pxCents } from '../lib.js';
 
 const COLS = [['title', 'Market'], ['bid', 'Bid'], ['ask', 'Ask'], ['last', 'Last'], ['chg', '24h'], ['vol', 'Volume']];
 
@@ -21,7 +21,7 @@ export async function render({ el }) {
     el.querySelector('#pro-rows').innerHTML = list.map(({ ev, m }) => {
       const chg = val({ ev, m }, 'chg');
       return `<tr data-ticker="${esc(m.ticker)}"><td><a href="${eventHref(ev)}?market=${esc(m.ticker)}" data-link><strong>${esc(m.yes_sub_title)}</strong> <span class="faint">${esc(ev.title)} · ${esc(catLabel(ev.category))}</span></a></td>
-        <td class="num c-yes">${cents(m.yes_bid_dollars) ?? '—'}¢</td><td class="num c-no">${cents(m.yes_ask_dollars) ?? '—'}¢</td><td class="num"><strong>${prob(m) ?? '—'}%</strong></td>
+        <td class="num c-yes">${esc(pxCents(cents(m.yes_bid_dollars)))}</td><td class="num c-no">${esc(pxCents(cents(m.yes_ask_dollars)))}</td><td class="num"><strong>${prob(m) ?? '—'}%</strong></td>
         <td class="num ${chg >= 0 ? 'delta-up' : 'delta-down'}">${chg ? (chg > 0 ? '+' : '') + chg : '0'}</td><td class="num">${qty(m.volume_fp)}</td>
         <td><a class="btn btn-sm" href="${eventHref(ev)}?side=yes&amp;market=${esc(m.ticker)}" data-link>Trade</a></td></tr>`;
     }).join('');

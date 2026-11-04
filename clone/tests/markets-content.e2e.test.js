@@ -112,7 +112,7 @@ test('sports derivatives: a spread / total market bought on the event page settl
   await page.waitForSelector('[data-testid=scoreboard]'); // the game board on the lines event page
   assert.match(await page.textContent('[data-testid=ev-live-label]'), /Live|Final/);
   await page.waitForSelector('#t-amount');
-  await page.fill('#t-amount', '5');
+  await page.fill('#t-amount', '500');
   await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Filled")');
   const spread = lines[0];
@@ -378,7 +378,7 @@ test('Liquidity Incentive Program: admin program, enrolment, accrual from restin
   await f.locator('[name=event_ticker]').fill(EV);
   await f.locator('[name=title]').fill('January meeting liquidity');
   await f.locator('[name=end_time]').fill(new Date(Date.now() + 10 * 60000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
-  await f.locator('[name=reward_pool_dollars]').fill('1000');
+  await f.locator('[name=reward_pool_dollars]').fill('100000');
   await f.locator('[name=reason]').fill('launch January program');
   await f.locator('button[type=submit]').click();
   await H.until(() => D.q("SELECT * FROM incentive_programs WHERE event_ticker=? AND title='January meeting liquidity'", EV)[0]);
@@ -392,7 +392,7 @@ test('Liquidity Incentive Program: admin program, enrolment, accrual from restin
   assert.equal((await H.call(page, 'POST', `/v1/users/${uid}/deposits`, { amount_dollars: 500 })).status, 201);
   await page.goto(BASE + '/incentives');
   await page.waitForSelector(`[data-testid=lip-row][data-program="${prog.id}"]`);
-  assert.equal(await page.textContent(`[data-testid=lip-row][data-program="${prog.id}"] [data-testid=lip-reward]`), '$1,000.00');
+  assert.equal(await page.textContent(`[data-testid=lip-row][data-program="${prog.id}"] [data-testid=lip-reward]`), '₦100,000');
   await page.fill('[data-testid=lip-search]', 'january');
   assert.equal(await page.locator('[data-testid=lip-row]').count(), 1);
   await page.click('[data-testid=lip-join]'); // without the checkbox: refused in the UI
@@ -405,7 +405,7 @@ test('Liquidity Incentive Program: admin program, enrolment, accrual from restin
   assert.equal(o.status, 201, JSON.stringify(o.body)); assert.equal(o.body.status, 'resting');
   // Snapshots every 400 ms accrue to the resting order; the page shows the pending amount live.
   await H.until(() => (D.q('SELECT micro_cents m FROM incentive_accruals WHERE program_id=? AND user_id=?', prog.id, uid)[0]?.m || 0) >= 150 * 1e6, 30000, 200);
-  await page.waitForFunction(() => Number((document.querySelector('[data-testid=lip-pending]')?.textContent || '$0').replace(/[$,]/g, '')) >= 1);
+  await page.waitForFunction(() => Number((document.querySelector('[data-testid=lip-pending]')?.textContent || '₦0').replace(/[₦,]/g, '')) >= 100);
   assert.equal(D.q("SELECT COUNT(*) c FROM incentive_accruals a JOIN users u ON u.id=a.user_id WHERE a.program_id=? AND u.is_system=1", prog.id)[0].c, 0, 'system liquidity earns nothing');
 
   // Admin pays out in the UI (reason, step-up window fresh); the journal carries it; the ledger audit balances.
@@ -427,8 +427,8 @@ test('Liquidity Incentive Program: admin program, enrolment, accrual from restin
   assert.equal(auditRows('incentives.program.payout').at(-1).reason, 'mid-program payout');
   assert.ok(D.q("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND type='market_reward'", uid)[0].c >= 1);
   // The user's page shows this month's and lifetime rewards (live, over the private channel) and the history.
-  await page.waitForFunction((cents) => (document.querySelector('[data-testid=lip-lifetime]')?.textContent || '') === `$${(cents / 100).toFixed(2)}`, rw.amount_cents);
-  assert.equal(await page.textContent('[data-testid=lip-month]'), `$${(rw.amount_cents / 100).toFixed(2)}`);
+  await page.waitForFunction((cents) => (document.querySelector('[data-testid=lip-lifetime]')?.textContent || '') === `₦${cents.toLocaleString('en-NG')}`, rw.amount_cents);
+  assert.equal(await page.textContent('[data-testid=lip-month]'), `₦${rw.amount_cents.toLocaleString('en-NG')}`);
   await page.click('[data-testid=lip-history-btn]');
   await page.waitForSelector('[data-testid=lip-history] [data-testid=lip-accrual]');
   // Your activity lists the reward.
@@ -527,7 +527,7 @@ test('persistence across a restart; new pages clean at 390 px in dark and light'
   await lp.waitForSelector('[data-testid=account-menu]');
   await lp.goto(BASE + '/incentives');
   const paid = D.q('SELECT SUM(amount_cents) c FROM incentive_rewards WHERE user_id=?', uidOf('lip'))[0].c;
-  await lp.waitForFunction((cents) => (document.querySelector('[data-testid=lip-lifetime]')?.textContent || '') === `$${(cents / 100).toFixed(2)}`, paid);
+  await lp.waitForFunction((cents) => (document.querySelector('[data-testid=lip-lifetime]')?.textContent || '') === `₦${cents.toLocaleString('en-NG')}`, paid);
   assert.equal((await admin.call('POST', '/v1/admin/payments/ledger_audit/run', {})).body.ok, true);
   await page.context().close(); await lp.context().close();
 

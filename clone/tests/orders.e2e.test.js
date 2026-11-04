@@ -45,9 +45,9 @@ async function signUp(page, u, dollars) {
   await page.click('button[type=submit]');
   await page.waitForSelector('[data-testid=account-menu]');
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', String(dollars));
+  await page.fill('#f-amount', String(dollars * 100)); // naira (CLONE_SPEC.md §30)
   await page.click('[data-act=deposit]');
-  await page.waitForSelector(`[data-testid=header-balance]:has-text("$${dollars}.00")`);
+  await page.waitForSelector(`[data-testid=header-balance]:has-text("₦${(dollars * 100).toLocaleString('en-NG')}")`);
 }
 async function logIn(page, u) {
   await page.goto(BASE + '/sign-in');
@@ -124,7 +124,7 @@ test('decrease keeps time priority; amend price loses it; reservations stay exac
   const form = `[data-edit-form="${o55.id}"]`;
   await pr.fill(`${form} input[name=price]`, '0');
   await pr.click(`${form} button[type=submit]`);
-  await pr.waitForSelector(`[data-edit-row="${o55.id}"] .form-error:has-text("between 1¢ and 99¢")`);
+  await pr.waitForSelector(`[data-edit-row="${o55.id}"] .form-error:has-text("between ₦1 and ₦99")`);
   await pr.fill(`${form} input[name=price]`, '58');
   await pr.fill(`${form} input[name=count]`, '0');
   await pr.click(`${form} button[type=submit]`);
@@ -136,7 +136,7 @@ test('decrease keeps time priority; amend price loses it; reservations stay exac
   assert.ok(o.seq > o55.seq);
   assert.deepEqual([o.price_cents, o.remaining_count, o.reserved_cents, o.status], [58, 200, reserve(200, 58), 'resting']);
   assert.equal(bal(R) + held(R), cash0);
-  await pr.waitForSelector(`${row} [data-testid=o-price]:has-text("58¢")`);
+  await pr.waitForSelector(`${row} [data-testid=o-price]:has-text("₦58")`);
   assert.equal(await pr.textContent(`${row} [data-testid=o-queue]`), '0.00');
   // API: increasing size forfeits priority; decreasing via amend keeps it; decrease validation.
   const U = `/v1/users/${uid(R)}/orders/${o20.id}`;

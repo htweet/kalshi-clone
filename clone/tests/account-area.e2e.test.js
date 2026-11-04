@@ -158,7 +158,7 @@ test('Documents (/account/taxes): yearly P&L with and without fees, transactions
   let dl = page.waitForEvent('download');
   await page.click(`[data-testid=pnl-table] tr[data-year="${year}"] [data-testid=transactions-download]`);
   const csv = fs.readFileSync(await (await dl).path(), 'utf8');
-  assert.match(csv, /^time,type,amount_usd,reference,memo/); assert.ok(csv.includes(',deposit,100.00,'));
+  assert.match(csv, /^time,type,amount_ngn,reference,memo/); assert.ok(csv.includes(',deposit,10000.00,'));
   dl = page.waitForEvent('download');
   await page.click(`[data-testid=statement-list] li[data-year="${year}"] [data-form=PNL] [data-testid=statement-pdf]`);
   const pdf = fs.readFileSync(await (await dl).path());
@@ -300,12 +300,12 @@ test('promo codes (admin-created, single use, ledger credit, exhaustion) and the
   await admin.waitForSelector('[data-testid=account-menu]');
   await admin.goto(BASE + '/admin/promos');
   await admin.fill('[data-testid=promo-code]', 'WELCOME-TEST5');
-  await admin.fill('[data-testid=promo-amount]', '5');
+  await admin.fill('[data-testid=promo-amount]', '500');
   await admin.fill('[data-testid=promo-max]', '1');
   await admin.click('[data-testid=promo-create]');
   await admin.waitForSelector('[data-testid=promo-list] tr[data-promo="WELCOME-TEST5"]');
   await admin.fill('[data-testid=promo-code]', 'x');
-  await admin.fill('[data-testid=promo-amount]', '5');
+  await admin.fill('[data-testid=promo-amount]', '500');
   await admin.click('[data-testid=promo-create]');
   await admin.waitForSelector('[data-testid=promo-error]:has-text("code")');
   assert.equal(D.q("SELECT COUNT(*) c FROM admin_audit WHERE action='promo.create'")[0].c, 1);
@@ -324,8 +324,8 @@ test('promo codes (admin-created, single use, ledger credit, exhaustion) and the
   await page.waitForSelector('[data-testid=promo-error]:has-text("isn’t valid")');
   await page.fill('[data-testid=promo-input]', 'welcome-test5');
   await page.click('[data-testid=promo-submit]');
-  await page.waitForSelector('.toast:has-text("Promo code applied: $5.00 credit")');
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$5.00")');
+  await page.waitForSelector('.toast:has-text("Promo code applied: ₦500 credit")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦500")');
   const led = D.q("SELECT * FROM ledger WHERE user_id=? AND kind='credit'", uid);
   assert.equal(led.length, 1); assert.equal(led[0].amount_cents, 500); assert.match(led[0].memo, /WELCOME-TEST5/);
   let r = await api.call('POST', `/v1/users/${uid}/promo_codes`, { code: 'WELCOME-TEST5' });

@@ -5,7 +5,7 @@ import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars } from '../lib.js';
+import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars, priceUnit, pxCents, contractValue, amountLabel, toApiDollars, validMoneyInput, moneyStep, sym, fmtDay, fmtDateTime, isNgn } from '../lib.js';
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
@@ -23,7 +23,9 @@ const unitOf = (m) => m.scalar_unit || '';
 const fmtVal = (m, v) => `${Number(v).toLocaleString('en-US', { maximumFractionDigits: 4 })}${unitOf(m)}`;
 const scalarRange = (m) => `${fmtVal(m, m.floor_strike)} to ${fmtVal(m, m.cap_strike)}`;
 const TABS = [['ideas', 'Social'], ['trades', 'Activity'], ['book', 'Order book'], ['rules', 'Rules'], ['holders', 'Top holders']];
+// The amount mode keeps its key (`dollars`, the API order type) and is labelled in the display currency: Naira / Dollars.
 const MODES = [['dollars', 'Dollars'], ['market', 'Contracts'], ['limit', 'Limit order']];
+const modeLabel = (k, l) => (k === 'dollars' ? amountLabel() : l);
 const RFQ_MODE = ['rfq', 'Request quote']; // shown when the rfq_enabled user property is on (spec §17.6)
 const COMBO_SERIES = 'PLXCOMBO';
 const SVG = {
@@ -109,7 +111,7 @@ export async function render({ el, params, query, navigate }) {
       <div id="bottom"></div>
       <div class="sec-head mt-48"><h2>People are also trading</h2></div><div id="also"></div>
       ${ev.news_items ? '<div id="ai-summary" class="ai-mount"></div>' : ''}
-      ${ev.news || ev.news_items ? `<div class="sec-head"><h2>News</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${new Date(Date.now() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
+      ${ev.news || ev.news_items ? `<div class="sec-head"><h2>News</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${evIcon({ category: ev.category, title: 'P' }, 'sm')} PARLANCE NEWSROOM · ${fmtDay(Date.now() - 86400000)}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
     </div>
     <aside>
       ${comboEligible ? '<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" aria-pressed="false">◇ COMBO</button><div id="combo-mini"></div>' : ''}
@@ -147,10 +149,11 @@ export async function render({ el, params, query, navigate }) {
   $('#csv-btn').onclick = async () => {
     const [span, period] = RANGES[state.range];
     const now = Math.floor(Date.now() / 1000);
-    const rows = ['time,market,outcome,yes_price_dollars,volume_contracts'];
+    const ngn = isNgn(); // price column in the display currency (CLONE_SPEC.md §30): yes_price_ngn (naira) or yes_price_dollars
+    const rows = [`time,market,outcome,${ngn ? 'yes_price_ngn' : 'yes_price_dollars'},volume_contracts`];
     for (const m of state.ev.markets) {
       const c = await api.candles(ev.series_ticker, m.ticker, { start_ts: now - span, end_ts: now, period_interval: period });
-      for (const k of c.candlesticks) rows.push([new Date(k.end_period_ts * 1000).toISOString(), m.ticker, `"${m.yes_sub_title.replace(/"/g, '""')}"`, k.price.close_dollars, k.volume_fp].join(','));
+      for (const k of c.candlesticks) rows.push([new Date(k.end_period_ts * 1000).toISOString(), m.ticker, `"${m.yes_sub_title.replace(/"/g, '""')}"`, ngn && k.price.close_dollars != null ? (ccOf(k.price.close_dollars) / 100).toFixed(2) : k.price.close_dollars, k.volume_fp].join(','));
     }
     download(`${ev.event_ticker.toLowerCase()}-prices.csv`, 'text/csv', rows.join('\n') + '\n');
   };
@@ -209,8 +212,8 @@ export async function render({ el, params, query, navigate }) {
     const mid = m.floor_strike + span / 2;
     const settled = ['determined', 'finalized'].includes(m.status) && m.settlement_value_dollars != null;
     box.innerHTML = `<section class="card scalar-card" data-testid="scalar-card"><h3>How this market pays</h3>
-      <p class="muted">YES pays a share of $1 set by the reported value between <b>${esc(fmtVal(m, m.floor_strike))}</b> (pays $0) and <b>${esc(fmtVal(m, m.cap_strike))}</b> (pays $1): (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, span))}. NO pays the rest. Values outside the range pay at the nearest end.</p>
-      <div class="tkt-row"><span>Example: value ${esc(fmtVal(m, mid))}</span><strong class="num">YES $0.50 · NO $0.50</strong></div>
+      <p class="muted">YES pays a share of ${esc(contractValue())} set by the reported value between <b>${esc(fmtVal(m, m.floor_strike))}</b> (pays ${esc(money(0))}) and <b>${esc(fmtVal(m, m.cap_strike))}</b> (pays ${esc(contractValue())}): (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, span))}. NO pays the rest. Values outside the range pay at the nearest end.</p>
+      <div class="tkt-row"><span>Example: value ${esc(fmtVal(m, mid))}</span><strong class="num">YES ${esc(money(0.5))} · NO ${esc(money(0.5))}</strong></div>
       ${settled ? `<div class="tkt-row" data-testid="scalar-result"><span>Settled at ${esc(fmtVal(m, m.expiration_value))}</span><strong class="num">YES ${esc(money(m.settlement_value_dollars))} · NO ${esc(money(1 - Number(m.settlement_value_dollars)))}</strong></div>` : ''}</section>`;
   }
 
@@ -291,8 +294,8 @@ export async function render({ el, params, query, navigate }) {
     const tick = minTickCc(m); // price input step in cents: 1, 0.1 or 0.01
     const held = state.held[state.side];
     t.innerHTML = `<div class="tkt-head"><button data-action="buy" class="${!selling ? 'on' : ''}">BUY</button><button data-action="sell" class="${selling ? 'on' : ''}" data-testid="sell-tab">SELL</button>
-        <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(MODE_LIST.find(([k]) => k === mode)[1].toUpperCase())} ▾</button>
-        <div class="menu mode-menu" id="t-mode-menu" hidden>${MODE_LIST.map(([k, l]) => `<button data-otype="${esc(k)}" ${selling && (k === 'dollars' || k === 'rfq') ? 'disabled' : ''}>${esc(l)}</button>`).join('')}</div></div></div>
+        <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(modeLabel(mode, MODE_LIST.find(([k]) => k === mode)[1]).toUpperCase())} ▾</button>
+        <div class="menu mode-menu" id="t-mode-menu" hidden>${MODE_LIST.map(([k, l]) => `<button data-otype="${esc(k)}" ${selling && (k === 'dollars' || k === 'rfq') ? 'disabled' : ''}>${esc(modeLabel(k, l))}</button>`).join('')}</div></div></div>
       <div class="tkt-body">
         <div class="tkt-q">${esc(state.ev.title)}</div>
         <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
@@ -301,13 +304,13 @@ export async function render({ el, params, query, navigate }) {
           <button class="interest-link" id="interest-btn" type="button">3.5% Interest</button>
         </div>
         ${selling ? `<div class="tkt-row" data-testid="held"><span>You hold</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
-        ${mode === 'dollars' ? '<label class="tkt-input">Dollars<input id="t-amount" type="number" min="1" step="1" placeholder="$0" inputmode="decimal" aria-label="Dollars"></label>' : ''}
-        ${mode === 'limit' ? `<label class="tkt-input">Limit price (¢)<input id="t-price" type="number" min="${esc(tick / 100)}" max="${esc(100 - tick / 100)}" step="${esc(tick / 100)}" value="${esc((selling ? sellPrice() : ticketPrice) / 100)}" inputmode="decimal" data-testid="t-price"></label>
+        ${mode === 'dollars' ? `<label class="tkt-input">${esc(amountLabel())}<input id="t-amount" type="number" min="1" step="${esc(moneyStep())}" placeholder="${esc(sym())}0" inputmode="decimal" aria-label="${esc(amountLabel())}" data-testid="t-amount"></label>` : ''}
+        ${mode === 'limit' ? `<label class="tkt-input">Limit price (${esc(priceUnit())})<input id="t-price" type="number" min="${esc(tick / 100)}" max="${esc(100 - tick / 100)}" step="${esc(tick / 100)}" value="${esc((selling ? sellPrice() : ticketPrice) / 100)}" inputmode="decimal" data-testid="t-price"></label>
           ${tick < 100 ? `<div class="faint tkt-grid" data-testid="t-grid">Ticks: ${esc(m.price_ranges.map((r) => `${pxc(ccOf(r.step))} from ${pxc(ccOf(r.start))}`).join(' · '))}</div>` : ''}` : ''}
         ${mode === 'limit' ? `<label class="tkt-input tkt-select">Expires<select id="t-expiry" data-testid="t-expiry" aria-label="Order expiry"><option value="never">Never (GTC)</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label>
           <input id="t-expiry-at" class="tkt-expiry-at" type="datetime-local" hidden aria-label="Expiry time">` : ''}
         ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="${step}" step="${step}" value="${esc(selling ? held || 1 : 10)}" inputmode="${frac ? 'decimal' : 'numeric'}" data-testid="t-count"></label>` : ''}
-        ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">Scalar: YES pays (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, m.cap_strike - m.floor_strike))} of $1, NO the rest.</div>` : ''}
+        ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">Scalar: YES pays (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, m.cap_strike - m.floor_strike))} of ${esc(contractValue())}, NO the rest.</div>` : ''}
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
         <div id="t-review"></div>
@@ -329,11 +332,13 @@ export async function render({ el, params, query, navigate }) {
       const sum = t.querySelector('#t-summary');
       const closeLabel = `<span>Max payout<div class="faint">${shortDate(m.close_time)}</div></span>`;
       if (mode === 'dollars') {
-        const amt = Number(t.querySelector('#t-amount').value || 0);
+        const raw = t.querySelector('#t-amount').value;
+        const amt = raw === '' ? 0 : validMoneyInput(raw) ? toApiDollars(raw) : NaN; // naira ÷ 100 = the API's dollars (whole naira)
         const p = state.side === 'yes' ? yesAsk : noAsk; // cc
         const pc = p ? p / 100 : 0; // cents, may have decimals
         const per = p ? pc + Math.ceil((FEE_RATE * pc * (100 - pc)) / 100) : 0;
-        const c = p ? (frac ? Math.floor((amt * 10000) / per) / 100 : Math.floor((amt * 100) / per)) : 0; // floor to 0.01 where fractional
+        const c = p && amt > 0 ? (frac ? Math.floor((amt * 10000) / per) / 100 : Math.floor((amt * 100) / per)) : 0; // floor to 0.01 where fractional
+        if (Number.isNaN(amt)) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${esc(amountLabel() === 'Naira' ? 'Enter a whole number of naira.' : 'Enter an amount with at most 2 decimals.')}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
         sum.innerHTML = `<div class="tkt-row"><span>Odds</span><strong>${p ? Math.round(state.side === 'yes' ? pc : 100 - pc) : '—'}% chance</strong></div>
           <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${qty(c)} contracts at ${esc(pxc(p))}</div>`;
         t.querySelector('#t-submit').disabled = !!session.user && !(c > 0);
@@ -380,7 +385,7 @@ export async function render({ el, params, query, navigate }) {
     // Build the order body from the inputs (prices as 4-decimal dollar strings on the market grid).
     const buildBody = () => {
       const body = { ticker: m.ticker, side: state.side, action: state.action, type: mode };
-      if (mode === 'dollars') body.amount_dollars = Number(t.querySelector('#t-amount').value || 0);
+      if (mode === 'dollars') body.amount_dollars = toApiDollars(t.querySelector('#t-amount').value || 0);
       else body.count = Number(t.querySelector('#t-count').value);
       if (mode === 'limit') body.price_dollars = ccDollars(Math.round(Number(t.querySelector('#t-price').value) * 100));
       // Good-til-time limit orders (spec §17.10): end of the local day or a custom time; Never = GTC.
@@ -398,12 +403,12 @@ export async function render({ el, params, query, navigate }) {
       const r = state.review || {};
       const box = t.querySelector('#t-review');
       const c = mode === 'dollars' ? null : body.count;
-      const priceLine = mode === 'dollars' ? `Spend up to ${money(body.amount_dollars)} at ${pxc(selling ? sellPrice() : defaultPrice())}` : mode === 'market' ? `Market order (best available, ${pxc(r.p)} now)` : `Limit ${px(body.price_dollars)}${body.expiration_time ? ` · expires ${new Date(body.expiration_time).toLocaleString()}` : ' · good til canceled'}`;
+      const priceLine = mode === 'dollars' ? `Spend up to ${money(body.amount_dollars)} at ${pxc(selling ? sellPrice() : defaultPrice())}` : mode === 'market' ? `Market order (best available, ${pxc(r.p)} now)` : `Limit ${px(body.price_dollars)}${body.expiration_time ? ` · expires ${fmtDateTime(body.expiration_time)}` : ' · good til canceled'}`;
       box.innerHTML = `<section class="tkt-review" data-testid="order-review" aria-label="Review order"><h4>Review order</h4>
         <div class="tkt-row"><span>Order</span><strong>${esc(selling ? 'Sell' : 'Buy')} ${c != null ? `${esc(qty(c))} ` : ''}${esc(state.side.toUpperCase())} · ${esc(m.yes_sub_title)}</strong></div>
         <div class="tkt-row"><span>Price</span><strong data-testid="review-price">${esc(priceLine)}</strong></div>
         ${c != null && !selling ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="review-cost">${money((r.p * c) / 10000)}</strong></div><div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num" data-testid="review-fee">${money(r.fee || 0)}</strong></div>` : ''}
-        ${c != null && !selling ? `<div class="tkt-row"><span>${isScalar(m) ? 'Payout range' : 'Payout if right'}</span><strong class="num">${isScalar(m) ? `$0.00 to ${money(c)}` : money(c)}</strong></div>` : ''}
+        ${c != null && !selling ? `<div class="tkt-row"><span>${isScalar(m) ? 'Payout range' : 'Payout if right'}</span><strong class="num">${isScalar(m) ? `${money(0)} to ${money(c)}` : money(c)}</strong></div>` : ''}
         ${r.flip ? `<p class="tkt-flip" data-testid="review-flip">Flip sell: ${esc(r.flipLine)}.</p>` : ''}
         <div class="tkt-review-actions"><button class="btn" type="button" data-testid="review-edit">Edit</button><button class="btn btn-primary" type="button" data-testid="review-confirm">Place order</button></div></section>`;
       focusPanel('#t-review');
@@ -419,7 +424,7 @@ export async function render({ el, params, query, navigate }) {
       const target = snapCc(m, Math.min(10000 - minTickCc(m), avg + Math.max(minTickCc(m), 1000)));
       box.innerHTML = `<section class="tkt-autosell" data-testid="auto-sell-prompt" aria-label="Auto-sell"><h4>Set an automatic sell?</h4>
         <p class="faint">Filled ${esc(qty(filled))} ${esc(o.side.toUpperCase())} at ${esc(pxc(avg))} on average. A resting sell takes profit if the price gets there.</p>
-        <label class="tkt-input">Sell at (¢)<input type="number" data-testid="auto-sell-price" step="${esc(minTickCc(m) / 100)}" min="${esc(minTickCc(m) / 100)}" max="${esc(100 - minTickCc(m) / 100)}" value="${esc(target / 100)}" inputmode="decimal"></label>
+        <label class="tkt-input">Sell at (${esc(priceUnit())})<input type="number" data-testid="auto-sell-price" step="${esc(minTickCc(m) / 100)}" min="${esc(minTickCc(m) / 100)}" max="${esc(100 - minTickCc(m) / 100)}" value="${esc(target / 100)}" inputmode="decimal"></label>
         <div class="form-error" role="alert" data-testid="auto-sell-error"></div>
         <div class="tkt-review-actions"><button class="btn" type="button" data-testid="auto-sell-dismiss">No thanks</button><button class="btn btn-primary" type="button" data-testid="auto-sell-place">Place sell for ${esc(qty(filled))}</button></div></section>`;
       focusPanel('#t-after');
@@ -600,9 +605,9 @@ export async function render({ el, params, query, navigate }) {
     const p = prob(m) ?? 50;
     box.innerHTML = `<section class="card side-card" data-testid="alert-card"><h3 class="d-flex ai-center gap-6">${ICON.bell.replace('<svg', '<svg width="16" height="16"')} Price alert</h3>
       <form class="inline-form" id="alert-form"><label class="field flex-90">When Yes is<select name="direction"><option value="above">above</option><option value="below">below</option></select></label>
-      <label class="field flex-70">Price (¢)<input name="price" type="number" min="1" max="99" value="${Math.min(99, p + 5)}" required></label><button class="btn" type="submit">Add</button></form>
+      <label class="field flex-70">Price (${esc(priceUnit())})<input name="price" type="number" min="1" max="99" value="${Math.min(99, p + 5)}" required></label><button class="btn" type="submit">Add</button></form>
       <div class="form-error" id="alert-error" role="alert"></div>
-      ${list.map((t) => `<div class="outcome-row" data-alert="${esc(t.id)}"><span class="outcome-name">${esc(t.direction)} ${cents(t.price_dollars)}¢ <span class="faint">${t.triggered_time ? '· triggered' : '· active'}</span></span><button class="btn btn-sm btn-ghost" data-del-alert>Remove</button></div>`).join('')}</section>`;
+      ${list.map((t) => `<div class="outcome-row" data-alert="${esc(t.id)}"><span class="outcome-name">${esc(t.direction)} ${esc(pxCents(cents(t.price_dollars)))} <span class="faint">${t.triggered_time ? '· triggered' : '· active'}</span></span><button class="btn btn-sm btn-ghost" data-del-alert>Remove</button></div>`).join('')}</section>`;
     const f = box.querySelector('#alert-form');
     f.onsubmit = async (e) => {
       e.preventDefault();

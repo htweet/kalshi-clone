@@ -1,4 +1,5 @@
 'use strict';
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const express = require('express');
 const { tx } = require('./db');
 const { nowIso, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, encCursor, decCursor } = require('./util');
@@ -356,7 +357,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
         allowFractional = !!mk.f || flipUnits % UNITS === 0;
       } else allowFractional = units === held; // a held fractional position can always be closed in full
       side = b.side === 'yes' ? 'no' : 'yes';
-      if (type === 'limit') { if (pcc == null || pcc < 1 || pcc >= P.CC) throw E.badRequest('price must be between 1¢ and 99¢ (sub-cent ticks where the market allows them)'); pcc = P.CC - pcc; }
+      if (type === 'limit') { if (pcc == null || pcc < 1 || pcc >= P.CC) throw E.badRequest(`price must be between ${C.priceCents(1)} and ${C.priceCents(99)} (sub-cent ticks where the market allows them)`); pcc = P.CC - pcc; }
     }
     if (units != null) wholeOnly(units);
     let tif = type === 'limit' ? 'gtc' : 'ioc';
@@ -370,7 +371,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       // Spend up to amount_dollars at the current best ask (fee included), immediate-or-cancel.
       // Fractional markets buy down to 0.01 contracts; whole-contract markets round down to whole contracts.
       const amt = Math.round(Number(b.amount_dollars) * 100);
-      if (!Number.isFinite(amt) || amt < 1) throw E.badRequest('amount_dollars must be at least $0.01');
+      if (!Number.isFinite(amt) || amt < 1) throw E.badRequest(`amount_dollars must be at least 0.01 (${C.moneyCents(1)})`);
       const qq = engine.quote(ticker);
       const ask = side === 'yes' ? qq.yes_ask_cc : qq.no_ask_cc;
       if (ask == null) throw E.conflict('no_liquidity', 'there are no offers to buy from right now');
@@ -422,7 +423,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // File format (spec §9, U8 design choice): CSV of ledger entries.
   v1.get('/users/:uid/transactions.csv', requireUser, (req, res) => {
     const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-    const lines = ['time,type,amount_usd,reference,memo', ...ledgerRows(req.auth.user.id).map((l) => [l.created_at, l.kind, usd(l.amount_cents), l.ref || '', l.memo].map(esc).join(','))];
+    const lines = [`time,type,${C.csvCol('amount', 'amount_usd')},reference,memo`, ...ledgerRows(req.auth.user.id).map((l) => [l.created_at, l.kind, C.csvCents(l.amount_cents), l.ref || '', l.memo].map(esc).join(','))];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="parlance-transactions.csv"');
     res.send(lines.join('\n') + '\n');

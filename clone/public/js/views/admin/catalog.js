@@ -1,4 +1,5 @@
 // Catalog CMS: series / events / markets with a draft → published workflow, preview, CSV bulk import.
+import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { vars } from '../../dynstyle.js';
 import { esc, get, post, put, del, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, subTabs, statusBadge, badge, fmtTime, fmtQty, download, csvLine } from './ui.js';
 import { eventCard } from '../components.js';
@@ -47,7 +48,7 @@ const marketFields = (m = {}, isNew = true, events = []) => {
     ...(!pub || ['initialized', 'active', 'inactive'].includes(m.status) ? [
       { name: 'close_time', label: 'Closes', type: 'datetime', required: true, value: m.close_time || new Date(now + 30 * 86400000).toISOString() },
       { name: 'expected_expiration_time', label: 'Expected expiration', type: 'datetime', value: m.expected_expiration_time }] : []),
-    ...(!pub ? [{ name: 'initial_price', label: 'Starting price (¢)', type: 'number', value: m.initial_price ?? 50 },
+    ...(!pub ? [{ name: 'initial_price', label: `Starting price (${priceUnit()})`, type: 'number', value: m.initial_price ?? 50 },
       { name: 'fractional', label: 'Fractional contracts', type: 'checkbox', value: m.fractional ?? true },
       { name: 'seed_liquidity', label: 'Seed starting liquidity on publish', type: 'checkbox', value: m.seed_liquidity ?? true }] : []),
     { name: 'rules_primary', label: 'Rules', type: 'textarea', value: m.rules_primary, span: true },

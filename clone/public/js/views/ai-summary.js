@@ -3,9 +3,9 @@
 // (an admin hides or regenerates the summary) arrive on the public `event_content` channel.
 import { request } from '../api.js';
 import { socket } from '../ws.js';
-import { esc } from '../lib.js';
+import { esc, fmtDay } from '../lib.js';
 
-const fmt = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const fmt = (iso) => fmtDay(iso);
 
 function html(d) {
   const tl = d.timeline || [];

@@ -1,16 +1,17 @@
 // Resolution desk: closed / past-close markets, resolve with a required source note (a value for scalar markets),
 // reversal before settlement, settle now, early close; Phase 5A (CLONE_SPEC.md §28.7): settlement correction after
 // payout (claw-back / re-pay, step-up), the optional two-person rule and its approvals queue.
+import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, confirmAction, section, statusBadge, badge, fmtTime, fmtQty, fmtMoney } from './ui.js';
 
-const settlementLabel = (r) => (r.settlement === 'settled' ? badge('settled', 'ok') : r.settlement === 'pending_settlement' ? badge(`settles ${new Date(r.settles_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`, 'warn') : badge('awaiting result'));
+const settlementLabel = (r) => (r.settlement === 'settled' ? badge('settled', 'ok') : r.settlement === 'pending_settlement' ? badge(`settles ${fmtDt(r.settles_at, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`, 'warn') : badge('awaiting result'));
 
 export async function render({ el, perms }) {
   const canWrite = perms.has('resolution.write');
   const canPolicy = perms.has('settings.write');
   el.innerHTML = section('Resolution desk', 'Markets that have closed (or passed their close time) wait here for a result. Every resolution needs a source note; a result can be reversed until the settlement timer runs out. After payout, a settlement can be corrected: the difference is clawed back or paid through the ledger, and every affected trader is notified.') +
     '<div class="card adm-card" id="res-policy"></div><div id="res-approvals"></div><div id="res-queue"></div><h3 class="adm-h3">Close a market early</h3><div class="card adm-card" id="res-early"></div>';
-  const resultLabel = (r) => (r.market_type === 'scalar' && r.expiration_value != null ? `${esc(r.expiration_value)} · YES $${esc(Number(r.settlement_value_dollars).toFixed(4))}` : esc(String(r.result).toUpperCase()));
+  const resultLabel = (r) => (r.market_type === 'scalar' && r.expiration_value != null ? `${esc(r.expiration_value)} · YES ${esc(pxc(Math.round(Number(r.settlement_value_dollars) * 10000)))}` : esc(String(r.result).toUpperCase()));
   let data;
   const table = dataTable(el.querySelector('#res-queue'), {
     testid: 'resolution-queue', empty: 'No markets are waiting for a result.', rowAttrs: (r) => `data-row="${esc(r.ticker)}" data-status="${esc(r.status)}"`,

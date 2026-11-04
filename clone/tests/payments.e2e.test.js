@@ -129,7 +129,7 @@ test('card deposits in the browser: approve (live balance, Transfers notificatio
     await page.click('[data-testid=card-submit]');
     await page.waitForSelector('[data-testid=fund-amount]');
     assert.equal(await page.inputValue('[data-testid=card-number]').catch(() => ''), '', 'the card number is not kept in the form');
-    await page.fill('[data-testid=fund-amount]', String(amount));
+    await page.fill('[data-testid=fund-amount]', String(amount * 100)); // naira (CLONE_SPEC.md §30)
     await page.click('[data-testid=fund-continue]');
     await page.waitForSelector('[data-testid=fund-review]');
     await page.click('[data-testid=fund-confirm]');
@@ -137,8 +137,8 @@ test('card deposits in the browser: approve (live balance, Transfers notificatio
   // Approve: processing → succeeded via the signed webhook; the header balance updates live over WS.
   await cardDeposit(CARDS.approve, 40);
   await page.waitForSelector('[data-testid=fund-status][data-status=succeeded]', { timeout: 15000 });
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$40.00")');
-  await H.until(() => D.q("SELECT 1 FROM notifications WHERE user_id=? AND type='transfer' AND title LIKE 'Deposit of $40.00 completed%'", c.uid)[0]);
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦4,000")');
+  await H.until(() => D.q("SELECT 1 FROM notifications WHERE user_id=? AND type='transfer' AND title LIKE 'Deposit of ₦4,000 completed%'", c.uid)[0]);
   const card = D.q("SELECT * FROM payment_methods WHERE user_id=? AND type='card'", c.uid)[0];
   assert.equal(card.last4, '0002'); assert.equal(card.brand, 'visa'); assert.match(card.token, /^tok_/);
   // Decline: no money moves.
@@ -152,7 +152,7 @@ test('card deposits in the browser: approve (live balance, Transfers notificatio
   await page.waitForSelector('[data-testid=fund-status][data-status=requires_action] [data-testid=challenge-approve]', { timeout: 15000 });
   await page.click('[data-testid=challenge-approve]');
   await page.waitForSelector('[data-testid=fund-status][data-status=succeeded]', { timeout: 15000 });
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$50.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦5,000")');
   // The Transfers list and Your activity show the deposits.
   await page.click('[data-testid=fund-done]');
   await page.waitForSelector('[data-testid=transfers] [data-status=failed]');
@@ -213,11 +213,11 @@ test('bank: link in the browser, ACH deposit pending → settled (tradable, not 
   await page.click('[data-testid=bank-account][data-mask="0001"]');
   await page.click('[data-testid=bank-link]');
   await page.waitForSelector('[data-testid=fund-amount]');
-  await page.fill('[data-testid=fund-amount]', '100');
+  await page.fill('[data-testid=fund-amount]', '10000');
   await page.click('[data-testid=fund-continue]');
   await page.click('[data-testid=fund-confirm]');
   await page.waitForSelector('[data-testid=fund-status][data-status=pending]', { timeout: 15000 });
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$100.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦10,000")');
   const bank = D.q("SELECT * FROM payment_methods WHERE user_id=? AND type='bank'", c.uid)[0];
   assert.equal(bank.mask, '0001'); assert.match(bank.token, /^bacct_/);
   const dep = D.q("SELECT * FROM payment_transactions WHERE user_id=? AND rail='bank'", c.uid)[0];
@@ -235,7 +235,7 @@ test('bank: link in the browser, ACH deposit pending → settled (tradable, not 
   r = await c.api.call('POST', c.u('/bank_link/withdrawal'), { bank_id: bank.id, amount_dollars: 20 }, K());
   assert.equal(r.status, 201, show(r));
   assert.equal((await waitTx(c, r.body.payment_id, (x) => x.final)).status, 'paid');
-  assert.ok(D.q("SELECT 1 FROM notifications WHERE user_id=? AND type='transfer' AND title LIKE 'Deposit of $100.00 settled%'", c.uid)[0]);
+  assert.ok(D.q("SELECT 1 FROM notifications WHERE user_id=? AND type='transfer' AND title LIKE 'Deposit of ₦10,000 settled%'", c.uid)[0]);
   // withdrawal_times mirrors the observed endpoint.
   const wt = await c.api.call('GET', c.u('/withdrawal_times'));
   assert.ok(wt.body.withdrawal_times.some((x) => x.method === 'bank' && /business days/.test(x.estimate)));
@@ -280,7 +280,7 @@ test('crypto: deposit address, N confirmations, new address with step-up and coo
   await page.click('[data-testid=crypto-open]');
   const address = (await page.textContent('[data-testid=crypto-address]')).trim();
   assert.match(address, /^tpx1[a-z2-7]{34}$/);
-  await page.fill('[data-testid=crypto-sim-amount]', '80');
+  await page.fill('[data-testid=crypto-sim-amount]', '8000');
   await page.click('[data-testid=crypto-sim]');
   await page.waitForSelector('[data-testid=crypto-deposit] [data-testid=transfer-row][data-status=confirming]');
   assert.equal(Number((await meta(c)).balances.balance_dollars), 0);
@@ -289,7 +289,7 @@ test('crypto: deposit address, N confirmations, new address with step-up and coo
   assert.equal(Number((await meta(c)).balances.balance_dollars), 0, 'not credited before 3 confirmations');
   await mine(2);
   await page.waitForSelector('[data-testid=crypto-deposit] [data-testid=transfer-row][data-status=succeeded]');
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$80.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦8,000")');
   // A new withdrawal address is a payout destination: step-up (session older than the window), then a cooling period.
   const nets = (await c.api.call('GET', '/v1/payments/supported_networks')).body.networks;
   await page.goto(BASE + '/account/payments');
@@ -437,7 +437,7 @@ test('limits and AML: daily withdrawal limit, structuring and rapid deposit-then
   // Withdrawal limit per day ($50): $40 passes, the next $20 does not.
   assert.equal((await c.api.call('POST', c.u('/withdrawals'), { amount_dollars: 40 })).status, 201);
   r = await c.api.call('POST', c.u('/withdrawals'), { amount_dollars: 20 });
-  assert.equal(r.status, 409); assert.equal(r.body.error.code, 'withdrawal_limit_exceeded'); assert.match(r.body.error.details, /\$10\.00 left today/);
+  assert.equal(r.status, 409); assert.equal(r.body.error.code, 'withdrawal_limit_exceeded'); assert.match(r.body.error.details, /₦1,000 left today/);
   // Rapid deposit-then-withdraw without trading opens a case.
   const d = await user('rapid');
   await d.api.call('POST', d.u('/deposits'), { amount_dollars: 45 });

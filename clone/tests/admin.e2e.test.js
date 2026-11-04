@@ -386,7 +386,7 @@ test('users: search, balance adjustment (ledger + live header balance), lock ref
   const tp = traderPage;
   await tp.goto(BASE + '/portfolio');
   await tp.locator('[data-testid=header-balance]').waitFor();
-  const before = Number((await tp.locator('[data-testid=header-balance]').textContent()).replace(/[$,]/g, ''));
+  const before = Number((await tp.locator('[data-testid=header-balance]').textContent()).replace(/[₦,]/g, '')) / 100; // naira → dollars
   const page = adminPage;
   await page.goto(BASE + '/admin/users');
   await page.fill('[data-testid=user-search]', 'tess');
@@ -395,13 +395,13 @@ test('users: search, balance adjustment (ledger + live header balance), lock ref
   await page.locator('[data-testid=user-detail]').waitFor();
   assert.equal(await page.locator('[data-testid=user-positions] tbody tr').count() >= 1, true);
   await page.click('[data-testid=user-adjust]');
-  await fillForm(page.locator('dialog[open]'), { amount_dollars: 25, reason: 'Goodwill credit for the outage' });
+  await fillForm(page.locator('dialog[open]'), { amount_dollars: 2500, reason: 'Goodwill credit for the outage' }); // ₦2,500 = $25
   await submitDialog(page);
   const tid = uidOf(trader.email);
   const adj = dbq("SELECT amount_cents, memo FROM ledger WHERE user_id=? AND kind='adjustment'", tid);
   assert.deepEqual(adj.map((r) => ({ ...r })), [{ amount_cents: 2500, memo: 'Goodwill credit for the outage' }]);
-  await until(async () => Number((await tp.locator('[data-testid=header-balance]').textContent()).replace(/[$,]/g, '')) === Math.round((before + 25) * 100) / 100);
-  assert.match(await page.locator('[data-testid=user-cash]').textContent(), /\$/);
+  await until(async () => Number((await tp.locator('[data-testid=header-balance]').textContent()).replace(/[₦,]/g, '')) / 100 === Math.round((before + 25) * 100) / 100);
+  assert.match(await page.locator('[data-testid=user-cash]').textContent(), /₦/);
 
   // Lock: sessions are dropped and the password login is refused.
   await page.click('[data-testid=user-lock]');
@@ -518,22 +518,23 @@ test('reports dashboard numbers match the database / public API and the CSV down
   const page = adminPage;
   await page.goto(BASE + '/admin/reports');
   await page.locator('[data-testid=report-totals]').waitFor();
-  const num = async (k) => Number((await page.locator(`[data-testid=metric-${k}]`).textContent()).replace(/[$,]/g, ''));
+  const num = async (k) => Number((await page.locator(`[data-testid=metric-${k}]`).textContent()).replace(/[₦,]/g, ''));
+  const naira = async (k) => (await num(k)) / 100; // ₦ tiles → dollars (CLONE_SPEC.md §30)
   assert.equal(Math.round((await num('volume_fp')) * 100), vol);
-  assert.equal(Math.round((await num('fees_dollars')) * 100), fees);
+  assert.equal(Math.round((await naira('fees_dollars')) * 100), fees);
   assert.ok(fees > 0, 'test trades paid taker fees');
-  assert.equal(Math.round((await num('deposits_dollars')) * 100), deps);
+  assert.equal(Math.round((await naira('deposits_dollars')) * 100), deps);
   assert.equal(await num('signups'), signups);
   assert.equal(await num('active_users'), active);
   assert.ok(await page.locator('.adm-chart svg').count() >= 6);
   assert.ok(await page.locator('[data-testid=report-top] tbody tr').count() >= 1);
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=report-csv]')]);
   const lines = fs.readFileSync(await dl.path(), 'utf8').trim().split('\n');
-  assert.equal(lines[0], 'day,trades,volume_fp,volume_dollars,fees_dollars,deposits_dollars,withdrawals_dollars,active_users,signups');
+  assert.equal(lines[0], 'day,trades,volume_fp,volume_ngn,fees_ngn,deposits_ngn,withdrawals_ngn,active_users,signups');
   const total = lines.at(-1).split(',');
   assert.equal(total[0], 'total');
   assert.equal(Math.round(Number(total[2]) * 100), vol);
-  assert.equal(Math.round(Number(total[4]) * 100), fees);
+  assert.equal(Math.round(Number(total[4]) / 100 * 100), fees); // naira column (₦1 = 1 internal cent)
   assert.equal(lines.length, 32); // header + 30 days + total
   assert.deepEqual(page.errors, []);
 });

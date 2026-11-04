@@ -8,14 +8,14 @@ import { vars } from '../dynstyle.js';
 import { request } from '../api.js';
 import { socket } from '../ws.js';
 import { session } from '../store.js';
-import { esc, eventHref, toast } from '../lib.js';
+import { esc, eventHref, toast, fmtDate as fmtD, fmtDay, fmtTime } from '../lib.js';
 import { multiChart } from './components.js';
 
 const get = (u) => request('GET', u);
 const pct = (p) => `${Math.round(p * 100)}%`;
 const bp = (x) => `${x > 0 ? '+' : ''}${Number(x).toFixed(1)} bp`;
 const rate = (mid) => `${(mid / 100).toFixed(2)}%`;
-const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const fmtDate = (iso) => fmtD(iso);
 // Line chart for a value series ({t: seconds, v}) on its own scale (seats, basis points). SVG text uses user units.
 function valueChart(points, { fmt = (v) => String(v), height = 200, label = 'Chart', refLine = null } = {}) {
   if (points.length < 2) return '<p class="faint">Not enough history yet.</p>';
@@ -28,7 +28,7 @@ function valueChart(points, { fmt = (v) => String(v), height = 200, label = 'Cha
   const sy = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
   const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * i) / 3);
   const grid = ticks.map((g) => `<line x1="0" x2="${W - padR}" y1="${sy(g)}" y2="${sy(g)}" stroke="var(--fill-x50)" stroke-dasharray="1 5"/><text x="${W - 4}" y="${sy(g) + 4}" text-anchor="end" font-size="12" fill="var(--text-x20)">${esc(fmt(g))}</text>`).join('');
-  const days = [0, 1, 2].map((i) => minX + ((maxX - minX) * i) / 2).map((t, i) => `<text x="${Math.max(2, Math.min(W - padR - 40, sx(t) - (i ? 20 : 0)))}" y="${H - 6}" font-size="12" fill="var(--text-x20)">${esc(new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}</text>`).join('');
+  const days = [0, 1, 2].map((i) => minX + ((maxX - minX) * i) / 2).map((t, i) => `<text x="${Math.max(2, Math.min(W - padR - 40, sx(t) - (i ? 20 : 0)))}" y="${H - 6}" font-size="12" fill="var(--text-x20)">${esc(fmtDay(t * 1000))}</text>`).join('');
   const ref = refLine == null ? '' : `<line x1="0" x2="${W - padR}" y1="${sy(refLine)}" y2="${sy(refLine)}" stroke="var(--text-x30)" stroke-dasharray="4 4"/>`;
   const d = points.map((p, i) => `${i ? 'L' : 'M'}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(' ');
   const last = points[points.length - 1];
@@ -151,7 +151,7 @@ export async function render({ el, params }) {
         if (next) await drawForecast(history, next.series_ticker, next.event_ticker); else history.innerHTML = '<p class="faint">No open meetings.</p>';
         if (next) { const f = await get(`/v1/series/${encodeURIComponent(next.series_ticker)}/events/${encodeURIComponent(next.event_ticker)}/forecast_history?days=7`); fc.innerHTML = multiChart(f.outcomes.map((x) => ({ name: x.name, color: x.color, points: f.points.filter((p) => p.values[x.ticker] != null).map((p) => ({ t: p.ts, v: Math.round(p.values[x.ticker]) })) })), { height: 220, width: 640 }); }
       }
-      el.querySelector('[data-updated]').textContent = `Updated ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}`;
+      el.querySelector('[data-updated]').textContent = `Updated ${fmtTime(Date.now(), true)}`;
     } catch (e) { widget.innerHTML = `<p class="faint">${esc(e.message)}</p>`; }
   }
   await draw();

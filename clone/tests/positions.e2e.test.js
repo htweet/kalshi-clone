@@ -29,7 +29,7 @@ const dbq = (sql, ...a) => { const d = new DatabaseSync(DB_FILE); try { return d
 const uid = (u) => dbq('SELECT id FROM users WHERE email=?', u.email)[0].id;
 const bal = (u) => dbq('SELECT balance_cents b FROM users WHERE id=?', uid(u))[0].b;
 const posRow = (t) => dbq('SELECT * FROM positions WHERE user_id=? AND market_ticker=?', uid(P), t)[0];
-const usd = (c) => `$${(c / 100).toFixed(2)}`;
+const usd = (c) => `${c < 0 ? '-' : ''}₦${Math.abs(c).toLocaleString('en-NG')}`; // internal cents → naira (CLONE_SPEC.md §30)
 async function newPage(viewport = { width: 1700, height: 1000 }) {
   const ctx = await browser.newContext({ viewport });
   const page = await ctx.newPage();
@@ -45,9 +45,9 @@ async function signUp(page, u, dollars) {
   await page.click('button[type=submit]');
   await page.waitForSelector('[data-testid=account-menu]');
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', String(dollars));
+  await page.fill('#f-amount', String(dollars * 100)); // naira (CLONE_SPEC.md §30)
   await page.click('[data-act=deposit]');
-  await page.waitForSelector(`[data-testid=header-balance]:has-text("$${dollars}.00")`);
+  await page.waitForSelector(`[data-testid=header-balance]:has-text("₦${(dollars * 100).toLocaleString('en-NG')}")`);
 }
 async function logIn(page, u, pw = PW) {
   await page.goto(BASE + '/sign-in');
@@ -100,7 +100,7 @@ test('Positions is the default tab; whole + fractional holdings match the DB and
     const basis = p.yes_cost_cents + p.no_cost_cents + p.fees_paid_cents;
     assert.equal(await cell(pp, t, 'p-qty'), (units / 100).toLocaleString('en-US', { maximumFractionDigits: 2 }));
     assert.equal(await cell(pp, t, 'p-cost'), usd(basis));
-    assert.equal(await cell(pp, t, 'p-mark'), `${mark}¢`);
+    assert.equal(await cell(pp, t, 'p-mark'), `₦${mark}`);
     assert.equal(await cell(pp, t, 'p-value'), usd(value));
     assert.equal(await cell(pp, t, 'p-payout'), usd(units));
     assert.equal(await cell(pp, t, 'p-sell'), usd(sellValue(t, side, units, uid(P))));
@@ -117,8 +117,8 @@ test('another user\'s trade re-marks the row live', async () => {
   await signUp(pq, Q, 50);
   assert.equal((await call(pq, 'POST', `/v1/users/${uid(Q)}/orders`, { ticker: RAV, side: 'no', type: 'market', count: 2 })).s, 201);
   const mark = lastPrice(RAV);
-  assert.notEqual(`${mark}¢`, before);
-  await pp.waitForSelector(`tr[data-ticker="${RAV}"] [data-testid=p-mark]:has-text("${mark}¢")`);
+  assert.notEqual(`₦${mark}`, before);
+  await pp.waitForSelector(`tr[data-ticker="${RAV}"] [data-testid=p-mark]:has-text("₦${mark}")`);
   await pp.waitForSelector(`tr[data-ticker="${RAV}"] [data-testid=p-value]:has-text("${usd(Math.round((posRow(RAV).yes_count * mark) / 100))}")`);
   await pq.context().close();
 });
@@ -191,7 +191,7 @@ test('settlement: determined shows "Settling", then the position leaves the open
   await pp.goto(BASE + '/portfolio');
   await pp.click('[data-pfilter=all]');
   await pp.waitForSelector(`tr[data-ticker="${BLUE}"][data-state=settling]:has-text("Settling · YES")`);
-  assert.equal(await cell(pp, BLUE, 'p-value'), '$0.00');
+  assert.equal(await cell(pp, BLUE, 'p-value'), '₦0');
   await pp.waitForSelector(`tr[data-ticker="${BLUE}"]`, { state: 'detached', timeout: 15000 });
   assert.equal(dbq('SELECT payout_cents p FROM settlements WHERE user_id=? AND market_ticker=?', uid(P), BLUE)[0].p, 0);
   await admin.context().close();

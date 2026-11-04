@@ -1,5 +1,6 @@
 // Users (search, detail with balances / positions / orders / ledger / limits / MFA, audited support actions) and
 // Roles (staff role assignments + permission matrix).
+import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, badge, fmtTime, fmtQty, fmtMoney } from './ui.js';
 
 export async function render({ el, section: sec, parts, perms, navigate }) {
@@ -51,7 +52,7 @@ async function renderUser(el, id, perms, navigate) {
       { key: 'market_value_dollars', label: 'Value', num: true, render: (r) => fmtMoney(r.market_value_dollars) }, { key: 'realized_pnl_dollars', label: 'Realized', num: true, render: (r) => fmtMoney(r.realized_pnl_dollars) }, { key: 'market_status', label: 'Market' }] });
   dataTable(el.querySelector('#u-ord'), { search: false, rows: d.resting_orders, empty: 'No resting orders', testid: 'user-orders',
     cols: [{ key: 'ticker', label: 'Market', render: (r) => `<code>${esc(r.ticker)}</code>` }, { key: 'user_side', label: 'Side', render: (r) => `${esc(r.user_action || 'buy')} ${esc(String(r.user_side || r.side).toUpperCase())}` },
-      { key: 'user_price_dollars', label: 'Price', num: true, render: (r) => `${Math.round(Number(r.user_price_dollars ?? r.price_dollars) * 100)}¢` }, { key: 'remaining_count_fp', label: 'Remaining', num: true, render: (r) => fmtQty(r.remaining_count_fp) },
+      { key: 'user_price_dollars', label: 'Price', num: true, render: (r) => esc(pxc(Math.round(Number(r.user_price_dollars ?? r.price_dollars) * 10000))) }, { key: 'remaining_count_fp', label: 'Remaining', num: true, render: (r) => fmtQty(r.remaining_count_fp) },
       { key: 'reserved_dollars', label: 'Reserved', num: true, render: (r) => fmtMoney(r.reserved_dollars) }, { key: 'created_time', label: 'Placed', render: (r) => esc(fmtTime(r.created_time)) }] });
   dataTable(el.querySelector('#u-led'), { rows: d.transactions, empty: 'No ledger entries', testid: 'user-ledger', pageSize: 15,
     cols: [{ key: 'created_time', label: 'Time', render: (r) => esc(fmtTime(r.created_time)) }, { key: 'kind', label: 'Type' }, { key: 'amount_dollars', label: 'Amount', num: true, render: (r) => fmtMoney(r.amount_dollars) }, { key: 'memo', label: 'Memo' }] });
@@ -63,17 +64,17 @@ async function renderUser(el, id, perms, navigate) {
     const act = b.dataset.act;
     try {
       if (act === 'adjust') {
-        const fields = [{ name: 'amount_dollars', label: 'Amount in dollars (negative = debit)', type: 'number', step: '0.01', required: true }, { name: 'reason', label: 'Reason (shown to the user, audited)', required: true, span: true }];
+        const fields = [{ name: 'amount_dollars', label: `Amount in ${currency.code === 'USD' ? 'dollars' : 'naira'} (negative = debit)`, type: 'number', step: moneyStep(), required: true }, { name: 'reason', label: 'Reason (shown to the user, audited)', required: true, span: true }];
         const dlg = dialog(`<h3>Adjust balance · ${esc(u.email)}</h3><p class="muted">Creates an <code>adjustment</code> ledger entry and updates the user's balance live.</p>${formHtml(fields, { submit: 'Apply adjustment', id: 'adj', extra: '<button class="btn" type="button" data-close>Cancel</button>', testid: 'adjust-form' })}`);
         dlg.querySelector('[data-close]').onclick = () => dlg.close();
-        wireForm(dlg.querySelector('form'), fields, async (v) => { const r = await post(`/users/${encodeURIComponent(u.user_id)}/adjust`, v); dlg.close(); toast(`New balance ${fmtMoney(r.balance_dollars)}`); await reload(); });
+        wireForm(dlg.querySelector('form'), fields, async (v) => { const r = await post(`/users/${encodeURIComponent(u.user_id)}/adjust`, { ...v, amount_dollars: toApiDollars(v.amount_dollars) }); dlg.close(); toast(`New balance ${fmtMoney(r.balance_dollars)}`); await reload(); });
         return;
       }
       if (act === 'limits') {
-        const fields = [{ name: 'kind', label: 'Limit', type: 'select', options: [['deposit', 'Deposit ($/day)'], ['trading', 'Trading ($/day)'], ['session', 'Session (minutes/day)']] }, { name: 'value', label: 'New value (empty removes the limit)', type: 'number', step: '0.01' }, { name: 'reason', label: 'Reason', required: true, span: true }];
+        const fields = [{ name: 'kind', label: 'Limit', type: 'select', options: [['deposit', `Deposit (${sym()}/day)`], ['trading', `Trading (${sym()}/day)`], ['session', 'Session (minutes/day)']] }, { name: 'value', label: 'New value (empty removes the limit)', type: 'number', step: moneyStep() }, { name: 'reason', label: 'Reason', required: true, span: true }];
         const dlg = dialog(`<h3>Override limit</h3><p class="muted">Takes effect immediately, skipping the user's 24-hour cooling-off.</p>${formHtml(fields, { submit: 'Override', id: 'lim', extra: '<button class="btn" type="button" data-close>Cancel</button>' })}`);
         dlg.querySelector('[data-close]').onclick = () => dlg.close();
-        wireForm(dlg.querySelector('form'), fields, async (v) => { await put(`/users/${encodeURIComponent(u.user_id)}/limits/${v.kind}`, { value: v.value === '' ? null : v.value, reason: v.reason }); dlg.close(); toast('Limit overridden'); await reload(); });
+        wireForm(dlg.querySelector('form'), fields, async (v) => { await put(`/users/${encodeURIComponent(u.user_id)}/limits/${v.kind}`, { value: v.value === '' ? null : v.kind === 'session' ? v.value : toApiDollars(v.value), reason: v.reason }); dlg.close(); toast('Limit overridden'); await reload(); });
         return;
       }
       const copy = { lock: ['Lock this account?', 'The user is signed out everywhere, cannot sign in or trade, and their resting orders are canceled.', 'Lock account', true],

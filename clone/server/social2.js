@@ -13,6 +13,7 @@
 //         trader shares trades), trade alerts (per-trader opt-in), leaderboard push.
 //   G8    the four observed PUT social-admin call sites (bodies are a documented design choice) + promo targeting.
 // Tables: CREATE TABLE IF NOT EXISTS; foreign keys to users / posts / comments with ON DELETE CASCADE (seed reset works).
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const { nowIso, newId, ufp, ApiError, E } = require('./util');
 const { STICKERS, BY_ID: STICKER_SVG, STICKER_ID } = require('./stickers');
@@ -624,7 +625,7 @@ function mountSocial2({ v1, db, engine, requireUser, can, rolesOf, getFeat, circ
         const shown = sell ? (o.side === 'yes' ? 'no' : 'yes') : o.side;
         const px = Math.round(o.value / o.units);
         const m = marketInfo(o.ticker);
-        for (const s of subs) n(s, { type: 'trade_alert', title: `@${p.nickname} ${sell ? 'sold' : 'bought'} ${(o.units / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${shown.toUpperCase()} · ${m ? m.yes_sub_title : o.ticker} @ ${sell ? 100 - px : px}¢`, body: m ? (m.title || m.et) : o.ticker, link: evLink(o.ticker), actor: o.uid });
+        for (const s of subs) n(s, { type: 'trade_alert', title: `@${p.nickname} ${sell ? 'sold' : 'bought'} ${(o.units / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${shown.toUpperCase()} · ${m ? m.yes_sub_title : o.ticker} @ ${C.priceCents(sell ? 100 - px : px)}`, body: m ? (m.title || m.et) : o.ticker, link: evLink(o.ticker), actor: o.uid });
       }
       for (const { uid, ticker } of markets.values()) {
         const now = sideNow(uid, ticker);

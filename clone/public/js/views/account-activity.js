@@ -3,7 +3,7 @@
 // empty state "No activity with these filters". The chosen chip is remembered with the account (user_settings).
 import { session } from '../store.js';
 import { idApi } from '../identity-api.js';
-import { esc, money, qty, relTime } from '../lib.js';
+import { esc, money, qty, relTime, fmtDate } from '../lib.js';
 
 const CHIPS = [['all', 'All'], ['deposit', 'Deposit'], ['withdrawal', 'Withdrawal'], ['order', 'Order'], ['trade', 'Trade'], ['settlement', 'Settlement'], ['credit', 'Credit']];
 const DOWNLOAD = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M8 2v8M4.5 7L8 10.5 11.5 7M3 13.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -15,7 +15,7 @@ export async function render(panel) {
   const draw = async (append = false) => {
     const r = await idApi.activity(session.uid, { type, cursor: append ? cursor : '' });
     cursor = r.cursor;
-    const rows = r.activity.map((a) => `<tr data-testid="activity-row" data-type="${esc(a.type)}"><td>${esc(relTime(a.time))}<div class="faint">${esc(new Date(a.time).toLocaleDateString())}</div></td>
+    const rows = r.activity.map((a) => `<tr data-testid="activity-row" data-type="${esc(a.type)}"><td>${esc(relTime(a.time))}<div class="faint">${esc(fmtDate(a.time))}</div></td>
       <td>${esc(a.type_label)}</td><td>${a.market_title ? (a.link ? `<a href="${esc(a.link)}" data-link>${esc(a.market_title)}</a>` : esc(a.market_title)) : '<span class="faint">—</span>'}<div class="faint">${esc(a.description)}</div></td>
       <td class="num">${a.quantity_fp ? esc(qty(a.quantity_fp)) : ''}</td><td class="num">${a.amount_dollars == null ? '' : esc(money(a.amount_dollars))}</td></tr>`).join('');
     if (append) { panel.querySelector('tbody').insertAdjacentHTML('beforeend', rows); } else {

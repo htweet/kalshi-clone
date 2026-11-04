@@ -105,7 +105,7 @@ test('auth: validation errors, sign up, log out, bad login, log in', async () =>
   await page.waitForSelector('#auth-error:has-text("at least 12")'); // password policy (CLONE_SPEC §22.4)
   await signUp(page, alice);
   assert.equal((await sess(page)).user.display_name, alice.name);
-  assert.equal(await page.textContent('[data-testid=header-balance]'), '$0.00');
+  assert.equal(await page.textContent('[data-testid=header-balance]'), '₦0');
   // duplicate email
   const p2 = await newPage();
   await p2.goto(BASE + '/sign-up');
@@ -137,16 +137,16 @@ test('funds: deposit updates header live over WS; over-withdrawal is rejected', 
   const page = await newPage();
   await logIn(page, alice.email);
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', '500');
+  await page.fill('#f-amount', '50000');
   await page.click('[data-act=deposit]');
-  await page.waitForSelector('[data-testid=cash]:has-text("$500.00")');
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$500.00")');
-  await page.fill('#f-amount', '9999');
+  await page.waitForSelector('[data-testid=cash]:has-text("₦50,000")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦50,000")');
+  await page.fill('#f-amount', '999900');
   await page.click('[data-act=withdraw]');
   await page.waitForSelector('#f-error:has-text("insufficient balance")');
-  await page.fill('#f-amount', '50');
+  await page.fill('#f-amount', '5000');
   await page.click('[data-act=withdraw]');
-  await page.waitForSelector('[data-testid=cash]:has-text("$450.00")');
+  await page.waitForSelector('[data-testid=cash]:has-text("₦45,000")');
   assert.equal(dbq('SELECT balance_cents b FROM users WHERE email=?', alice.email)[0].b, 45000);
   assert.equal(dbq("SELECT COUNT(*) c FROM ledger l JOIN users u ON u.id=l.user_id WHERE u.email=? AND kind IN ('deposit','withdrawal')", alice.email)[0].c, 2);
   await page.context().close();
@@ -167,7 +167,7 @@ test('trading: market buy fills with exact cost + fee, position appears everywhe
   const fee = Math.ceil((7 * 10 * askC * (100 - askC)) / 10000);
   const expected = 45000 - 10 * askC - fee;
   assert.equal(dbq('SELECT balance_cents b FROM users WHERE email=?', alice.email)[0].b, expected);
-  await page.waitForSelector(`[data-testid=header-balance]:has-text("$${(expected / 100).toFixed(2)}")`);
+  await page.waitForSelector(`[data-testid=header-balance]:has-text("₦${expected.toLocaleString('en-NG')}")`);
   await page.goto(BASE + '/portfolio');
   await page.click('[data-tab=positions]');
   await page.waitForSelector(`[data-testid=positions-table] tr[data-ticker="${RAV}"]`);
@@ -192,9 +192,9 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   const pb = await newPage();
   await signUp(pb, bob);
   await pb.goto(BASE + '/portfolio');
-  await pb.fill('#f-amount', '300');
+  await pb.fill('#f-amount', '30000');
   await pb.click('[data-act=deposit]');
-  await pb.waitForSelector('[data-testid=cash]:has-text("$300.00")');
+  await pb.waitForSelector('[data-testid=cash]:has-text("₦30,000")');
 
   // Bob watches the Comets book live.
   const COM = 'PLXCUP-26FINAL-COM';
@@ -211,19 +211,19 @@ test('two users: resting order shows live in the other user\'s book, cross fills
   await pa.fill('#t-count', '7');
   await pa.click('[data-testid=submit-order]'); await pa.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pa.waitForSelector('.toast:has-text("Order resting")');
-  await bookHas(pb, '45¢'); // arrived via orderbook_delta
+  await bookHas(pb, '₦45'); // arrived via orderbook_delta
 
   // Alice opens her portfolio; Bob takes her order by buying NO at 88¢.
   await pa.goto(BASE + '/portfolio');
   await pa.click('[data-tab=orders]');
-  await pa.waitForSelector('[data-testid=orders-table]:has-text("45¢")');
+  await pa.waitForSelector('[data-testid=orders-table]:has-text("₦45")');
   await pb.click(`tr[data-ticker="${COM}"] [data-pick=no]`);
   await mode(pb, 'limit');
   await pb.fill('#t-price', '55');
   await pb.fill('#t-count', '7');
   await pb.click('[data-testid=submit-order]'); await pb.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pb.waitForSelector('.toast:has-text("Filled 7 NO")');
-  await bookHas(pb, '45¢', false);
+  await bookHas(pb, '₦45', false);
   await pa.waitForSelector('[data-testid=no-orders]'); // live via user_orders channel
   const fills = dbq("SELECT f.side, f.price_cents p, f.is_taker t, f.count c FROM fills f JOIN users u ON u.id=f.user_id WHERE f.market_ticker=? AND u.email IN (?,?) ORDER BY f.is_taker", COM, alice.email, bob.email);
   // Quantities are stored in units (hundredths of a contract, spec §16): 7 contracts = 700 units.
@@ -357,9 +357,9 @@ test('CSV export downloads the ledger', async () => {
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=csv-link]')]);
   const text = fs.readFileSync(await dl.path(), 'utf8');
   const lines = text.trim().split('\n');
-  assert.equal(lines[0], 'time,type,amount_usd,reference,memo');
-  assert.ok(lines.some((l) => /,deposit,500\.00,/.test(l)));
-  assert.ok(lines.some((l) => /,settlement,4\.00,PLXRATE-26DEC-CUT,/.test(l)));
+  assert.equal(lines[0], 'time,type,amount_ngn,reference,memo');
+  assert.ok(lines.some((l) => /,deposit,50000\.00,/.test(l)));
+  assert.ok(lines.some((l) => /,settlement,400\.00,PLXRATE-26DEC-CUT,/.test(l)));
   await page.context().close();
 });
 
@@ -442,7 +442,7 @@ test('server restart: data and sessions persist; open page reconnects WS and res
   await pb.fill('#t-count', '11');
   await pb.click('[data-testid=submit-order]'); await pb.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pb.waitForSelector('.toast:has-text("Order resting")');
-  await bookHas(page, '3¢');
+  await bookHas(page, '₦3');
 
   await page.goto(BASE + '/portfolio');
   await page.click('[data-tab=history]'); // Settlements / Transactions are History sub-views (spec §17.9)

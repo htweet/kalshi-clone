@@ -1,6 +1,6 @@
 // Shared UI pieces: market card (browse grid), outcome rows, rank list, chart, post card.
 import { vars } from '../dynstyle.js';
-import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, compact, avatar, relTime, ICON } from '../lib.js';
+import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, compact, avatar, relTime, ICON, money0 as fmtMoney0, pxCents, fmtDay, fmtDateTime } from '../lib.js';
 import { scoreCols, liveSub, cardMarkets } from './scoreboard.js'; // live sports scores on cards (CLONE_SPEC §19.6)
 export { prob };
 
@@ -17,8 +17,8 @@ export function outcomeRows(ev, limit = 3) {
 
 const STATUS_LABEL = (ev) => (ev.markets.every((m) => m.status === 'initialized') ? 'Opens soon' : ev.markets.every((m) => ['closed', 'determined', 'finalized'].includes(m.status)) ? 'Closed' : '');
 const OC_COLORS = ['#3a7bff', '#ff4d5e', '#2fd18b', '#f59f00', '#be4bdb', '#15aabf'];
-const shortDay = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-export const money0 = (n) => '$' + Math.round(Number(n || 0)).toLocaleString('en-US');
+const shortDay = (iso) => fmtDay(iso);
+export const money0 = (n) => fmtMoney0(n); // whole display units: ₦12,345 / $123 (CLONE_SPEC.md §30)
 
 // Outcome avatar: generated monogram ring in the outcome colour (own art; no photos or logos).
 export function ocAvatar(m, cls = '') {
@@ -48,7 +48,7 @@ export function eventCard(ev) {
     const label = binary ? m.yes_sub_title : m.yes_sub_title;
     const ya = cents(m.yes_ask_dollars); const na = cents(m.no_ask_dollars);
     const right = shares
-      ? `<span class="share-prices" data-testid="share-prices"><a class="share-btn yes" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link>Yes ${ya == null ? '—' : `${ya}¢`}</a><a class="share-btn no" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link>No ${na == null ? '—' : `${na}¢`}</a></span>`
+      ? `<span class="share-prices" data-testid="share-prices"><a class="share-btn yes" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link>Yes ${ya == null ? '—' : esc(pxCents(ya))}</a><a class="share-btn no" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link>No ${na == null ? '—' : esc(pxCents(na))}</a></span>`
       : `<span class="mult">${multiplier(m)}</span>${scoreCols(ev, m)}
       <a class="odds pill" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link aria-label="${esc(label)} ${p == null ? 'no price' : p + ' percent'}">${p == null ? '—' : p + '%'}</a>`;
     return `<div class="mrow outcome-row" data-ticker="${esc(m.ticker)}">
@@ -77,7 +77,7 @@ export function multiChart(series, { height = 260, endLabels = false, width = 70
   const sy = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
   const ticks = [0, 1, 2, 3, 4].map((i) => lo + ((hi - lo) * i) / 4);
   const grid = ticks.map((g) => `<line x1="0" x2="${W - padR}" y1="${sy(g)}" y2="${sy(g)}" stroke="var(--fill-x50)" stroke-dasharray="1 5"/><text x="${W - 4}" y="${sy(g) + 4}" text-anchor="end" font-size="12" fill="var(--text-x20)">${Math.round(g)}%</text>`).join('');
-  const days = [0, 1, 2, 3, 4].map((i) => minX + ((maxX - minX) * i) / 4).map((t, i) => `<text x="${Math.min(W - padR - 30, sx(t) + (i === 0 ? 2 : 0))}" y="${H - 6}" font-size="12" fill="var(--text-x20)" text-anchor="${i === 0 ? 'start' : 'middle'}">${new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>`).join('');
+  const days = [0, 1, 2, 3, 4].map((i) => minX + ((maxX - minX) * i) / 4).map((t, i) => `<text x="${Math.min(W - padR - 30, sx(t) + (i === 0 ? 2 : 0))}" y="${H - 6}" font-size="12" fill="var(--text-x20)" text-anchor="${i === 0 ? 'start' : 'middle'}">${esc(fmtDay(t * 1000))}</text>`).join('');
   // End labels: name + big percentage, nudged apart vertically so they never overlap.
   const labels = endLabels ? series.filter((s) => s.points.length).map((s) => { const l = s.points[s.points.length - 1]; return { s, x: sx(l.t), y: sy(l.v), v: l.v }; }).sort((a, b) => a.y - b.y) : [];
   for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 52) labels[i].y = labels[i - 1].y + 52;
@@ -131,7 +131,7 @@ export function postCard(p, { showEvent = true, expanded = false } = {}) {
   return `<article class="post${p.author_muted ? ' muted-author' : ''}" data-post="${esc(p.id)}" data-testid="post" data-nick="${esc(p.author.nickname)}" data-mine="${p.is_mine ? '1' : '0'}" data-share="${esc(p.share_path || `/social/post/${encodeURIComponent(p.id)}`)}" data-editable-until="${esc(p.editable_until || '')}" data-visibility="${esc(p.visibility || 'public')}">
     ${authorAvatar(p.author)}
     <div class="minw-0">
-      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a>${p.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified" data-testid="verified-badge">✓</span>' : ''}${badgeChips(p.author.badges)}<span class="faint">${relTime(p.created_time)}</span>${p.edited ? `<span class="faint post-edited" data-testid="post-edited" title="Edited ${esc(new Date(p.edited_time).toLocaleString())}">· edited${p.edited_by_moderator ? ' by a moderator' : ''}</span>` : ''}${p.visibility === 'circle' ? '<span class="circle-badge" data-testid="circle-badge" title="Only your Inner Circle can see this">Inner Circle</span>' : ''}
+      <div class="post-head"><a href="/social/profile/${encodeURIComponent(p.author.nickname)}" data-link>@${esc(p.author.nickname)}</a>${p.author.verified ? '<span class="verified-badge" title="Verified profile" aria-label="Verified" data-testid="verified-badge">✓</span>' : ''}${badgeChips(p.author.badges)}<span class="faint">${relTime(p.created_time)}</span>${p.edited ? `<span class="faint post-edited" data-testid="post-edited" title="Edited ${esc(fmtDateTime(p.edited_time))}">· edited${p.edited_by_moderator ? ' by a moderator' : ''}</span>` : ''}${p.visibility === 'circle' ? '<span class="circle-badge" data-testid="circle-badge" title="Only your Inner Circle can see this">Inner Circle</span>' : ''}
         ${p.is_mine ? '<button class="btn btn-sm btn-ghost btn-danger ml-auto" data-act="delete">Delete</button>' : ''}<button class="post-more${p.is_mine ? '' : ' ml-auto'}" data-post-more="${esc(p.id)}" aria-label="More actions" aria-haspopup="menu" data-testid="post-menu">⋯</button></div>
       ${p.position ? `<a class="pos-tag pos-${esc(p.position.side)}" href="${esc(p.position.link)}" data-link data-testid="position-tag" title="${p.position.held === 'current' ? 'Holds this position' : 'Held this position'}">${esc(p.position.label)}</a>` : ''}
       ${p.body ? `<div class="post-body${long ? ' clamped' : ''}" data-testid="post-body">${esc(p.body)}</div>${long ? '<button class="read-more" type="button" data-act="read-more" data-testid="read-more" aria-expanded="false">Read more</button>' : ''}` : ''}

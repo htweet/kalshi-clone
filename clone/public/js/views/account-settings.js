@@ -11,7 +11,7 @@
 import { session } from '../store.js';
 import { idApi } from '../identity-api.js';
 import { api } from '../api.js';
-import { esc, toast, relTime } from '../lib.js';
+import { esc, toast, relTime, fmtDate, pxCents } from '../lib.js';
 import { eventCard } from './components.js';
 
 // Invented sample market for the live preview (not a real market).
@@ -28,7 +28,7 @@ export async function render(panel, { navigate }) {
   const later = (k) => (phase5.includes(k) ? '<span class="phase-tag" data-testid="phase5-tag">Saved now · takes effect in Phase 5</span>' : '');
   panel.innerHTML = `<div class="settings" data-testid="settings">
     <section class="card panel set-sec" data-testid="set-display" data-order="1"><h2>Browse and manage markets by</h2>
-      <div class="set-display"><div class="set-radios">${radio('display_mode', 'payout', 'Payout and odds', p.display_mode, 'Multiplier and chance, e.g. 2.1x · 47%')}${radio('display_mode', 'shares', 'Shares and prices', p.display_mode, 'Yes and No share prices, e.g. Yes 48¢')}</div>
+      <div class="set-display"><div class="set-radios">${radio('display_mode', 'payout', 'Payout and odds', p.display_mode, 'Multiplier and chance, e.g. 2.1x · 47%')}${radio('display_mode', 'shares', 'Shares and prices', p.display_mode, `Yes and No share prices, e.g. Yes ${pxCents(48)}`)}</div>
       <div class="set-preview" data-testid="display-preview" aria-label="Preview"></div></div></section>
 
     <section class="card panel set-sec" data-testid="set-connected-apps" data-order="2"><h2>Connected apps</h2><p class="muted">Manage applications you have authorized to access your Parlance account.</p>
@@ -90,9 +90,9 @@ async function mountNotifications(el, securityEl) {
 }
 
 function drawConsent(el, c) {
-  const status = c.opted_in ? `You’re opted in to marketing texts${c.phone_last4 ? ` at the number ending ${c.phone_last4}` : ''} since ${new Date(c.consented_time).toLocaleDateString()}.`
+  const status = c.opted_in ? `You’re opted in to marketing texts${c.phone_last4 ? ` at the number ending ${c.phone_last4}` : ''} since ${fmtDate(c.consented_time)}.`
     : c.status === 'reconsent_required' ? 'Our marketing-text terms changed. Opt in again to keep receiving them.'
-      : c.status === 'opted_out' ? `You opted out of marketing texts on ${new Date(c.revoked_time).toLocaleDateString()}.` : 'You’re not receiving marketing texts.';
+      : c.status === 'opted_out' ? `You opted out of marketing texts on ${fmtDate(c.revoked_time)}.` : 'You’re not receiving marketing texts.';
   el.innerHTML = `<p data-testid="consent-status" data-status="${esc(c.status)}">${esc(status)}</p>
     <div class="set-disclosure" data-testid="sms-disclosure" data-version="${esc(c.disclosure.version)}"><strong>SMS marketing disclosure</strong><p>${esc(c.disclosure.text)}</p><small class="faint">Version ${esc(c.disclosure.version)}</small></div>
     ${c.opted_in ? '<div class="ob-actions"><button class="btn" data-optout data-testid="consent-optout">Opt out of marketing texts</button></div>'

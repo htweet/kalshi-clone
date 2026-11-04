@@ -8,7 +8,7 @@
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { relTime, toast } from '../lib.js';
+import { relTime, toast, fmtDt, fmtDateTime } from '../lib.js';
 import { REACTIONS, openStickerPicker, mutedNicks } from './social2.js'; // reactions, stickers, mutes (CLONE_SPEC.md §24.8)
 
 const MAX = 280;
@@ -43,7 +43,7 @@ function linkify(node, text) {
   node.append(document.createTextNode(text.slice(last)));
 }
 const chars = (s) => [...s].length;
-const clock = (iso) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+const clock = (iso) => fmtDt(iso, { hour: 'numeric', minute: '2-digit' });
 
 // Static markup only (no data interpolated).
 const PANEL = `<header class="chat-head">
@@ -125,10 +125,10 @@ export function mountChat({ el, ev }) {
     row.append(h('div', { class: 'chat-meta' },
       h('span', { class: 'chat-nick', 'data-testid': 'chat-nick' }, `@${m.author.nickname}`),
       m.author.verified ? h('span', { class: 'verified-badge', title: 'Verified profile', 'aria-label': 'Verified', 'data-testid': 'chat-verified' }, '✓') : null,
-      h('time', { class: 'chat-time', datetime: m.created_time, title: new Date(m.created_time).toLocaleString() }, relTime(m.created_time)), acts));
+      h('time', { class: 'chat-time', datetime: m.created_time, title: fmtDateTime(m.created_time) }, relTime(m.created_time)), acts));
     const body = h('div', { class: 'chat-body', 'data-testid': 'chat-body' });
     linkify(body, m.body);
-    if (m.edited) body.append(h('span', { class: 'chat-edited faint', 'data-testid': 'chat-edited', title: m.edited_time ? new Date(m.edited_time).toLocaleString() : '' }, ' (edited)'));
+    if (m.edited) body.append(h('span', { class: 'chat-edited faint', 'data-testid': 'chat-edited', title: m.edited_time ? fmtDateTime(m.edited_time) : '' }, ' (edited)'));
     row.append(body);
     if (m.sticker) row.append(h('img', { class: 'chat-sticker', src: m.sticker.url, alt: m.sticker.label, title: m.sticker.label, width: '72', height: '72', 'data-testid': 'chat-sticker' }));
     row.dataset.created = m.created_time;

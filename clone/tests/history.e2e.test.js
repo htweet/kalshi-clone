@@ -67,9 +67,9 @@ test('activity of every kind appears in History with correct signed amounts', as
   await ph.click('button[type=submit]');
   await ph.waitForSelector('[data-testid=account-menu]');
   await ph.goto(BASE + '/portfolio');
-  await ph.fill('#f-amount', '150');
+  await ph.fill('#f-amount', '15000');
   await ph.click('[data-act=deposit]');
-  await ph.waitForSelector('[data-testid=header-balance]:has-text("$150.00")');
+  await ph.waitForSelector('[data-testid=header-balance]:has-text("₦15,000")');
   const U = `/v1/users/${uid()}/orders`;
   // limit order then cancel; 12 more place+cancel pairs for pagination
   for (let i = 0; i < 13; i++) {
@@ -147,7 +147,7 @@ test('pagination with Load more, CSV export of the filtered view, live prepend',
   assert.ok(ui.length && ui.every((x) => x.group === 'trades'));
   const [dl] = await Promise.all([ph.waitForEvent('download'), ph.click('[data-testid=history-csv]')]);
   const lines = fs.readFileSync(await dl.path(), 'utf8').trim().split('\n');
-  assert.equal(lines[0], 'time,type,market,description,side,action,quantity,price_dollars,amount_dollars,fee_dollars,status');
+  assert.equal(lines[0], 'time,type,market,description,side,action,quantity,price_ngn,amount_ngn,fee_ngn,status');
   const trades = await allHistory(ph, '&type=trades');
   assert.equal(lines.length - 1, trades.length);
   assert.ok(lines.slice(1).every((l) => /^\d{4}-\d{2}-\d{2}T[^,]+,(fill|netting),/.test(l)));
@@ -165,7 +165,7 @@ test('filters (type, market search, date range) persist in the DB and in a new b
   await ph.waitForSelector('[data-htype=cash][aria-pressed=true]');
   let ui = await rows(ph);
   assert.ok(ui.length >= 2 && ui.every((x) => x.group === 'cash'));
-  assert.ok(ui.find((x) => x.type === 'deposit' && x.text.includes('+$150.00')));
+  assert.ok(ui.find((x) => x.type === 'deposit' && x.text.includes('+₦15,000')));
   await ph.click('[data-htype=all]');
   await ph.fill('#h-market', 'Cut');
   await ph.waitForFunction(() => { const r = [...document.querySelectorAll('[data-testid=history-table] tr[data-hrow]')]; return r.length && r.every((e) => e.textContent.includes('Cut')); });

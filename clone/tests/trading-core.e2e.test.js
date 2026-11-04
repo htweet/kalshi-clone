@@ -58,9 +58,9 @@ async function signUp(page, u, dollars) {
   await page.click('button[type=submit]');
   await page.waitForSelector('[data-testid=account-menu]');
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', String(dollars));
+  await page.fill('#f-amount', String(dollars * 100)); // naira (CLONE_SPEC.md §30)
   await page.click('[data-act=deposit]');
-  await page.waitForSelector(`[data-testid=header-balance]:has-text("$${dollars}.00")`);
+  await page.waitForSelector(`[data-testid=header-balance]:has-text("₦${(dollars * 100).toLocaleString('en-NG')}")`);
 }
 async function logIn(page, u, pw = PW) {
   await page.goto(BASE + '/sign-in');
@@ -117,8 +117,8 @@ test('sub-cent grid: 0.1¢ limit from the ticket matches two makers; fees accrue
   assert.match(await pa.textContent('[data-testid=submit-order]'), /Review · Buy Yes/);
   await pa.click('[data-testid=submit-order]');
   await pa.waitForSelector('[data-testid=order-review]');
-  assert.match(await pa.textContent('[data-testid=review-price]'), /Limit 12\.9¢/);
-  assert.equal(await pa.textContent('[data-testid=review-cost]'), '$19.35');
+  assert.match(await pa.textContent('[data-testid=review-price]'), /Limit ₦12\.90/);
+  assert.equal(await pa.textContent('[data-testid=review-cost]'), '₦1,935');
   await pa.click('[data-testid=review-confirm]');
   await until(() => dbq("SELECT 1 FROM orders WHERE user_id=? AND market_ticker=? AND status='executed'", uid(A), SNOW).length === 1);
   const o = dbq('SELECT * FROM orders WHERE user_id=? AND market_ticker=?', uid(A), SNOW)[0];
@@ -143,7 +143,7 @@ test('sub-cent grid: 0.1¢ limit from the ticket matches two makers; fees accrue
   assert.equal(vo.taker_fees_exact_dollars, (exact / 1e6).toFixed(6));
   await pa.click('[data-tab=book]');
   await pa.waitForSelector('[data-testid=orderbook] [data-testid=book-grid]:has-text("deci cent")');
-  await pa.waitForSelector('[data-testid=book-price]:has-text("12.9¢")');
+  await pa.waitForSelector('[data-testid=book-price]:has-text("₦12.90")');
   const candles = (await call(pa, 'GET', `/trade-api/v2/series/PLXSNOW/markets/${SNOW}/candlesticks?period_interval=1&start_ts=${Math.floor(Date.now() / 1000) - 3600}&end_ts=${Math.floor(Date.now() / 1000) + 120}`)).b.candlesticks; // end past the fills (end_ts is whole seconds)
   assert.equal(candles.at(-1).price.close_dollars, '0.1290');
   // API validation: more precision than the grid, or a price between ticks, is refused.
@@ -161,7 +161,7 @@ test('sub-cent grid: 0.1¢ limit from the ticket matches two makers; fees accrue
   await pa.click('[data-testid=review-confirm]');
   await until(() => dbq("SELECT 1 FROM orders WHERE user_id=? AND market_ticker=? AND status='resting' AND price_cc=55", uid(A), COMET).length === 1);
   await pa.click('[data-tab=book]');
-  await pa.waitForSelector('[data-testid=book-price]:has-text("0.55¢")');
+  await pa.waitForSelector('[data-testid=book-price]:has-text("₦0.55")');
   assert.deepEqual(pa.errors, []);
 });
 
@@ -286,8 +286,8 @@ test('scalar market: resolve at a value from the desk; YES and NO holders are pa
   await padm.locator(`[data-row="${GDP}"] [data-testid=desk-result]:has-text("3.1")`).waitFor();
   await pa.goto(BASE + GDP_URL);
   await pa.waitForSelector('[data-testid=scalar-result]:has-text("Settled at 3.1%")');
-  assert.match(await pa.textContent('[data-testid=scalar-result]'), /YES \$0\.64 · NO \$0\.36/);
-  assert.match(await pa.textContent('[data-testid=ticket-closed]'), /YES pays 63\.75¢/);
+  assert.match(await pa.textContent('[data-testid=scalar-result]'), /YES ₦63\.75 · NO ₦36\.25/);
+  assert.match(await pa.textContent('[data-testid=ticket-closed]'), /YES pays ₦63\.75/);
   const hist = (await call(pa, 'GET', `/v1/users/${uid(A)}/history?type=settlements`)).b.history;
   assert.ok(hist.some((h) => h.type === 'settlement' && h.amount_dollars === '12.7500'));
   assert.deepEqual([pa.errors, pb.errors, padm.errors], [[], [], []]);
@@ -303,8 +303,8 @@ test('collateral return (MECNET): NO on every outcome releases the guaranteed pa
   assert.equal(acct('house:collateral_advance'), -dbq('SELECT SUM(amount_cents) s FROM collateral_returns')[0].s);
   assert.equal(dbq("SELECT SUM(amount_cents) s FROM ledger WHERE user_id=? AND kind='collateral_return'", uid(C))[0].s, 2000);
   await pc.goto(BASE + '/portfolio?tab=positions');
-  await pc.waitForSelector('[data-testid=collateral-card] [data-testid=collateral-amount]:has-text("$20.00")');
-  assert.equal(await pc.textContent('[data-testid=pos-collateral]'), '$20.00');
+  await pc.waitForSelector('[data-testid=collateral-card] [data-testid=collateral-amount]:has-text("₦2,000")');
+  assert.equal(await pc.textContent('[data-testid=pos-collateral]'), '₦2,000');
   // Turned off: nothing new is released, but a smaller guarantee still claws the excess back.
   await toggleSetting(pc, C, 'trade_collateral_return', false);
   assert.equal(dbq('SELECT amount_cents a FROM collateral_returns WHERE user_id=?', uid(C))[0].a, 2000);
@@ -500,7 +500,7 @@ test('restart keeps prices, advances, corrections and policy; ledger audit balan
   await page.waitForSelector('[data-testid=collateral-card] [data-collateral-event="PLXFILM-27PIC"]');
   await page.goto(BASE + SNOW_URL);
   await page.click('[data-tab=book]');
-  await page.waitForSelector('[data-testid=book-price]:has-text("12.9¢")');
+  await page.waitForSelector('[data-testid=book-price]:has-text("₦12.90")');
   for (const theme of ['dark', 'light']) {
     assert.equal((await call(page, 'PUT', `/v1/users/${uid(C)}/properties`, { properties: { theme } })).s, 200);
     const phone = await newPage({ width: 390, height: 844 });

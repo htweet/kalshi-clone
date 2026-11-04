@@ -7,7 +7,8 @@ const PAGE_H = 792;
 const MARGIN = 54;
 
 // Standard-14 fonts use WinAnsi; keep to printable ASCII so no glyph is missing, and escape PDF string delimiters.
-const pdfText = (s) => String(s).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...')
+// WinAnsi has no naira sign, so ₦2,500 is written with the ISO code: "NGN 2,500" (CLONE_SPEC.md §30).
+const pdfText = (s) => String(s).replace(/-?₦/g, (m) => (m[0] === '-' ? '-NGN ' : 'NGN ')).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...')
   .replace(/[^\x20-\x7e]/g, '?').replace(/([\\()])/g, '\\$1');
 
 // lines: [{ text, size = 10, bold = false, gap = 0 (extra space before) }]

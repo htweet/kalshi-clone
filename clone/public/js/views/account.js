@@ -5,7 +5,7 @@
 // Price alerts. The old /account/appearance moved into Settings (theme).
 import { api } from '../api.js';
 import { session } from '../store.js';
-import { esc, money, toast, relTime } from '../lib.js';
+import { esc, money, toast, relTime, pxCents, moneyStep, toApiDollars, isNgn, fmtDateTime } from '../lib.js';
 import { PASSWORD_RULES, authMessage } from './auth.js';
 
 const NAV = [
@@ -187,10 +187,10 @@ async function security(panel) {
 
 async function limits(panel) {
   const [d, t, s] = await Promise.all(['deposit', 'trading', 'session'].map((k) => api.limit(session.uid, k)));
-  const pend = (l, unit) => (l.pending ? `<div class="faint" data-testid="pending">Change to ${esc(l.pending[unit] == null ? 'no limit' : unit === 'limit_minutes' ? l.pending[unit] + ' min' : money(l.pending[unit]))} takes effect ${new Date(l.pending.effective_time).toLocaleString()} (24-hour cooling-off for loosening a limit).</div>` : '');
+  const pend = (l, unit) => (l.pending ? `<div class="faint" data-testid="pending">Change to ${esc(l.pending[unit] == null ? 'no limit' : unit === 'limit_minutes' ? l.pending[unit] + ' min' : money(l.pending[unit]))} takes effect ${esc(fmtDateTime(l.pending.effective_time))} (24-hour cooling-off for loosening a limit).</div>` : '');
   const box = (kind, title, l, unit, used, hint) => `<form class="card panel" data-limit="${esc(kind)}" data-testid="limit-${esc(kind)}"><h2>${esc(title)}</h2><p class="muted">${esc(hint)}</p>
     <p>Current: <strong data-testid="limit-value">${esc(l.limit[unit] == null ? 'No limit' : unit === 'limit_minutes' ? l.limit[unit] + ' minutes per day' : money(l.limit[unit]) + ' per day')}</strong> · <span class="faint">Used today: ${esc(used)}</span></p>${pend(l.limit, unit)}
-    <div class="inline-form"><label class="field">${unit === 'limit_minutes' ? 'Minutes per day' : 'Dollars per day'}<input name="v" type="number" min="1" step="${unit === 'limit_minutes' ? 1 : 0.01}" placeholder="No limit"></label>
+    <div class="inline-form"><label class="field">${unit === 'limit_minutes' ? 'Minutes per day' : `${esc(isNgn() ? 'Naira' : 'Dollars')} per day`}<input name="v" type="number" min="1" step="${unit === 'limit_minutes' ? 1 : esc(moneyStep())}" placeholder="No limit"></label>
     <button class="btn btn-primary" type="submit">Set limit</button><button class="btn" type="button" data-remove>Remove limit</button></div><div class="form-error" role="alert"></div></form>`;
   panel.innerHTML = box('deposit', 'Deposit limit', d, 'limit_dollars', money(d.limit.used_today_dollars), 'Caps how much you can deposit per day (UTC).')
     + box('trading', 'Trading limit', t, 'limit_dollars', money(t.limit.used_today_dollars), 'Caps the total cost of orders you can place per day (UTC).')
@@ -201,7 +201,7 @@ async function limits(panel) {
     const save = async (v) => {
       try { await api.setLimit(session.uid, kind, { [key]: v }); toast('Limit updated'); limits(panel); } catch (ex) { f.querySelector('.form-error').textContent = ex.message; }
     };
-    f.onsubmit = (e) => { e.preventDefault(); if (f.v.value) save(Number(f.v.value)); };
+    f.onsubmit = (e) => { e.preventDefault(); if (f.v.value) save(kind === 'session' ? Number(f.v.value) : toApiDollars(f.v.value)); }; // naira ÷ 100 = limit_dollars
     f.querySelector('[data-remove]').onclick = () => save(null);
   }
 }
@@ -210,6 +210,6 @@ async function alerts(panel) {
   const { price_targets: list } = await api.priceTargets(session.uid);
   panel.innerHTML = `<section class="card panel" data-testid="alerts-panel"><h2>Price alerts</h2><p class="muted">Create alerts from any market page. You get a notification when the Yes price crosses your level.</p>
     <table class="table"><thead><tr><th>Market</th><th>When Yes is</th><th>Status</th><th></th></tr></thead><tbody>
-    ${list.map((t) => `<tr data-alert="${esc(t.id)}"><td>${esc(t.market_title)}</td><td>${esc(t.direction)} ${Math.round(Number(t.price_dollars) * 100)}¢</td><td>${t.triggered_time ? `Triggered ${relTime(t.triggered_time)}` : 'Active'}</td><td><button class="btn btn-sm" data-del>Delete</button></td></tr>`).join('') || '<tr><td colspan="4" class="faint">No price alerts yet.</td></tr>'}</tbody></table></section>`;
+    ${list.map((t) => `<tr data-alert="${esc(t.id)}"><td>${esc(t.market_title)}</td><td>${esc(t.direction)} ${esc(pxCents(Math.round(Number(t.price_dollars) * 100)))}</td><td>${t.triggered_time ? `Triggered ${relTime(t.triggered_time)}` : 'Active'}</td><td><button class="btn btn-sm" data-del>Delete</button></td></tr>`).join('') || '<tr><td colspan="4" class="faint">No price alerts yet.</td></tr>'}</tbody></table></section>`;
   for (const b of panel.querySelectorAll('[data-del]')) b.onclick = async () => { await api.deletePriceTarget(session.uid, b.closest('[data-alert]').dataset.alert); toast('Alert deleted'); alerts(panel); };
 }

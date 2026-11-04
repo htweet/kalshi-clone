@@ -9,7 +9,7 @@ import { api } from '../api.js';
 import { payApi } from '../payments-api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, money, toast, relTime } from '../lib.js';
+import { esc, money, toast, relTime, currency, moneyStep, moneyMin, toApiDollars, validMoneyInput, moneyInputHint, fmtDate } from '../lib.js';
 import { cardForm, bankLinkForm, walletForm, methodLabel, methodSub } from './payment-forms.js';
 
 const STATUS_KIND = { succeeded: 'ok', settled: 'ok', paid: 'ok', pending: 'info', processing: 'info', confirming: 'info', requires_action: 'warn', held: 'warn', failed: 'bad', returned: 'bad', reversed: 'bad' };
@@ -61,7 +61,7 @@ async function overview(body, onPayment) {
     body.innerHTML = `${balancesHtml(meta.balances, meta.nonwithdrawable_credits)}
       <div class="d-flex gap-8 mt-12"><a class="btn btn-primary" href="/funds/deposit" data-link data-testid="go-deposit">Deposit</a><a class="btn" href="/funds/withdraw" data-link data-testid="go-withdraw">Withdraw</a><a class="btn btn-ghost" href="/account/payments" data-link>Payment methods</a></div>
       <section class="card panel mt-16"><h2>Recent transfers</h2>${transfersTable(rows)}</section>
-      <section class="card panel" data-testid="credits"><h2>Credits</h2>${ch.credits.length ? `<table class="table"><thead><tr><th>From</th><th class="num">Granted</th><th class="num">Left</th><th>Expires</th><th>Status</th></tr></thead><tbody>${ch.credits.map((c) => `<tr data-testid="credit-row" data-status="${esc(c.status)}"><td>${esc(c.source)}</td><td class="num">${esc(money(c.granted_dollars))}</td><td class="num">${esc(money(c.remaining_dollars))}</td><td>${esc(new Date(c.expires_time).toLocaleDateString())}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : '<p class="faint">Promotional credits you receive show here. They can be traded, not withdrawn, and they expire.</p>'}</section>`;
+      <section class="card panel" data-testid="credits"><h2>Credits</h2>${ch.credits.length ? `<table class="table"><thead><tr><th>From</th><th class="num">Granted</th><th class="num">Left</th><th>Expires</th><th>Status</th></tr></thead><tbody>${ch.credits.map((c) => `<tr data-testid="credit-row" data-status="${esc(c.status)}"><td>${esc(c.source)}</td><td class="num">${esc(money(c.granted_dollars))}</td><td class="num">${esc(money(c.remaining_dollars))}</td><td>${esc(fmtDate(c.expires_time))}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : '<p class="faint">Promotional credits you receive show here. They can be traded, not withdrawn, and they expire.</p>'}</section>`;
   };
   await draw();
   onPayment(() => draw().catch(() => {}));
@@ -132,7 +132,7 @@ async function challengePage(body, id, navigate) {
 function amountStep(host, { title, method, limits, balances = null, fee = 0, onNext, onBack }) {
   const note = balances ? `<p data-testid="withdrawable-note">You can withdraw <strong>${esc(money(balances.withdrawable_dollars))}</strong>.${Number(balances.nonwithdrawable_credits_dollars) ? ` ${esc(money(balances.nonwithdrawable_credits_dollars))} of credits can be traded but not withdrawn.` : ''}${Number(balances.unsettled_dollars) ? ` ${esc(money(balances.unsettled_dollars))} is still settling.` : ''}</p>` : '';
   host.innerHTML = `${stepper('amount')}<form class="card panel pay-form" data-testid="fund-amount-form" novalidate><h2>${esc(title)}</h2><p class="muted">${esc(method)}</p>${note}
-    <label class="field">Amount (USD)<input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required data-testid="fund-amount"></label>
+    <label class="field">Amount (${esc(currency.code)})<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" required data-testid="fund-amount"></label>
     <p class="faint">${limits.min_dollars ? `Minimum ${esc(money(limits.min_dollars))}` : ''}${limits.max_dollars ? ` · maximum ${esc(money(limits.max_dollars))}` : ''}${fee ? ` · network fee ${esc(money(fee))}` : ''}${limits.eta ? ` · ${esc(limits.eta)}` : ''}</p>
     <div class="form-error" role="alert" data-testid="fund-amount-error"></div>
     <div class="d-flex gap-8"><button class="btn" type="button" data-back>Back</button><button class="btn btn-primary" type="submit" data-testid="fund-continue">Review</button></div></form>`;
@@ -140,9 +140,10 @@ function amountStep(host, { title, method, limits, balances = null, fee = 0, onN
   f.querySelector('[data-back]').onclick = onBack;
   f.onsubmit = (e) => {
     e.preventDefault();
-    const a = Number(f.amount.value);
     const err = f.querySelector('[data-testid=fund-amount-error]');
-    if (!(a > 0) || Math.round(a * 100) !== Math.round(a * 1e4) / 100) { err.textContent = 'Enter an amount in dollars and cents.'; return; }
+    // Naira in, dollars out: whole naira ÷ 100 = the API's amount_dollars (CLONE_SPEC.md §30).
+    if (!validMoneyInput(f.amount.value)) { err.textContent = `Enter an amount in ${moneyInputHint()}.`; return; }
+    const a = toApiDollars(f.amount.value);
     if (limits.min_dollars && a < Number(limits.min_dollars)) { err.textContent = `The minimum is ${money(limits.min_dollars)}.`; return; }
     if (limits.max_dollars && a > Number(limits.max_dollars)) { err.textContent = `The maximum is ${money(limits.max_dollars)}.`; return; }
     onNext(a);
@@ -202,7 +203,7 @@ async function cryptoDeposit(body, meta, onPayment) {
     body.innerHTML = `${stepper('method')}<section class="card panel" data-testid="crypto-deposit"><h2>Deposit crypto</h2>
       ${account.enabled ? `<p class="muted">Send test tokens (tUSD) on the sandbox chain to your deposit address. They are credited after ${esc(account.confirmations_required)} confirmations.</p>
         <div class="code pay-break" data-testid="crypto-address">${esc(account.address)}</div>
-        <form class="pay-form mt-12" data-sim novalidate><p class="faint">Sandbox: simulate an incoming transfer from an outside wallet.</p><div class="inline-form"><label class="field">Amount (USD)<input name="amount" type="number" min="1" step="0.01" data-testid="crypto-sim-amount"></label><button class="btn" type="submit" data-testid="crypto-sim">Simulate transfer</button></div><div class="form-error" role="alert"></div></form>
+        <form class="pay-form mt-12" data-sim novalidate><p class="faint">Sandbox: simulate an incoming transfer from an outside wallet.</p><div class="inline-form"><label class="field">Amount (${esc(currency.code)})<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" data-testid="crypto-sim-amount"></label><button class="btn" type="submit" data-testid="crypto-sim">Simulate transfer</button></div><div class="form-error" role="alert"></div></form>
         ${incoming.length ? transfersTable(incoming) : ''}`
     : `<p class="muted">${esc(account.terms)}</p><label class="d-flex gap-8 ai-center"><input type="checkbox" data-terms data-testid="crypto-terms"> I understand and accept</label><div class="form-error" role="alert"></div><button class="btn btn-primary mt-12" data-open data-testid="crypto-open">Get my deposit address</button>`}
       <div class="mt-12"><a class="btn btn-ghost" href="/funds/deposit" data-link>Back</a></div></section>`;
@@ -217,7 +218,7 @@ async function cryptoDeposit(body, meta, onPayment) {
     if (sim) {
       sim.onsubmit = async (e) => {
         e.preventDefault();
-        try { await payApi.simulateCrypto(session.uid, Number(sim.amount.value)); toast('Transfer broadcast on the sandbox chain'); setTimeout(() => draw().catch(() => {}), 300); } catch (ex) { sim.querySelector('.form-error').textContent = ex.message; }
+        try { await payApi.simulateCrypto(session.uid, toApiDollars(sim.amount.value)); toast('Transfer broadcast on the sandbox chain'); setTimeout(() => draw().catch(() => {}), 300); } catch (ex) { sim.querySelector('.form-error').textContent = ex.message; }
       };
     }
   };

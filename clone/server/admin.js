@@ -14,6 +14,8 @@ const { marketVo, scalarVo } = require('./serialize');
 const { STRUCTURES } = require('./pricing'); // Phase 5A price grids (CLONE_SPEC.md §28.1)
 const { CATEGORIES } = require('./features');
 const auditChain = require('./audit-chain');
+const currency = require('./currency'); // display currency and new-account defaults (CLONE_SPEC.md §30)
+const { check: checkBody } = require('./validate');
 
 // ----------------------------------------------------------------------------------------------- roles
 const PERMS = ['catalog.read', 'catalog.write', 'content.write', 'resolution.write', 'markets.ops', 'perps.ops', 'users.read', 'users.support', 'users.money',
@@ -205,6 +207,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   const hooks = { resolutionGate: null }; // set by server/trading-core.js (two-person rule, CLONE_SPEC.md §28.7)
   // Runtime-editable exchange settings (gap G7): applied at boot from the persisted values, changed live by PUT /settings.
   setTakerFeeCoefficient(setting('taker_fee')?.coefficient ?? DEFAULT_TAKER_FEE_COEFFICIENT);
+  currency.configure(setting('display_currency'), setting('account_defaults')); // display currency + new-account defaults (§30)
   const persistedRollingWindow = () => setting('rolling_window')?.seconds ?? null;
 
   // ---------------------------------------------------------------- roles + audit
@@ -380,7 +383,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   v1.get('/site_config', (req, res) => {
     const who = req.auth ? 'logged_in' : 'logged_out';
     const banners = db.prepare('SELECT * FROM cms_banners WHERE active=1 ORDER BY created_at DESC').all().filter((b) => windowOk(b) && (b.visibility === 'all' || b.visibility === who));
-    res.json({ banners: banners.map(bannerVo), nav: navConfig(), features: features() });
+    res.json({ banners: banners.map(bannerVo), nav: navConfig(), features: features(), display_currency: currency.descriptor() });
   });
   v1.get('/help', (req, res) => res.json({ pages: db.prepare('SELECT slug,title,updated_at FROM cms_help WHERE published=1 AND active=1 ORDER BY position, title').all().map((p) => ({ slug: p.slug, title: p.title, updated_time: p.updated_at })) }));
   v1.get('/help/:slug', (req, res) => {
@@ -1217,7 +1220,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const b = req.body || {};
     const amt = Number(b.amount_dollars);
     const errs = {};
-    if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1000000 || Math.abs(Math.round(amt * 100) - amt * 100) > 1e-6) errs.amount_dollars = 'enter a non-zero amount with at most 2 decimals (up to $1,000,000)';
+    if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1000000 || Math.abs(Math.round(amt * 100) - amt * 100) > 1e-6) errs.amount_dollars = `enter a non-zero amount with at most 2 decimals (up to ${currency.moneyCents(100_000_000)})`;
     let reason = '';
     try { reason = reasonOf(b); } catch (e) { Object.assign(errs, e.fields); }
     if (Object.keys(errs).length) throw new FieldError(errs);
@@ -1228,7 +1231,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
       engine.credit(u.id, cents, 'adjustment', `admin:${req.auth.user.id}`, reason);
     });
     engine.emit('user_balance', u.id, engine.balance(u.id));
-    notify(u.id, { type: 'account', title: `Balance ${cents > 0 ? 'credit' : 'debit'}: $${usd(Math.abs(cents))}`, body: reason, link: '/portfolio' });
+    notify(u.id, { type: 'account', title: `Balance ${cents > 0 ? 'credit' : 'debit'}: ${currency.moneyCents(Math.abs(cents))}`, body: reason, link: '/portfolio' });
     const after = { balance_dollars: dollars(engine.balance(u.id)) };
     audit(req, 'users.adjust_balance', 'user', u.id, before, { ...after, amount_dollars: dollars(cents) }, reason);
     res.json(after);
@@ -1288,7 +1291,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (b.value !== null && b.value !== '' && b.value !== undefined) {
       const n = Number(b.value);
       const max = kind === 'session' ? 1440 : 100000;
-      if (!Number.isFinite(n) || n <= 0 || n > max) throw new FieldError({ value: kind === 'session' ? 'minutes per day, 1-1440, or empty to remove' : 'dollars per day up to 100,000, or empty to remove' });
+      if (!Number.isFinite(n) || n <= 0 || n > max) throw new FieldError({ value: kind === 'session' ? 'minutes per day, 1-1440, or empty to remove' : `an amount per day up to ${currency.moneyCents(10_000_000)} (value is in dollars: up to 100,000), or empty to remove` });
       value = kind === 'session' ? Math.round(n) : Math.round(n * 100);
     }
     const before = db.prepare('SELECT value, pending_value, pending_set FROM user_limits WHERE user_id=? AND kind=?').get(u.id, kind) || null;
@@ -1382,7 +1385,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   const SEGMENTS = {
     all: { label: 'Everyone', sql: 'SELECT id FROM users WHERE is_system=0' },
     traders: { label: 'Traders (any fill)', sql: 'SELECT id FROM users u WHERE is_system=0 AND EXISTS (SELECT 1 FROM fills f WHERE f.user_id=u.id)' },
-    funded: { label: 'Funded accounts (cash > $0)', sql: 'SELECT id FROM users WHERE is_system=0 AND balance_cents>0' },
+    funded: { get label() { return `Funded accounts (cash > ${currency.moneyCents(0)})`; }, sql: 'SELECT id FROM users WHERE is_system=0 AND balance_cents>0' },
     no_trades: { label: 'Never traded', sql: 'SELECT id FROM users u WHERE is_system=0 AND NOT EXISTS (SELECT 1 FROM fills f WHERE f.user_id=u.id)' },
     social: { label: 'Social members (have a nickname)', sql: 'SELECT u.id FROM users u JOIN social_profiles sp ON sp.user_id=u.id WHERE u.is_system=0' },
     staff: { label: 'Staff (any admin role)', sql: 'SELECT id FROM users u WHERE is_system=0 AND (is_admin=1 OR EXISTS (SELECT 1 FROM admin_roles r WHERE r.user_id=u.id))' },
@@ -1486,8 +1489,11 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   v1.get(`${A}/reports.csv`, can('reports.read'), async (req, res) => {
     const r = await buildReport(req.query);
     const cols = ['day', 'trades', 'volume_fp', 'volume_dollars', 'fees_dollars', 'deposits_dollars', 'withdrawals_dollars', 'active_users', 'signups'];
-    const lines = [cols.join(','), ...r.daily.map((d) => cols.map((c) => csvEsc(d[c])).join(',')),
-      ['total', r.totals.trades, r.totals.volume_fp, r.totals.volume_dollars, r.totals.fees_dollars, r.totals.deposits_dollars, r.totals.withdrawals_dollars, r.totals.active_users, r.totals.signups].map(csvEsc).join(',')];
+    // Money columns in the display currency (CLONE_SPEC.md §30): volume_ngn … in naira, or the original *_dollars under USD.
+    const head = cols.map((c) => (c.endsWith('_dollars') ? currency.csvCol(c.slice(0, -8), c) : c));
+    const cell = (c, v) => (c.endsWith('_dollars') ? currency.csvDollars(v) : v);
+    const lines = [head.join(','), ...r.daily.map((d) => cols.map((c) => csvEsc(cell(c, d[c]))).join(',')),
+      ['total', ...cols.slice(1).map((c) => cell(c, r.totals[c]))].map(csvEsc).join(',')];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="parlance-report-${r.from}-to-${r.to}.csv"`);
     res.send(lines.join('\n') + '\n');
@@ -1535,6 +1541,49 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const after = settingsVo();
     audit(req, 'settings.update', 'settings', 'system', before, after);
     res.json({ settings: after });
+  });
+
+  // ---------------------------------------------------------------- Currency & defaults (CLONE_SPEC.md §30)
+  // Display currency, locale and time zone (every money string and date in the app, server and SPA), and the defaults
+  // written to NEW accounts. Saving needs settings.write, a reason and a fresh step-up (server/auth.js SENSITIVE), and
+  // writes one hash-chained audit row; the change is pushed live on the public `display_currency` channel.
+  const currencyVo = () => ({ display_currency: currency.config(), account_defaults: currency.accountDefaults(), descriptor: currency.descriptor(),
+    options: { codes: currency.CODES, locales: currency.LOCALES, themes: currency.THEMES, channels: currency.CHANNELS, display_modes: ['payout', 'shares'] } });
+  v1.get('/exchange/display_currency', (req, res) => res.json({ display_currency: currency.descriptor() }));
+  v1.get(`${A}/settings/currency`, can('settings.write'), (req, res) => res.json(currencyVo()));
+  v1.put(`${A}/settings/currency`, can('settings.write'), (req, res) => {
+    const b = req.body || {};
+    const reason = reasonOf(b);
+    const errs = {};
+    let cfg; let acct;
+    if (b.display_currency !== undefined) {
+      try {
+        const d = checkBody(b.display_currency, { code: { type: 'string', enum: currency.CODES }, locale: { type: 'string', enum: currency.LOCALES }, timezone: { type: 'string', maxLen: 64 } }, { unknown: 'reject' });
+        if (d.timezone !== undefined && !currency.validTz(d.timezone)) errs['display_currency.timezone'] = 'must be an IANA time zone such as Africa/Lagos';
+        cfg = { ...currency.config(), ...d };
+      } catch (e) { if (e.fields) for (const [k, v] of Object.entries(e.fields)) errs[`display_currency.${k}`] = v; else throw e; }
+    }
+    if (b.account_defaults !== undefined) {
+      try {
+        const a = checkBody(b.account_defaults, { theme: { type: 'string', enum: currency.THEMES }, order_review: { type: 'boolean' }, flip_sell: { type: 'boolean' }, display_mode: { type: 'string', enum: ['payout', 'shares'] }, notification_channels: { type: 'object' } }, { unknown: 'reject' });
+        if (a.notification_channels !== undefined) checkBody(a.notification_channels, Object.fromEntries(currency.CHANNELS.map((c) => [c, { type: 'boolean' }])), { unknown: 'reject' });
+        const curA = currency.accountDefaults();
+        acct = { ...curA, ...a, notification_channels: { ...curA.notification_channels, ...(a.notification_channels || {}) } };
+      } catch (e) { if (e.fields) for (const [k, v] of Object.entries(e.fields)) errs[`account_defaults.${k}`] = v; else throw e; }
+    }
+    if (cfg === undefined && acct === undefined) errs.body = 'nothing to change: send display_currency and/or account_defaults';
+    if (Object.keys(errs).length) throw new FieldError(errs);
+    const before = { display_currency: currency.config(), account_defaults: currency.accountDefaults() };
+    const nextCfg = cfg ? currency.normalizeConfig(cfg) : undefined;
+    const nextAcct = acct ? currency.normalizeAccount(acct) : undefined;
+    tx(db, () => {
+      if (nextCfg) putSetting('display_currency', nextCfg, req.auth.user.id);
+      if (nextAcct) putSetting('account_defaults', nextAcct, req.auth.user.id);
+      audit(req, 'settings.currency', 'settings', 'currency', before, { display_currency: nextCfg || before.display_currency, account_defaults: nextAcct || before.account_defaults }, reason);
+    });
+    currency.configure(nextCfg, nextAcct); // live: the next formatted string uses it
+    if (nextCfg) engine.emit('display_currency', currency.descriptor()); // every open page re-renders
+    res.json(currencyVo());
   });
   v1.get(`${A}/health`, can('settings.write'), (req, res) => {
     const pc = db.prepare('PRAGMA page_count').get().page_count; const ps = db.prepare('PRAGMA page_size').get().page_size;

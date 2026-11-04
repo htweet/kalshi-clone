@@ -4,7 +4,7 @@
 // Live updates arrive on the `live_data` WebSocket channel; each view falls back to polling while it is down.
 import { request } from '../api.js';
 import { socket } from '../ws.js';
-import { esc, cents, eventHref } from '../lib.js';
+import { esc, cents, eventHref, pxCents } from '../lib.js';
 import { sportIcon, gameCard, fullBoard, playsList, playItem, boxScore, SPORT_LABEL, evLabelInner } from './scoreboard.js';
 
 const get = (url) => request('GET', url);
@@ -116,7 +116,7 @@ export function mountLinesSection(box, ev) {
       const ya = cents(m.yes_ask_dollars); const na = cents(m.no_ask_dollars);
       return `<div class="sb-line-row" data-testid="line-row" data-ticker="${esc(m.ticker)}"><span class="sb-line-name">${esc(m.yes_sub_title)}</span>
         <span class="sb-line-p num" data-line-p>${p == null ? '—' : `${p}%`}</span>
-        ${open ? `<a class="btn btn-sm yes-btn" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link data-testid="line-yes">Yes ${ya ? `${ya}¢` : '—'}</a><a class="btn btn-sm no-btn" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link data-testid="line-no">No ${na ? `${na}¢` : '—'}</a>`
+        ${open ? `<a class="btn btn-sm yes-btn" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link data-testid="line-yes">Yes ${ya ? esc(pxCents(ya)) : '—'}</a><a class="btn btn-sm no-btn" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link data-testid="line-no">No ${na ? esc(pxCents(na)) : '—'}</a>`
     : `<span class="sb-line-res" data-testid="line-result">${m.result ? `Resolved ${esc(String(m.result).toUpperCase())}` : esc(m.status)}</span><span></span>`}</div>`;
     };
     const spreads = le.markets.filter((m) => /-SP[A-Z0-9]+$/.test(m.ticker)); const totals = le.markets.filter((m) => /-TOT\d+$/.test(m.ticker));

@@ -11,6 +11,7 @@
 //     simulated yearly statements as CSV and PDF — clearly "not tax advice";
 //   • rewards: the new-user checklist and promo codes (created by staff, single use per user, credited to the ledger
 //     as kind `credit`).
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { nowIso, newId, dollars, usd, ApiError, E, encCursor, decCursor, UNITS } = require('./util');
@@ -222,16 +223,16 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
     const rows = db.prepare('SELECT * FROM ledger WHERE user_id=? AND created_at>=? AND created_at<? ORDER BY created_at, rowid').all(req.auth.user.id, `${y}-01-01T00:00:00.000Z`, `${y + 1}-01-01T00:00:00.000Z`);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="parlance-transactions-${y}.csv"`);
-    res.send(['time,type,amount_usd,reference,memo', ...rows.map((l) => [l.created_at, l.kind, usd(l.amount_cents), l.ref || '', l.memo].map(csvCell).join(','))].join('\n') + '\n');
+    res.send([`time,type,${C.csvCol('amount', 'amount_usd')},reference,memo`, ...rows.map((l) => [l.created_at, l.kind, C.csvCents(l.amount_cents), l.ref || '', l.memo].map(csvCell).join(','))].join('\n') + '\n');
   });
   function statement(uid, y, form) {
     const r = yearly(uid).find((x) => x.year === y);
     if (!r || !formsFor(r).includes(form)) throw E.notFound();
     const u = db.prepare('SELECT id, email, display_name FROM users WHERE id=?').get(uid);
     const rows = [['Statement', FORMS[form]], ['Tax year', String(y)], ['Account', `${u.display_name} (${u.id.slice(-8)})`]];
-    if (form === '1099-INT') rows.push(['Interest credited', `$${usd(r.interest)}`]);
-    if (form === '1099-MISC') rows.push(['Credits and rewards', `$${usd(r.credits)}`]);
-    if (form === 'PNL') rows.push(['Trades (fills)', String(r.trades)], ['Realized P&L without fees', `$${usd(r.realized)}`], ['Fees', `$${usd(r.fees)}`], ['Credits and rebates', `$${usd(r.credits)}`], ['Realized P&L with fees', `$${usd(r.realized - r.fees + r.credits)}`]);
+    if (form === '1099-INT') rows.push(['Interest credited', C.moneyCents(r.interest)]);
+    if (form === '1099-MISC') rows.push(['Credits and rewards', C.moneyCents(r.credits)]);
+    if (form === 'PNL') rows.push(['Trades (fills)', String(r.trades)], ['Realized P&L without fees', C.moneyCents(r.realized)], ['Fees', C.moneyCents(r.fees)], ['Credits and rebates', C.moneyCents(r.credits)], ['Realized P&L with fees', C.moneyCents(r.realized - r.fees + r.credits)]);
     return { rows, title: `Parlance ${form} ${y}` };
   }
   v1.get('/users/:uid/tax_documents/:year/:form.csv', requireUser, (req, res) => {
@@ -243,7 +244,9 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
   v1.get('/users/:uid/tax_documents/:year/:form.pdf', requireUser, (req, res) => {
     const s = statement(req.auth.user.id, yearParam(req), String(req.params.form));
     const lines = [{ text: 'Parlance Exchange', size: 18, bold: true }, { text: s.title, size: 13, bold: true, gap: 4 }, { text: 'SIMULATED STATEMENT - NOT A TAX FORM - NOT TAX ADVICE', size: 10, bold: true, gap: 6 },
-      ...s.rows.map(([k, v], i) => ({ text: `${k}: ${v}`, size: 11, gap: i ? 0 : 10 })), { text: NOT_ADVICE, size: 9, gap: 14 }, { text: `Generated ${nowIso()}`, size: 8, gap: 4 }];
+      ...s.rows.map(([k, v], i) => ({ text: `${k}: ${v}`, size: 11, gap: i ? 0 : 10 })),
+      { text: `Amounts in ${C.descriptor().name} (${C.config().code}); ${C.descriptor().rule}.`, size: 9, gap: 10 }, // display currency (CLONE_SPEC.md §30)
+      { text: NOT_ADVICE, size: 9, gap: 14 }, { text: `Generated ${C.dateTimeLabel(Date.now())} (${nowIso()})`, size: 8, gap: 4 }];
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="parlance-${req.params.form}-${req.params.year}.pdf"`);
     res.send(textPdf(lines, { title: s.title }));
@@ -294,7 +297,7 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
     });
     engine.emit('user_balance', uid, engine.balance(uid));
     auth.logEvent(uid, 'promo_redeemed', req, { code: p.code });
-    try { notify(uid, { type: 'reward', title: `Promo code applied: $${usd(p.amount_cents)} credit`, body: p.description || p.code, link: '/account/activity' }); } catch { /* ignore */ }
+    try { notify(uid, { type: 'reward', title: `Promo code applied: ${C.moneyCents(p.amount_cents)} credit`, body: p.description || p.code, link: '/account/activity' }); } catch { /* ignore */ }
     res.status(201).json({ code: p.code, amount_dollars: dollars(p.amount_cents), balance_dollars: dollars(engine.balance(uid)) });
   });
   v1.get('/admin/promo_codes', can('users.money'), (req, res) => res.json({ promo_codes: db.prepare('SELECT * FROM promo_codes ORDER BY created_at DESC LIMIT 500').all().map(promoVo) }));
@@ -306,7 +309,7 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
     if (!CODE_RE.test(code)) errs.code = '4-32 characters: A-Z, 0-9 and dashes';
     else if (db.prepare('SELECT 1 FROM promo_codes WHERE code=?').get(code)) errs.code = 'is already used';
     const amt = Number(b.amount_dollars);
-    if (!Number.isFinite(amt) || amt <= 0 || amt > 1000 || Math.round(amt * 100) !== amt * 100) errs.amount_dollars = 'a positive amount up to $1,000 with at most 2 decimals';
+    if (!Number.isFinite(amt) || amt <= 0 || amt > 1000 || Math.round(amt * 100) !== amt * 100) errs.amount_dollars = `a positive amount up to ${C.moneyCents(100000)} with at most 2 decimals of amount_dollars`;
     const time = (v, k) => { if (v == null || v === '') return null; const t = Date.parse(v); if (!Number.isFinite(t)) { errs[k] = 'must be a date and time'; return null; } return new Date(t).toISOString(); };
     const starts = time(b.starts_time, 'starts_time'); const ends = time(b.ends_time, 'ends_time');
     if (starts && ends && Date.parse(ends) <= Date.parse(starts)) errs.ends_time = 'must be after the start';

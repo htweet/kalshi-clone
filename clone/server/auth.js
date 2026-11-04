@@ -9,6 +9,7 @@
 //   auth.bootstrap   first-admin setup (env / start option / one-time setup URL); no default admin password
 // Everything is persisted in SQLite (tables created below; the shared `sessions` and `mfa` tables are migrated in
 // place, idempotently).
+const currency = require('./currency'); // new-account defaults (CLONE_SPEC.md §30)
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { tx } = require('./db');
@@ -401,6 +402,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     ['POST', /^\/perps\/transfers$/, 'large_transfer', (req) => transferCents(req.body) > opt.largeTransferCents],
     ['PUT', /^\/admin\/roles\/[^/]+$/, 'admin_role_change'],
     ['POST', /^\/admin\/users\/[^/]+\/force_password_reset$/, 'admin_force_password_reset'],
+    ['PUT', /^\/admin\/settings\/currency$/, 'admin_currency_settings'], // display currency + new-account defaults (§30)
   ];
   // Accepted step-up methods: password (+ two-factor code when on) plus any registered by identity modules (passkey).
   const stepUpMethods = (uid) => [...(mfaEnabled(uid) ? ['password', 'totp'] : ['password']), ...hooks.stepUpExtras(uid)];
@@ -520,6 +522,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       const hash = await pw.hashPassword(password);
       const id = newId('u_');
       db.prepare('INSERT INTO users(id,email,display_name,password_hash,balance_cents,created_at) VALUES(?,?,?,?,0,?)').run(id, em, name, hash, nowIso());
+      currency.applyAccountDefaults(db, id, nowIso()); // Admin › Currency & defaults: new-account settings (CLONE_SPEC.md §30)
       setSec(id, { password_changed_at: nowIso() });
       const u = getUser(id);
       const { sid } = createSession(req, res, u);

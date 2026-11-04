@@ -1,12 +1,13 @@
 // Shared helpers: escaping, formatting, local storage with expiry (spec §8.2 pattern).
 import { vars } from './dynstyle.js';
 import { uiPrefs } from './prefs.js';
+import { fmtDate } from './currency.js'; // display currency, locale and time zone (CLONE_SPEC.md §30)
+// Money and contract prices are formatted by currency.js only (₦ by default, $ / ¢ when an admin switches to USD).
+export { money, pxc, px, money0, moneyCents, moneyCompact, pxCents, priceUnit, sym, contractValue, amountLabel, toApiDollars, fromApiDollars, moneyStep, moneyMin, validMoneyInput, moneyInputHint, assetPrice, assetDecimals, fmtDt, fmtDate, fmtDay, fmtDateTime, fmtTime, dayKey, currency, isNgn } from './currency.js';
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const cents = (dollarStr) => (dollarStr == null ? null : Math.round(Number(dollarStr) * 100));
 // Phase 5A (CLONE_SPEC.md §28.1): prices are 4-decimal dollar strings on the market's grid; cc = $0.0001 (1¢ = 100 cc).
 export const ccOf = (dollarStr) => (dollarStr == null ? null : Math.round(Number(dollarStr) * 10000));
-export const pxc = (cc) => (cc == null ? '—' : `${(cc / 100).toFixed(2).replace(/\.?0+$/, '')}¢`); // 4500 → "45¢", 4530 → "45.3¢"
-export const px = (dollarStr) => pxc(ccOf(dollarStr));
 export const ccDollars = (cc) => (cc / 10000).toFixed(4);
 const LINEAR = [{ start: '0.0000', end: '1.0000', step: '0.0100' }];
 export const gridBands = (m) => (m && m.price_ranges ? m.price_ranges : LINEAR).map((r) => [ccOf(r.start), ccOf(r.end), ccOf(r.step)]);
@@ -21,10 +22,6 @@ export function snapCc(m, cc) { // nearest tick at or below cc (within the trada
 // accumulator charges a single fill.
 export const feeDollars = (c, cc) => Math.ceil(0.07 * c * (cc / 10000) * (1 - cc / 10000) * 100 - 1e-9) / 100;
 export const pct = (dollarStr) => (dollarStr == null ? '—' : `${cents(dollarStr)}%`);
-export const money = (dollarStr) => {
-  const n = Number(dollarStr || 0);
-  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
 export const qty = (fpStr) => Number(fpStr || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
 // Contract quantities: hundredths of a contract (spec §16). Valid when > 0 with at most 2 decimals.
 export const validQty = (n, fractional = true) => Number.isFinite(n) && n > 0 && Math.abs(Math.round(n * 100) - n * 100) < 1e-6 && (fractional || Number.isInteger(n));
@@ -50,7 +47,7 @@ export function multiplier(m) {
 }
 export const deltaCents = (m) => (m.last_price_dollars != null && m.previous_price_dollars != null ? cents(m.last_price_dollars) - cents(m.previous_price_dollars) : 0);
 export const eventHref = (e) => `/markets/${(e.series_ticker || '').toLowerCase()}/${e.series_slug || 'event'}/${(e.event_ticker || '').toLowerCase()}`;
-export const shortDate = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+export const shortDate = (iso) => fmtDate(iso);
 
 export function setLocalWithExpiry(key, value, ttlMs) {
   try { localStorage.setItem(key, JSON.stringify({ value, expiry: Date.now() + ttlMs })); } catch { /* storage unavailable */ }

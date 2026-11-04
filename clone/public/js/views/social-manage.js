@@ -3,7 +3,7 @@
 // All user content is written with textContent through h(); nothing user-supplied reaches innerHTML.
 import { api } from '../api.js';
 import { session } from '../store.js';
-import { toast, relTime } from '../lib.js';
+import { toast, relTime, fmtDate } from '../lib.js';
 import { h, loadStickers, invalidateMutes } from './social2.js';
 
 const head = (title, active) => {
@@ -38,7 +38,7 @@ async function renderCircle(el) {
     body.replaceChildren(form,
       section(`Requests for you (${c.incoming.length})`, 'circle-incoming', c.incoming.map((r) => h('div', { class: 'circle-row', 'data-testid': 'circle-incoming-row', 'data-nick': r.nickname }, nickLink(r.nickname), h('span', { class: 'faint' }, relTime(r.created_time)), h('span', { class: 'grow' }),
         act('Accept', 'circle-accept', () => api.circleAccept(session.uid, r.id), 'btn btn-sm btn-primary'), act('Decline', 'circle-decline', () => api.circleDecline(session.uid, r.id)))), 'No requests.'),
-      section(`Members (${c.members.length}/${c.limit})`, 'circle-members', c.members.map((m) => h('div', { class: 'circle-row', 'data-testid': 'circle-member', 'data-nick': m.nickname }, nickLink(m.nickname), h('span', { class: 'faint' }, `since ${new Date(m.since).toLocaleDateString()}`), h('span', { class: 'grow' }),
+      section(`Members (${c.members.length}/${c.limit})`, 'circle-members', c.members.map((m) => h('div', { class: 'circle-row', 'data-testid': 'circle-member', 'data-nick': m.nickname }, nickLink(m.nickname), h('span', { class: 'faint' }, `since ${fmtDate(m.since)}`), h('span', { class: 'grow' }),
         act('Remove', 'circle-remove', async () => { if (!confirm(`Remove @${m.nickname} from your Inner Circle? You leave theirs too.`)) return false; await api.circleRemove(session.uid, m.nickname); return true; }, 'btn btn-sm btn-ghost btn-danger'))), 'Nobody yet. Send a request to someone you trust.'),
       section(`Sent requests (${c.outgoing.length})`, 'circle-outgoing', c.outgoing.map((r) => h('div', { class: 'circle-row', 'data-testid': 'circle-outgoing-row', 'data-nick': r.nickname }, nickLink(r.nickname), h('span', { class: 'faint' }, `sent ${relTime(r.created_time)}`), h('span', { class: 'grow' }),
         act('Cancel', 'circle-cancel', () => api.circleCancel(session.uid, r.id)))), 'No pending requests.'));

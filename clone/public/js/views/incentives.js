@@ -6,10 +6,10 @@
 import { request } from '../api.js';
 import { socket } from '../ws.js';
 import { session } from '../store.js';
-import { esc, money, eventHref, CATEGORIES, catLabel, toast } from '../lib.js';
+import { esc, money, eventHref, CATEGORIES, catLabel, toast, fmtDt, fmtDay } from '../lib.js';
 
 const get = (u) => request('GET', u);
-const when = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+const when = (iso) => fmtDt(iso, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
 
 export async function render({ el, params, query, navigate }) {
   if (params.page === 'terms') return renderTerms(el);
@@ -51,7 +51,7 @@ export async function render({ el, params, query, navigate }) {
     $('[data-stats]').innerHTML = `<div class="card stat"><span class="label">${esc(me.month.label)}</span><span class="value num" data-testid="lip-month">${money(me.month.rewards_dollars)}</span></div>
       <div class="card stat"><span class="label">Lifetime rewards <button class="icon-btn lip-hist-btn" data-history aria-label="Reward history" data-testid="lip-history-btn">⟲</button></span><span class="value num" data-testid="lip-lifetime">${money(me.lifetime_dollars)}</span></div>
       <div class="card stat"><span class="label">Accruing, not yet paid</span><span class="value num" data-testid="lip-pending">${money(me.month.pending_dollars)}</span></div>
-      ${state.showHistory ? `<div class="card lip-history" data-testid="lip-history">${me.rewards.length ? me.rewards.map((r) => `<div class="lip-hist-row"><span>${esc(r.title)}</span><span class="faint">${esc(new Date(r.paid_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))} · ${esc(r.mode === 'credits' ? 'credits' : 'cash')}</span><b class="num">${money(r.amount_dollars)}</b></div>`).join('') : '<p class="faint">No rewards paid yet.</p>'}
+      ${state.showHistory ? `<div class="card lip-history" data-testid="lip-history">${me.rewards.length ? me.rewards.map((r) => `<div class="lip-hist-row"><span>${esc(r.title)}</span><span class="faint">${esc(fmtDay(r.paid_time))} · ${esc(r.mode === 'credits' ? 'credits' : 'cash')}</span><b class="num">${money(r.amount_dollars)}</b></div>`).join('') : '<p class="faint">No rewards paid yet.</p>'}
         ${me.programs.length ? `<div class="overline mt-12">Accrued per program</div>${me.programs.map((p) => `<div class="lip-hist-row" data-testid="lip-accrual"><span>${esc(p.title)}</span><span class="faint">${esc(p.status)}</span><b class="num">${money(p.accrued_dollars)}</b></div>`).join('')}` : ''}</div>` : ''}`;
     $('[data-enroll]').innerHTML = !me.eligible ? '' : me.enrolled
       ? `<div class="lip-enrolled" data-testid="lip-enrolled">You’re taking part. Resting orders near the best price earn rewards. <button class="btn btn-sm btn-ghost" data-leave>Leave</button></div>`

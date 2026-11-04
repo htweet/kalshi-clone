@@ -2,7 +2,7 @@
 // setup (CLONE_SPEC §22): credentials → (code) → (new password) → signed in.
 import { api } from '../api.js';
 import { session } from '../store.js';
-import { toast, esc } from '../lib.js';
+import { toast, esc, fmtTime } from '../lib.js';
 import { idApi } from '../identity-api.js';
 import { passkeysSupported } from '../webauthn-client.js';
 
@@ -108,7 +108,7 @@ async function setup({ el, query, navigate }) {
     return;
   }
   el.innerHTML = `<form class="card auth-card" id="auth-form" novalidate data-testid="setup-form">
-    <h1>Create the first admin</h1><p class="muted">This single-use link expires ${new Date(st.expires_time).toLocaleTimeString()}.</p>
+    <h1>Create the first admin</h1><p class="muted">This single-use link expires ${esc(fmtTime(st.expires_time))}.</p>
     <label class="field">Display name<input name="display_name" autocomplete="name" required minlength="2" maxlength="40"></label>
     <label class="field">Email<input name="email" type="email" autocomplete="email" required></label>
     ${passwordField('password', 'Password', 'new-password')}${rules}

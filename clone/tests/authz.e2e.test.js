@@ -152,6 +152,8 @@ const EXPECT = {
   'POST /v1/admin/announcements/templates': perm('announce'), 'DELETE /v1/admin/announcements/templates/:id': perm('announce'),
   'GET /v1/admin/reports': perm('reports.read'), 'GET /v1/admin/reports.csv': perm('reports.read'),
   'GET /v1/admin/settings': perm('settings.write'), 'PUT /v1/admin/settings': perm('settings.write'), 'GET /v1/admin/health': perm('settings.write'),
+  // Display currency (NGN default) and new-account defaults (CLONE_SPEC.md §30): public descriptor, staff panel.
+  'GET /v1/exchange/display_currency': P, 'GET /v1/admin/settings/currency': perm('settings.write'), 'PUT /v1/admin/settings/currency': perm('settings.write'),
   // Legacy lifecycle endpoints and perps simulation controls: users.is_admin (the admin role) only.
   'POST /v1/admin/markets/:ticker/:action': { who: 'legacy-admin' },
   'POST /v1/admin/exchange': { who: 'legacy-admin', body: { trading_active: true } },

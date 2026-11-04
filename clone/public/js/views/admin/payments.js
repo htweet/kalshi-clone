@@ -1,6 +1,7 @@
 // Admin › Payments (CLONE_SPEC.md §26.9): transactions, reconciliation queue (resolve with a reason, step-up, audit chain),
 // AML cases (close / escalate; held withdrawals released or reversed through Fraud & holds), the double-entry ledger audit,
 // provider settings and the webhook log. Sandbox rails only.
+import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, section, subTabs, fmtTime, fmtMoney, badge, confirmAction } from './ui.js';
 
 const TABS = [['transactions', 'Transactions'], ['reconciliation', 'Reconciliation'], ['aml', 'AML cases'], ['ledger', 'Ledger audit'], ['settings', 'Provider settings'], ['webhooks', 'Webhook log']];
@@ -81,7 +82,7 @@ async function ledger(host, { perms }) {
     const l = r.live;
     host.innerHTML = `<div class="adm-toolbar">${perms.has('users.money') ? '<button class="btn btn-primary" data-run data-testid="audit-run">Run and record the audit</button>' : ''}</div>
       <p data-testid="audit-result" data-ok="${l.ok ? '1' : '0'}">${l.ok ? badge('balanced', 'ok') : badge(`${l.problems.length} problem(s)`, 'bad')} ${esc(l.entries)} journal entries, ${esc(l.accounts_checked)} accounts checked: every entry sums to zero; cash + credits equal each balance; reservations, holds, market escrow and pending payouts equal their tables.</p>
-      ${l.problems.length ? `<table class="table" data-testid="audit-problems"><thead><tr><th>Check</th><th>Account</th><th class="num">Expected</th><th class="num">Actual</th><th>Detail</th></tr></thead><tbody>${l.problems.map((p) => `<tr><td>${esc(p.check)}</td><td><code>${esc(p.account || p.entry_id || '')}</code></td><td class="num">${esc((p.expected_cents / 100).toFixed(2))}</td><td class="num">${esc((p.actual_cents / 100).toFixed(2))}</td><td>${esc(p.detail)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${l.problems.length ? `<table class="table" data-testid="audit-problems"><thead><tr><th>Check</th><th>Account</th><th class="num">Expected</th><th class="num">Actual</th><th>Detail</th></tr></thead><tbody>${l.problems.map((p) => `<tr><td>${esc(p.check)}</td><td><code>${esc(p.account || p.entry_id || '')}</code></td><td class="num">${esc(money(p.expected_cents / 100))}</td><td class="num">${esc(money(p.actual_cents / 100))}</td><td>${esc(p.detail)}</td></tr>`).join('')}</tbody></table>` : ''}
       <h3>Totals by account</h3><table class="table"><tbody>${Object.entries(l.totals).map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td class="num">${esc(fmtMoney(v))}</td></tr>`).join('')}</tbody></table>
       <h3>Recorded runs</h3><table class="table"><tbody>${r.history.map((h) => `<tr><td>${esc(fmtTime(h.time))}</td><td>${esc(h.trigger)}</td><td>${h.ok ? badge('balanced', 'ok') : badge(`${h.problems} problem(s)`, 'bad')}</td><td class="num">${esc(h.entries)} entries</td></tr>`).join('') || '<tr><td class="faint">No recorded runs yet (the job runs every 10 minutes).</td></tr>'}</tbody></table>`;
     host.querySelector('[data-run]')?.addEventListener('click', async () => { try { const x = await post('/payments/ledger_audit/run'); toast(x.ok ? 'Ledger balanced' : `${x.problems.length} problem(s)`); await draw(); } catch (ex) { toast(ex.message, 'error'); } });

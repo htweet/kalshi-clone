@@ -27,7 +27,9 @@ const allPages = [];
 const dbq = (sql, ...a) => { const d = new DatabaseSync(DB_FILE); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 const one = (sql, ...a) => dbq(sql, ...a)[0];
 const uid = (email) => one('SELECT id FROM users WHERE email=?', email).id;
-const usd = (v, d = 2) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+// Expected display strings under the NGN default (CLONE_SPEC.md §30): ×100; asset levels drop two decimals; amounts show kobo only when present.
+const usd = (v, d = 2) => `₦${(Number(v) * 100).toLocaleString('en-NG', { minimumFractionDigits: Math.max(0, d - 2), maximumFractionDigits: Math.max(0, d - 2) })}`;
+const naira = (v) => { const n = Math.round(Number(v) * 10000) / 100; return `₦${n.toLocaleString('en-NG', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`; };
 // BTC contract size is 0.0001, so an underlying BTC level in dollars equals the per-contract price in centicents.
 const btcLevel = (cc) => usd(Math.round(cc));
 
@@ -106,7 +108,7 @@ test('perps list: seeded markets, asset-class chips filter, live ticker updates'
   await page.waitForFunction(() => { const r = [...document.querySelectorAll('[data-testid=perp-row]')]; return r.length === 3 && r.every((x) => x.dataset.class === 'Crypto'); });
   // Live: pin ETH and watch the row update over the perp_ticker channel.
   srv.engine.perps.setIndex(ETH, 3500, { freeze: true });
-  await page.waitForFunction((t) => document.querySelector(`[data-ticker=${t}] [data-f=price]`)?.textContent === '$3,500.00', ETH);
+  await page.waitForFunction((t) => document.querySelector(`[data-ticker=${t}] [data-f=price]`)?.textContent === '₦350,000', ETH);
   // Clicking a row opens the market page.
   await page.click(`[data-ticker=${ETH}] td.num`);
   await page.waitForURL(BASE + `/perps/${ETH}`);
@@ -124,7 +126,7 @@ test('market page: chart, order book, trades, stats and a logged-out ticket', as
   await page.waitForFunction(() => document.querySelectorAll('[data-testid=perp-asks] .perps-lvl').length >= 5 && document.querySelectorAll('[data-testid=perp-bids] .perps-lvl').length >= 5);
   // Best ask above best bid.
   const [ask, bid] = await page.evaluate(() => [document.querySelector('[data-testid=perp-asks] .perps-lvl:last-child span').textContent, document.querySelector('[data-testid=perp-bids] .perps-lvl span').textContent]);
-  assert.ok(Number(ask.replace(/[$,]/g, '')) > Number(bid.replace(/[$,]/g, '')), `${ask} > ${bid}`);
+  assert.ok(Number(ask.replace(/[₦,]/g, '')) > Number(bid.replace(/[₦,]/g, '')), `${ask} > ${bid}`);
   assert.ok(await page.locator('[data-testid=perp-trades] .perps-lvl.trade').count() >= 5);
   assert.match(await page.textContent('[data-s=funding]'), /%$/);
   assert.match(await page.textContent('[data-s=countdown]'), /^in /);
@@ -141,12 +143,12 @@ test('transfer prediction cash into perps and back (DB rows + both balances)', a
   await deposit(pa, alice.email, 1000);
   await pa.goto(BASE + `/perps/${BTC}`);
   await pa.waitForSelector('[data-testid=perp-transfer]');
-  await pa.waitForFunction(() => document.querySelector('[data-testid=pred-cash]').textContent === '$1,000.00');
-  await pa.fill('[data-testid=xfer-amount]', '500');
+  await pa.waitForFunction(() => document.querySelector('[data-testid=pred-cash]').textContent === '₦100,000');
+  await pa.fill('[data-testid=xfer-amount]', '50000');
   await pa.click('[data-testid=xfer-to-perps]');
-  await pa.waitForFunction(() => document.querySelector('[data-testid=perps-available]')?.textContent === '$500.00');
-  await pa.waitForFunction(() => document.querySelector('[data-testid=pred-cash]').textContent === '$500.00');
-  await pa.waitForFunction(() => document.querySelector('[data-testid=header-balance]').textContent === '$500.00');
+  await pa.waitForFunction(() => document.querySelector('[data-testid=perps-available]')?.textContent === '₦50,000');
+  await pa.waitForFunction(() => document.querySelector('[data-testid=pred-cash]').textContent === '₦50,000');
+  await pa.waitForFunction(() => document.querySelector('[data-testid=header-balance]').textContent === '₦50,000');
   const a = uid(alice.email);
   assert.equal(one('SELECT balance_cents c FROM users WHERE id=?', a).c, 50000);
   assert.equal(one('SELECT available_cc c FROM perp_accounts WHERE user_id=?', a).c, 5000000);
@@ -155,15 +157,15 @@ test('transfer prediction cash into perps and back (DB rows + both balances)', a
   assert.deepEqual([t1[0].source, t1[0].destination, t1[0].amount_cc, t1[0].status], ['event_contract', 'margined', 5000000, 'completed']);
   assert.equal(one("SELECT amount_cents c FROM ledger WHERE user_id=? AND kind='perps_transfer'", a).c, -50000);
   // And back again.
-  await pa.fill('[data-testid=xfer-amount]', '20');
+  await pa.fill('[data-testid=xfer-amount]', '2000');
   await pa.click('[data-testid=xfer-to-predictions]');
-  await pa.waitForFunction(() => document.querySelector('[data-testid=perps-available]')?.textContent === '$480.00');
-  await pa.waitForFunction(() => document.querySelector('[data-testid=header-balance]').textContent === '$520.00');
+  await pa.waitForFunction(() => document.querySelector('[data-testid=perps-available]')?.textContent === '₦48,000');
+  await pa.waitForFunction(() => document.querySelector('[data-testid=header-balance]').textContent === '₦52,000');
   assert.equal(one('SELECT balance_cents c FROM users WHERE id=?', a).c, 52000);
   assert.equal(one('SELECT available_cc c FROM perp_accounts WHERE user_id=?', a).c, 4800000);
   assert.equal(dbq("SELECT * FROM perp_transfers WHERE user_id=? AND source='margined' AND destination='event_contract' AND amount_cc=200000", a).length, 1);
   // Over-withdrawal is refused with a visible error.
-  await pa.fill('[data-testid=xfer-amount]', '5000');
+  await pa.fill('[data-testid=xfer-amount]', '500000');
   await pa.click('[data-testid=xfer-to-perps]');
   await pa.waitForFunction(() => /insufficient balance/.test(document.querySelector('[data-testid=xfer-error]').textContent));
   assert.deepEqual(pa.errors, []);
@@ -171,12 +173,12 @@ test('transfer prediction cash into perps and back (DB rows + both balances)', a
 
 test('open a 10x long with a market order: entry, leverage and liquidation price shown', async () => {
   srv.engine.perps.setIndex(BTC, 100000, { freeze: true });
-  await pa.waitForFunction(() => document.querySelector('[data-testid=perp-mark]')?.textContent === '$100,000.00');
-  await pa.fill('[data-testid=perp-amount]', '100');
+  await pa.waitForFunction(() => document.querySelector('[data-testid=perp-mark]')?.textContent === '₦10,000,000');
+  await pa.fill('[data-testid=perp-amount]', '10000');
   await setLeverage(pa, 10);
   await pa.waitForFunction(() => document.querySelector('[data-testid=perp-leverage-out]').textContent === '10x');
-  await pa.waitForFunction(() => /^\$\d{2},\d{3}\.\d{2}$/.test(document.querySelector('[data-testid=perp-est-liq]').textContent));
-  const estLiq = Number((await pa.textContent('[data-testid=perp-est-liq]')).replace(/[$,]/g, ''));
+  await pa.waitForFunction(() => /^₦\d,\d{3},\d{3}$/.test(document.querySelector('[data-testid=perp-est-liq]').textContent));
+  const estLiq = Number((await pa.textContent('[data-testid=perp-est-liq]')).replace(/[₦,]/g, '')) / 100; // naira → dollars
   assert.ok(estLiq > 90000 && estLiq < 94000, `estimated liq ${estLiq}`);
   await pa.click('[data-testid=perp-submit]');
   await pa.waitForSelector(`[data-testid=perp-position][data-ticker=${BTC}]`);
@@ -202,30 +204,30 @@ test('mark moves: unrealized PnL updates live', async () => {
   const p = pos(alice.email, BTC);
   srv.engine.perps.setIndex(BTC, 102000);
   const row = `[data-testid=perp-position][data-ticker=${BTC}]`;
-  await pa.waitForFunction((r) => document.querySelector(`${r} [data-f=mark]`).textContent === '$102,000.00', row);
+  await pa.waitForFunction((r) => document.querySelector(`${r} [data-f=mark]`).textContent === '₦10,200,000', row);
   const want = (p.qty * (102000 - p.entry_cc)) / 10000;
   await eventually(async () => {
     const got = Number(await pa.getAttribute(`${row} [data-f=pnl]`, 'data-upnl'));
     assert.ok(Math.abs(got - want) < 0.005, `upnl ${got} vs ${want}`);
   });
   assert.match(await pa.textContent(`${row} [data-f=pnl]`), /^\+\$\d+\.\d{2} \(\+\d+\.\d{2}%\)$/);
-  assert.match(await pa.textContent('[data-testid=perp-mark]'), /\$102,000\.00/);
+  assert.match(await pa.textContent('[data-testid=perp-mark]'), /₦10,200,000/);
   assert.deepEqual(pa.errors, []);
 });
 
 test('take-profit trigger fires on the mark and closes the position', async () => {
   const row = `[data-testid=perp-position][data-ticker=${BTC}]`;
   await pa.click(`${row} [data-testid=tpsl-btn]`);
-  await pa.fill('[data-testid=tp-input]', '104000');
-  await pa.fill('[data-testid=sl-input]', '95000');
+  await pa.fill('[data-testid=tp-input]', '10400000');
+  await pa.fill('[data-testid=sl-input]', '9500000');
   await pa.click('[data-testid=tpsl-save]');
-  await pa.waitForFunction((r) => /TP \$104,000\.00 · SL \$95,000\.00/.test(document.querySelector(`${r} [data-testid=tpsl-btn]`).textContent), row);
+  await pa.waitForFunction((r) => /TP ₦10,400,000 · SL ₦9,500,000/.test(document.querySelector(`${r} [data-testid=tpsl-btn]`).textContent), row);
   const a = uid(alice.email);
   const tr = one("SELECT * FROM perp_exit_triggers WHERE user_id=? AND status='active'", a);
   assert.deepEqual([tr.take_profit_cc, tr.stop_loss_cc, tr.kind], [104000, 95000, 'bracket']);
   // A take-profit below the mark for a long is rejected.
   await pa.click(`${row} [data-testid=tpsl-btn]`);
-  await pa.fill('[data-testid=tp-input]', '101000');
+  await pa.fill('[data-testid=tp-input]', '10100000');
   await pa.click('[data-testid=tpsl-save]');
   await pa.waitForFunction(() => /take profit must be above/.test(document.querySelector('[data-testid=tpsl-error]').textContent));
   srv.engine.perps.setIndex(BTC, 104500);
@@ -243,16 +245,16 @@ test('price band rejects a limit far from the mark; a limit inside the band rest
   const a = uid(alice.email);
   const before = dbq('SELECT COUNT(*) c FROM perp_orders WHERE user_id=?', a)[0].c;
   await pa.click('[data-testid=perp-type] [data-type=limit]');
-  await pa.fill('[data-testid=perp-limit-price]', '50000');
-  await pa.fill('[data-testid=perp-amount]', '50');
+  await pa.fill('[data-testid=perp-limit-price]', '5000000');
+  await pa.fill('[data-testid=perp-amount]', '5000');
   await setLeverage(pa, 5);
   await pa.click('[data-testid=perp-submit]');
   await pa.waitForFunction(() => /outside the price band/.test(document.querySelector('[data-testid=perp-order-error]').textContent));
-  assert.match(await pa.textContent('[data-testid=perp-order-error]'), /between \$83,600\.00 and \$125,400\.00/);
+  assert.match(await pa.textContent('[data-testid=perp-order-error]'), /between ₦8,360,000 and ₦12,540,000/);
   assert.equal(dbq('SELECT COUNT(*) c FROM perp_orders WHERE user_id=?', a)[0].c, before);
   // Inside the band but below the bids: rests on the book with margin held.
   const availBefore = one('SELECT available_cc c FROM perp_accounts WHERE user_id=?', a).c;
-  await pa.fill('[data-testid=perp-limit-price]', '99000');
+  await pa.fill('[data-testid=perp-limit-price]', '9900000');
   await pa.click('[data-testid=perp-submit]');
   await pa.waitForFunction(() => document.querySelector('[data-testid=perp-order-error]').textContent === '');
   await pa.click('[data-testid=perp-account] [data-tab=orders]');
@@ -261,7 +263,7 @@ test('price band rejects a limit far from the mark; a limit inside the band rest
   assert.equal(o.price_cc, 99000);
   assert.ok(o.reserved_cc > 0);
   assert.equal(one('SELECT available_cc c FROM perp_accounts WHERE user_id=?', a).c, availBefore - o.reserved_cc);
-  assert.equal(await pa.textContent('[data-testid=perp-order] [data-f=price]'), '$99,000.00');
+  assert.equal(await pa.textContent('[data-testid=perp-order] [data-f=price]'), '₦9,900,000');
   // The order shows in the public (full-depth) book.
   const book = await pa.evaluate((t) => fetch(`/v1/perps/markets/${t}/orderbook`).then((r) => r.json()), BTC);
   assert.ok(book.orderbook.bids.some(([px, n]) => px === '9.9000' && Number(n) === o.remaining_count), JSON.stringify(book.orderbook.bids.slice(-3)));
@@ -277,7 +279,7 @@ test('a 20x short is liquidated when the mark rises past its liquidation price',
   const a = uid(alice.email);
   await pa.click('[data-testid=perp-account] [data-tab=positions]');
   await pa.click('[data-testid=perp-side] [data-side=short]');
-  await pa.fill('[data-testid=perp-amount]', '40');
+  await pa.fill('[data-testid=perp-amount]', '4000');
   await setLeverage(pa, 20);
   await pa.click('[data-testid=perp-submit]');
   const row = `[data-testid=perp-position][data-ticker=${BTC}]`;
@@ -308,7 +310,7 @@ test('funding is paid on schedule: longs pay and shorts receive at a positive ra
   // Alice goes long ETH, Bob goes short ETH (both through the UI).
   await pa.goto(BASE + `/perps/${ETH}`);
   await pa.waitForSelector('[data-testid=perp-ticket] [data-testid=perp-amount]');
-  await pa.fill('[data-testid=perp-amount]', '100');
+  await pa.fill('[data-testid=perp-amount]', '10000');
   await setLeverage(pa, 5);
   await pa.click('[data-testid=perp-submit]');
   await pa.waitForSelector(`[data-testid=perp-position][data-ticker=${ETH}]`);
@@ -317,11 +319,11 @@ test('funding is paid on schedule: longs pay and shorts receive at a positive ra
   await deposit(pb, bob.email, 300);
   await pb.goto(BASE + `/perps/${ETH}`);
   await pb.waitForSelector('[data-testid=perp-transfer]');
-  await pb.fill('[data-testid=xfer-amount]', '200');
+  await pb.fill('[data-testid=xfer-amount]', '20000');
   await pb.click('[data-testid=xfer-to-perps]');
-  await pb.waitForFunction(() => document.querySelector('[data-testid=perps-available]')?.textContent === '$200.00');
+  await pb.waitForFunction(() => document.querySelector('[data-testid=perps-available]')?.textContent === '₦20,000');
   await pb.click('[data-testid=perp-side] [data-side=short]');
-  await pb.fill('[data-testid=perp-amount]', '100');
+  await pb.fill('[data-testid=perp-amount]', '10000');
   await setLeverage(pb, 5);
   await pb.click('[data-testid=perp-submit]');
   await pb.waitForSelector(`[data-testid=perp-position][data-ticker=${ETH}]`);
@@ -362,7 +364,7 @@ test('funding is paid on schedule: longs pay and shorts receive at a positive ra
   await pa.waitForSelector('[data-testid=perp-funding-row]');
   const amounts = await pa.$$eval('[data-testid=perp-funding-row]', (els) => els.map((e) => Number(e.dataset.amount)));
   assert.ok(amounts.length >= 2 && amounts.every((x) => x < 0), `long payments ${amounts}`);
-  assert.match(await pa.textContent('[data-testid=perp-funding-row]'), /Long \d+.*0\.0100%.*-\$0\.\d{4}/);
+  assert.match(await pa.textContent('[data-testid=perp-funding-row]'), /Long \d+.*0\.0100%.*-₦\d+(\.\d{2})?/);
   assert.deepEqual(pa.errors, []);
 });
 
@@ -381,8 +383,8 @@ test('everything persists across a restart; Perps portfolio tabs', async () => {
   assert.equal(await page.textContent(`[data-testid=perp-position][data-ticker=${ETH}] [data-f=size]`), String(p.qty));
   assert.equal(await page.textContent(`[data-testid=perp-position][data-ticker=${ETH}] [data-f=entry]`), usd(p.entry_cc / 10000 / 0.001));
   const avail = one('SELECT available_cc c FROM perp_accounts WHERE user_id=?', a).c;
-  assert.equal(await page.textContent('[data-testid=perps-port-available]'), usd(avail / 10000));
-  assert.equal(await page.textContent('[data-testid=header-balance]'), usd(one('SELECT balance_cents c FROM users WHERE id=?', a).c / 100));
+  assert.equal(await page.textContent('[data-testid=perps-port-available]'), naira(avail / 10000));
+  assert.equal(await page.textContent('[data-testid=header-balance]'), naira(one('SELECT balance_cents c FROM users WHERE id=?', a).c / 100));
   await page.click('[data-ptab=orders]');
   await page.waitForSelector('[data-testid=perp-no-orders]');
   await page.waitForURL(/perpsTab=orders/);
@@ -398,7 +400,7 @@ test('everything persists across a restart; Perps portfolio tabs', async () => {
   assert.equal(one('SELECT sim_frozen f, index_price p FROM perp_markets WHERE ticker=?', BTC).f, 1);
   assert.equal(one('SELECT index_price p FROM perp_markets WHERE ticker=?', BTC).p, 111000);
   await page.goto(BASE + `/perps/${BTC}`);
-  await page.waitForFunction(() => document.querySelector('[data-testid=perp-mark]')?.textContent === '$111,000.00');
+  await page.waitForFunction(() => document.querySelector('[data-testid=perp-mark]')?.textContent === '₦11,100,000');
   // Back to the predictions portfolio.
   await page.goto(BASE + '/portfolio?perpsTab=positions');
   await page.click('[data-testid=product-predictions]');

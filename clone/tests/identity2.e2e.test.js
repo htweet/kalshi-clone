@@ -481,7 +481,7 @@ test('P3.6 location: simulated IP country and browser geolocation block money an
   await page.waitForSelector('[data-testid=region-banner]:has-text("Cuba")');
   await page.goto(WEB + '/portfolio');
   await page.waitForSelector('#f-amount');
-  await page.fill('#f-amount', '10');
+  await page.fill('#f-amount', '1000');
   await page.click('[data-act=deposit]');
   await page.waitForSelector('[data-testid=compliance-dialog][data-code=geo_restricted]');
   assert.match(await page.textContent('[data-testid=geo-message]'), /Cuba/);

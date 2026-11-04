@@ -65,9 +65,9 @@ test('fractional buy in Contracts mode: 2.55 contracts, exact conserving cents, 
   await page.click('button[type=submit]');
   await page.waitForSelector('[data-testid=account-menu]');
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', '100');
+  await page.fill('#f-amount', '10000');
   await page.click('[data-act=deposit]');
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$100.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦10,000")');
 
   const mk = (await call(page, 'GET', `/trade-api/v2/markets/${CUT}`)).b.market;
   assert.equal(mk.fractional_trading_enabled, true);
@@ -108,7 +108,7 @@ test('Dollars mode buys fractional contracts (floored to 0.01) within the amount
   await page.goto(BASE + RATE_URL);
   await page.click(`tr[data-ticker="${CUT}"] [data-pick=yes]`);
   await mode(page, 'dollars');
-  await page.fill('#t-amount', '5');
+  await page.fill('#t-amount', '500');
   const shown = (await page.textContent('[data-testid=t-contracts]')).match(/^([\d.]+) contracts/)[1];
   assert.match(shown, /^\d+\.\d{1,2}$/, `fractional estimate ${shown}`);
   const before = bal();
@@ -196,10 +196,10 @@ test('order book: a 0.5-contract level shows, "Hide fractional shares" hides it 
   assert.deepEqual([o.initial_count, o.price_cents], [50, 30]);
   assert.equal(o.reserved_cents, Math.ceil((50 * (30 + 2)) / 100)); // ceil(q·(p + per-contract fee cap)/100)
   await page.click('[data-tab=book]');
-  await page.waitForFunction(() => [...document.querySelectorAll('[data-testid=orderbook] .book-row')].some((r) => r.children[1].textContent === '30¢'));
-  assert.deepEqual((await bookRows(page)).find(([p]) => p === '30¢'), ['30¢', '0.5']);
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-testid=orderbook] .book-row')].some((r) => r.children[1].textContent === '₦30'));
+  assert.deepEqual((await bookRows(page)).find(([p]) => p === '₦30'), ['₦30', '0.5']);
   await page.check('[data-testid=hide-fractional]');
-  await page.waitForFunction(() => ![...document.querySelectorAll('[data-testid=orderbook] .book-row')].some((r) => r.children[1].textContent === '30¢'));
+  await page.waitForFunction(() => ![...document.querySelectorAll('[data-testid=orderbook] .book-row')].some((r) => r.children[1].textContent === '₦30'));
   assert.ok((await bookRows(page)).every(([, n]) => !n.includes('.')), 'sizes rounded down to whole contracts');
   await page.waitForTimeout(300);
   assert.equal(JSON.parse(dbq("SELECT value FROM user_settings WHERE user_id=? AND key='orderbook_hide_fractional_shares'", uid())[0].value), true);
@@ -212,7 +212,7 @@ test('order book: a 0.5-contract level shows, "Hide fractional shares" hides it 
   await p2.click('[data-tab=book]');
   await p2.waitForSelector('[data-testid=hide-fractional]:checked');
   await p2.waitForSelector('[data-testid=orderbook] .book-row');
-  assert.ok(!(await bookRows(p2)).some(([p]) => p === '30¢'));
+  assert.ok(!(await bookRows(p2)).some(([p]) => p === '₦30'));
   assert.deepEqual(p2.errors, []);
   await p2.context().close();
 });

@@ -1,11 +1,14 @@
 // Perps (PERPS_SPEC_SECTION.md): market list (/perps, /perps/categories/:assetClass), market page (/perps/:ticker)
 // and the Perps portfolio (/portfolio?perpsTab=positions|orders|history, also /portfolio/perps).
-// Prices travel per contract in dollars (4 dp); the UI shows the underlying level = contract price / contract size.
+// Prices travel per contract in dollars (4 dp); the UI shows the underlying level = contract price / contract size, in the
+// display currency (NGN: ×100, the same rule as event contracts, so nothing on a page mixes currencies; CLONE_SPEC.md §30).
+// Price inputs (limit, take profit, stop loss) take display levels and convert back with assetToApi.
 import { vars } from '../dynstyle.js';
 import { perpsApi as P } from '../perps-api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, money, toast } from '../lib.js';
+import { esc, money, toast, assetPrice, assetDecimals, moneyCompact, sym, amountLabel, toApiDollars, validMoneyInput, moneyStep, moneyMin, moneyInputHint, isNgn, fmtTime, fmtDt } from '../lib.js';
+import { assetToApi, assetFromApi } from '../currency.js'; // perps ×100 display rule under NGN (CLONE_SPEC.md §30)
 
 const ASSET_ORDER = ['Crypto', 'Equities', 'Metals', 'FX', 'Energy', 'Indices', 'Rates', 'Compute', 'GPU', 'EventContracts'];
 const RANGES = { '1H': { period: 1, span: 3600 }, '1D': { period: 15, span: 86400 }, '1W': { period: 60, span: 7 * 86400 } };
@@ -17,19 +20,24 @@ const dec = (m) => m.product_metadata?.decimal_count ?? 2;
 const under = (m, contractDollars) => n(contractDollars) / n(m.contract_size);
 function fmtLevel(m, v) {
   if (v == null || !Number.isFinite(v)) return '—';
-  const s = v.toLocaleString('en-US', { minimumFractionDigits: dec(m), maximumFractionDigits: dec(m) });
-  return m.product_metadata?.unit === 'pct' ? `${s}%` : `$${s}`;
+  if (m.product_metadata?.unit === 'pct') return `${v.toLocaleString('en-US', { minimumFractionDigits: dec(m), maximumFractionDigits: dec(m) })}%`;
+  return assetPrice(v, dec(m));
 }
 const fmtPx = (m, contractDollars) => (contractDollars == null ? '—' : fmtLevel(m, under(m, contractDollars)));
-const toContract = (m, level) => (Number(level) * n(m.contract_size)).toFixed(4);
-const signedUsd = (v, d = 2) => `${v > 0 ? '+' : v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+const isPct = (m) => m.product_metadata?.unit === 'pct';
+// Display level ↔ API level (dollars); percent markets are currency-free.
+const lvlToApi = (m, v) => (isPct(m) ? Number(v) : assetToApi(v));
+const lvlFromApi = (m, v) => (isPct(m) ? Number(v) : assetFromApi(v));
+const lvlDec = (m) => (isPct(m) ? dec(m) : assetDecimals(dec(m)));
+const toContract = (m, level) => (lvlToApi(m, level) * n(m.contract_size)).toFixed(4);
+const signedUsd = (v, d = 2) => money(v, { plus: true, exact: isNgn() ? Math.max(2, d - 2) : d }); // signed P&L / funding in the display currency
 const signedPct = (v, d = 2) => `${v > 0 ? '+' : ''}${v.toFixed(d)}%`;
 const fundingPct = (r) => `${(n(r) * 100).toFixed(4)}%`;
 const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
-const compactUsd = (v) => `$${n(v).toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 })}`;
+const compactUsd = (v) => moneyCompact(n(v));
 const lev = (x) => (x == null ? '—' : `${Number.isInteger(x) ? x : Number(x).toFixed(1)}x`);
-const time = (iso) => new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const dateTime = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const time = (iso) => fmtTime(iso, true);
+const dateTime = (iso) => fmtDt(iso, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const icon = (m) => `<span class="perps-ico"${vars({ '--perps-accent': m.product_metadata?.color || 'var(--brand)' })} aria-hidden="true">${esc(m.title[0])}</span>`;
 function countdown(ms) {
   const s = Math.max(0, Math.floor((ms - Date.now()) / 1000));
@@ -104,7 +112,7 @@ function transferBox() {
     <div class="perps-kv"><span>Predictions cash</span><strong data-testid="pred-cash">${session.balance != null ? money(session.balance) : '—'}</strong></div>
     <div class="perps-kv"><span>Perps available</span><strong data-testid="perps-available">—</strong></div>
     <form class="perps-xfer" data-testid="perp-transfer-form">
-      <input id="px-amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Amount $" aria-label="Transfer amount in dollars" data-testid="xfer-amount">
+      <input id="px-amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" placeholder="Amount ${esc(sym())}" aria-label="Transfer amount in ${esc(amountLabel().toLowerCase())}" data-testid="xfer-amount">
       <div class="perps-xfer-btns"><button class="btn btn-primary" type="submit" data-dir="to_perps" data-testid="xfer-to-perps">To Perps</button><button class="btn" type="button" data-dir="to_predictions" data-testid="xfer-to-predictions">To Predictions</button></div>
       <div class="form-error" role="alert" data-testid="xfer-error"></div>
     </form></section>`;
@@ -115,8 +123,9 @@ function wireTransfer(root, onDone) {
   const go = async (dir) => {
     const err = form.querySelector('[data-testid=xfer-error]');
     err.textContent = '';
-    const amt = Number(form.querySelector('#px-amount').value);
-    if (!(amt > 0)) { err.textContent = 'Enter an amount greater than $0.'; return; }
+    const raw = form.querySelector('#px-amount').value;
+    if (!validMoneyInput(raw)) { err.textContent = `Enter an amount greater than ${money(0)} (${moneyInputHint()}).`; return; }
+    const amt = toApiDollars(raw); // naira ÷ 100 = the API's dollars
     try {
       await P.transfer(dir, amt);
       form.querySelector('#px-amount').value = '';
@@ -198,8 +207,8 @@ function wirePositions(root, positions, metas, refresh) {
       const long = n(p.position) > 0;
       const cols = tr.children.length;
       tr.insertAdjacentHTML('afterend', `<tr class="perps-tpsl-row"><td colspan="${cols}"><form class="perps-tpsl" data-testid="tpsl-form" data-ticker="${esc(t)}">
-        <label>Take profit <input name="tp" type="number" step="any" inputmode="decimal" placeholder="${long ? 'above' : 'below'} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.take_profit_price ? under(m, x.take_profit_price) : ''}" data-testid="tp-input"></label>
-        <label>Stop loss <input name="sl" type="number" step="any" inputmode="decimal" placeholder="${long ? 'below' : 'above'} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.stop_loss_price ? under(m, x.stop_loss_price) : ''}" data-testid="sl-input"></label>
+        <label>Take profit <input name="tp" type="number" step="any" inputmode="decimal" placeholder="${long ? 'above' : 'below'} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.take_profit_price ? lvlFromApi(m, under(m, x.take_profit_price)) : ''}" data-testid="tp-input"></label>
+        <label>Stop loss <input name="sl" type="number" step="any" inputmode="decimal" placeholder="${long ? 'below' : 'above'} ${esc(fmtPx(m, p.mark_price))}" value="${x && x.stop_loss_price ? lvlFromApi(m, under(m, x.stop_loss_price)) : ''}" data-testid="sl-input"></label>
         <button class="btn btn-sm btn-primary" type="submit" data-testid="tpsl-save">Save</button>
         ${x ? '<button class="btn btn-sm btn-ghost" type="button" data-clear data-testid="tpsl-clear">Remove</button>' : ''}
         <span class="form-error" role="alert" data-testid="tpsl-error"></span></form></td></tr>`);
@@ -295,7 +304,7 @@ async function renderMarket({ el, params, navigate }) {
           <div class="perps-tabs" role="tablist">${[['positions', 'Positions'], ['orders', 'Open orders'], ['funding', 'Funding'], ['history', 'History']].map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
           <div data-testid="perp-panel" class="perps-panel"></div></section>` : ''}
         <section class="card perps-box perps-about"><h3 class="perps-box-title">About ${esc(m.title)}</h3><p class="muted">${esc(m.product_metadata?.description || '')}</p>
-          <dl class="perps-dl"><div><dt>Contract size</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? 'index points' : 'units')}</dd></div><div><dt>Tick</dt><dd>$${esc(m.tick_size)} per contract</dd></div><div><dt>Initial / maintenance margin</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>Fees (maker / taker)</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>Funding schedule</dt><dd>every ${Math.round(m.funding_interval_ms / 3600000) || '<1'}h <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>Index</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl></section>
+          <dl class="perps-dl"><div><dt>Contract size</dt><dd>${n(m.contract_size)} ${esc(m.product_metadata?.unit === 'pct' ? 'index points' : 'units')}</dd></div><div><dt>Tick</dt><dd>${esc(money(m.tick_size, { exact: 4 }))} per contract</dd></div><div><dt>Initial / maintenance margin</dt><dd>${(m.initial_margin_rate * 100).toFixed(2)}% / ${(m.maintenance_margin_rate * 100).toFixed(2)}%</dd></div><div><dt>Fees (maker / taker)</dt><dd>${(m.maker_fee_rate * 100).toFixed(2)}% / ${(m.taker_fee_rate * 100).toFixed(2)}%</dd></div><div><dt>Funding schedule</dt><dd>every ${Math.round(m.funding_interval_ms / 3600000) || '<1'}h <span class="faint">(${esc(m.product_metadata?.funding_schedule || '')})</span></dd></div><div><dt>Index</dt><dd>${esc(m.product_metadata?.index_provider || '')}</dd></div></dl></section>
       </div>
       <aside class="perps-side-col">
         <section class="card perps-box perps-ticket" data-testid="perp-ticket">
@@ -312,7 +321,7 @@ async function renderMarket({ el, params, navigate }) {
     return `<div class="perps-seg perps-side-seg" data-testid="perp-side">${['long', 'short'].map((s) => `<button data-side="${s}" class="${s === t.side ? `on ${s}` : ''}">${s === 'long' ? 'Long' : 'Short'}</button>`).join('')}</div>
       <div class="perps-seg sm" data-testid="perp-type">${['market', 'limit'].map((s) => `<button data-type="${s}" class="${s === t.type ? 'on' : ''}">${s === 'market' ? 'Market' : 'Limit'}</button>`).join('')}</div>
       <label class="perps-field" data-limit hidden><span>Limit price</span><input id="pt-price" type="number" step="any" inputmode="decimal" data-testid="perp-limit-price" aria-label="Limit price"></label>
-      <div class="perps-field"><span>Amount <span class="perps-unit" data-testid="perp-unit">${['usd', 'contracts'].map((u) => `<button type="button" data-unit="${u}" class="${u === t.unit ? 'on' : ''}">${u === 'usd' ? '$' : 'Contracts'}</button>`).join('')}</span></span>
+      <div class="perps-field"><span>Amount <span class="perps-unit" data-testid="perp-unit">${['usd', 'contracts'].map((u) => `<button type="button" data-unit="${u}" class="${u === t.unit ? 'on' : ''}">${u === 'usd' ? esc(sym()) : 'Contracts'}</button>`).join('')}</span></span>
         <input id="pt-amount" type="number" min="0" step="any" inputmode="decimal" placeholder="0" data-testid="perp-amount" aria-label="Amount"></div>
       <div class="perps-field"><span>Leverage <output id="pt-lev-out" data-testid="perp-leverage-out">${lev(t.lev)}</output></span>
         <input id="pt-lev" type="range" min="1" max="${maxLev}" step="1" value="${t.lev}" data-testid="perp-leverage" aria-label="Leverage">
@@ -402,7 +411,7 @@ async function renderMarket({ el, params, navigate }) {
   // ---- ticket
   function calc() {
     if (!authed) return null;
-    const amount = n($('#pt-amount').value);
+    const amount = t.unit === 'usd' ? assetToApi(n($('#pt-amount').value)) : n($('#pt-amount').value); // display money → API dollars
     const bb = m.bid != null ? n(m.bid) : n(m.mark_price);
     const ba = m.ask != null ? n(m.ask) : n(m.mark_price);
     const limitLevel = $('#pt-price').value;
@@ -429,7 +438,7 @@ async function renderMarket({ el, params, navigate }) {
     o('contracts').textContent = c.contracts ? c.contracts.toLocaleString('en-US') : '—';
     o('notional').textContent = c.contracts ? money(c.notional) : '—';
     o('cost').textContent = c.contracts ? money(c.cost) : '—';
-    o('fees').textContent = c.contracts ? `$${c.fees.toFixed(4)}` : '—';
+    o('fees').textContent = c.contracts ? money(c.fees, { exact: isNgn() ? 2 : 4 }) : '—';
     o('liq').textContent = c.liq && c.liq > 0 ? fmtPx(m, c.liq) : '—';
     o('avail').textContent = bal ? money(bal.available_dollars) : '—';
     const btn = $('#pt-submit');
@@ -444,7 +453,7 @@ async function renderMarket({ el, params, navigate }) {
     for (const b of el.querySelectorAll('[data-side]')) b.onclick = () => { t.side = b.dataset.side; for (const x of el.querySelectorAll('[data-side]')) x.className = x === b ? `on ${t.side}` : ''; drawTicket(); };
     for (const b of el.querySelectorAll('[data-type]')) b.onclick = () => {
       t.type = b.dataset.type; for (const x of el.querySelectorAll('[data-type]')) x.classList.toggle('on', x === b);
-      if (t.type === 'limit') { t.reduce = false; $('#pt-reduce').checked = false; if (!$('#pt-price').value) $('#pt-price').value = under(m, m.mark_price).toFixed(dec(m)); }
+      if (t.type === 'limit') { t.reduce = false; $('#pt-reduce').checked = false; if (!$('#pt-price').value) $('#pt-price').value = lvlFromApi(m, under(m, m.mark_price)).toFixed(lvlDec(m)); }
       drawTicket();
     };
     for (const b of el.querySelectorAll('[data-unit]')) b.onclick = () => { t.unit = b.dataset.unit; for (const x of el.querySelectorAll('[data-unit]')) x.classList.toggle('on', x === b); drawTicket(); };
@@ -456,7 +465,7 @@ async function renderMarket({ el, params, navigate }) {
       const b = e.target.closest('[data-px]');
       if (!b) return;
       el.querySelector('[data-type=limit]').click();
-      $('#pt-price').value = under(m, b.dataset.px).toFixed(dec(m));
+      $('#pt-price').value = lvlFromApi(m, under(m, b.dataset.px)).toFixed(lvlDec(m));
       drawTicket();
     });
     $('#pt-submit').onclick = async () => {

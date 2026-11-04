@@ -107,7 +107,7 @@ test('event page: head-to-head, .ics + CSV downloads, related events, Show more'
   assert.match(icsText, /^BEGIN:VCALENDAR\r\n/); assert.match(icsText, /SUMMARY:Harbor State senate seat closes/); assert.match(icsText, /DTSTART:\d{8}T\d{6}Z/);
   const [csv] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=csv-btn]')]);
   const lines = fs.readFileSync(await csv.path(), 'utf8').trim().split('\n');
-  assert.equal(lines[0], 'time,market,outcome,yes_price_dollars,volume_contracts');
+  assert.equal(lines[0], 'time,market,outcome,yes_price_ngn,volume_contracts');
   assert.ok(lines.length > 20 && lines.some((l) => l.includes(BLUE)));
   await page.waitForSelector('#series-events a.list-row:has-text("governor")');
   assert.equal(await page.locator('[data-testid=also-row]').count(), 3);
@@ -121,12 +121,12 @@ test('ticket: Dollars buy, SELL tab sells held contracts (netting to cash), mode
   const page = await newPage();
   await logIn(page);
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', '100');
+  await page.fill('#f-amount', '10000');
   await page.click('[data-act=deposit]');
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$100.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦10,000")');
   await page.goto(BASE + SEN_URL);
   await page.waitForSelector('#t-amount');
-  await page.fill('#t-amount', '10');
+  await page.fill('#t-amount', '1000');
   const expect = Number((await page.textContent('[data-testid=t-contracts]')).match(/^(\d+)/)[1]);
   assert.ok(expect >= 15 && expect <= 20, `contracts for $10: ${expect}`);
   await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
@@ -173,7 +173,7 @@ test('daily interest: 3.5% APY credited once per day to cash + positions, shown 
   assert.equal(dbq('SELECT COUNT(*) c FROM interest_accruals WHERE user_id=?', uid())[0].c, 1, 'only once per day');
   await page.goto(BASE + SEN_URL);
   await page.click('#interest-btn');
-  await page.waitForSelector(`.toast:has-text("Earned so far: $${(acc[0].amount_cents / 100).toFixed(2)}")`);
+  await page.waitForSelector(`.toast:has-text("Earned so far: ₦${acc[0].amount_cents.toLocaleString('en-NG')}")`);
   await page.context().close();
 });
 

@@ -4,6 +4,7 @@ import { vars } from '../../dynstyle.js';
 import { csrf } from '../../api.js';
 import { refreshClientToken } from '../../security.js';
 import { esc, toast } from '../../lib.js';
+import { money, fmtDateTime } from '../../currency.js'; // display currency, locale and time zone (CLONE_SPEC.md §30)
 
 export { esc, toast };
 
@@ -36,8 +37,8 @@ export const post = (p, b = {}) => call('POST', p, b);
 export const put = (p, b = {}) => call('PUT', p, b);
 export const del = (p) => call('DELETE', p);
 
-export const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
-export const fmtMoney = (d) => { const n = Number(d || 0); return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+export const fmtTime = (iso) => (iso ? fmtDateTime(iso) : '—');
+export const fmtMoney = (d) => money(d); // API dollars → ₦ / $ (CLONE_SPEC.md §30)
 export const fmtQty = (fp) => Number(fp || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
 // <input type=datetime-local> <-> ISO
 export const toLocalInput = (iso) => { if (!iso) return ''; const d = new Date(iso); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };

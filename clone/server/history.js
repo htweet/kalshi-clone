@@ -2,6 +2,7 @@
 // Portfolio History (spec §17.9): one server-paginated timeline of everything that happened to an account, read
 // from the persisted orders, fills, settlements, ledger, RFQ/quote and combo tables (perps transfers come from the
 // ledger's perps_transfer rows; perps internals are not touched).
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { dollars, ufp, ustr, UNITS, E, encCursor, decCursor } = require('./util');
 const P = require('./pricing'); // `price` below is in centi-cents (CLONE_SPEC.md §28.1)
 
@@ -114,10 +115,10 @@ function mountHistory({ v1, db, requireUser }) {
       case 'order': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} · ${ustr(r.filled)} of ${ustr(r.qty)} filled`; break;
       case 'cancel': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} ${r.memo === 'expired' ? 'expired' : 'canceled'} · ${ustr(r.qty)} unfilled`; break;
       case 'fill': desc = sell ? `Sold ${S} (bought ${r.side.toUpperCase()} @ ${L(r.price)}; pairs net to cash) · ${r.role}` : `Bought ${S} · ${r.role}`; break;
-      case 'settlement': desc = `Market settled ${String(r.status).toUpperCase()} · cost $${(r.extra / 100).toFixed(2)}`; break;
+      case 'settlement': desc = `Market settled ${String(r.status).toUpperCase()} · cost ${C.moneyCents(r.extra)}`; break;
       case 'settlement_correction': case 'collateral_return': desc = r.memo || TYPE_LABEL[r.kind]; break;
       case 'combo': desc = 'Combo built'; break;
-      case 'rfq': desc = `RFQ for ${r.qty != null ? `${ustr(r.qty)} contracts` : `$${(r.extra / 100).toFixed(2)} target`}`; break;
+      case 'rfq': desc = `RFQ for ${r.qty != null ? `${ustr(r.qty)} contracts` : `${C.moneyCents(r.extra)} target`}`; break;
       case 'quote': desc = `Quoted Yes ${L(r.price)} / No ${L(r.extra)}`; break;
       case 'rfq_execution': desc = `RFQ executed as ${r.role}: bought ${S} @ ${L(price)}`; break;
       default: desc = r.memo || TYPE_LABEL[r.kind] || r.kind;
@@ -143,20 +144,21 @@ function mountHistory({ v1, db, requireUser }) {
   });
 
   // CSV of the filtered history (spec §9 file format; columns documented in §17.9).
-  const COLS = ['time', 'type', 'market', 'description', 'side', 'action', 'quantity', 'price_dollars', 'amount_dollars', 'fee_dollars', 'status'];
+  // Money columns follow the display currency (CLONE_SPEC.md §30): price_ngn / amount_ngn / fee_ngn, or the original *_dollars under USD.
+  const cols = () => ['time', 'type', 'market', 'description', 'side', 'action', 'quantity', C.csvCol('price', 'price_dollars'), C.csvCol('amount', 'amount_dollars'), C.csvCol('fee', 'fee_dollars'), 'status'];
   const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const two = (v) => (v == null ? '' : Number(v).toFixed(2));
+  const two = (v) => C.csvDollars(v);
   v1.get('/users/:uid/history.csv', requireUser, (req, res) => {
     const f = parseFilters(req.query);
     const rows = query(req.auth.user.id, f, { limit: 10000, cursor: null }).slice(0, 10000).map(rowVo);
-    const lines = [COLS.join(','), ...rows.map((r) => [r.time, r.type, r.market_title || r.market_ticker || '', r.description, r.side || '', r.action || '', r.quantity_fp || '', two(r.price_dollars), two(r.amount_dollars), two(r.fee_dollars), r.status || ''].map(esc).join(','))];
+    const lines = [cols().join(','), ...rows.map((r) => [r.time, r.type, r.market_title || r.market_ticker || '', r.description, r.side || '', r.action || '', r.quantity_fp || '', two(r.price_dollars), two(r.amount_dollars), two(r.fee_dollars), r.status || ''].map(esc).join(','))];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="parlance-history.csv"');
     res.send(lines.join('\n') + '\n');
   });
 
   // Used by Account › Your activity (server/account-area.js): same timeline, chip filters, same CSV columns.
-  const csvOf = (rows) => [COLS.join(','), ...rows.map((r) => [r.time, r.type, r.market_title || r.market_ticker || '', r.description, r.side || '', r.action || '', r.quantity_fp || '', two(r.price_dollars), two(r.amount_dollars), two(r.fee_dollars), r.status || ''].map(esc).join(','))].join('\n') + '\n';
+  const csvOf = (rows) => [cols().join(','), ...rows.map((r) => [r.time, r.type, r.market_title || r.market_ticker || '', r.description, r.side || '', r.action || '', r.quantity_fp || '', two(r.price_dollars), two(r.amount_dollars), two(r.fee_dollars), r.status || ''].map(esc).join(','))].join('\n') + '\n';
   return { parseFilters, query, rowVo, csvOf, ACTIVITY };
 }
 

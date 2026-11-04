@@ -3,13 +3,13 @@
 // observed. The card number and security code go only to the isolated tokenizer and are cleared from the form at once.
 import { payApi } from '../payments-api.js';
 import { session } from '../store.js';
-import { esc } from '../lib.js';
+import { esc, fmtDateTime } from '../lib.js';
 
 // Sandbox test cards (invented, Luhn-valid; clone/README.md). Shown as a hint in the sandbox only.
 export const TEST_CARD_HINTS = [['4000 9910 0000 0002', 'approves'], ['4000 9920 0000 0000', 'is declined'], ['4000 9930 0000 0008', 'has insufficient funds'], ['4000 9940 0000 0006', 'asks for a verification step']];
 
 export const methodLabel = (m) => (m.type === 'card' ? `${m.brand === 'mastercard' ? 'Mastercard' : 'Visa'} •••• ${m.last4}` : m.type === 'bank' ? `${m.institution} •••• ${m.mask}` : `${m.label} · ${m.address_masked}`);
-export const methodSub = (m) => (m.type === 'card' ? `Expires ${String(m.exp_month).padStart(2, '0')}/${String(m.exp_year).slice(-2)}` : m.type === 'bank' ? `${m.label} · ${m.subtype}` : m.cooling ? `New address: withdrawals open ${new Date(m.cooling_until).toLocaleString()}` : 'Sandbox chain');
+export const methodSub = (m) => (m.type === 'card' ? `Expires ${String(m.exp_month).padStart(2, '0')}/${String(m.exp_year).slice(-2)}` : m.type === 'bank' ? `${m.label} · ${m.subtype}` : m.cooling ? `New address: withdrawals open ${fmtDateTime(m.cooling_until)}` : 'Sandbox chain');
 
 // Card entry → {token, card}. onToken receives the token; the number never leaves this function except to the tokenizer.
 export function cardForm(host, { onToken, submitLabel = 'Use this card' }) {

@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, prob, money, qty, toast, secsLeft, catLabel, px } from '../lib.js';
+import { esc, prob, money, qty, toast, secsLeft, catLabel, px, sym, amountLabel, moneyStep, toApiDollars, fromApiDollars, validMoneyInput, moneyInputHint } from '../lib.js';
 import { evIcon } from './components.js';
 
 const MAX_LEGS = 6;
@@ -21,7 +21,7 @@ export async function render({ el, navigate }) {
     try {
       const { slip } = await api.comboSlip(session.uid);
       state.legs = slip.legs.filter((l) => marketBy.has(l.market_ticker)).map((l) => ({ market_ticker: l.market_ticker, event_ticker: l.event_ticker, side: l.side }));
-      if (slip.amount_dollars != null) state.amount = String(Number(slip.amount_dollars));
+      if (slip.amount_dollars != null) state.amount = fromApiDollars(slip.amount_dollars); // the input holds display units (₦)
     } catch { /* empty slip */ }
   }
 
@@ -38,7 +38,7 @@ export async function render({ el, navigate }) {
   const combined = () => state.legs.reduce((a, l) => a * (legProb(l) / 100), 1) * 100;
   async function persist() {
     if (!session.user) return;
-    try { await api.saveComboSlip(session.uid, { legs: state.legs.map(({ market_ticker, side }) => ({ market_ticker, side })), amount_dollars: Number(state.amount) > 0 ? Number(Number(state.amount).toFixed(2)) : null }); } catch (e) { toast(e.message, 'error'); }
+    try { await api.saveComboSlip(session.uid, { legs: state.legs.map(({ market_ticker, side }) => ({ market_ticker, side })), amount_dollars: Number(state.amount) > 0 ? toApiDollars(state.amount) : null }); } catch (e) { toast(e.message, 'error'); }
   }
 
   function drawEvents() {
@@ -92,15 +92,15 @@ export async function render({ el, navigate }) {
   function drawSlip() {
     const n = state.legs.length;
     const odds = n ? combined() : null;
-    const amt = Number(state.amount);
-    const amountOk = Number.isFinite(amt) && amt >= 1 && Math.abs(Math.round(amt * 100) - amt * 100) < 1e-6;
+    // Display units in, API dollars out (naira ÷ 100, whole naira; CLONE_SPEC.md §30); at least one contract's value.
+    const amountOk = validMoneyInput(state.amount) && toApiDollars(state.amount) >= 1;
     const busy = ['requesting', 'accepting', 'confirming'].includes(state.phase);
     $('[data-testid=combo-slip]').innerHTML = `<div class="combo-mini-head"><h2>Combo slip</h2><span class="faint" data-testid="slip-count">${n}/${MAX_LEGS} legs</span></div>
       ${n ? state.legs.map((l) => { const x = marketBy.get(l.market_ticker); return `<div class="combo-leg-row" data-testid="slip-leg" data-leg="${esc(l.market_ticker)}"><span class="combo-leg-name"><span><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${esc(l.side.toUpperCase())}</b> ${esc(x.m.yes_sub_title)}</span><span class="faint">${esc(x.e.title)}</span></span><span class="num">${Math.round(legProb(l))}%</span><button class="icon-btn sm" data-remove-leg="${esc(l.market_ticker)}" aria-label="Remove leg">×</button></div>`; }).join('')
         : '<p class="faint">Pick Yes or No on at least two outcomes from different events.</p>'}
       ${n ? `<div class="tkt-row"><span>Combined odds</span><strong data-testid="slip-odds">${odds.toFixed(odds < 10 ? 2 : 1)}%</strong></div><div class="tkt-row"><span>Payout</span><strong>${odds > 0 ? (100 / odds).toFixed(2) : '—'}x</strong></div>` : ''}
-      <label class="tkt-input">Amount ($)<input id="combo-amount" type="number" min="1" step="0.01" value="${esc(state.amount)}" inputmode="decimal" aria-label="Amount in dollars"></label>
-      <div class="form-error" id="combo-error" role="alert">${n && n < 2 ? 'Add at least one more leg.' : !amountOk && state.amount !== '' ? 'Enter at least $1.00 (cents allowed).' : ''}</div>
+      <label class="tkt-input">Amount (${esc(sym())})<input id="combo-amount" type="number" min="1" step="${esc(moneyStep())}" value="${esc(state.amount)}" inputmode="decimal" aria-label="Amount in ${esc(amountLabel().toLowerCase())}"></label>
+      <div class="form-error" id="combo-error" role="alert">${n && n < 2 ? 'Add at least one more leg.' : !amountOk && state.amount !== '' ? `Enter at least ${money(1)} (${moneyInputHint()}).` : ''}</div>
       <button class="cta" data-testid="request-quote" id="request-quote" ${n >= 2 && amountOk && !busy ? '' : 'disabled'}>${session.user ? 'Request quote' : 'Sign up to request a quote'}</button>
       <div id="combo-quote-box">${quoteBox()}</div>
       ${n ? '<button class="btn btn-ghost w-full mt-8" id="clear-slip" data-testid="clear-slip">Clear slip</button>' : ''}`;
@@ -127,7 +127,7 @@ export async function render({ el, navigate }) {
     try {
       await persist();
       const c = await api.createCombo(state.legs.map(({ market_ticker, event_ticker, side }) => ({ market_ticker, event_ticker, side })));
-      const r = await api.createRfq({ market_ticker: c.market_ticker, target_cost_dollars: Number(Number(state.amount).toFixed(2)), replace_existing: true });
+      const r = await api.createRfq({ market_ticker: c.market_ticker, target_cost_dollars: toApiDollars(state.amount), replace_existing: true });
       state.rfq = r.rfq; state.phase = 'waiting';
       drawSlip();
       await poll();

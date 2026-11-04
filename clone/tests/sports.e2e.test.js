@@ -103,7 +103,7 @@ test('final whistle: winner markets close and auto-resolve; the holder of the wi
   await page.goto(`${BASE}${evUrl(target.id)}?side=yes&market=${mks[0].t}`);
   await page.waitForSelector('[data-testid=scoreboard]');
   await page.waitForSelector('#t-amount');
-  await page.fill('#t-amount', '5');
+  await page.fill('#t-amount', '500');
   await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Filled")');
   for (const m of mks.slice(1)) {

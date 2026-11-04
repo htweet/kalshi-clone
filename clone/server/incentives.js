@@ -15,6 +15,7 @@
 //   rounding; a payout pays the whole cents accrued and not yet paid. A side nobody qualifies on is not distributed.
 // Eligibility: the user enrols by accepting the terms from an allowed region (simulated geo from server/compliance.js
 // plus the program's blocked-region list); every visit re-checks the region and suspends accrual when it fails.
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const { newId, nowIso, dollars, ufp, UNITS, ApiError, E } = require('./util');
 const { check } = require('./validate');
@@ -180,7 +181,7 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
     });
     for (const x of paid) {
       engine.emit('user_balance', x.user_id, engine.balance(x.user_id));
-      try { feat.notify(x.user_id, { type: 'market_reward', title: `Liquidity reward paid · $${(x.cents / 100).toFixed(2)}`, body: p.title || p.event_ticker, link: '/incentives' }); } catch (e) { console.error('incentive notify', e.message); }
+      try { feat.notify(x.user_id, { type: 'market_reward', title: `Liquidity reward paid · ${C.moneyCents(x.cents)}`, body: p.title || p.event_ticker, link: '/incentives' }); } catch (e) { console.error('incentive notify', e.message); }
       engine.emit('incentive_reward', x.user_id, { type: 'paid', program_id: p.id, amount_dollars: dollars(x.cents) });
     }
     void actor; void memo;
@@ -252,7 +253,7 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
     if (v.end_ts == null) throw fieldErr('end_time', 'is required');
     if (v.end_ts <= v.start_ts) throw fieldErr('end_time', 'must be after the start');
     const pool = b.reward_pool_dollars != null ? Math.round(Number(b.reward_pool_dollars) * 100) : cur?.reward_pool_cents;
-    if (!Number.isInteger(pool) || pool < 1 || pool > 10_000_000_00) throw fieldErr('reward_pool_dollars', 'must be between $0.01 and $10,000,000');
+    if (!Number.isInteger(pool) || pool < 1 || pool > 10_000_000_00) throw fieldErr('reward_pool_dollars', `must be between ${C.moneyCents(1)} and ${C.moneyCents(10_000_000_00)}`);
     v.reward_pool_cents = pool;
     const size = b.target_size != null ? Math.round(Number(b.target_size) * UNITS) : cur?.target_size_units ?? 100 * UNITS;
     if (!Number.isInteger(size) || size < 1 || size > 1e6 * UNITS) throw fieldErr('target_size', 'must be a positive number of contracts');

@@ -12,6 +12,7 @@
 // Providers: Google and Apple endpoints when `identity.oauth.<provider>.clientId/clientSecret` are configured; otherwise,
 // outside production only, a built-in mock OIDC provider at /mock-oidc/<provider>/… (its own route namespace, test
 // identities only).
+const currency = require('./currency');
 const crypto = require('node:crypto');
 const express = require('express');
 const { nowIso, newId, token, ApiError, E } = require('./util');
@@ -286,6 +287,7 @@ label{display:block;font-size:13px;color:#444;margin:10px 0 4px}input[type=email
     const name = (String(claims.name || '').replace(/[^\p{L}\p{M}\p{N} .'-]/gu, '').trim().slice(0, 40)) || 'Parlance trader';
     db.prepare('INSERT INTO users(id,email,display_name,password_hash,balance_cents,created_at) VALUES(?,?,?,?,0,?)').run(id, email, name.length >= 2 ? name : 'Parlance trader', pw.UNUSABLE(`oauth-${p}`), nowIso());
     db.prepare('INSERT INTO oauth_links(id,user_id,provider,subject_hash,email_verified,created_at,last_used_at) VALUES(?,?,?,?,?,?,?)').run(newId('ol_'), id, p, subj, verified ? 1 : 0, nowIso(), nowIso());
+    currency.applyAccountDefaults(db, id, nowIso()); // new-account defaults (CLONE_SPEC.md §30)
     ensureProfile(id);
     if (verified) setProfile(id, { email_verified_at: nowIso() });
     logEvent(id, 'signup', req, { method: `oauth:${p}` });

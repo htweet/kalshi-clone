@@ -407,7 +407,7 @@ test('notification settings: the §13.16 matrix, pills persist, sub-options, ema
   r = await a.call('POST', `/v1/users/${a.uid}/orders`, { ticker: TRAM, side: 'yes', type: 'market', count: await sweepCount(a, TRAM, 'yes') });
   assert.equal(r.status, 201, show(r));
   await until(() => notifs(b.uid, 'price_movement').length >= 1, 8000, 'price movement notification');
-  assert.match(notifs(b.uid, 'price_movement')[0].title, /moved [▲▼] \d+¢ in 5 min/, `last before ${lastBefore}`);
+  assert.match(notifs(b.uid, 'price_movement')[0].title, /moved [▲▼] ₦\d+ in 5 min/, `last before ${lastBefore}`);
   await until(() => dbq("SELECT COUNT(*) c FROM notif_deliveries WHERE user_id=? AND pref='price_movement' AND channel='email' AND status='sent'", b.uid)[0].c >= 1, 5000, 'email delivery');
   assert.ok(dbq("SELECT COUNT(*) c FROM email_outbox WHERE user_id=? AND subject LIKE 'Parlance: %moved%'", b.uid)[0].c >= 1);
 
@@ -461,7 +461,7 @@ test('notification settings: the §13.16 matrix, pills persist, sub-options, ema
   // Transfers: Email + Push channels; the inbox keeps them (fixed in-app).
   r = await b.call('POST', `/v1/users/${b.uid}/deposits`, { amount_dollars: 7 });
   await until(() => dbq("SELECT COUNT(*) c FROM notif_deliveries WHERE user_id=? AND pref='transfers' AND channel='email'", b.uid)[0].c >= 1, 4000, 'transfer email');
-  assert.ok(notifs(b.uid, 'transfer').some((n) => /Deposit of \$7\.00/.test(n.title)));
+  assert.ok(notifs(b.uid, 'transfer').some((n) => /Deposit of ₦700/.test(n.title)));
   await pb.goto(BASE + '/notifications/settings');
   await pb.locator('[data-testid=deliveries] tr[data-channel=email]').first().waitFor();
   assert.deepEqual(pb.errors, []);
@@ -761,7 +761,7 @@ test('A11 alerts: position alerts honour the share setting, trade-alert bell, sp
   await pb.locator('[data-testid=trade-alerts-btn]:has-text("Trade alerts on")').waitFor();
   r = await a.call('POST', `/v1/users/${a.uid}/orders`, { ticker: MKT, side: 'yes', type: 'market', count: 1 });
   await until(() => notifs(b.uid, 'trade_alert').length === 1, 5000, 'trade alert');
-  assert.match(notifs(b.uid, 'trade_alert')[0].title, new RegExp(`^@${U.a.nick} bought 1 YES · Dana Okafor @ \\d+¢$`));
+  assert.match(notifs(b.uid, 'trade_alert')[0].title, new RegExp(`^@${U.a.nick} bought 1 YES · Dana Okafor @ ₦\\d+$`));
   // Unfollowing ends the trade-alert subscription.
   assert.equal((await b.call('DELETE', `/v1/users/${b.uid}/social/follow?nickname=${U.a.nick}`)).status, 200);
   assert.equal(dbq('SELECT COUNT(*) c FROM social_account_subs WHERE user_id=?', b.uid)[0].c, 0);

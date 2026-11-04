@@ -17,6 +17,7 @@
 //   global   POST /v1/payments/tokenize/card (isolated tokenizer), POST /v1/payments/webhooks/:provider
 // Every deposit / withdrawal creation on a rail requires Idempotency-Key; withdrawals and new payout destinations need
 // step-up (withdrawal two-factor when on). Admin routes, reconciliation and the ledger audit job: server/payments-admin.js.
+const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const express = require('express');
 const { tx } = require('./db');
 const { newId, dollars, ApiError, E } = require('./util');
@@ -76,7 +77,7 @@ const FINAL = new Set(['succeeded', 'settled', 'failed', 'returned', 'paid', 're
 const NETWORKS = [{ id: 'sandbox', name: 'Sandbox chain', asset: 'tUSD', address_format: 'tpx1 + 34 lower-case base32 characters (the last 6 are a checksum)', example: EXAMPLE_ADDRESSES[0] }];
 
 const merge = (a, b) => { const o = { ...a }; for (const [k, v] of Object.entries(b || {})) o[k] = v && typeof v === 'object' && !Array.isArray(v) && a[k] && typeof a[k] === 'object' ? merge(a[k], v) : v; return o; };
-const usd = (c) => `$${(c / 100).toFixed(2)}`;
+const usd = (c) => C.moneyCents(c); // display money (CLONE_SPEC.md §30)
 const centsOf = (v) => {
   const a = typeof v === 'string' && /^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : typeof v === 'number' ? v : NaN;
   if (!Number.isFinite(a) || a <= 0 || a > 1000000) return null;

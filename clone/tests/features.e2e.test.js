@@ -73,7 +73,7 @@ async function createProfile(page, nick) {
 async function mode(page, m) { await page.click('#t-mode-btn'); await page.click(`[data-otype=${m}]`); }
 async function deposit(page, amount) {
   await page.goto(BASE + '/portfolio');
-  await page.fill('#f-amount', String(amount));
+  await page.fill('#f-amount', String(amount * 100)); // naira (CLONE_SPEC.md §30)
   await page.click('[data-act=deposit]');
 }
 const uid = (email) => dbq('SELECT id FROM users WHERE email=?', email)[0].id;
@@ -236,13 +236,13 @@ test('price alert + fill notifications fire live; Activity tab shows the trader 
   const page = await newPage();
   await logIn(page, carol.email);
   await deposit(page, 100);
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$100.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦10,000")');
   await page.goto(BASE + RATE_URL);
   await page.waitForSelector('[data-testid=alert-card]');
   await page.selectOption('#alert-form select[name=direction]', 'above');
   await page.fill('#alert-form input[name=price]', '59');
   await page.click('#alert-form button[type=submit]');
-  await page.waitForSelector('[data-alert]:has-text("above 59¢")');
+  await page.waitForSelector('[data-alert]:has-text("above ₦59")');
   assert.equal(dbq('SELECT COUNT(*) c FROM price_targets WHERE user_id=? AND triggered_at IS NULL', uid(carol.email))[0].c, 1);
   // Market buy of 3 YES at the 59¢ ask moves the last price to 59 → alert + fill notifications.
   await mode(page, 'market');
@@ -268,27 +268,27 @@ test('account limits: deposit and trading limits enforced; loosening waits 24h; 
   const page = await newPage();
   await logIn(page, dave.email);
   await page.goto(BASE + '/account/limits');
-  await page.fill('[data-testid=limit-deposit] input[name=v]', '100');
+  await page.fill('[data-testid=limit-deposit] input[name=v]', '10000');
   await page.click('[data-testid=limit-deposit] button[type=submit]');
-  await page.waitForSelector('[data-testid=limit-deposit] [data-testid=limit-value]:has-text("$100.00 per day")');
+  await page.waitForSelector('[data-testid=limit-deposit] [data-testid=limit-value]:has-text("₦10,000 per day")');
   await deposit(page, 150);
   await page.waitForSelector('#f-error:has-text("daily deposit limit")');
   await deposit(page, 60);
-  await page.waitForSelector('[data-testid=header-balance]:has-text("$60.00")');
+  await page.waitForSelector('[data-testid=header-balance]:has-text("₦6,000")');
   // Loosening is scheduled, not immediate.
   await page.goto(BASE + '/account/limits');
-  await page.fill('[data-testid=limit-deposit] input[name=v]', '500');
+  await page.fill('[data-testid=limit-deposit] input[name=v]', '50000');
   await page.click('[data-testid=limit-deposit] button[type=submit]');
   await page.waitForSelector('[data-testid=limit-deposit] [data-testid=pending]');
-  assert.match(await page.textContent('[data-testid=limit-deposit] [data-testid=limit-value]'), /\$100\.00/);
+  assert.match(await page.textContent('[data-testid=limit-deposit] [data-testid=limit-value]'), /₦10,000/);
   assert.equal(dbq("SELECT pending_set, pending_value FROM user_limits WHERE user_id=? AND kind='deposit'", uid(dave.email))[0].pending_value, 50000);
   await deposit(page, 50);
   await page.waitForSelector('#f-error:has-text("daily deposit limit")');
   // Trading limit: $5 per day; 10 contracts at 59¢ is $5.90.
   await page.goto(BASE + '/account/limits');
-  await page.fill('[data-testid=limit-trading] input[name=v]', '5');
+  await page.fill('[data-testid=limit-trading] input[name=v]', '500');
   await page.click('[data-testid=limit-trading] button[type=submit]');
-  await page.waitForSelector('[data-testid=limit-trading] [data-testid=limit-value]:has-text("$5.00")');
+  await page.waitForSelector('[data-testid=limit-trading] [data-testid=limit-value]:has-text("₦500")');
   await page.goto(BASE + RATE_URL);
   await mode(page, 'limit');
   await page.fill('#t-price', '59');
