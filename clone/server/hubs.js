@@ -10,6 +10,7 @@
 // `seedHubs` (on for `npm start`, off for programmatic test servers unless asked) adds invented demo data: seven more
 // Senate races, two more central-bank meetings, a daily temperature family (for the calendar `event_limits` cap), news
 // items and two incentive programs. All of it is invented.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const { newId, nowIso, dollars, E, slugify, UNITS } = require('./util');
@@ -33,7 +34,7 @@ function mountHubs({ v1, db, engine, eventFull, getEvent, incentives, options = 
     if (db.prepare('SELECT 1 FROM series WHERE ticker=?').get(ticker)) return;
     db.prepare('INSERT INTO series(ticker,title,slug,category,tags,frequency,fee_type,fee_multiplier,settlement_sources,rules) VALUES(?,?,?,?,?,?,?,?,?,?)')
       .run(ticker, title, slugify(title), category, JSON.stringify(tags), frequency, 'quadratic', 1, JSON.stringify([{ name: 'Parlance Resolution Desk', url: 'https://example.org/resolution' }]),
-        `Contracts in the ${title} series resolve from the named settlement source. Each contract pays ${C.contractValue()} if its outcome occurs, otherwise ${C.moneyCents(0)}.`);
+        CS.t('rules.series_contract_pays', { series: title, value: C.contractValue(), zero: C.moneyCents(0) }));
   }
   function addEvent(series, category, ev, r, now) {
     if (db.prepare('SELECT 1 FROM events WHERE ticker=?').get(ev.e)) return;

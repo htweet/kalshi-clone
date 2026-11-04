@@ -7,6 +7,7 @@
 // Evidence-shaped fields: live data mirrors the calendar `initialLiveData` payload (HAR3#10) — keyed by milestone
 // id, `{type, details, milestone_id}` with `cricket_match` / `tennis_tournament_singles` / `esports_match` detail
 // names. Everything else (sport models, rates, leagues, teams, players) is a Parlance design choice.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const { nowIso, newId, hashPassword, slugify, E } = require('./util');
@@ -898,7 +899,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
     db.prepare('INSERT INTO series(ticker,title,slug,category,tags,frequency,fee_type,fee_multiplier,settlement_sources,rules) VALUES(?,?,?,?,?,?,?,?,?,?)')
       .run(lg.series_ticker, lg.name, slugify(lg.name), 'Sports', JSON.stringify([SPORT[lg.sport].label, lg.name]), 'daily', 'quadratic', 1,
         JSON.stringify([{ name: 'Parlance Sports Desk', url: 'https://example.org/sports-desk' }]),
-        `Each ${lg.name} market resolves to the official final result recorded by the Parlance Sports Desk when the game ends. A contract pays ${C.contractValue()} if its outcome occurs, otherwise ${C.moneyCents(0)}.`);
+        CS.t('rules.sports_contract_pays', { league: lg.name, value: C.contractValue(), zero: C.moneyCents(0) }));
   }
 
   // ---------- game state ----------

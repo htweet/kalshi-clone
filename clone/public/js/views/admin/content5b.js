@@ -1,7 +1,8 @@
 // Admin sections for Phase 5B (CLONE_SPEC.md §29): AI summaries (content.write; settings need settings.write) and the
 // Liquidity Incentive Program (markets.ops; payouts need users.money and step-up). Every change asks for a reason and
 // is written to the hash-chained audit log by the server.
-import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
+import { t as T } from '../../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
+import { pxc, priceUnit, sym, currency, toApiDollars, moneyStep } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, formHtml, wireForm, confirmAction, section, badge, fmtTime, fmtMoney } from './ui.js';
 
 export async function render({ el, section: key, perms }) {
@@ -57,8 +58,8 @@ async function renderIncentives(el, perms) {
   const fields = [
     { name: 'event_ticker', label: 'Event ticker', required: true }, { name: 'title', label: 'Title (optional)' },
     { name: 'start_time', label: 'Start', type: 'datetime', required: true, value: new Date().toISOString() }, { name: 'end_time', label: 'End', type: 'datetime', required: true, value: new Date(Date.now() + 14 * 864e5).toISOString() },
-    { name: 'reward_pool_dollars', label: `Reward pool (${sym()})`, type: 'number', step: moneyStep(), required: true, value: currency.code === 'USD' ? 100 : 10000 }, { name: 'target_size', label: 'Target size (contracts)', type: 'number', value: 100 },
-    { name: 'max_spread_cents', label: `Spread window (${priceUnit()})`, type: 'number', value: 3 }, { name: 'discount', label: `Discount per ${pxc(100)} behind best`, type: 'number', step: '0.05', value: 0.5 },
+    { name: 'reward_pool_dollars', label: T('admin.reward_pool', { symbol: sym() }), type: 'number', step: moneyStep(), required: true, value: currency.code === 'USD' ? 100 : 10000 }, { name: 'target_size', label: 'Target size (contracts)', type: 'number', value: 100 },
+    { name: 'max_spread_cents', label: T('admin.spread_window', { unit: priceUnit() }), type: 'number', value: 3 }, { name: 'discount', label: T('admin.discount', { price: pxc(100) }), type: 'number', step: '0.05', value: 0.5 },
     { name: 'competition', label: 'Competition', type: 'select', options: [['auto', 'Automatic'], ['low', 'Low'], ['high', 'High']], value: 'auto' },
     { name: 'payout_mode', label: 'Pay as', type: 'select', options: [['cash', 'Cash'], ['credits', 'Credits']], value: 'cash' }, { name: 'reason', label: 'Reason (audit log)', required: true, span: true }];
   const load = async () => {

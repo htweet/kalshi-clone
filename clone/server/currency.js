@@ -9,10 +9,11 @@
 //                  an internal $25.00 (2,500 cents) as ₦2,500. Perps use the same ×100 rule for asset prices, notional,
 //                  margin, funding and P&L, so nothing on a page mixes currencies. A sandbox display rule, not an FX rate.
 //   USD:           the original display: $25.00, 64¢, 64.5¢.
-// Percent odds and payout multipliers are currency-free and unchanged.
+// Percent odds and payout multipliers are currency-free and unchanged. Words live in server/content/currency-strings.js.
+const CS = require('./content/currency-strings');
 const CURRENCIES = {
-  NGN: { code: 'NGN', symbol: '₦', name: 'Nigerian naira', minor_unit: 'kobo', minor_units_per_major: 100, per_internal_dollar: 100, contract_value: 100, contract_value_display: '₦100', default_locale: 'en-NG' },
-  USD: { code: 'USD', symbol: '$', name: 'US dollar', minor_unit: 'cent', minor_units_per_major: 100, per_internal_dollar: 1, contract_value: 1, contract_value_display: '$1.00', default_locale: 'en-US' },
+  NGN: { code: 'NGN', symbol: '₦', minor_unit: 'kobo', minor_units_per_major: 100, per_internal_dollar: 100, contract_value: 100, contract_value_display: '₦100', default_locale: 'en-NG' },
+  USD: { code: 'USD', symbol: '$', minor_unit: 'cent', minor_units_per_major: 100, per_internal_dollar: 1, contract_value: 1, contract_value_display: '$1.00', default_locale: 'en-US' },
 };
 const CODES = Object.keys(CURRENCIES);
 const DEFAULT_CONFIG = { code: 'NGN', locale: 'en-NG', timezone: 'Africa/Lagos' };
@@ -54,10 +55,10 @@ const accountDefaults = () => JSON.parse(JSON.stringify(acct));
 function descriptor(c = cfg) {
   const x = CURRENCIES[c.code] || CURRENCIES.NGN;
   return {
-    code: x.code, symbol: x.symbol, name: x.name, minor_unit: x.minor_unit, minor_units_per_major: x.minor_units_per_major,
+    code: x.code, symbol: x.symbol, name: CS.t(`currency.name.${x.code}`), minor_unit: x.minor_unit, minor_units_per_major: x.minor_units_per_major,
     contract_value: x.contract_value, contract_value_display: x.contract_value_display, locale: c.locale, timezone: c.timezone,
     // How to read the API (field names and values are unchanged): display = *_dollars × per_internal_dollar.
-    per_internal_dollar: x.per_internal_dollar, rule: x.code === 'NGN' ? 'display-only: 1 internal cent = ₦1 (a contract pays ₦100); sandbox display rule, not an FX rate' : 'display-only: amounts as US dollars and cents',
+    per_internal_dollar: x.per_internal_dollar, rule: CS.t(`currency.rule.${x.code}`),
     supported: CODES,
   };
 }

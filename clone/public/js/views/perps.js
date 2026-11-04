@@ -3,6 +3,7 @@
 // Prices travel per contract in dollars (4 dp); the UI shows the underlying level = contract price / contract size, in the
 // display currency (NGN: ×100, the same rule as event contracts, so nothing on a page mixes currencies; CLONE_SPEC.md §30).
 // Price inputs (limit, take profit, stop loss) take display levels and convert back with assetToApi.
+import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { vars } from '../dynstyle.js';
 import { perpsApi as P } from '../perps-api.js';
 import { session } from '../store.js';
@@ -112,7 +113,7 @@ function transferBox() {
     <div class="perps-kv"><span>Predictions cash</span><strong data-testid="pred-cash">${session.balance != null ? money(session.balance) : '—'}</strong></div>
     <div class="perps-kv"><span>Perps available</span><strong data-testid="perps-available">—</strong></div>
     <form class="perps-xfer" data-testid="perp-transfer-form">
-      <input id="px-amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" placeholder="Amount ${esc(sym())}" aria-label="Transfer amount in ${esc(amountLabel().toLowerCase())}" data-testid="xfer-amount">
+      <input id="px-amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" placeholder="${esc(T('input.amount_placeholder', { symbol: sym() }))}" aria-label="${esc(T('input.transfer_aria', { mode: amountLabel().toLowerCase() }))}" data-testid="xfer-amount">
       <div class="perps-xfer-btns"><button class="btn btn-primary" type="submit" data-dir="to_perps" data-testid="xfer-to-perps">To Perps</button><button class="btn" type="button" data-dir="to_predictions" data-testid="xfer-to-predictions">To Predictions</button></div>
       <div class="form-error" role="alert" data-testid="xfer-error"></div>
     </form></section>`;
@@ -124,7 +125,7 @@ function wireTransfer(root, onDone) {
     const err = form.querySelector('[data-testid=xfer-error]');
     err.textContent = '';
     const raw = form.querySelector('#px-amount').value;
-    if (!validMoneyInput(raw)) { err.textContent = `Enter an amount greater than ${money(0)} (${moneyInputHint()}).`; return; }
+    if (!validMoneyInput(raw)) { err.textContent = T('error.amount_positive', { zero: money(0), hint: moneyInputHint() }); return; }
     const amt = toApiDollars(raw); // naira ÷ 100 = the API's dollars
     try {
       await P.transfer(dir, amt);

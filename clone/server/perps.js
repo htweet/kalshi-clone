@@ -4,6 +4,7 @@
 // in centicents ($0.0001 = one tick, the documented perps tick); quantities are whole contracts.
 // Everything that matters lives in SQLite: markets + simulation state, price history, orders, fills, trades,
 // positions, collateral, funding rates/payments, liquidations, exit triggers, transfers and a perps ledger.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const { nowIso, newId, dollars, fp, E, ApiError, encCursor, decCursor } = require('./util');
@@ -491,7 +492,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
       const n = Number(raw);
       if (raw == null || raw === '' || !Number.isFinite(n) || n <= 0) throw E.badRequest('price is required for limit orders (dollars per contract)');
       price = Math.round(n * CC);
-      if (Math.abs(n * CC - price) > 1e-6) throw E.badRequest(`price must be a multiple of the ${C.moneyCents(0.01, { exact: 4 })} tick`);
+      if (Math.abs(n * CC - price) > 1e-6) throw E.badRequest(CS.t('error.perps_tick', { tick: C.moneyCents(0.01, { exact: 4 }) }));
     }
     let lev = Number(body.leverage ?? 1);
     if (!Number.isFinite(lev) || lev < 1 || lev > m.max_leverage) throw E.badRequest(`leverage must be between 1x and ${m.max_leverage}x for ${m.title}`);
@@ -539,7 +540,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
       if (willRest) { reserve = rem * reservePer(m, price, lev); avail -= reserve; }
       if (avail < 0) {
         const need = a.available_cc - avail;
-        throw E.conflict('insufficient_margin', 'insufficient perps collateral', `this order needs ${C.moneyCents(need / 100)} of margin and fees; you have ${C.moneyCents(a.available_cc / 100)} available in Perps`);
+        throw E.conflict('insufficient_margin', 'insufficient perps collateral', CS.t('error.perps_margin', { need: C.moneyCents(need / 100), available: C.moneyCents(a.available_cc / 100) }));
       }
     }
 
@@ -714,7 +715,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
       if (LP) applyFill(LP, m, { order: null, side: q > 0 ? 'bid' : 'ask', n, p: mark, isTaker: false, feeRate: 0, tradeId, ts, lev: 1, source: 'liquidation' });
     });
     engine.emit('perp_trade', m.ticker, tradeVo({ id: tradeId, ticker: m.ticker, price_cc: mark, count: n, taker_side: side, is_liquidation: 1, created_ts: ts }));
-    notify(p.user_id, { type: 'perp_liquidation', title: `Liquidated: ${q > 0 ? 'Long' : 'Short'} ${n} ${m.title} closed at ${fmtUnderlying(m, mark)}`, body: `Equity fell below maintenance margin. Returned ${C.moneyCents(returned / 100)} to your Perps balance.`, link: `/perps/${m.ticker}` });
+    notify(p.user_id, { type: 'perp_liquidation', title: `Liquidated: ${q > 0 ? 'Long' : 'Short'} ${n} ${m.title} closed at ${fmtUnderlying(m, mark)}`, body: CS.t('notify.perps_liquidation.body', { amount: C.moneyCents(returned / 100) }), link: `/perps/${m.ticker}` });
     emitUser(p.user_id, [m.ticker]);
   }
 
@@ -749,7 +750,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
       const a = account(x.uid);
       if (now - a.last_funding_notice_ts >= HOUR) { // at most one funding notification per user per hour
         db.prepare('UPDATE perp_accounts SET last_funding_notice_ts=? WHERE user_id=?').run(now, x.uid);
-        notify(x.uid, { type: 'margin_funding_payment', title: `Funding ${x.amount >= 0 ? 'received' : 'paid'}: ${C.moneyCents(Math.abs(x.amount) / 100, { exact: 4 })} on ${m.title}`, body: `Rate ${(rate * 100).toFixed(4)}% on your ${x.qty > 0 ? 'long' : 'short'} position`, link: '/portfolio?perpsTab=history' });
+        notify(x.uid, { type: 'margin_funding_payment', title: CS.t('notify.perps_funding.title', { direction: x.amount >= 0 ? 'received' : 'paid', amount: C.moneyCents(Math.abs(x.amount) / 100, { exact: 4 }), market: m.title }), body: `Rate ${(rate * 100).toFixed(4)}% on your ${x.qty > 0 ? 'long' : 'short'} position`, link: '/portfolio?perpsTab=history' });
       }
     }
     emitTicker(getMarket(m.ticker), true);
@@ -922,20 +923,20 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     let cents;
     if (b.amount_dollars != null) cents = Math.round(Number(b.amount_dollars) * 100);
     else if (b.amount != null) { const ccAmt = Number(b.amount); if (!Number.isInteger(ccAmt) || ccAmt % 100 !== 0) throw E.badRequest('amount is in centicents and must be a whole number of cents'); cents = ccAmt / 100; }
-    if (!Number.isInteger(cents) || cents < 1 || Math.abs(Number(b.amount_dollars ?? cents / 100) * 100 - cents) > 1e-6) throw E.badRequest(`amount must be at least ${C.moneyCents(1)}, in whole ${C.config().code === 'USD' ? 'cents' : 'naira'}`);
+    if (!Number.isInteger(cents) || cents < 1 || Math.abs(Number(b.amount_dollars ?? cents / 100) * 100 - cents) > 1e-6) throw E.badRequest(CS.t('error.perps_transfer_min', { min: C.moneyCents(1), unit: CS.t(`currency.unit.whole.${C.config().code}`) }));
     if (b.client_transfer_id && db.prepare('SELECT 1 FROM perp_transfers WHERE user_id=? AND client_transfer_id=?').get(uid, String(b.client_transfer_id))) throw E.conflict('duplicate_transfer', 'a transfer with this client_transfer_id already exists');
     const ccAmt = cents * 100;
     const id = newId('tr_');
     const t = tx(db, () => {
       const a = account(uid);
       if (dir === 'to_perps') {
-        if (engine.balance(uid) < cents) throw E.conflict('insufficient_balance', 'insufficient balance', `you have ${C.moneyCents(engine.balance(uid))} of prediction cash`);
+        if (engine.balance(uid) < cents) throw E.conflict('insufficient_balance', 'insufficient balance', CS.t('error.perps_cash', { amount: C.moneyCents(engine.balance(uid)) }));
         // Non-withdrawable promotional credits stay with predictions (server/payments.js, CLONE_SPEC.md §26.5).
-        if (engine.transferableCents && engine.transferableCents(uid) < cents) throw E.conflict('credits_not_transferable', 'promotional credits cannot be moved to Perps', `you can move up to ${C.moneyCents(engine.transferableCents(uid))} of cash`);
+        if (engine.transferableCents && engine.transferableCents(uid) < cents) throw E.conflict('credits_not_transferable', 'promotional credits cannot be moved to Perps', CS.t('error.perps_credits', { amount: C.moneyCents(engine.transferableCents(uid)) }));
         engine.credit(uid, -cents, 'perps_transfer', id, 'Transfer to Perps');
         addAvail(uid, ccAmt);
       } else {
-        if (a.available_cc < ccAmt) throw E.conflict('insufficient_margin', 'insufficient perps collateral', `you have ${C.moneyCents(a.available_cc / 100)} available in Perps`);
+        if (a.available_cc < ccAmt) throw E.conflict('insufficient_margin', 'insufficient perps collateral', CS.t('error.perps_available', { amount: C.moneyCents(a.available_cc / 100) }));
         addAvail(uid, -ccAmt);
         engine.credit(uid, cents, 'perps_transfer', id, 'Transfer from Perps');
       }
@@ -947,7 +948,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     });
     engine.emit('user_balance', uid, engine.balance(uid));
     emitUser(uid, []);
-    notify(uid, { type: 'margin_transfer_completed', title: `Transferred ${C.moneyCents(cents)} ${dir === 'to_perps' ? 'to Perps' : 'to Predictions'}`, body: 'Transfer completed', link: dir === 'to_perps' ? '/portfolio?perpsTab=positions' : '/portfolio' });
+    notify(uid, { type: 'margin_transfer_completed', title: CS.t('notify.perps_transfer.title', { amount: C.moneyCents(cents), destination: dir === 'to_perps' ? 'to Perps' : 'to Predictions' }), body: 'Transfer completed', link: dir === 'to_perps' ? '/portfolio?perpsTab=positions' : '/portfolio' });
     res.status(201).json({ transfer_id: t.id, transfer: transferVo(t), balance: balanceVo(uid) });
   });
   v1.get(`${P}/transfers`, requireUser, (req, res) => res.json({ transfers: db.prepare('SELECT * FROM perp_transfers WHERE user_id=? ORDER BY created_ts DESC, rowid DESC LIMIT 200').all(uidOf(req)).map(transferVo) }));

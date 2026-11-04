@@ -239,7 +239,7 @@ export function mountEventExtras({ el, ev, market }) {
     d.className = 'adm-dialog';
     d.dataset.testid = 'move-alert-dialog';
     d.innerHTML = `<form method="dialog" class="adm-confirm"><h3>Price-movement alert</h3><p class="muted">${esc(m.yes_sub_title)} · Yes price now ${esc(pxCents(Math.round(Number(m.last_price_dollars || 0) * 100)))}</p>
-      <label class="field"><span>Notify me when the price moves by at least (${esc(priceUnit())})</span><input name="threshold" type="number" min="1" max="99" value="5" required data-testid="move-threshold"></label>
+      <label class="field"><span>${esc(T('input.move_threshold', { unit: priceUnit() }))}</span><input name="threshold" type="number" min="1" max="99" value="5" required data-testid="move-threshold"></label>
       <label class="field"><span>Within</span><select name="window" data-testid="move-window"><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="60" selected>1 hour</option><option value="240">4 hours</option><option value="1440">1 day</option></select></label>
       <label class="field"><span>Direction</span><select name="direction"><option value="any">Up or down</option><option value="up">Up only</option><option value="down">Down only</option></select></label>
       <div class="form-error" data-err role="alert"></div><div data-list class="move-list"></div>

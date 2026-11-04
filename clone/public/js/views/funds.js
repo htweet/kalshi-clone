@@ -5,6 +5,7 @@
 //   /funds/withdraw   method → amount → review → status (banks, cards you deposited with, crypto addresses)
 // Status updates arrive over the private `payments` WebSocket channel (and a short poll as a fallback); the balance in the
 // header updates over `user_balance`.
+import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { api } from '../api.js';
 import { payApi } from '../payments-api.js';
 import { session } from '../store.js';
@@ -132,7 +133,7 @@ async function challengePage(body, id, navigate) {
 function amountStep(host, { title, method, limits, balances = null, fee = 0, onNext, onBack }) {
   const note = balances ? `<p data-testid="withdrawable-note">You can withdraw <strong>${esc(money(balances.withdrawable_dollars))}</strong>.${Number(balances.nonwithdrawable_credits_dollars) ? ` ${esc(money(balances.nonwithdrawable_credits_dollars))} of credits can be traded but not withdrawn.` : ''}${Number(balances.unsettled_dollars) ? ` ${esc(money(balances.unsettled_dollars))} is still settling.` : ''}</p>` : '';
   host.innerHTML = `${stepper('amount')}<form class="card panel pay-form" data-testid="fund-amount-form" novalidate><h2>${esc(title)}</h2><p class="muted">${esc(method)}</p>${note}
-    <label class="field">Amount (${esc(currency.code)})<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" required data-testid="fund-amount"></label>
+    <label class="field">${esc(T('input.amount_code', { code: currency.code }))}<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" inputmode="decimal" required data-testid="fund-amount"></label>
     <p class="faint">${limits.min_dollars ? `Minimum ${esc(money(limits.min_dollars))}` : ''}${limits.max_dollars ? ` · maximum ${esc(money(limits.max_dollars))}` : ''}${fee ? ` · network fee ${esc(money(fee))}` : ''}${limits.eta ? ` · ${esc(limits.eta)}` : ''}</p>
     <div class="form-error" role="alert" data-testid="fund-amount-error"></div>
     <div class="d-flex gap-8"><button class="btn" type="button" data-back>Back</button><button class="btn btn-primary" type="submit" data-testid="fund-continue">Review</button></div></form>`;
@@ -142,7 +143,7 @@ function amountStep(host, { title, method, limits, balances = null, fee = 0, onN
     e.preventDefault();
     const err = f.querySelector('[data-testid=fund-amount-error]');
     // Naira in, dollars out: whole naira ÷ 100 = the API's amount_dollars (CLONE_SPEC.md §30).
-    if (!validMoneyInput(f.amount.value)) { err.textContent = `Enter an amount in ${moneyInputHint()}.`; return; }
+    if (!validMoneyInput(f.amount.value)) { err.textContent = T('error.amount_in', { hint: moneyInputHint() }); return; }
     const a = toApiDollars(f.amount.value);
     if (limits.min_dollars && a < Number(limits.min_dollars)) { err.textContent = `The minimum is ${money(limits.min_dollars)}.`; return; }
     if (limits.max_dollars && a > Number(limits.max_dollars)) { err.textContent = `The maximum is ${money(limits.max_dollars)}.`; return; }
@@ -203,7 +204,7 @@ async function cryptoDeposit(body, meta, onPayment) {
     body.innerHTML = `${stepper('method')}<section class="card panel" data-testid="crypto-deposit"><h2>Deposit crypto</h2>
       ${account.enabled ? `<p class="muted">Send test tokens (tUSD) on the sandbox chain to your deposit address. They are credited after ${esc(account.confirmations_required)} confirmations.</p>
         <div class="code pay-break" data-testid="crypto-address">${esc(account.address)}</div>
-        <form class="pay-form mt-12" data-sim novalidate><p class="faint">Sandbox: simulate an incoming transfer from an outside wallet.</p><div class="inline-form"><label class="field">Amount (${esc(currency.code)})<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" data-testid="crypto-sim-amount"></label><button class="btn" type="submit" data-testid="crypto-sim">Simulate transfer</button></div><div class="form-error" role="alert"></div></form>
+        <form class="pay-form mt-12" data-sim novalidate><p class="faint">Sandbox: simulate an incoming transfer from an outside wallet.</p><div class="inline-form"><label class="field">${esc(T('input.amount_code', { code: currency.code }))}<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" data-testid="crypto-sim-amount"></label><button class="btn" type="submit" data-testid="crypto-sim">Simulate transfer</button></div><div class="form-error" role="alert"></div></form>
         ${incoming.length ? transfersTable(incoming) : ''}`
     : `<p class="muted">${esc(account.terms)}</p><label class="d-flex gap-8 ai-center"><input type="checkbox" data-terms data-testid="crypto-terms"> I understand and accept</label><div class="form-error" role="alert"></div><button class="btn btn-primary mt-12" data-open data-testid="crypto-open">Get my deposit address</button>`}
       <div class="mt-12"><a class="btn btn-ghost" href="/funds/deposit" data-link>Back</a></div></section>`;

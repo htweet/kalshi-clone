@@ -1,6 +1,7 @@
 // Market ops (exchange switch, pause/resume, series fees, liquidity bot, combo eligibility, rolling windows) and
 // Perps ops (halt/resume, max leverage, run funding now).
-import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
+import { t as T } from '../../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
+import { money, pxCents, priceUnit } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, statusBadge, badge, fmtTime, fmtQty } from './ui.js';
 
 export async function render({ el, section: sec }) {
@@ -68,7 +69,7 @@ export async function render({ el, section: sec }) {
       } else if (b.dataset.liq) {
         const m = data.markets.find((x) => x.ticker === b.dataset.liq);
         const l = m.liquidity || data.publish_liquidity;
-        const fields = [{ name: 'enabled', label: 'Quote this market', type: 'checkbox', value: m.liquidity ? m.liquidity.enabled : true, span: true }, { name: 'spread_cents', label: `Spread (${priceUnit()}, 2-40)`, type: 'number', value: l.spread_cents, required: true },
+        const fields = [{ name: 'enabled', label: 'Quote this market', type: 'checkbox', value: m.liquidity ? m.liquidity.enabled : true, span: true }, { name: 'spread_cents', label: T('admin.spread', { unit: priceUnit() }), type: 'number', value: l.spread_cents, required: true },
           { name: 'size_contracts', label: 'Size per level (contracts)', type: 'number', value: l.size_contracts, required: true }, { name: 'levels', label: 'Levels per side (1-5)', type: 'number', value: l.levels, required: true }];
         const d = dialog(`<h3>Liquidity bot · ${esc(m.ticker)}</h3><p class="muted">Saving cancels the liquidity account's resting orders here and re-quotes around the last price.</p>${formHtml(fields, { submit: 'Save and re-quote', id: 'liq', extra: '<button class="btn" type="button" data-close>Cancel</button>', testid: 'liquidity-form' })}`);
         d.querySelector('[data-close]').onclick = () => d.close();

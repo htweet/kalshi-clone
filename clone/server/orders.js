@@ -3,6 +3,7 @@
 // market / event), queue positions, good-til-time expiry notifications. Paths mirror the documented
 // /portfolio/events/orders/{id}/amend|decrease, DELETE /portfolio/events/orders and /portfolio/orders/queue_positions
 // (api-reference_orders_*.md) under the web client's /v1/users/:uid/orders prefix.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { ufp, ustr, toUnits, E } = require('./util');
 const { orderVo } = require('./serialize');
@@ -36,7 +37,7 @@ function mountOrders({ v1, db, engine, requireUser, notify }) {
     if (b.price_dollars != null && b.price_dollars !== '') { p = P.ccFromDollars(b.price_dollars); if (p == null) throw E.badRequest('price_dollars must be a dollar amount with at most 4 decimals'); }
     else if (b.price != null && b.price !== '') { p = P.ccFromCents(b.price); if (p == null) throw E.badRequest('price must be a number of cents'); }
     if (p == null) return null;
-    if (p < 1 || p >= P.CC) throw E.badRequest(`price must be between ${C.priceCents(1)} and ${C.priceCents(99)} (sub-cent ticks where the market allows them)`);
+    if (p < 1 || p >= P.CC) throw E.badRequest(CS.t('error.price_range', { min: C.priceCents(1), max: C.priceCents(99) }));
     return o.action === 'sell' ? P.CC - p : p;
   };
   const units = (v, name) => {

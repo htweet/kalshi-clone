@@ -7,6 +7,7 @@
 //   • G6 settlement correction of a settled market (claw-back / re-pay through the ledger, step-up, audit chain, user
 //     notifications) and the optional two-person rule for resolutions and corrections;
 //   • read endpoints for Portfolio (collateral returned) and the admin resolution desk (approvals, policy, corrections).
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const P = require('./pricing');
@@ -34,13 +35,13 @@ const APPROVAL_TTL_MS = 24 * 3600 * 1000; // a pending resolution request lapses
 const SEED = [
   { series: 'PLXGDP', title: 'Harbor economy growth', cat: 'Economics', tags: ['GDP'], event: 'PLXGDP-26Q4', etitle: 'Harbor GDP growth in Q4 2026', sub: 'Annualized %, first estimate',
     market: { t: 'PLXGDP-26Q4', yes: 'Growth (scalar)', no: 'Below the range', grid: 'deci_cent', type: 'scalar', floor: -2, cap: 6, unit: '%', fair: 4750, tick: 10,
-      rules: `Scalar market. At expiration the Harbor statistics office first estimate of Q4 2026 annualized GDP growth sets the payout: each YES contract pays (growth − (−2%)) ÷ 8% of ${C.contractValue()}, clamped between ${C.moneyCents(0)} and ${C.contractValue()}; each NO contract pays the rest. Example: 1.8% growth pays ${C.priceCc(4750)} per YES and ${C.priceCc(5250)} per NO.` } },
+      rules: CS.t('seed.gdp.rules', { value: C.contractValue(), zero: C.moneyCents(0), yes: C.priceCc(4750), no: C.priceCc(5250) }) } },
   { series: 'PLXSNOW', title: 'First snowfall', cat: 'Climate and Weather', tags: ['Snow'], event: 'PLXSNOW-26DEC', etitle: 'Will Harbor City see snow before December 15?', sub: 'Measurable snowfall at the harbor station',
     market: { t: 'PLXSNOW-26DEC', yes: 'Snow before Dec 15', no: 'No snow', grid: 'deci_cent', fair: 1240, tick: 10,
-      rules: `If the harbor weather station records measurable snowfall before December 15, this market resolves YES. Otherwise it resolves NO. Prices move in ${C.priceCc(10)} steps.` } },
+      rules: CS.t('seed.snow.rules', { tick: C.priceCc(10) }) } },
   { series: 'PLXCOMET', title: 'Sky watch', cat: 'Science and Technology', tags: ['Space'], event: 'PLXCOMET-26', etitle: 'Will Comet Ardent be visible to the naked eye this year?', sub: 'Before December 31, 2026',
     market: { t: 'PLXCOMET-26', yes: 'Naked-eye visible', no: 'Not visible', grid: 'tapered', fair: 230, tick: 10,
-      rules: `If two observatories report Comet Ardent at magnitude 6 or brighter before December 31, 2026, this market resolves YES. Otherwise it resolves NO. Ticks are finer near ${C.priceCc(0)} and ${C.priceCc(10000)} (tapered grid).` } },
+      rules: CS.t('seed.comet.rules', { low: C.priceCc(0), high: C.priceCc(10000) }) } },
 ];
 
 function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) {
@@ -60,7 +61,7 @@ function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) 
       tx(db, () => {
         db.prepare('INSERT INTO series(ticker,title,slug,category,tags,frequency,fee_type,fee_multiplier,settlement_sources,rules) VALUES(?,?,?,?,?,?,?,?,?,?)')
           .run(s.series, s.title, s.series.toLowerCase().slice(3), s.cat, JSON.stringify(s.tags), 'one_off', 'quadratic', 1, JSON.stringify([{ name: 'Parlance Resolution Desk', url: 'https://example.org/resolution' }]),
-            m.type === 'scalar' ? `Scalar contracts pay a fraction of ${C.contractValue()} set by the reported value within the published floor and cap.` : `Each contract pays ${C.contractValue()} if its outcome occurs, otherwise ${C.moneyCents(0)}.`);
+            m.type === 'scalar' ? CS.t('rules.scalar_contract_pays', { value: C.contractValue() }) : CS.t('rules.contract_pays', { value: C.contractValue(), zero: C.moneyCents(0) }));
         db.prepare("INSERT INTO events(ticker,series_ticker,title,sub_title,category,mutually_exclusive,is_live,live_label,news,featured,created_at) VALUES(?,?,?,?,?,0,0,'','',0,?)").run(s.event, s.series, s.etitle, s.sub, s.cat, new Date(now - 10 * 86400000).toISOString());
         const close = new Date(now + 40 * 86400000).toISOString();
         db.prepare(`INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at,fractional_trading_enabled,price_level_structure,market_type,floor_strike,cap_strike,scalar_unit)
@@ -250,12 +251,12 @@ function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) 
       .run(newId('res_'), ticker, r.result === 'scalar' ? `scalar:${v.expiration_value}` : r.result, `Correction: ${v.reason}`, 0, 'corrected', req.auth.user.id, nowIso());
     const after = admin.deskRow(admin.getMarket(ticker));
     admin.audit(req, 'resolution.correct', 'market', ticker, before, { ...after, correction_id: id, clawback_dollars: dollars(claw), repaid_dollars: dollars(repaid), approval_id: approvalId, requested_by: emailOf(requestedBy) }, v.reason);
-    const label = r.result === 'scalar' ? `${C.priceCc(r.settlement_value_cc)} per YES` : r.result.toUpperCase();
+    const label = r.result === 'scalar' ? CS.t('resolution.scalar_label', { price: C.priceCc(r.settlement_value_cc) }) : r.result.toUpperCase();
     for (const c of r.changes) {
       if (!c.delta_cents) continue;
       const bal = journal.balanceOf(db, journal.accounts.cash(c.user_id));
       notify(c.user_id, { type: 'settlement_correction', title: `Settlement corrected: ${m.title} now resolves ${label}`,
-        body: c.delta_cents > 0 ? `You were paid ${C.moneyCents(c.delta_cents)} more. Reason: ${v.reason.slice(0, 160)}` : `${C.moneyCents(Math.abs(c.delta_cents))} was taken back from your balance.${bal < 0 ? ` Your cash is now negative (${C.moneyCents(-bal)} owed); withdrawals are paused until a deposit repays it.` : ''} Reason: ${v.reason.slice(0, 160)}`,
+        body: c.delta_cents > 0 ? CS.t('notify.correction_paid.body', { amount: C.moneyCents(c.delta_cents), reason: v.reason.slice(0, 160) }) : CS.t('notify.correction_clawback.body', { amount: C.moneyCents(Math.abs(c.delta_cents)), owed: bal < 0 ? CS.t('notify.correction_clawback.owed', { amount: C.moneyCents(-bal) }) : '', reason: v.reason.slice(0, 160) }),
         link: '/portfolio?tab=history' });
     }
     return { market: after, correction: correctionVo(db.prepare('SELECT * FROM settlement_corrections WHERE id=?').get(id)) };

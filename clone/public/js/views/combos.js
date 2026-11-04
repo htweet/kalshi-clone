@@ -1,5 +1,6 @@
 // Combo builder (spec §17.3, §17.7): pick outcomes from open markets into a slip (DB-persisted per user), see the
 // combined odds, request a quote (RFQ), accept it before it expires, then follow Confirming… → executed.
+import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
@@ -99,8 +100,8 @@ export async function render({ el, navigate }) {
       ${n ? state.legs.map((l) => { const x = marketBy.get(l.market_ticker); return `<div class="combo-leg-row" data-testid="slip-leg" data-leg="${esc(l.market_ticker)}"><span class="combo-leg-name"><span><b class="${l.side === 'yes' ? 'leg-yes' : 'leg-no'}">${esc(l.side.toUpperCase())}</b> ${esc(x.m.yes_sub_title)}</span><span class="faint">${esc(x.e.title)}</span></span><span class="num">${Math.round(legProb(l))}%</span><button class="icon-btn sm" data-remove-leg="${esc(l.market_ticker)}" aria-label="Remove leg">×</button></div>`; }).join('')
         : '<p class="faint">Pick Yes or No on at least two outcomes from different events.</p>'}
       ${n ? `<div class="tkt-row"><span>Combined odds</span><strong data-testid="slip-odds">${odds.toFixed(odds < 10 ? 2 : 1)}%</strong></div><div class="tkt-row"><span>Payout</span><strong>${odds > 0 ? (100 / odds).toFixed(2) : '—'}x</strong></div>` : ''}
-      <label class="tkt-input">Amount (${esc(sym())})<input id="combo-amount" type="number" min="1" step="${esc(moneyStep())}" value="${esc(state.amount)}" inputmode="decimal" aria-label="Amount in ${esc(amountLabel().toLowerCase())}"></label>
-      <div class="form-error" id="combo-error" role="alert">${n && n < 2 ? 'Add at least one more leg.' : !amountOk && state.amount !== '' ? `Enter at least ${money(1)} (${moneyInputHint()}).` : ''}</div>
+      <label class="tkt-input">${esc(T('input.amount_symbol', { symbol: sym() }))}<input id="combo-amount" type="number" min="1" step="${esc(moneyStep())}" value="${esc(state.amount)}" inputmode="decimal" aria-label="${esc(T('input.amount_aria', { mode: amountLabel().toLowerCase() }))}"></label>
+      <div class="form-error" id="combo-error" role="alert">${n && n < 2 ? 'Add at least one more leg.' : !amountOk && state.amount !== '' ? esc(T('error.amount_at_least', { min: money(1), hint: moneyInputHint() })) : ''}</div>
       <button class="cta" data-testid="request-quote" id="request-quote" ${n >= 2 && amountOk && !busy ? '' : 'disabled'}>${session.user ? 'Request quote' : 'Sign up to request a quote'}</button>
       <div id="combo-quote-box">${quoteBox()}</div>
       ${n ? '<button class="btn btn-ghost w-full mt-8" id="clear-slip" data-testid="clear-slip">Clear slip</button>' : ''}`;

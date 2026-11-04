@@ -1,6 +1,6 @@
 // Shared UI pieces: market card (browse grid), outcome rows, rank list, chart, post card.
 import { vars } from '../dynstyle.js';
-import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, compact, avatar, relTime, ICON, money0 as fmtMoney0, pxCents, fmtDay, fmtDateTime } from '../lib.js';
+import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, avatar, relTime, ICON, money0 as fmtMoney0, pxCents, fmtDay, fmtDateTime } from '../lib.js';
 import { scoreCols, liveSub, cardMarkets } from './scoreboard.js'; // live sports scores on cards (CLONE_SPEC §19.6)
 export { prob };
 

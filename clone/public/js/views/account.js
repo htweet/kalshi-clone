@@ -3,9 +3,10 @@
 // §13.6–13.9, CLONE_SPEC §22) as sub-tabs: Security (password, two-factor, devices, activity), Identity & privacy
 // (verification status, sign-in methods, passkeys, data export, account closure), Social profile, Account limits and
 // Price alerts. The old /account/appearance moved into Settings (theme).
+import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { api } from '../api.js';
 import { session } from '../store.js';
-import { esc, money, toast, relTime, pxCents, moneyStep, toApiDollars, isNgn, fmtDateTime } from '../lib.js';
+import { esc, money, toast, relTime, pxCents, moneyStep, toApiDollars, amountLabel, fmtDateTime } from '../lib.js';
 import { PASSWORD_RULES, authMessage } from './auth.js';
 
 const NAV = [
@@ -190,7 +191,7 @@ async function limits(panel) {
   const pend = (l, unit) => (l.pending ? `<div class="faint" data-testid="pending">Change to ${esc(l.pending[unit] == null ? 'no limit' : unit === 'limit_minutes' ? l.pending[unit] + ' min' : money(l.pending[unit]))} takes effect ${esc(fmtDateTime(l.pending.effective_time))} (24-hour cooling-off for loosening a limit).</div>` : '');
   const box = (kind, title, l, unit, used, hint) => `<form class="card panel" data-limit="${esc(kind)}" data-testid="limit-${esc(kind)}"><h2>${esc(title)}</h2><p class="muted">${esc(hint)}</p>
     <p>Current: <strong data-testid="limit-value">${esc(l.limit[unit] == null ? 'No limit' : unit === 'limit_minutes' ? l.limit[unit] + ' minutes per day' : money(l.limit[unit]) + ' per day')}</strong> · <span class="faint">Used today: ${esc(used)}</span></p>${pend(l.limit, unit)}
-    <div class="inline-form"><label class="field">${unit === 'limit_minutes' ? 'Minutes per day' : `${esc(isNgn() ? 'Naira' : 'Dollars')} per day`}<input name="v" type="number" min="1" step="${unit === 'limit_minutes' ? 1 : esc(moneyStep())}" placeholder="No limit"></label>
+    <div class="inline-form"><label class="field">${unit === 'limit_minutes' ? 'Minutes per day' : esc(T('currency.per_day', { mode: amountLabel() }))}<input name="v" type="number" min="1" step="${unit === 'limit_minutes' ? 1 : esc(moneyStep())}" placeholder="No limit"></label>
     <button class="btn btn-primary" type="submit">Set limit</button><button class="btn" type="button" data-remove>Remove limit</button></div><div class="form-error" role="alert"></div></form>`;
   panel.innerHTML = box('deposit', 'Deposit limit', d, 'limit_dollars', money(d.limit.used_today_dollars), 'Caps how much you can deposit per day (UTC).')
     + box('trading', 'Trading limit', t, 'limit_dollars', money(t.limit.used_today_dollars), 'Caps the total cost of orders you can place per day (UTC).')

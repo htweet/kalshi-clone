@@ -1,7 +1,8 @@
 // Admin › Identity reviews, Fraud & holds, Compliance settings, Promo codes (CLONE_SPEC.md §25; PLAN P3.5–P3.7, A12).
 // Personal data is masked everywhere here; "Reveal" and "View document" ask for a reason, are recorded in the audit log
 // and shown to the customer in their security activity. National ID numbers can never be revealed.
-import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
+import { t as T } from '../../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
+import { currency, toApiDollars, moneyStep } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, section, fmtTime, badge, confirmAction, dialog, fmtMoney } from './ui.js';
 
 const STATUS_KIND = { approved: 'ok', review: 'warn', pending: '', documents_required: '', retry: 'warn', rejected: 'bad', in_progress: '', closed: '' };
@@ -180,7 +181,7 @@ async function promos({ el }) {
   el.innerHTML = section('Promo codes', 'Codes customers enter from the menu (“Enter promo code”). Each account can use a code once; the credit is a ledger entry of kind “credit”. Every change is audited.') +
     `<form class="adm-form" data-new data-testid="promo-form" novalidate><div class="adm-form-grid">
       <label class="field"><span>Code</span><input name="code" class="adm-input" maxlength="32" required data-testid="promo-code"></label>
-      <label class="field"><span>Credit (${esc(currency.code)})</span><input name="amount" type="number" min="${esc(moneyStep())}" max="${esc(currency.code === 'USD' ? 1000 : 100000)}" step="${esc(moneyStep())}" required data-testid="promo-amount"></label>
+      <label class="field"><span>${esc(T('admin.promo_credit', { code: currency.code }))}</span><input name="amount" type="number" min="${esc(moneyStep())}" max="${esc(currency.code === 'USD' ? 1000 : 100000)}" step="${esc(moneyStep())}" required data-testid="promo-amount"></label>
       <label class="field"><span>Max redemptions (blank = unlimited)</span><input name="max" type="number" min="1" data-testid="promo-max"></label>
       <label class="field"><span>Description</span><input name="description" class="adm-input" maxlength="140"></label>
       <label class="field"><span>Starts (optional)</span><input name="starts" type="datetime-local"></label><label class="field"><span>Ends (optional)</span><input name="ends" type="datetime-local"></label>

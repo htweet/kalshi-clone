@@ -1,7 +1,7 @@
 // Resolution desk: closed / past-close markets, resolve with a required source note (a value for scalar markets),
 // reversal before settlement, settle now, early close; Phase 5A (CLONE_SPEC.md §28.7): settlement correction after
 // payout (claw-back / re-pay, step-up), the optional two-person rule and its approvals queue.
-import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
+import { pxc, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, confirmAction, section, statusBadge, badge, fmtTime, fmtQty, fmtMoney } from './ui.js';
 
 const settlementLabel = (r) => (r.settlement === 'settled' ? badge('settled', 'ok') : r.settlement === 'pending_settlement' ? badge(`settles ${fmtDt(r.settles_at, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`, 'warn') : badge('awaiting result'));

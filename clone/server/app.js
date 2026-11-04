@@ -1,4 +1,5 @@
 'use strict';
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const express = require('express');
 const { tx } = require('./db');
@@ -357,7 +358,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
         allowFractional = !!mk.f || flipUnits % UNITS === 0;
       } else allowFractional = units === held; // a held fractional position can always be closed in full
       side = b.side === 'yes' ? 'no' : 'yes';
-      if (type === 'limit') { if (pcc == null || pcc < 1 || pcc >= P.CC) throw E.badRequest(`price must be between ${C.priceCents(1)} and ${C.priceCents(99)} (sub-cent ticks where the market allows them)`); pcc = P.CC - pcc; }
+      if (type === 'limit') { if (pcc == null || pcc < 1 || pcc >= P.CC) throw E.badRequest(CS.t('error.price_range', { min: C.priceCents(1), max: C.priceCents(99) })); pcc = P.CC - pcc; }
     }
     if (units != null) wholeOnly(units);
     let tif = type === 'limit' ? 'gtc' : 'ioc';
@@ -371,7 +372,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       // Spend up to amount_dollars at the current best ask (fee included), immediate-or-cancel.
       // Fractional markets buy down to 0.01 contracts; whole-contract markets round down to whole contracts.
       const amt = Math.round(Number(b.amount_dollars) * 100);
-      if (!Number.isFinite(amt) || amt < 1) throw E.badRequest(`amount_dollars must be at least 0.01 (${C.moneyCents(1)})`);
+      if (!Number.isFinite(amt) || amt < 1) throw E.badRequest(CS.t('error.amount_min', { min: C.moneyCents(1) }));
       const qq = engine.quote(ticker);
       const ask = side === 'yes' ? qq.yes_ask_cc : qq.no_ask_cc;
       if (ask == null) throw E.conflict('no_liquidity', 'there are no offers to buy from right now');

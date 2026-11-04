@@ -1,5 +1,6 @@
 // Portfolio (spec §4.6, §17.6, §17.9): balance, funds; tabs Positions (incl. open combos) | Resting | RFQs | Quotes |
 // History (unified timeline + the trade / settlement / transaction tables as sub-views), CSV exports.
+import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
@@ -44,7 +45,7 @@ export async function render({ el, navigate, query }) {
       <div class="card stat"><div class="label">Held for open orders</div><div class="value" id="s-reserved" data-testid="reserved">—</div></div>
       <form class="card stat" id="funds" aria-label="Move funds">
         <div class="label">Demo funds · <a href="/funds" data-link data-testid="portfolio-transfers">Deposit or withdraw</a></div>
-        <div class="d-flex fw-wrap gap-6 mt-6"><input id="f-amount" class="amount-input" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" placeholder="Amount ${esc(sym())}" aria-label="Amount in ${esc(amountLabel().toLowerCase())}">
+        <div class="d-flex fw-wrap gap-6 mt-6"><input id="f-amount" class="amount-input" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" placeholder="${esc(T('input.amount_placeholder', { symbol: sym() }))}" aria-label="${esc(T('input.amount_aria', { mode: amountLabel().toLowerCase() }))}">
           <button class="btn btn-primary" data-act="deposit" type="submit">Deposit</button><button class="btn" data-act="withdraw" type="button">Withdraw</button></div>
         <div class="form-error" id="f-error" role="alert"></div>
       </form>
@@ -127,7 +128,7 @@ export async function render({ el, navigate, query }) {
       <div class="tkt-row"><span>You hold</span><strong>${qty(x.position_fp)} ${S}</strong></div>
       <label class="tkt-input">Contracts<input id="s-count" type="number" min="${step}" step="${step}" value="${held}" inputmode="decimal"></label><button class="btn btn-sm" data-testid="sell-max" type="button">Max</button>
       <label class="tkt-input tkt-select">Order<select id="s-type"><option value="market">Market</option><option value="limit">Limit</option></select></label>
-      <label class="tkt-input" id="s-price-wrap" hidden>Limit price (${esc(priceUnit())})<input id="s-price" type="number" min="0.01" max="99.99" step="${x.price_level_structure && x.price_level_structure !== 'linear_cent' ? '0.01' : '1'}" value="${Math.max(1, ccOf(x.mark_price_dollars) / 100)}"></label>
+      <label class="tkt-input" id="s-price-wrap" hidden>${esc(T('input.limit_price', { unit: priceUnit() }))}<input id="s-price" type="number" min="0.01" max="99.99" step="${x.price_level_structure && x.price_level_structure !== 'linear_cent' ? '0.01' : '1'}" value="${Math.max(1, ccOf(x.mark_price_dollars) / 100)}"></label>
       <div data-testid="sell-estimate" class="faint"></div><div class="form-error" id="s-error" role="alert"></div>
       <button class="cta" data-testid="sell-submit">Sell ${S}</button></section>`;
     el.appendChild(wrap); sheetOpen = true;
@@ -142,7 +143,7 @@ export async function render({ el, navigate, query }) {
       const ok = c > 0 && c <= held && (/^\d+(\.\d{1,2})?$/.test($s('#s-count').value)) && (x.fractional_trading_enabled || Number.isInteger(c) || c === held);
       $s('[data-testid=sell-submit]').disabled = !ok || (type === 'limit' && !(pxv > 0 && pxv < 100 && Math.abs(Math.round(pxv * 100) - pxv * 100) < 1e-6));
       if (!ok) { $s('[data-testid=sell-estimate]').textContent = `Enter up to ${qty(x.position_fp)} contracts${x.fractional_trading_enabled ? ' (2 decimals)' : ''}.`; return; }
-      if (type === 'limit') { $s('[data-testid=sell-estimate]').textContent = `Proceeds if filled at ${pxc(Math.round(pxv * 100))}: ${money((c * pxv) / 100)} before fees`; return; }
+      if (type === 'limit') { $s('[data-testid=sell-estimate]').textContent = T('portfolio.proceeds_at', { price: pxc(Math.round(pxv * 100)), amount: money((c * pxv) / 100) }); return; }
       const my = ++seq;
       try { const q = await api.sellQuote(uid, x.ticker, c.toFixed(2)); if (my === seq) $s('[data-testid=sell-estimate]').innerHTML = `Est. proceeds <strong data-testid="sell-proceeds">${money(q.proceeds_dollars)}</strong> · fee ${money(q.fee_dollars)}${q.complete ? '' : ` · only ${qty(q.fillable_fp)} can fill now`}`; } catch (e) { $s('[data-testid=sell-estimate]').textContent = e.message; }
     };
@@ -276,7 +277,7 @@ export async function render({ el, navigate, query }) {
       b.onclick = () => {
         const o = byId.get(b.dataset.edit);
         const step = o.fractional_trading_enabled ? '0.01' : '1';
-        const r = formRow(o, `<form novalidate class="quote-form edit-form" data-edit-form="${esc(o.order_id)}"><label>Price (${esc(priceUnit())}) <input name="price" type="number" min="0.01" max="99.99" step="any" value="${ccOf(o.user_price_dollars) / 100}"></label>
+        const r = formRow(o, `<form novalidate class="quote-form edit-form" data-edit-form="${esc(o.order_id)}"><label>${esc(T('input.price', { unit: priceUnit() }))} <input name="price" type="number" min="0.01" max="99.99" step="any" value="${ccOf(o.user_price_dollars) / 100}"></label>
           <label>Total contracts <input name="count" type="number" min="${step}" step="${step}" value="${Number(o.initial_count_fp)}"></label>
           <label>Expires <select name="exp"><option value="keep">${o.expiration_time ? 'Keep' : 'Never (GTC)'}</option><option value="never">Never</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label><input name="at" type="datetime-local" hidden aria-label="Expiry time">
           <button class="btn btn-sm btn-primary" type="submit">Save</button><button class="btn btn-sm btn-ghost" type="button" data-close-edit>Close</button><span class="faint">Changing the price or adding size moves the order to the back of the queue.</span></form>`);
@@ -287,7 +288,7 @@ export async function render({ el, navigate, query }) {
           e.preventDefault(); err.textContent = '';
           const price = Number(f.price.value); const count = Number(f.count.value);
           const pcc = Math.round(price * 100); // sub-cent grids allow decimals; the server checks the market's ticks
-          if (!(pcc >= 1 && pcc <= 9999) || Math.abs(pcc - price * 100) > 1e-6 || (price < 1 || price > 99) && Number.isInteger(price)) { err.textContent = `Enter a price between ${pxc(100)} and ${pxc(9900)} (sub-cent ticks where the market allows them).`; return; }
+          if (!(pcc >= 1 && pcc <= 9999) || Math.abs(pcc - price * 100) > 1e-6 || (price < 1 || price > 99) && Number.isInteger(price)) { err.textContent = T('error.price_between', { min: pxc(100), max: pxc(9900) }); return; }
           if (!validQty(count, o.fractional_trading_enabled) || count <= Number(o.fill_count_fp)) { err.textContent = `Total must be more than the ${fp2(o.fill_count_fp)} already filled${o.fractional_trading_enabled ? ' (up to 2 decimals)' : ' and a whole number'}.`; return; }
           const body = { price_dollars: ccDollars(pcc), count_fp: count.toFixed(2) };
           if (f.exp.value === 'never') body.expiration_time = null;
@@ -339,10 +340,10 @@ export async function render({ el, navigate, query }) {
     } else if (!enabled) {
       p.innerHTML = head + '<div class="empty" data-testid="rfq-disabled">Turn on “Answer RFQs from other traders” to see and quote other traders\' requests.</div>';
     } else {
-      p.innerHTML = head + (r.rfqs.length ? `<table class="table" data-testid="other-rfqs-table"><thead><tr><th>Market</th><th>Size</th><th>Age</th><th>Your quote</th><th>Quote (${esc(priceUnit())})</th></tr></thead><tbody>
+      p.innerHTML = head + (r.rfqs.length ? `<table class="table" data-testid="other-rfqs-table"><thead><tr><th>Market</th><th>Size</th><th>Age</th><th>Your quote</th><th>${esc(T('input.quote', { unit: priceUnit() }))}</th></tr></thead><tbody>
         ${r.rfqs.map((x) => `<tr data-rfq="${esc(x.id)}" data-status="${esc(x.status)}"><td><a href="${esc(x.link)}" data-link>${esc(x.market_title)}</a></td><td>${sizeLabel(x)}</td><td class="faint">${relTime(x.created_time)}</td>
           <td>${x.my_quote ? `<span class="status-chip ${esc(x.my_quote.status)}" data-testid="my-quote-status">${QSTATUS[x.my_quote.status]}</span> <span class="faint">Yes ${esc(px(x.my_quote.yes_bid_dollars))} / No ${esc(px(x.my_quote.no_bid_dollars))}${x.my_quote.hvm ? ' · HVM 3 s' : ''}</span>` : '<span class="faint">—</span>'}</td>
-          <td>${x.status === 'open' ? `<form novalidate class="quote-form" data-quote-form="${esc(x.id)}"><input name="yes" type="number" min="0" max="99.99" step="${x.is_combo ? '0.1' : '1'}" placeholder="Yes bid" aria-label="Yes bid (${esc(priceUnit())})" data-testid="quote-yes"><input name="no" type="number" min="0" max="99.99" step="${x.is_combo ? '0.1' : '1'}" placeholder="No bid" aria-label="No bid (${esc(priceUnit())})" data-testid="quote-no"><label class="book-setting" title="High-volume maker: a 3-second last-look window to confirm"><input type="checkbox" name="hvm" data-testid="quote-hvm"> HVM 3 s</label><button class="btn btn-sm btn-primary" type="submit">Send quote</button><div class="form-error" role="alert"></div></form>` : '<span class="faint">Accepted by requester</span>'}</td></tr>`).join('')}</tbody></table>`
+          <td>${x.status === 'open' ? `<form novalidate class="quote-form" data-quote-form="${esc(x.id)}"><input name="yes" type="number" min="0" max="99.99" step="${x.is_combo ? '0.1' : '1'}" placeholder="Yes bid" aria-label="${esc(T('input.yes_bid', { unit: priceUnit() }))}" data-testid="quote-yes"><input name="no" type="number" min="0" max="99.99" step="${x.is_combo ? '0.1' : '1'}" placeholder="No bid" aria-label="${esc(T('input.no_bid', { unit: priceUnit() }))}" data-testid="quote-no"><label class="book-setting" title="High-volume maker: a 3-second last-look window to confirm"><input type="checkbox" name="hvm" data-testid="quote-hvm"> HVM 3 s</label><button class="btn btn-sm btn-primary" type="submit">Send quote</button><div class="form-error" role="alert"></div></form>` : '<span class="faint">Accepted by requester</span>'}</td></tr>`).join('')}</tbody></table>`
         : '<div class="empty" data-testid="no-other-rfqs">No open RFQs from other traders right now.</div>');
     }
     for (const b of p.querySelectorAll('[data-rfq-scope]')) b.onclick = () => { rfqScope = b.dataset.rfqScope; drawPanel(); };
@@ -363,9 +364,9 @@ export async function render({ el, navigate, query }) {
         const y = f.yes.value === '' ? 0 : Number(f.yes.value); const n = f.no.value === '' ? 0 : Number(f.no.value);
         const fine = !!r.rfqs.find((x) => x.id === f.dataset.quoteForm)?.is_combo; // combos quote on the finer grid (G12)
         const okBid = (v) => v >= 0 && v < 100 && (fine ? Math.abs(Math.round(v * 100) - v * 100) < 1e-6 : Number.isInteger(v));
-        if (![y, n].every(okBid)) { err.textContent = fine ? `Bids are prices from ${pxc(0)} to ${pxc(9999)} (${pxc(10)} steps; ${pxc(1)} within ${pxc(100)} of the edges).` : `Bids are whole prices from ${pxc(0)} to ${pxc(9900)}.`; return; }
+        if (![y, n].every(okBid)) { err.textContent = fine ? T('error.bids_fine', { min: pxc(0), max: pxc(9999), step: pxc(10), fine: pxc(1), edge: pxc(100) }) : T('error.bids_whole', { min: pxc(0), max: pxc(9900) }); return; }
         if (!y && !n) { err.textContent = 'Quote at least one side.'; return; }
-        if (y + n > 100) { err.textContent = `Yes bid + No bid cannot exceed ${pxc(10000)}.`; return; }
+        if (y + n > 100) { err.textContent = T('error.bids_exceed', { max: pxc(10000) }); return; }
         try { await api.createQuote({ rfq_id: f.dataset.quoteForm, yes_bid: ccDollars(Math.round(y * 100)), no_bid: ccDollars(Math.round(n * 100)), ...(f.hvm.checked ? { hvm: true } : {}) }); toast(f.hvm.checked ? 'HVM quote sent · 3 s to confirm once accepted' : 'Quote sent'); drawPanel(); } catch (ex) { err.textContent = ex.message; }
       };
     }
@@ -413,7 +414,7 @@ export async function render({ el, navigate, query }) {
     const err = $('#f-error');
     err.textContent = '';
     const raw = $('#f-amount').value;
-    if (!validMoneyInput(raw)) { err.textContent = `Enter an amount greater than ${money(0)} (${moneyInputHint()}).`; return; }
+    if (!validMoneyInput(raw)) { err.textContent = T('error.amount_positive', { zero: money(0), hint: moneyInputHint() }); return; }
     const amt = toApiDollars(raw); // naira ÷ 100 = the API's dollars (CLONE_SPEC.md §30)
     try {
       const r = await (act === 'deposit' ? api.deposit(uid, amt) : api.withdraw(uid, amt));

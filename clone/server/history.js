@@ -2,6 +2,7 @@
 // Portfolio History (spec §17.9): one server-paginated timeline of everything that happened to an account, read
 // from the persisted orders, fills, settlements, ledger, RFQ/quote and combo tables (perps transfers come from the
 // ledger's perps_transfer rows; perps internals are not touched).
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { dollars, ufp, ustr, UNITS, E, encCursor, decCursor } = require('./util');
 const P = require('./pricing'); // `price` below is in centi-cents (CLONE_SPEC.md §28.1)
@@ -115,10 +116,10 @@ function mountHistory({ v1, db, requireUser }) {
       case 'order': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} · ${ustr(r.filled)} of ${ustr(r.qty)} filled`; break;
       case 'cancel': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} ${r.memo === 'expired' ? 'expired' : 'canceled'} · ${ustr(r.qty)} unfilled`; break;
       case 'fill': desc = sell ? `Sold ${S} (bought ${r.side.toUpperCase()} @ ${L(r.price)}; pairs net to cash) · ${r.role}` : `Bought ${S} · ${r.role}`; break;
-      case 'settlement': desc = `Market settled ${String(r.status).toUpperCase()} · cost ${C.moneyCents(r.extra)}`; break;
+      case 'settlement': desc = CS.t('history.settlement', { result: String(r.status).toUpperCase(), amount: C.moneyCents(r.extra) }); break;
       case 'settlement_correction': case 'collateral_return': desc = r.memo || TYPE_LABEL[r.kind]; break;
       case 'combo': desc = 'Combo built'; break;
-      case 'rfq': desc = `RFQ for ${r.qty != null ? `${ustr(r.qty)} contracts` : `${C.moneyCents(r.extra)} target`}`; break;
+      case 'rfq': desc = r.qty != null ? `RFQ for ${ustr(r.qty)} contracts` : CS.t('history.rfq_target', { amount: C.moneyCents(r.extra) }); break;
       case 'quote': desc = `Quoted Yes ${L(r.price)} / No ${L(r.extra)}`; break;
       case 'rfq_execution': desc = `RFQ executed as ${r.role}: bought ${S} @ ${L(price)}`; break;
       default: desc = r.memo || TYPE_LABEL[r.kind] || r.kind;

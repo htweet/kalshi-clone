@@ -168,7 +168,7 @@ test('NGN in the browser: home, ticket (Naira mode), /funds deposit, portfolio, 
   const pdf = fs.readFileSync(await pdfDl.path()).toString('latin1');
   assert.ok(pdf.startsWith('%PDF-'));
   assert.match(pdf, /Fees: NGN \d+/);
-  assert.match(pdf, /Amounts in Nigerian naira \(NGN\)/);
+  assert.match(pdf, /Amounts in Nigerian naira \\\(NGN\\\)/); // PDF strings escape parentheses
   assert.ok(!/\$\d/.test(pdf), 'no dollar amounts in the statement text');
   assert.deepEqual(ada.errors, []);
 });
@@ -220,16 +220,16 @@ test('admin switch NGN → USD → NGN: preview, reason and step-up, audited, li
   await ap.goto(BASE + '/admin/settings');
   await ap.waitForSelector('[data-testid=currency-panel] [data-testid=currency-preview]');
   const prev = async (k) => (await ap.textContent(`[data-testid=currency-preview] [data-preview="${k}"]`)).trim();
-  assert.equal(await prev('Price (64¢ internal)'), '₦64');
-  assert.equal(await prev('Fine-grid price (64.50¢)'), '₦64.50');
-  assert.equal(await prev('Balance ($25.00 internal)'), '₦2,500');
-  assert.equal(await prev('Perps BTC level ($96,250)'), '₦9,625,000');
+  assert.equal(await prev('price'), '₦64');
+  assert.equal(await prev('fine'), '₦64.50');
+  assert.equal(await prev('balance'), '₦2,500');
+  assert.equal(await prev('perps'), '₦9,625,000');
   // The preview follows the form before anything is saved.
   await ap.selectOption('[data-testid=currency-form] [name=code]', 'USD');
   await ap.selectOption('[data-testid=currency-form] [name=locale]', 'en-US');
-  await ap.waitForFunction(() => document.querySelector('[data-testid=currency-preview] [data-preview="Balance ($25.00 internal)"]').textContent === '$25.00');
-  assert.equal(await prev('Fine-grid price (64.50¢)'), '64.5¢');
-  assert.equal(await prev('Price input unit'), '¢');
+  await ap.waitForFunction(() => document.querySelector('[data-testid=currency-preview] [data-preview="balance"]').textContent === '$25.00');
+  assert.equal(await prev('fine'), '64.5¢');
+  assert.equal(await prev('unit'), '¢');
   assert.equal(D.q("SELECT COUNT(*) c FROM admin_settings WHERE key='display_currency'")[0].c, 0, 'nothing saved yet');
   // A reason is required.
   await ap.click('[data-testid=currency-form] button[type=submit]');
@@ -329,7 +329,7 @@ test('time zone: calendar days are Lagos days (23:30 UTC is tomorrow in Lagos) a
   await H.logInUi(ap, BASE, ADMIN.email, ADMIN.password);
   await ap.waitForSelector('[data-testid=account-menu]');
   await ap.goto(BASE + '/admin/settings');
-  const k = 'Date and time (23:30 UTC)';
+  const k = 'datetime';
   await ap.waitForSelector(`[data-testid=currency-preview] [data-preview="${k}"]`);
   assert.match(await ap.textContent(`[data-preview="${k}"]`), /^5 Nov 2026, 00:30 WAT$/);
   await ap.selectOption('[data-testid=currency-form] [name=timezone]', 'UTC');

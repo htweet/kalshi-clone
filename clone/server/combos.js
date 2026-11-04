@@ -4,6 +4,7 @@
 // combo_legs; it resolves from its legs and settles through the normal engine path. RFQs, quotes and the
 // per-user combo slip are persisted; timers are only accelerators: every transition is re-derived on the
 // engine tick from persisted timestamps, so a restart never loses or double-applies one.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const crypto = require('node:crypto');
 const { tx } = require('./db');
@@ -185,7 +186,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   // ======================= collection endpoints =======================
   const eligibleEvents = () => db.prepare('SELECT * FROM events WHERE series_ticker NOT IN (?,?) ORDER BY rowid').all(COMBO_SERIES, ROLLING_SERIES)
     .map(eventFull).map((e) => ({ ...e, markets: e.markets.filter((m) => m.status === 'active') })).filter((e) => e.markets.length);
-  const collectionVo = (withEvents) => ({ collection_ticker: COMBO_SERIES, series_ticker: COMBO_SERIES, title: 'Build a combo', description: `Pick 2 to 6 outcomes from different events. The combo pays ${C.contractValue()} per contract only if every leg hits.`, min_legs: MIN_LEGS, max_legs: MAX_LEGS, ...(withEvents ? { events: eligibleEvents() } : {}) });
+  const collectionVo = (withEvents) => ({ collection_ticker: COMBO_SERIES, series_ticker: COMBO_SERIES, title: 'Build a combo', description: CS.t('combos.description', { value: C.contractValue() }), min_legs: MIN_LEGS, max_legs: MAX_LEGS, ...(withEvents ? { events: eligibleEvents() } : {}) });
   v1.get('/multivariate_event_collections', (req, res) => res.json({ multivariate_contracts: [collectionVo(false)] }));
   v1.get('/multivariate_event_collections/:collection', (req, res) => {
     if (req.params.collection.toUpperCase() !== COMBO_SERIES) throw E.notFound();
@@ -346,12 +347,12 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     const parse = (v, name) => {
       const c = P.ccFromDollars(v);
       if (c == null || c >= P.CC) throw new ApiError(400, 'invalid_parameters', `${name} must be a price in dollars between 0 and 0.9999`);
-      if (c !== 0 && !P.onGrid(grid, c)) throw new ApiError(400, 'invalid_parameters', `${name} must be on the market's price grid (${grid === 'linear_cent' ? `${C.priceCents(1)} ticks` : `${grid} ticks`})`);
+      if (c !== 0 && !P.onGrid(grid, c)) throw new ApiError(400, 'invalid_parameters', CS.t('error.grid_ticks', { name, ticks: grid === 'linear_cent' ? CS.t('error.grid_ticks.linear', { tick: C.priceCents(1) }) : CS.t('error.grid_ticks.other', { grid }) }));
       return c;
     };
     const yb = parse(b.yes_bid, 'yes_bid'); const nb = parse(b.no_bid, 'no_bid');
     if (!yb && !nb) throw new ApiError(400, 'invalid_parameters', 'quote at least one side (yes_bid or no_bid above 0)');
-    if (yb + nb > P.CC) throw new ApiError(400, 'invalid_parameters', `yes_bid + no_bid must not exceed ${C.contractValue()}`);
+    if (yb + nb > P.CC) throw new ApiError(400, 'invalid_parameters', CS.t('error.bids_exceed', { max: C.contractValue() }));
     // HVM (G12, getting_started_rfqs.md §Timing): a maker may take the 3 s last-look window instead of the standard one.
     const hvm = b.hvm === true;
     if (db.prepare("SELECT 1 FROM rfq_quotes WHERE rfq_id=? AND maker_id=? AND status IN ('accepted','confirmed')").get(r.id, makerId)) throw E.conflict('quote_accepted', 'your quote on this RFQ was already accepted');
@@ -413,7 +414,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     if (!bid || !units) throw E.badRequest(`the maker declined the ${side} side of this quote`);
     const price = P.CC - bid;
     const cost = takerPrincipalCc(units, price) + feeSequence(marketRow(r.market_ticker).fee_multiplier ?? 1)(units, price);
-    if (engine.balance(uid) < cost) throw E.conflict('insufficient_balance', 'insufficient balance', `this trade costs ${C.moneyCents(cost)} including fees`);
+    if (engine.balance(uid) < cost) throw E.conflict('insufficient_balance', 'insufficient balance', CS.t('error.trade_cost', { amount: C.moneyCents(cost) }));
     if (checkTrading) checkTrading(uid, takerPrincipalCc(units, price));
     const windowMs = q.confirm_window_ms || opt.confirmWindowMs;
     tx(db, () => {

@@ -8,6 +8,7 @@
 //   7. Trade mechanics toggles (live since Phase 5A, CLONE_SPEC.md §28.5–§28.6: flip sell, auto-sell prompt, order review, collateral return)
 //   8. Market preview price type: Last traded price / Current buy price
 // Every change is saved to the account at once (PUT /users/:uid/preferences) and applied app-wide.
+import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { session } from '../store.js';
 import { idApi } from '../identity-api.js';
 import { api } from '../api.js';
@@ -28,7 +29,7 @@ export async function render(panel, { navigate }) {
   const later = (k) => (phase5.includes(k) ? '<span class="phase-tag" data-testid="phase5-tag">Saved now · takes effect in Phase 5</span>' : '');
   panel.innerHTML = `<div class="settings" data-testid="settings">
     <section class="card panel set-sec" data-testid="set-display" data-order="1"><h2>Browse and manage markets by</h2>
-      <div class="set-display"><div class="set-radios">${radio('display_mode', 'payout', 'Payout and odds', p.display_mode, 'Multiplier and chance, e.g. 2.1x · 47%')}${radio('display_mode', 'shares', 'Shares and prices', p.display_mode, `Yes and No share prices, e.g. Yes ${pxCents(48)}`)}</div>
+      <div class="set-display"><div class="set-radios">${radio('display_mode', 'payout', 'Payout and odds', p.display_mode, 'Multiplier and chance, e.g. 2.1x · 47%')}${radio('display_mode', 'shares', 'Shares and prices', p.display_mode, T('settings.shares_example', { price: pxCents(48) }))}</div>
       <div class="set-preview" data-testid="display-preview" aria-label="Preview"></div></div></section>
 
     <section class="card panel set-sec" data-testid="set-connected-apps" data-order="2"><h2>Connected apps</h2><p class="muted">Manage applications you have authorized to access your Parlance account.</p>

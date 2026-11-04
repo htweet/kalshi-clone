@@ -14,6 +14,7 @@
 //   - quiet hours: email and push are held (status `deferred`) until the window ends; in-app rows are stored
 //     without a live toast.
 // Types not in the matrix (RFQ, perps, announcements, badges, account notices) are always in-app only, as before.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const currency = require('./currency'); // display money in notifications (CLONE_SPEC.md §30)
 const { nowIso, newId, ApiError, E } = require('./util');
@@ -47,7 +48,7 @@ const TYPES = [
   ['referral_activity', 'general', 'Referral activity', CH, { in_app: true, email: false, push: true }],
   ['market_rewards', 'general', 'Market rewards', CH, { in_app: true, email: true, push: true }],
   ['price_movement', 'predictions', 'Price movement', CH, { in_app: true, email: false, push: true }, null,
-    { threshold_cents: { kind: 'int', min: 1, max: 50, def: 10, get label() { return `Alert when the price moves by at least (${currency.priceUnit()})`; } },
+    { threshold_cents: { kind: 'int', min: 1, max: 50, def: 10, get label() { return CS.t('notify_prefs.price_move_threshold', { unit: currency.priceUnit() }); } },
       window_minutes: { kind: 'enum', values: WINDOWS, def: 60, label: 'Within' },
       held_markets: { kind: 'bool', def: false, label: 'Also alert on markets I hold' } }],
   ['market_settlement', 'predictions', 'Market settlement', ['email', 'push'], { email: true, push: true }, { in_app: true }],
@@ -322,7 +323,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
         if (!o || o.status === 'resting') return { store: false };
         if (!db.prepare('INSERT INTO notif_order_done(order_id,user_id,created_ts) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(meta.order_id, uid, Date.now()).changes) return { store: false };
         const f = db.prepare('SELECT COALESCE(SUM(count),0) n, COALESCE(SUM(count*price_cc),0)/100 v FROM fills WHERE order_id=? AND user_id=?').get(meta.order_id, uid);
-        title = `Order ${o.status === 'executed' ? 'filled' : 'completed'}: ${(f.n / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${String(o.side).toUpperCase()} @ avg ${currency.priceCents(f.n ? Math.round(f.v / f.n) : 0)}`;
+        title = CS.t('notify.order_done.title', { verb: o.status === 'executed' ? 'filled' : 'completed', count: (f.n / 100).toLocaleString('en-US', { maximumFractionDigits: 2 }), side: String(o.side).toUpperCase(), price: currency.priceCents(f.n ? Math.round(f.v / f.n) : 0) });
       }
     }
     const t = TYPE.get(key);
@@ -347,7 +348,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
       try {
         const amt = Number(req.body?.amount_dollars);
         if (res.statusCode === 201 && Number.isFinite(amt)) {
-          getFeat().notify(req.auth.user.id, { type: 'transfer', title: `${m[1] === 'deposits' ? 'Deposit' : 'Withdrawal'} of ${currency.moneyDollars(amt)} completed`, body: `Cash balance ${currency.moneyDollars(body?.balance_dollars || 0)}`, link: '/portfolio' });
+          getFeat().notify(req.auth.user.id, { type: 'transfer', title: CS.t('notify.transfer.title', { kind: m[1] === 'deposits' ? 'Deposit' : 'Withdrawal', amount: currency.moneyDollars(amt) }), body: CS.t('notify.transfer.body', { amount: currency.moneyDollars(body?.balance_dollars || 0) }), link: '/portfolio' });
         }
       } catch (e) { console.error('transfer notify', e); }
       return json(body);
@@ -412,7 +413,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
   const refPrice = (ticker, sinceMs) => db.prepare('SELECT yes_price_cents p FROM trades WHERE market_ticker=? AND created_ts<=? ORDER BY created_ts DESC, rowid DESC LIMIT 1').get(ticker, sinceMs)
     || db.prepare('SELECT yes_price_cents p FROM trades WHERE market_ticker=? AND created_ts>? ORDER BY created_ts, rowid LIMIT 1').get(ticker, sinceMs);
   const fmtWin = (min) => (min >= 60 ? `${min / 60} h` : `${min} min`);
-  const moveTitle = (m, ticker, move, min, last) => `${m ? m.yes_sub_title : ticker} moved ${move > 0 ? '▲' : '▼'} ${currency.priceCents(Math.abs(move))} in ${fmtWin(min)} (now ${currency.priceCents(last)})`;
+  const moveTitle = (m, ticker, move, min, last) => CS.t('notify.price_move.title', { market: m ? m.yes_sub_title : ticker, arrow: move > 0 ? '▲' : '▼', move: currency.priceCents(Math.abs(move)), window: fmtWin(min), price: currency.priceCents(last) });
   engine.on('ticker', (ticker, qq) => {
     if (qq.last_price == null) return;
     try {

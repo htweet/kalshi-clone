@@ -11,6 +11,7 @@
 //     simulated yearly statements as CSV and PDF — clearly "not tax advice";
 //   • rewards: the new-user checklist and promo codes (created by staff, single use per user, credited to the ledger
 //     as kind `credit`).
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const crypto = require('node:crypto');
 const { tx } = require('./db');
@@ -245,8 +246,8 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
     const s = statement(req.auth.user.id, yearParam(req), String(req.params.form));
     const lines = [{ text: 'Parlance Exchange', size: 18, bold: true }, { text: s.title, size: 13, bold: true, gap: 4 }, { text: 'SIMULATED STATEMENT - NOT A TAX FORM - NOT TAX ADVICE', size: 10, bold: true, gap: 6 },
       ...s.rows.map(([k, v], i) => ({ text: `${k}: ${v}`, size: 11, gap: i ? 0 : 10 })),
-      { text: `Amounts in ${C.descriptor().name} (${C.config().code}); ${C.descriptor().rule}.`, size: 9, gap: 10 }, // display currency (CLONE_SPEC.md §30)
-      { text: NOT_ADVICE, size: 9, gap: 14 }, { text: `Generated ${C.dateTimeLabel(Date.now())} (${nowIso()})`, size: 8, gap: 4 }];
+      { text: CS.t('statement.currency_line', { name: C.descriptor().name, code: C.config().code, rule: C.descriptor().rule }), size: 9, gap: 10 }, // display currency (CLONE_SPEC.md §30)
+      { text: NOT_ADVICE, size: 9, gap: 14 }, { text: CS.t('statement.generated', { local: C.dateTimeLabel(Date.now()), iso: nowIso() }), size: 8, gap: 4 }];
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="parlance-${req.params.form}-${req.params.year}.pdf"`);
     res.send(textPdf(lines, { title: s.title }));
@@ -297,7 +298,7 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
     });
     engine.emit('user_balance', uid, engine.balance(uid));
     auth.logEvent(uid, 'promo_redeemed', req, { code: p.code });
-    try { notify(uid, { type: 'reward', title: `Promo code applied: ${C.moneyCents(p.amount_cents)} credit`, body: p.description || p.code, link: '/account/activity' }); } catch { /* ignore */ }
+    try { notify(uid, { type: 'reward', title: CS.t('notify.promo.title', { amount: C.moneyCents(p.amount_cents) }), body: p.description || p.code, link: '/account/activity' }); } catch { /* ignore */ }
     res.status(201).json({ code: p.code, amount_dollars: dollars(p.amount_cents), balance_dollars: dollars(engine.balance(uid)) });
   });
   v1.get('/admin/promo_codes', can('users.money'), (req, res) => res.json({ promo_codes: db.prepare('SELECT * FROM promo_codes ORDER BY created_at DESC LIMIT 500').all().map(promoVo) }));
@@ -309,7 +310,7 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
     if (!CODE_RE.test(code)) errs.code = '4-32 characters: A-Z, 0-9 and dashes';
     else if (db.prepare('SELECT 1 FROM promo_codes WHERE code=?').get(code)) errs.code = 'is already used';
     const amt = Number(b.amount_dollars);
-    if (!Number.isFinite(amt) || amt <= 0 || amt > 1000 || Math.round(amt * 100) !== amt * 100) errs.amount_dollars = `a positive amount up to ${C.moneyCents(100000)} with at most 2 decimals of amount_dollars`;
+    if (!Number.isFinite(amt) || amt <= 0 || amt > 1000 || Math.round(amt * 100) !== amt * 100) errs.amount_dollars = CS.t('error.promo_amount', { max: C.moneyCents(100000) });
     const time = (v, k) => { if (v == null || v === '') return null; const t = Date.parse(v); if (!Number.isFinite(t)) { errs[k] = 'must be a date and time'; return null; } return new Date(t).toISOString(); };
     const starts = time(b.starts_time, 'starts_time'); const ends = time(b.ends_time, 'ends_time');
     if (starts && ends && Date.parse(ends) <= Date.parse(starts)) errs.ends_time = 'must be after the start';

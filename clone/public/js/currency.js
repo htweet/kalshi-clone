@@ -7,7 +7,8 @@
 //                  same ×100 rule for asset prices, notional, margin, funding and P&L. Money inputs take naira:
 //                  naira ÷ 100 = the API's dollars (whole naira for deposits, withdrawals and order amounts).
 //   USD:           the original display ($25.00, 64¢, 64.5¢); inputs take dollars.
-// No imports, so lib.js, components and every view can use it without import cycles.
+// Only imports the keyed wording module (content/currency-strings.js), so lib.js and every view can use it without cycles.
+import { t } from './content/currency-strings.js';
 const DEFAULT = { code: 'NGN', symbol: '₦', name: 'Nigerian naira', minor_unit: 'kobo', contract_value: 100, contract_value_display: '₦100', per_internal_dollar: 100, locale: 'en-NG', timezone: 'Africa/Lagos' };
 export const currency = { ...DEFAULT };
 const listeners = new Set();
@@ -69,7 +70,7 @@ export const pxCents = (c) => (c == null ? '—' : pxc(Number(c) * 100)); // who
 export const priceUnit = () => (isNgn() ? '₦' : '¢'); // price inputs: the number is the same in both (64 = ₦64 = 64¢)
 export const sym = () => currency.symbol;
 export const contractValue = () => currency.contract_value_display; // "₦100" / "$1.00"
-export const amountLabel = () => (isNgn() ? 'Naira' : 'Dollars'); // the ticket's amount mode
+export const amountLabel = () => t(`currency.mode.${isNgn() ? 'NGN' : 'USD'}`); // the ticket's amount mode: Naira / Dollars
 
 // ------------------------------------------------------------------------------------------------ money inputs
 // A money input holds display units (naira or dollars); the API takes dollars with at most 2 decimals.
@@ -79,7 +80,7 @@ export const moneyStep = () => (isNgn() ? '1' : '0.01');
 export const moneyMin = () => (isNgn() ? '1' : '0.01');
 // Whole naira (NGN) or at most 2 dollar decimals (USD), and positive.
 export const validMoneyInput = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 && (isNgn() ? Number.isInteger(n) : Math.abs(Math.round(n * 100) - n * 100) < 1e-6); };
-export const moneyInputHint = () => (isNgn() ? 'whole naira' : 'dollars and cents');
+export const moneyInputHint = () => t(`currency.hint.${isNgn() ? 'NGN' : 'USD'}`);
 
 // ------------------------------------------------------------------------------------------------ perps (asset prices)
 // Internal dollars with the market's decimals; NGN scales ×100 and drops two decimals (BTC $96,250.00 → ₦9,625,000).

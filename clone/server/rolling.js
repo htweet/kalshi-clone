@@ -2,6 +2,7 @@
 // Rolling short-window "Above / Below target" markets (spec §15.6; observed on the live site as "BTC 15 MIN",
 // "GOLD 15 MIN" cards with a target price, distance from target and Above/Below odds).
 // Parlance runs one invented underlying, the PLX token, with a simulated price persisted in SQLite.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { nowIso, newId, dollars, E } = require('./util');
 
@@ -51,10 +52,10 @@ function mountRolling({ v1, db, engine, windowSec = 900 }) {
     const now = nowIso();
     const hhmm = C.timeLabel(end); // configured locale + time zone, e.g. "15:15 WAT" (CLONE_SPEC.md §30)
     db.prepare('INSERT INTO events(ticker,series_ticker,title,sub_title,category,mutually_exclusive,is_live,live_label,news,featured,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-      .run(et, SERIES, `PLX token above ${C.moneyCents(target)} at ${hhmm}?`, `PLX ${label}`, 'Crypto', 0, 1, `Closes ${hhmm}`, '', 0, now);
+      .run(et, SERIES, CS.t('rolling.event_title', { target: C.moneyCents(target), time: hhmm }), `PLX ${label}`, 'Crypto', 0, 1, CS.t('rolling.closes', { time: hhmm }), '', 0, now);
     db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(mt, et, `PLX token above ${C.moneyCents(target)}?`, 'Above', 'Below', '#d9480f', 'active', iso(start), iso(end), iso(end + 5000), 5,
-        `Resolves YES if the PLX index at ${hhmm} is above ${C.moneyCents(target)}.`, now, now);
+      .run(mt, et, CS.t('rolling.market_title', { target: C.moneyCents(target) }), 'Above', 'Below', '#d9480f', 'active', iso(start), iso(end), iso(end + 5000), 5,
+        CS.t('rolling.rules', { time: hhmm, target: C.moneyCents(target) }), now, now);
     db.prepare('INSERT INTO flash_windows(event_ticker,market_ticker,start_ts,end_ts,target_cents) VALUES(?,?,?,?,?)').run(et, mt, start, end, target);
     const id = lp();
     if (id) { // 400 contracts per side (40,000 units)

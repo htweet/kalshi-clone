@@ -1,6 +1,7 @@
 'use strict';
 // Features added from the 2026-11-02 live capture (CLONE_SPEC §13): social, notifications + price targets,
 // account limits, two-factor login, calendar feed, categories with subcategories, social trades.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const crypto = require('node:crypto');
 const currency = require('./currency'); // display currency, locale and time zone (CLONE_SPEC.md §30)
 const C = currency;
@@ -76,7 +77,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   });
   engine.on('settlement', (uid, s) => {
     if (isSystem(uid)) return;
-    notify(uid, { type: 'settlement', title: `Market settled ${s.result.toUpperCase()} · paid ${C.moneyCents(s.payout_cents)}`, body: marketLabel(s.market_ticker), link: eventLink(s.market_ticker) });
+    notify(uid, { type: 'settlement', title: CS.t('notify.settlement.title', { result: s.result.toUpperCase(), amount: C.moneyCents(s.payout_cents) }), body: marketLabel(s.market_ticker), link: eventLink(s.market_ticker) });
   });
   // Custom price targets fire once when the YES last price crosses the threshold.
   engine.on('ticker', (ticker, q) => {
@@ -84,7 +85,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     const hits = db.prepare('SELECT * FROM price_targets WHERE market_ticker=? AND triggered_at IS NULL AND ((direction=\'above\' AND ?>=price_cents) OR (direction=\'below\' AND ?<=price_cents))').all(ticker, q.last_price, q.last_price);
     for (const t of hits) {
       db.prepare('UPDATE price_targets SET triggered_at=? WHERE id=?').run(nowIso(), t.id);
-      notify(t.user_id, { type: 'price_target', title: `Price alert: Yes is ${C.priceCents(q.last_price)} (${t.direction} ${C.priceCents(t.price_cents)})`, body: marketLabel(ticker), link: eventLink(ticker) });
+      notify(t.user_id, { type: 'price_target', title: CS.t('notify.price_alert.title', { price: C.priceCents(q.last_price), direction: t.direction, target: C.priceCents(t.price_cents) }), body: marketLabel(ticker), link: eventLink(ticker) });
     }
   });
 
@@ -181,11 +182,11 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   }
   function checkDeposit(uid, cents) {
     const lim = limitValue(uid, 'deposit');
-    if (lim != null && usedToday.deposit(uid) + cents > lim) throw E.conflict('deposit_limit_exceeded', 'this deposit would exceed your daily deposit limit', `limit ${C.moneyCents(lim)} per day`);
+    if (lim != null && usedToday.deposit(uid) + cents > lim) throw E.conflict('deposit_limit_exceeded', 'this deposit would exceed your daily deposit limit', CS.t('error.limit_per_day', { limit: C.moneyCents(lim) }));
   }
   function checkTrading(uid, costCents) {
     const lim = limitValue(uid, 'trading');
-    if (lim != null && usedToday.trading(uid) + costCents > lim) throw E.conflict('trading_limit_exceeded', 'this order would exceed your daily trading limit', `limit ${C.moneyCents(lim)} per day`);
+    if (lim != null && usedToday.trading(uid) + costCents > lim) throw E.conflict('trading_limit_exceeded', 'this order would exceed your daily trading limit', CS.t('error.limit_per_day', { limit: C.moneyCents(lim) }));
   }
   // Session-time accounting: every authenticated /v1 request adds the gap since the last one (capped at 60 s).
   const SESSION_EXEMPT = /^\/(session|log_out|users\/[^/]+\/(daily_session_time_limit|deposit_limits?|trading_limits))$/;

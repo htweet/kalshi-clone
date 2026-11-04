@@ -1,6 +1,7 @@
 // Users (search, detail with balances / positions / orders / ledger / limits / MFA, audited support actions) and
 // Roles (staff role assignments + permission matrix).
-import { money, pxc, pxCents, priceUnit, sym, currency, toApiDollars, moneyStep, moneyCompact, fmtDt } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
+import { t as T } from '../../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
+import { pxc, sym, currency, toApiDollars, moneyStep } from '../../currency.js'; // display currency (CLONE_SPEC.md §30)
 import { esc, get, post, put, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, badge, fmtTime, fmtQty, fmtMoney } from './ui.js';
 
 export async function render({ el, section: sec, parts, perms, navigate }) {
@@ -64,14 +65,14 @@ async function renderUser(el, id, perms, navigate) {
     const act = b.dataset.act;
     try {
       if (act === 'adjust') {
-        const fields = [{ name: 'amount_dollars', label: `Amount in ${currency.code === 'USD' ? 'dollars' : 'naira'} (negative = debit)`, type: 'number', step: moneyStep(), required: true }, { name: 'reason', label: 'Reason (shown to the user, audited)', required: true, span: true }];
+        const fields = [{ name: 'amount_dollars', label: T('admin.adjust_amount', { mode: T(`currency.mode.${currency.code}`).toLowerCase() }), type: 'number', step: moneyStep(), required: true }, { name: 'reason', label: 'Reason (shown to the user, audited)', required: true, span: true }];
         const dlg = dialog(`<h3>Adjust balance · ${esc(u.email)}</h3><p class="muted">Creates an <code>adjustment</code> ledger entry and updates the user's balance live.</p>${formHtml(fields, { submit: 'Apply adjustment', id: 'adj', extra: '<button class="btn" type="button" data-close>Cancel</button>', testid: 'adjust-form' })}`);
         dlg.querySelector('[data-close]').onclick = () => dlg.close();
         wireForm(dlg.querySelector('form'), fields, async (v) => { const r = await post(`/users/${encodeURIComponent(u.user_id)}/adjust`, { ...v, amount_dollars: toApiDollars(v.amount_dollars) }); dlg.close(); toast(`New balance ${fmtMoney(r.balance_dollars)}`); await reload(); });
         return;
       }
       if (act === 'limits') {
-        const fields = [{ name: 'kind', label: 'Limit', type: 'select', options: [['deposit', `Deposit (${sym()}/day)`], ['trading', `Trading (${sym()}/day)`], ['session', 'Session (minutes/day)']] }, { name: 'value', label: 'New value (empty removes the limit)', type: 'number', step: moneyStep() }, { name: 'reason', label: 'Reason', required: true, span: true }];
+        const fields = [{ name: 'kind', label: 'Limit', type: 'select', options: [['deposit', T('admin.limit_deposit', { symbol: sym() })], ['trading', T('admin.limit_trading', { symbol: sym() })], ['session', 'Session (minutes/day)']] }, { name: 'value', label: 'New value (empty removes the limit)', type: 'number', step: moneyStep() }, { name: 'reason', label: 'Reason', required: true, span: true }];
         const dlg = dialog(`<h3>Override limit</h3><p class="muted">Takes effect immediately, skipping the user's 24-hour cooling-off.</p>${formHtml(fields, { submit: 'Override', id: 'lim', extra: '<button class="btn" type="button" data-close>Cancel</button>' })}`);
         dlg.querySelector('[data-close]').onclick = () => dlg.close();
         wireForm(dlg.querySelector('form'), fields, async (v) => { await put(`/users/${encodeURIComponent(u.user_id)}/limits/${v.kind}`, { value: v.value === '' ? null : v.kind === 'session' ? v.value : toApiDollars(v.value), reason: v.reason }); dlg.close(); toast('Limit overridden'); await reload(); });

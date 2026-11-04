@@ -1,6 +1,7 @@
 // Event detail (spec §4.3, §13.5, §15.4): header with actions (calendar file, social, share, CSV), head-to-head bar,
 // multi-line chart with ranges, outcome table, series events, Social / Activity / Order book / Rules / Top holders,
 // "People are also trading", news; ticket with BUY/SELL, Dollars / Contracts / Limit modes, interest, max payout.
+import { t as T, tHtml } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
@@ -212,7 +213,7 @@ export async function render({ el, params, query, navigate }) {
     const mid = m.floor_strike + span / 2;
     const settled = ['determined', 'finalized'].includes(m.status) && m.settlement_value_dollars != null;
     box.innerHTML = `<section class="card scalar-card" data-testid="scalar-card"><h3>How this market pays</h3>
-      <p class="muted">YES pays a share of ${esc(contractValue())} set by the reported value between <b>${esc(fmtVal(m, m.floor_strike))}</b> (pays ${esc(money(0))}) and <b>${esc(fmtVal(m, m.cap_strike))}</b> (pays ${esc(contractValue())}): (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, span))}. NO pays the rest. Values outside the range pay at the nearest end.</p>
+      <p class="muted">${tHtml('ticket.scalar_card', { value: esc(contractValue()), floor: `<b>${esc(fmtVal(m, m.floor_strike))}</b>`, zero: esc(money(0)), cap: `<b>${esc(fmtVal(m, m.cap_strike))}</b>` })} (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, span))}. NO pays the rest. Values outside the range pay at the nearest end.</p>
       <div class="tkt-row"><span>Example: value ${esc(fmtVal(m, mid))}</span><strong class="num">YES ${esc(money(0.5))} · NO ${esc(money(0.5))}</strong></div>
       ${settled ? `<div class="tkt-row" data-testid="scalar-result"><span>Settled at ${esc(fmtVal(m, m.expiration_value))}</span><strong class="num">YES ${esc(money(m.settlement_value_dollars))} · NO ${esc(money(1 - Number(m.settlement_value_dollars)))}</strong></div>` : ''}</section>`;
   }
@@ -305,12 +306,12 @@ export async function render({ el, params, query, navigate }) {
         </div>
         ${selling ? `<div class="tkt-row" data-testid="held"><span>You hold</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
         ${mode === 'dollars' ? `<label class="tkt-input">${esc(amountLabel())}<input id="t-amount" type="number" min="1" step="${esc(moneyStep())}" placeholder="${esc(sym())}0" inputmode="decimal" aria-label="${esc(amountLabel())}" data-testid="t-amount"></label>` : ''}
-        ${mode === 'limit' ? `<label class="tkt-input">Limit price (${esc(priceUnit())})<input id="t-price" type="number" min="${esc(tick / 100)}" max="${esc(100 - tick / 100)}" step="${esc(tick / 100)}" value="${esc((selling ? sellPrice() : ticketPrice) / 100)}" inputmode="decimal" data-testid="t-price"></label>
+        ${mode === 'limit' ? `<label class="tkt-input">${esc(T('input.limit_price', { unit: priceUnit() }))}<input id="t-price" type="number" min="${esc(tick / 100)}" max="${esc(100 - tick / 100)}" step="${esc(tick / 100)}" value="${esc((selling ? sellPrice() : ticketPrice) / 100)}" inputmode="decimal" data-testid="t-price"></label>
           ${tick < 100 ? `<div class="faint tkt-grid" data-testid="t-grid">Ticks: ${esc(m.price_ranges.map((r) => `${pxc(ccOf(r.step))} from ${pxc(ccOf(r.start))}`).join(' · '))}</div>` : ''}` : ''}
         ${mode === 'limit' ? `<label class="tkt-input tkt-select">Expires<select id="t-expiry" data-testid="t-expiry" aria-label="Order expiry"><option value="never">Never (GTC)</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label>
           <input id="t-expiry-at" class="tkt-expiry-at" type="datetime-local" hidden aria-label="Expiry time">` : ''}
         ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="${step}" step="${step}" value="${esc(selling ? held || 1 : 10)}" inputmode="${frac ? 'decimal' : 'numeric'}" data-testid="t-count"></label>` : ''}
-        ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">Scalar: YES pays (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, m.cap_strike - m.floor_strike))} of ${esc(contractValue())}, NO the rest.</div>` : ''}
+        ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">Scalar: YES pays (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, m.cap_strike - m.floor_strike))} ${esc(T('ticket.scalar_note_tail', { value: contractValue() }))}</div>` : ''}
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
         <div id="t-review"></div>
@@ -338,7 +339,7 @@ export async function render({ el, params, query, navigate }) {
         const pc = p ? p / 100 : 0; // cents, may have decimals
         const per = p ? pc + Math.ceil((FEE_RATE * pc * (100 - pc)) / 100) : 0;
         const c = p && amt > 0 ? (frac ? Math.floor((amt * 10000) / per) / 100 : Math.floor((amt * 100) / per)) : 0; // floor to 0.01 where fractional
-        if (Number.isNaN(amt)) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${esc(amountLabel() === 'Naira' ? 'Enter a whole number of naira.' : 'Enter an amount with at most 2 decimals.')}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
+        if (Number.isNaN(amt)) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${esc(T(isNgn() ? 'error.amount_whole' : 'error.amount_cents'))}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
         sum.innerHTML = `<div class="tkt-row"><span>Odds</span><strong>${p ? Math.round(state.side === 'yes' ? pc : 100 - pc) : '—'}% chance</strong></div>
           <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${qty(c)} contracts at ${esc(pxc(p))}</div>`;
         t.querySelector('#t-submit').disabled = !!session.user && !(c > 0);
@@ -408,7 +409,7 @@ export async function render({ el, params, query, navigate }) {
         <div class="tkt-row"><span>Order</span><strong>${esc(selling ? 'Sell' : 'Buy')} ${c != null ? `${esc(qty(c))} ` : ''}${esc(state.side.toUpperCase())} · ${esc(m.yes_sub_title)}</strong></div>
         <div class="tkt-row"><span>Price</span><strong data-testid="review-price">${esc(priceLine)}</strong></div>
         ${c != null && !selling ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="review-cost">${money((r.p * c) / 10000)}</strong></div><div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num" data-testid="review-fee">${money(r.fee || 0)}</strong></div>` : ''}
-        ${c != null && !selling ? `<div class="tkt-row"><span>${isScalar(m) ? 'Payout range' : 'Payout if right'}</span><strong class="num">${isScalar(m) ? `${money(0)} to ${money(c)}` : money(c)}</strong></div>` : ''}
+        ${c != null && !selling ? `<div class="tkt-row"><span>${isScalar(m) ? 'Payout range' : 'Payout if right'}</span><strong class="num">${isScalar(m) ? esc(T('ticket.payout_range', { zero: money(0), max: money(c) })) : money(c)}</strong></div>` : ''}
         ${r.flip ? `<p class="tkt-flip" data-testid="review-flip">Flip sell: ${esc(r.flipLine)}.</p>` : ''}
         <div class="tkt-review-actions"><button class="btn" type="button" data-testid="review-edit">Edit</button><button class="btn btn-primary" type="button" data-testid="review-confirm">Place order</button></div></section>`;
       focusPanel('#t-review');
@@ -424,7 +425,7 @@ export async function render({ el, params, query, navigate }) {
       const target = snapCc(m, Math.min(10000 - minTickCc(m), avg + Math.max(minTickCc(m), 1000)));
       box.innerHTML = `<section class="tkt-autosell" data-testid="auto-sell-prompt" aria-label="Auto-sell"><h4>Set an automatic sell?</h4>
         <p class="faint">Filled ${esc(qty(filled))} ${esc(o.side.toUpperCase())} at ${esc(pxc(avg))} on average. A resting sell takes profit if the price gets there.</p>
-        <label class="tkt-input">Sell at (${esc(priceUnit())})<input type="number" data-testid="auto-sell-price" step="${esc(minTickCc(m) / 100)}" min="${esc(minTickCc(m) / 100)}" max="${esc(100 - minTickCc(m) / 100)}" value="${esc(target / 100)}" inputmode="decimal"></label>
+        <label class="tkt-input">${esc(T('input.sell_at', { unit: priceUnit() }))}<input type="number" data-testid="auto-sell-price" step="${esc(minTickCc(m) / 100)}" min="${esc(minTickCc(m) / 100)}" max="${esc(100 - minTickCc(m) / 100)}" value="${esc(target / 100)}" inputmode="decimal"></label>
         <div class="form-error" role="alert" data-testid="auto-sell-error"></div>
         <div class="tkt-review-actions"><button class="btn" type="button" data-testid="auto-sell-dismiss">No thanks</button><button class="btn btn-primary" type="button" data-testid="auto-sell-place">Place sell for ${esc(qty(filled))}</button></div></section>`;
       focusPanel('#t-after');
@@ -605,7 +606,7 @@ export async function render({ el, params, query, navigate }) {
     const p = prob(m) ?? 50;
     box.innerHTML = `<section class="card side-card" data-testid="alert-card"><h3 class="d-flex ai-center gap-6">${ICON.bell.replace('<svg', '<svg width="16" height="16"')} Price alert</h3>
       <form class="inline-form" id="alert-form"><label class="field flex-90">When Yes is<select name="direction"><option value="above">above</option><option value="below">below</option></select></label>
-      <label class="field flex-70">Price (${esc(priceUnit())})<input name="price" type="number" min="1" max="99" value="${Math.min(99, p + 5)}" required></label><button class="btn" type="submit">Add</button></form>
+      <label class="field flex-70">${esc(T('input.price', { unit: priceUnit() }))}<input name="price" type="number" min="1" max="99" value="${Math.min(99, p + 5)}" required></label><button class="btn" type="submit">Add</button></form>
       <div class="form-error" id="alert-error" role="alert"></div>
       ${list.map((t) => `<div class="outcome-row" data-alert="${esc(t.id)}"><span class="outcome-name">${esc(t.direction)} ${esc(pxCents(cents(t.price_dollars)))} <span class="faint">${t.triggered_time ? '· triggered' : '· active'}</span></span><button class="btn btn-sm btn-ghost" data-del-alert>Remove</button></div>`).join('')}</section>`;
     const f = box.querySelector('#alert-form');

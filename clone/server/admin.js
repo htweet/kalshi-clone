@@ -7,6 +7,7 @@
 // router as the target user, see asUser()). The only quantity aggregates computed here (per-day trade volume for the
 // reports dashboard) are converted with util.ufp / util.UNITS, the same helpers the serializers use. Money columns
 // (*_cents) are integer cents.
+const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const fs = require('node:fs');
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, usd, UNITS, E, ApiError, slugify } = require('./util');
@@ -1220,7 +1221,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const b = req.body || {};
     const amt = Number(b.amount_dollars);
     const errs = {};
-    if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1000000 || Math.abs(Math.round(amt * 100) - amt * 100) > 1e-6) errs.amount_dollars = `enter a non-zero amount with at most 2 decimals (up to ${currency.moneyCents(100_000_000)})`;
+    if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1000000 || Math.abs(Math.round(amt * 100) - amt * 100) > 1e-6) errs.amount_dollars = CS.t('error.adjust_amount', { max: currency.moneyCents(100_000_000) });
     let reason = '';
     try { reason = reasonOf(b); } catch (e) { Object.assign(errs, e.fields); }
     if (Object.keys(errs).length) throw new FieldError(errs);
@@ -1231,7 +1232,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
       engine.credit(u.id, cents, 'adjustment', `admin:${req.auth.user.id}`, reason);
     });
     engine.emit('user_balance', u.id, engine.balance(u.id));
-    notify(u.id, { type: 'account', title: `Balance ${cents > 0 ? 'credit' : 'debit'}: ${currency.moneyCents(Math.abs(cents))}`, body: reason, link: '/portfolio' });
+    notify(u.id, { type: 'account', title: CS.t('notify.balance_adjust.title', { direction: CS.t(cents > 0 ? 'notify.balance_adjust.credit' : 'notify.balance_adjust.debit'), amount: currency.moneyCents(Math.abs(cents)) }), body: reason, link: '/portfolio' });
     const after = { balance_dollars: dollars(engine.balance(u.id)) };
     audit(req, 'users.adjust_balance', 'user', u.id, before, { ...after, amount_dollars: dollars(cents) }, reason);
     res.json(after);
@@ -1291,7 +1292,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (b.value !== null && b.value !== '' && b.value !== undefined) {
       const n = Number(b.value);
       const max = kind === 'session' ? 1440 : 100000;
-      if (!Number.isFinite(n) || n <= 0 || n > max) throw new FieldError({ value: kind === 'session' ? 'minutes per day, 1-1440, or empty to remove' : `an amount per day up to ${currency.moneyCents(10_000_000)} (value is in dollars: up to 100,000), or empty to remove` });
+      if (!Number.isFinite(n) || n <= 0 || n > max) throw new FieldError({ value: kind === 'session' ? 'minutes per day, 1-1440, or empty to remove' : CS.t('error.limit_override', { max: currency.moneyCents(10_000_000) }) });
       value = kind === 'session' ? Math.round(n) : Math.round(n * 100);
     }
     const before = db.prepare('SELECT value, pending_value, pending_set FROM user_limits WHERE user_id=? AND kind=?').get(u.id, kind) || null;
@@ -1385,7 +1386,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   const SEGMENTS = {
     all: { label: 'Everyone', sql: 'SELECT id FROM users WHERE is_system=0' },
     traders: { label: 'Traders (any fill)', sql: 'SELECT id FROM users u WHERE is_system=0 AND EXISTS (SELECT 1 FROM fills f WHERE f.user_id=u.id)' },
-    funded: { get label() { return `Funded accounts (cash > ${currency.moneyCents(0)})`; }, sql: 'SELECT id FROM users WHERE is_system=0 AND balance_cents>0' },
+    funded: { get label() { return CS.t('admin.segment.funded', { zero: currency.moneyCents(0) }); }, sql: 'SELECT id FROM users WHERE is_system=0 AND balance_cents>0' },
     no_trades: { label: 'Never traded', sql: 'SELECT id FROM users u WHERE is_system=0 AND NOT EXISTS (SELECT 1 FROM fills f WHERE f.user_id=u.id)' },
     social: { label: 'Social members (have a nickname)', sql: 'SELECT u.id FROM users u JOIN social_profiles sp ON sp.user_id=u.id WHERE u.is_system=0' },
     staff: { label: 'Staff (any admin role)', sql: 'SELECT id FROM users u WHERE is_system=0 AND (is_admin=1 OR EXISTS (SELECT 1 FROM admin_roles r WHERE r.user_id=u.id))' },
