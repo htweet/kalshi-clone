@@ -214,6 +214,38 @@ test('referrals: share a code, a friend adds it and trades, both are rewarded in
   for (const p of [gp, hp, ap]) assert.deepEqual(p.errors, []);
 });
 
+test('referrals: volume the friend trades against the referrer never counts towards the reward', async () => {
+  const kim = await user('kim', { dollars: 500, perps: 300 });
+  const lena = await user('lena', { dollars: 500, perps: 300 });
+  const code = (await kim.call('GET', '/v1/perps/referrals')).body.referrals.referral_code;
+  assert.equal((await lena.call('POST', '/v1/perps/referrals/apply', { code })).status, 201);
+  // Kim rests an ask at the mark ($10.0000, inside the liquidity account's quotes); Lena buys exactly into it: the pair
+  // trading with each other ($110 of volume, above the $100 threshold) does not qualify the referral.
+  const ask = await kim.call('POST', '/v1/perps/orders', { ticker: BTC, side: 'ask', type: 'limit', price: '10.0000', count: 11, leverage: 5 });
+  assert.equal(ask.status, 201, ask.text);
+  assert.equal((await lena.call('POST', '/v1/perps/orders', { ticker: BTC, side: 'bid', type: 'market', count: 11, leverage: 5 })).status, 201);
+  const fills = qa("SELECT f.user_id FROM perp_fills f WHERE f.trade_id IN (SELECT trade_id FROM perp_fills WHERE user_id=? AND source='user')", lena.uid).map((x) => x.user_id).sort();
+  assert.deepEqual(fills, [kim.uid, lena.uid].sort(), 'every fill of Lena was against Kim');
+  await sleep(500);
+  const r0 = q1('SELECT status, progress_cents FROM referrals WHERE referee_id=?', lena.uid);
+  assert.deepEqual([r0.status, r0.progress_cents], ['pending', 0]);
+  assert.equal(q1('SELECT COUNT(*) c FROM referral_rewards WHERE referral_id=(SELECT id FROM referrals WHERE referee_id=?)', lena.uid).c, 0);
+  const lp = await newPage();
+  await uiLogIn(lp, { email: email('lena') });
+  await lp.goto(BASE + '/portfolio?perpsTab=rewards');
+  await lp.waitForSelector('[data-testid=ref-referred]');
+  assert.match(await lp.textContent('[data-testid=ref-referred]'), /: pending, ₦0 of ₦10,000 traded/);
+  // Volume against anyone else counts: the same size from the liquidity account qualifies it, and both are paid.
+  assert.equal((await lena.call('POST', '/v1/perps/orders', { ticker: BTC, side: 'bid', type: 'market', count: 11, leverage: 5 })).status, 201);
+  await eventually(() => assert.equal(q1('SELECT status FROM referrals WHERE referee_id=?', lena.uid).status, 'rewarded'));
+  assert.deepEqual(qa('SELECT role, status FROM referral_rewards WHERE referral_id=(SELECT id FROM referrals WHERE referee_id=?) ORDER BY role', lena.uid).map((x) => [x.role, x.status]), [['referee', 'paid'], ['referrer', 'paid']]);
+  await lp.goto(BASE + '/portfolio?perpsTab=rewards');
+  await lp.waitForSelector('[data-testid=ref-referred]');
+  assert.match(await lp.textContent('[data-testid=ref-referred]'), /: rewarded,/);
+  ledgerOk();
+  assert.deepEqual(lp.errors, []);
+});
+
 test('waitlist: the gate is enforced on the server; join and see your position; bulk invite unlocks a page live; CMS email; revoke', async () => {
   assert.equal((await adminCall('PUT', '/v1/admin/flags/perps.waitlist', { enabled: true, reason: 'perps by invitation' })).status, 200);
   // Grandfathered: Frank already traded Perps.

@@ -249,9 +249,9 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
     eligible: (uid) => !db.prepare("SELECT 1 FROM perp_fills WHERE user_id=? AND source='user' LIMIT 1").get(uid), // before the first Perps trade
     payout: ({ uid, cents, role, referral, rewardId }) => payToPerps({ uid, sub: 0, cents, kind: 'referral', purpose: 'referral', ref: referral.id, memo: PS(role === 'referrer' ? 'memo.referral_referrer' : 'memo.referral_referee'), link: { reward_id: rewardId } }),
   });
-  P.fillHooks.push((uid, notionalCc) => {
+  P.fillHooks.push((uid, notionalCc, info = {}) => {
     if (!flags.jobOn('perps.referrals') || isSystem(uid)) return;
-    const r = referrals.progress(uid, 'perps', Math.floor(notionalCc / 100));
+    const r = referrals.progress(uid, 'perps', Math.floor(notionalCc / 100), { counterparty: info.counterparty });
     if (!r) return;
     for (const w of r.rewards) {
       if (w.status !== 'paid' && w.status !== 'queued') continue;

@@ -4547,6 +4547,13 @@ security gate); `perps.e2e.test.js` (12) still passes on the rewritten engine.
   collateral between two subaccounts of the caller (whole cents; `Idempotency-Key`; a duplicate `client_transfer_id` is
   `409`); `perp_transfers` records it with `source = destination = margined` and both numbers. Unknown subaccounts are
   `404 subaccount_not_found`; they are per user, so another user's numbers do not exist for the caller.
+- Withdrawals from a subaccount (to Predictions, or to another subaccount) are limited to its **withdrawable** amount:
+  the free balance for an isolated subaccount; for a portfolio (`cross`) subaccount with open positions, the part of the
+  free balance that keeps its equity at or above the positions' initial margin (`min(free, equity − IM)`), since there
+  the free balance backs every position. More is `409 insufficient_margin` ("you can move at most … out of this
+  portfolio subaccount"). Balances carry `withdrawable_dollars`; Subaccounts shows "… can move out" when it is less
+  than the free balance. Without the limit a losing portfolio could be emptied and its loss left to the insurance fund
+  and the house.
 - UI: Perps portfolio › **Subaccounts** (table with mode, free, equity, maintenance, margin ratio; create; move funds;
   switch mode); the ticket and the transfer box get a subaccount picker once there are two; positions show the
   subaccount and "Portfolio margin".
@@ -4659,7 +4666,8 @@ security gate); `perps.e2e.test.js` (12) still passes on the rewritten engine.
   Perps trade; once their Perps volume reaches the threshold ($100) within 30 days, the friend gets a bonus ($5) and
   the referrer a reward ($10) in Perps collateral, through the same treasury path as APY; lifetime caps per referrer
   (20 rewards, $200; 0 = none) mark rewards over the cap `capped`. Fraud checks: no self-referral, one code per user,
-  late codes refused, 5 attempts per user per minute (code guessing), system accounts never qualify.
+  late codes refused, 5 attempts per user per minute (code guessing), system accounts never qualify, and volume the
+  friend trades against the referrer (the pair trading with each other) never counts towards the threshold.
 - `GET /perps/referrals` follows the observed summary shape (§13.19): code, offer, caps, earned, pending / completed /
   expired, referrals, referred-by progress, rewards. Admin › Perps ops › Referrals edits the settings (step-up).
 

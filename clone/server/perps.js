@@ -535,6 +535,24 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     }
     return { avail, reserved, equity, mm, im, margin, upnl, rows };
   }
+  // What may leave a subaccount (to Predictions or another subaccount). Isolated: the free balance (positions carry their
+  // own margin). Portfolio (cross): free collateral backs every position, so only what keeps the equity at or above the
+  // positions' initial margin may go; otherwise a losing portfolio could be emptied and its loss left to the insurance
+  // fund and the house (CLONE_SPEC.md §34.4).
+  function withdrawableCc(uid, sub) {
+    const a = availOf(uid, sub);
+    if (uid === LP || modeOf(uid, sub) !== 'cross') return Math.max(0, a);
+    const r = subRisk(uid, sub);
+    if (!r.rows.length) return Math.max(0, a);
+    return Math.max(0, Math.min(a, Math.floor(r.equity - r.im)));
+  }
+  function assertWithdrawable(uid, sub, cc, subWording = false) {
+    const a = availOf(uid, sub);
+    const w = withdrawableCc(uid, sub);
+    if (cc <= w) return;
+    if (w < a) throw E.conflict('insufficient_margin', PS('error.portfolio_withdraw', { amount: C.moneyCents(w / 100) }), PS('error.portfolio_withdraw_details', { amount: C.moneyCents(w / 100) }));
+    throw E.conflict('insufficient_margin', 'insufficient perps collateral', subWording ? PS('error.sub_funds', { amount: C.moneyCents(a / 100) }) : CS.t('error.perps_available', { amount: C.moneyCents(a / 100) }));
+  }
   // Estimated liquidation mark of a position: isolated → its own margin; cross → the subaccount's equity and the other
   // positions' requirements held at their current marks (CLONE_SPEC.md §34.4).
   function liqPriceOf(p, m = getMarket(p.ticker), mode = modeOf(p.user_id, p.subaccount)) {
@@ -609,7 +627,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     const posValue = r.margin + r.upnl;
     return {
       subaccount: sub, name: info.name, subaccount_type: info.margin_mode, margin_mode: info.margin_mode, position_value: cc$(posValue), account_equity: cc$(r.equity),
-      maintenance_margin: cc$(r.mm), initial_margin: cc$(r.im), resting_orders_margin: cc$(r.reserved), available_balance: cc$(r.avail), margin_in_use: cc$(r.margin), unrealized_pnl: cc$(r.upnl),
+      maintenance_margin: cc$(r.mm), initial_margin: cc$(r.im), resting_orders_margin: cc$(r.reserved), available_balance: cc$(r.avail), withdrawable_dollars: cc$(withdrawableCc(uid, sub)), margin_in_use: cc$(r.margin), unrealized_pnl: cc$(r.upnl),
       margin_ratio: r.mm ? Number((r.equity / r.mm).toFixed(4)) : null,
       _r: r,
     };
@@ -625,7 +643,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     return {
       subaccount: sub, subaccount_balances: subs.map(strip),
       settled_funds: cc$(r.avail + r.reserved + r.margin),
-      available_dollars: cc$(r.avail), account_equity: cc$(r.equity), position_value: cc$(r.margin + r.upnl), margin_in_use: cc$(r.margin),
+      available_dollars: cc$(r.avail), withdrawable_dollars: cc$(withdrawableCc(uid, sub)), account_equity: cc$(r.equity), position_value: cc$(r.margin + r.upnl), margin_in_use: cc$(r.margin),
       unrealized_pnl: cc$(r.upnl), resting_orders_margin: cc$(r.reserved), maintenance_margin: cc$(r.mm), initial_margin: cc$(r.im), margin_mode: cur.margin_mode,
       totals: { available_dollars: cc$(sum('avail')), account_equity: cc$(sum('equity')), margin_in_use: cc$(sum('margin')), unrealized_pnl: cc$(sum('upnl')), maintenance_margin: cc$(sum('mm')) },
       predictions_cash_dollars: dollars(cents),
@@ -913,7 +931,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     return { m, order: db.prepare('SELECT * FROM perp_orders WHERE id=?').get(id), trades, touched, makerOrders, canceledOrders, triggeredGroups: g.triggered };
   }
 
-  const fillHooks = []; // (uid, notional_cc, { ticker, source }) — Perps referrals (server/perps-ops.js)
+  const fillHooks = []; // (uid, notional_cc, { ticker, counterparty }) — Perps referrals (server/perps-ops.js)
   function publishPlacement(res, { quiet = false } = {}) {
     const { m, order, trades, touched, makerOrders, canceledOrders = [], triggeredGroups = [] } = res;
     for (const tr of trades) engine.emit('perp_trade', m.ticker, tradeVo(tr));
@@ -942,7 +960,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     for (const tr of trades) {
       for (const who of [tr.maker, tr.taker]) {
         if (!who || who === LP) continue;
-        for (const fn of fillHooks) { try { fn(who, notionalCc(tr.count, tr.price_cc), { ticker: m.ticker }); } catch (e) { console.error('perps fill hook', e.message); } }
+        for (const fn of fillHooks) { try { fn(who, notionalCc(tr.count, tr.price_cc), { ticker: m.ticker, counterparty: who === tr.maker ? tr.taker : tr.maker }); } catch (e) { console.error('perps fill hook', e.message); } }
       }
     }
   }
@@ -1472,8 +1490,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
         addAvail(uid, sub, ccAmt);
         J('transfer_in', id, uid, 'from predictions cash', [[PL.H.bridge, -ccAmt], [PL.A.avail(uid, sub), ccAmt]]);
       } else {
-        const a = availOf(uid, sub);
-        if (a < ccAmt) throw E.conflict('insufficient_margin', 'insufficient perps collateral', CS.t('error.perps_available', { amount: C.moneyCents(a / 100) }));
+        assertWithdrawable(uid, sub, ccAmt);
         addAvail(uid, sub, -ccAmt);
         J('transfer_out', id, uid, 'to predictions cash', [[PL.A.avail(uid, sub), -ccAmt], [PL.H.bridge, ccAmt]]);
         engine.credit(uid, cents, 'perps_transfer', id, 'Transfer from Perps');
@@ -1549,8 +1566,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     const t = tx(db, () => {
       account(uid);
       mustSub(uid, from); mustSub(uid, to);
-      const a = availOf(uid, from);
-      if (a < ccAmt) throw E.conflict('insufficient_margin', 'insufficient perps collateral', PS('error.sub_funds', { amount: C.moneyCents(a / 100) }));
+      assertWithdrawable(uid, from, ccAmt, true);
       addAvail(uid, from, -ccAmt); addAvail(uid, to, ccAmt);
       J('subaccount_transfer', id, uid, `subaccount ${from} to ${to}`, [[PL.A.avail(uid, from), -ccAmt], [PL.A.avail(uid, to), ccAmt]]);
       db.prepare('INSERT INTO perp_transfers(id,user_id,source,destination,amount_cc,status,client_transfer_id,created_ts,from_subaccount,to_subaccount) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id, uid, 'margined', 'margined', ccAmt, 'completed', b.client_transfer_id ?? null, Date.now(), from, to);

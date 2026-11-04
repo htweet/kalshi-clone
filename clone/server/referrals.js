@@ -8,7 +8,7 @@
 //              RNG (50 bits): not guessable, and applying codes is rate limited per user
 //   apply      the referee adds a code: not their own, once per program, only within `signup_window_days` of signing up
 //              and before they qualify by themselves (the program's `eligible` hook, e.g. no Perps trade yet)
-//   progress   the product reports the referee's activity (cents); at `threshold_cents` the referral qualifies and both
+//   progress   the product reports the referee's activity (cents; never activity against the referrer); at `threshold_cents` the referral qualifies and both
 //              sides are rewarded (referee bonus, referrer reward), the referrer within the lifetime caps
 //   expiry     a referral not qualified within `expiry_days` expires (the job, and lazily)
 // Statuses: referral pending → rewarded | expired | void (production switch); reward paid | queued | refused | capped.
@@ -93,10 +93,12 @@ function createReferrals({ db, now = () => Date.now(), epoch = () => '' }) {
   }
   const earned = (uid, key) => db.prepare("SELECT COALESCE(SUM(amount_cents),0) c, COUNT(*) n FROM referral_rewards WHERE program=? AND user_id=? AND role='referrer' AND status IN ('paid','queued')").get(key, uid);
   // The product reports activity of a referee; returns the rewards made (to notify) when the referral qualifies.
-  function progress(uid, key, cents) {
+  // Fraud check: activity against the referrer (the pair trading with each other) never counts.
+  function progress(uid, key, cents, { counterparty = null } = {}) {
     if (!(cents > 0)) return null;
     const r0 = db.prepare("SELECT * FROM referrals WHERE program=? AND referee_id=? AND status='pending'").get(key, uid);
     if (!r0) return null;
+    if (counterparty && counterparty === r0.referrer_id) return null;
     if (r0.expires_ts <= now()) { expire(key); return null; }
     const p = prog(key);
     return tx(db, () => {

@@ -262,6 +262,55 @@ test('portfolio margin: a cross subaccount survives a move that liquidates the s
   assert.deepEqual(page.errors, []);
 });
 
+test('portfolio withdrawals: free collateral that backs losing positions cannot leave a cross subaccount (no loss is left to the insurance fund)', async () => {
+  pin(BTC, 100000);
+  const fay = await fundedUser('fay', 2000, 1000);
+  assert.equal((await fay.call('POST', '/v1/perps/subaccounts', { name: 'Book', margin_mode: 'cross' })).status, 201);
+  assert.equal((await fay.call('POST', '/v1/perps/subaccounts/transfers', { from_subaccount: 0, to_subaccount: 1, amount_dollars: 600 })).status, 201);
+  // 100 BTC contracts ($1,000) at 10x in the portfolio subaccount: $100 of margin, about $500 free.
+  assert.equal((await fay.call('POST', '/v1/perps/orders', { ticker: BTC, side: 'bid', type: 'market', count: 100, leverage: 10, subaccount: 1 })).status, 201);
+  const bal = async () => (await fay.call('GET', '/v1/perps/balance?subaccount=1')).body;
+  const flat = await bal();
+  assert.equal(flat.withdrawable_dollars, flat.available_dollars, 'a healthy portfolio can move all its free collateral');
+  // BTC to 80,000: a $200 loss, twice the position margin. The portfolio is still healthy (the free balance covers it,
+  // equity about $399 against $20 of maintenance), but only equity above the $40 initial margin may leave.
+  const shortfall0 = Number(srv.db.prepare("SELECT value FROM perp_meta WHERE key='insurance_shortfall_cc'").get()?.value || 0);
+  pin(BTC, 80000);
+  const b = await bal();
+  const freeCc = Math.round(Number(b.available_dollars) * 10000);
+  const wCc = Math.round(Number(b.withdrawable_dollars) * 10000);
+  assert.ok(freeCc > 49000000 && wCc < freeCc - 9000000, `free ${b.available_dollars}, withdrawable ${b.withdrawable_dollars}`);
+  assert.ok(Math.abs(wCc - (Number(b.account_equity) - Number(b.initial_margin)) * 10000) <= 2, 'withdrawable = equity − initial margin');
+  // Moving out the whole free balance is refused, to Predictions and to another subaccount alike.
+  const out = await fay.call('POST', '/v1/perps/transfers', { direction: 'to_predictions', amount_dollars: 499, subaccount: 1 });
+  err(out, 409, 'insufficient_margin');
+  assert.match(out.body.error.message, /at most ₦\d[\d,.]* out of this portfolio subaccount/);
+  err(await fay.call('POST', '/v1/perps/subaccounts/transfers', { from_subaccount: 1, to_subaccount: 0, amount_dollars: 499 }), 409, 'insufficient_margin');
+  // In the UI: Accounts shows what can move out, and the move form says why more cannot.
+  const page = await newPage();
+  await uiLogIn(page, { email: email('fay') });
+  await page.goto(BASE + '/portfolio?perpsTab=accounts');
+  await page.waitForSelector('[data-testid=perp-sub-row][data-sub="1"] [data-f=withdrawable]');
+  assert.match(await page.textContent('[data-testid=perp-sub-row][data-sub="1"] [data-f=withdrawable]'), /^₦[\d,.]+ can move out$/);
+  await page.selectOption('[data-testid=subx-from]', '1');
+  await page.selectOption('[data-testid=subx-to]', '0');
+  await page.fill('[data-testid=subx-amount]', '49900');
+  await page.click('[data-testid=subx-submit]');
+  await page.waitForFunction(() => /out of this portfolio subaccount/.test(document.querySelector('[data-testid=subx-error]')?.textContent || ''));
+  // What is withdrawable does move; the portfolio stays above maintenance and nothing is liquidated or covered.
+  const whole = Math.floor(wCc / 10000);
+  assert.equal((await fay.call('POST', '/v1/perps/transfers', { direction: 'to_predictions', amount_dollars: whole, subaccount: 1 })).status, 201);
+  await sleep(600); // a few ticks
+  assert.ok(one('SELECT qty FROM perp_positions WHERE user_id=? AND subaccount=1 AND ticker=?', fay.uid, BTC).qty > 0, 'not liquidated');
+  const after = await bal();
+  assert.ok(Number(after.account_equity) >= Number(after.initial_margin) - 0.0001, JSON.stringify(after));
+  assert.equal(Number(srv.db.prepare("SELECT value FROM perp_meta WHERE key='insurance_shortfall_cc'").get()?.value || 0), shortfall0, 'no shortfall');
+  err(await fay.call('POST', '/v1/perps/transfers', { direction: 'to_predictions', amount_dollars: 1, subaccount: 1 }), 409, 'insufficient_margin');
+  pin(BTC, 100000);
+  ledgerOk();
+  assert.deepEqual(page.errors, []);
+});
+
 test('fractional perps: hundredths of a contract on fractional markets, refused on whole-contract markets and with the flag off', async () => {
   pin(BTC, 100000); pin(US10Y, 4.3);
   const erin = await fundedUser('erin', 2000, 1000);

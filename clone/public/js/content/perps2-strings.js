@@ -18,6 +18,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "perps2.sub.margin": "Margin",
   "perps2.sub.available": "Available",
   "perps2.sub.equity": "Equity",
+  "perps2.sub.withdrawable": "{amount} can move out",
   "perps2.sub.maintenance": "Maintenance",
   "perps2.sub.ratio": "Margin ratio",
   "perps2.sub.to_cross": "Use portfolio margin",

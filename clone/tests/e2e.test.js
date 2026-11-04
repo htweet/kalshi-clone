@@ -512,7 +512,11 @@ test('database lock: a leftover lock naming a live unrelated process does not bl
   };
   // A live process that is not a Parlance server (the Windows case: the crashed server's pid now belongs to a service).
   const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
-  const portA = PORT + 230;
+  // Three consecutive ports, none on the fetch / browser "bad ports" list (4190 is on it: fetch() and Chromium refuse to
+  // connect, which once made this test fail at random with "fetch failed; cause: bad port").
+  const UNSAFE = new Set([1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080]);
+  let portA = PORT + 230;
+  while ([portA, portA + 1, portA + 2].some((p) => UNSAFE.has(p))) portA += 3;
   let a = null; let b = null; let c = null;
   try {
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });

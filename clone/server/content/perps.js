@@ -24,6 +24,8 @@ const STRINGS = {
   'error.open_orders_total': 'you have too many open perps orders',
   'error.open_orders_details': 'the limit is {limit} open orders; cancel some first',
   'error.portfolio_margin': 'insufficient portfolio margin',
+  'error.portfolio_withdraw': 'you can move at most {amount} out of this portfolio subaccount',
+  'error.portfolio_withdraw_details': 'the rest of its free collateral backs the initial margin of its open positions; close or reduce positions to free more than {amount}',
   'error.portfolio_margin_details': 'after this order your subaccount equity would be {equity}, below the {required} of initial margin its positions need',
   // amend / decrease
   'error.amend_not_resting': 'only resting orders can be amended or decreased',
