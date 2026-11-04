@@ -167,6 +167,47 @@ For developers: a new feature module or route group must get a flag in `server/f
 `MODULE_FLAGS`) or be listed as platform core; `tests/flags.e2e.test.js` fails otherwise. Hide its entry points with
 `data-flag="<key>"` and its pages through `ROUTE_FLAGS` in `public/js/flags.js`.
 
+## Perps completion (Phase 6)
+
+Admin and user guide for `../CLONE_SPEC.md` §34.
+
+**For traders** (Perps market page and Portfolio › Perps):
+- **Subaccounts** (Portfolio › Perps › Subaccounts): create up to 10 named subaccounts, each on **isolated margin**
+  (each position has its own margin) or **portfolio margin** (all positions of the subaccount share its collateral and
+  are liquidated on the subaccount's total maintenance margin, largest position first). Move funds between subaccounts
+  there, and between Predictions cash and any subaccount in the transfer box; the ticket has a subaccount picker.
+- **Edit an order** (Open orders › Edit): a smaller size at the same price keeps your place in the queue; a new price or
+  a larger size replaces the order.
+- **Order groups** (Portfolio › Perps › Order groups): a *limit* group cancels its open orders once its orders have
+  filled the limit; a *one-cancels-the-other* group cancels the rest after the first fill; **Cancel all** cancels every
+  open order of a group. Pick the group in the ticket.
+- **Trailing stop** (position row › Trail): the stop follows the best mark by the percentage you set and closes the
+  position when the mark falls back that far (rises, for a short).
+- **Margin tiers**: bigger positions need more margin; the ticket shows the tier and the maximum leverage at your size,
+  the market page lists the tiers. Fractional sizes (0.01 contract) work on every market except US 10Y Yield.
+- **Rewards** (Portfolio › Perps › Rewards): interest on your Perps collateral when it is running, and your referral
+  code; a friend who adds it and trades enough on Perps earns you both a bonus in Perps collateral.
+
+**Admin › Perps ops** (`perps.ops`: the Admin and Risk roles). Every change needs a reason (audited); tiers, risk
+limits, APY and referral rewards also a password check.
+- **Margin tiers** per market: the notional cap of each tier with its initial and maintenance margin (%). Tier 1 sets
+  the market's maximum leverage; the last cap is the largest position allowed.
+- **Risk limits**: open orders per market and in total per user, subaccounts per user, order groups and orders per group.
+- **APY**: switch interest on collateral on, set the yearly rate and the payout interval; **Pay out now**. In play mode
+  it is play money; in production it is paid from the Central Bank (promotions treasury) and queued or refused when the
+  budget is empty (Admin › Central Bank shows the queue).
+- **Waitlist**: switch the gate with the `perps.waitlist` feature flag. While it is on, new users join the waitlist from
+  the Perps page and see their place in line; **Invite next in line** (FIFO), **Approve selected** or **Revoke
+  selected**. Approved users get a notification and an email (Admin › Content › Templates › Perps email › Perps access
+  unlocked; joining sends "Joined the Perps waitlist") and their open page unlocks at once. Users who already traded Perps, and staff, keep access; anyone can always close
+  positions and move money back to Predictions.
+- **Referrals**: program on / off, rewards for the referrer and the friend, the Perps volume to qualify, the days to
+  qualify and to add a code, lifetime caps per referrer.
+- **Perps journal**: shows whether the perps ledger balances, the insurance fund, the backstop and the fees collected.
+
+Flags (Admin › Feature flags): `perps.subaccounts`, `perps.portfolio_margin`, `perps.order_groups`, `perps.amend`,
+`perps.trailing_stops`, `perps.fractional`, `perps.apy`, `perps.referrals`, `perps.waitlist` (off on a new database).
+
 ## Trading core (Phase 5A)
 
 - **Finer prices.** Some markets trade in 0.1¢ steps (`deci_cent`), or in finer steps near 0¢ and 100¢ (`tapered`). Combos use 0.1¢ steps, and 0.01¢ near the edges. The ticket's limit field steps by the market's tick and lists the bands.

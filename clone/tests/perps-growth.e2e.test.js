@@ -228,7 +228,7 @@ test('waitlist: the gate is enforced on the server; join and see your position; 
   assert.equal(await kp.textContent('[data-testid=waitlist-position]'), "You're number 1 of 1 in line.");
   assert.equal(q1('SELECT status FROM perp_waitlist WHERE user_id=?', kate.uid).status, 'waiting');
   assert.equal(q1("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND type='perps_waitlist_joined'", kate.uid).c, 1);
-  await eventually(() => assert.ok(q1("SELECT 1 FROM email_outbox WHERE user_id=? AND subject='Parlance: You joined the Perps waitlist'", kate.uid)));
+  await eventually(() => assert.ok(q1("SELECT 1 FROM email_outbox WHERE user_id=? AND subject='You joined the Perps waitlist' AND body LIKE '%number 1 in line%'", kate.uid)));
   // Enforced on the server: no money in, no orders; market data stays public; moving money out is always possible.
   let r = await kate.call('POST', '/v1/perps/transfers', { direction: 'to_perps', amount_dollars: 50 });
   assert.equal(r.status, 403); assert.equal(r.code, 'perps_waitlist'); assert.equal(r.body.error.waitlist.position, 1);
@@ -238,10 +238,10 @@ test('waitlist: the gate is enforced on the server; join and see your position; 
   assert.equal((await kate.call('POST', '/v1/perps/transfers', { direction: 'to_predictions', amount_dollars: 1 })).code, 'insufficient_margin', 'not refused by the gate');
   const liam = await user('liam', { dollars: 200 });
   assert.equal((await liam.call('POST', '/v1/perps/waitlist', {})).body.waitlist.position, 2);
-  // The approval email is CMS-managed: publish a new subject for notify.perps_waitlist_approved.
-  const tpl = { inapp_title: '{{title}}', inapp_body: '{{body}}', push_title: '{{title}}', push_body: '{{body}}', email_subject: 'Welcome aboard: {{title}}', email_text: '{{body}}{{open_line}}', email_html: '<p>{{body}}</p><p><a href="{{link}}">Open Perps</a></p>' };
-  assert.equal((await adminCall('PUT', '/v1/admin/cms/template/draft', { key: 'notify.perps_waitlist_approved', value: tpl })).status, 200);
-  assert.equal((await adminCall('POST', '/v1/admin/cms/template/publish', { key: 'notify.perps_waitlist_approved', reason: 'waitlist welcome email' })).status, 200);
+  // The approval email is CMS-managed (Admin › Content › Templates): publish a new subject for email.perps_waitlist_approved.
+  const tpl = { email_subject: 'Welcome aboard, {{name}}', email_text: 'Hi {{name}}, your Perps access is open: {{link}}', email_html: '<p>Hi {{name}}, your Perps access is open.</p><p><a href="{{link}}">Open Perps</a></p>' };
+  assert.equal((await adminCall('PUT', '/v1/admin/cms/template/draft', { key: 'email.perps_waitlist_approved', value: tpl })).status, 200);
+  assert.equal((await adminCall('POST', '/v1/admin/cms/template/publish', { key: 'email.perps_waitlist_approved', reason: 'waitlist welcome email' })).status, 200);
   // Admin › Perps ops › Waitlist: invite the next 1 in line (Kate); her open page unlocks live.
   const ap = await newPage();
   await uiLogIn(ap, ADMIN);
@@ -254,7 +254,7 @@ test('waitlist: the gate is enforced on the server; join and see your position; 
   await ap.waitForSelector(`[data-testid=pops-waitlist-row][data-user="${kate.uid}"][data-status=approved]`);
   await kp.waitForSelector('[data-testid=perp-ticket] [data-testid=perp-submit]'); // no reload
   assert.equal(await kp.locator('[data-testid=perps-waitlist]').count(), 0);
-  await eventually(() => assert.ok(q1("SELECT 1 FROM email_outbox WHERE user_id=? AND subject='Welcome aboard: Your Perps access is unlocked'", kate.uid)));
+  await eventually(() => assert.ok(q1("SELECT 1 FROM email_outbox WHERE user_id=? AND subject='Welcome aboard, Kate Growth' AND body LIKE '%/perps%'", kate.uid)));
   assert.equal(q1("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND type='perps_waitlist_approved'", kate.uid).c, 1);
   assert.equal(q1("SELECT reason FROM admin_audit WHERE action='perps.waitlist.invite' ORDER BY ts DESC LIMIT 1").reason, 'first wave');
   assert.equal((await kate.call('POST', '/v1/perps/transfers', { direction: 'to_perps', amount_dollars: 50 })).status, 201);

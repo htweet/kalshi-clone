@@ -81,6 +81,7 @@ function installMarkers(db) {
 
 function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, centralBank, keyDir, options = {} }) {
   db.exec(SCHEMA);
+  if (!db.prepare('PRAGMA table_info(pm_archive_perps)').all().some((c) => c.name === 'subaccount')) db.exec('ALTER TABLE pm_archive_perps ADD COLUMN subaccount INTEGER NOT NULL DEFAULT 0'); // Phase 6 (§34.12)
   installMarkers(db);
   const metaGet = (k) => db.prepare('SELECT value FROM meta WHERE key=?').get(k)?.value;
   const metaSet = (k, v) => db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));
@@ -312,7 +313,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
           counts.perps_orders += 1;
         }
         for (const p of db.prepare('SELECT * FROM perp_positions WHERE qty<>0 OR margin_cc<>0').all()) {
-          db.prepare('INSERT INTO pm_archive_perps(batch_id,user_id,ticker,qty,entry_cc,margin_cc,realized_cc) VALUES(?,?,?,?,?,?,?)').run(batch, p.user_id, p.ticker, p.qty, p.entry_cc, p.margin_cc, p.realized_cc);
+          db.prepare('INSERT INTO pm_archive_perps(batch_id,user_id,ticker,qty,entry_cc,margin_cc,realized_cc,subaccount) VALUES(?,?,?,?,?,?,?,?)').run(batch, p.user_id, p.ticker, p.qty, p.entry_cc, p.margin_cc, p.realized_cc, p.subaccount ?? 0);
           counts.perps_positions += 1;
         }
         db.prepare('DELETE FROM perp_positions').run();

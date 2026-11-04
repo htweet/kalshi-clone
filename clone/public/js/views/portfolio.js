@@ -402,7 +402,7 @@ export async function render({ el, navigate, query }) {
   async function drawPanelLive() {
     if (tab === 'history' && hview === 'timeline') return liveHistory();
     if (sheetOpen) return undefined;
-    if (el.querySelector('#panel input:focus')) return undefined; // don't wipe a quote or search being typed
+    if (el.querySelector('#panel input:focus, #panel select:focus')) return undefined; // don't wipe a quote or search being typed, or an open menu
     return drawPanel();
   }
   async function refresh() { await Promise.all([drawStats(), drawPanelLive()]); }

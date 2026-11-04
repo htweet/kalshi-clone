@@ -403,7 +403,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
   }
   const modeOf = (uid, sub) => (uid === LP ? 'isolated' : subRowRaw(uid, sub)?.margin_mode || 'isolated');
   function availOf(uid, sub) {
-    if (sub === 0) return account(uid).available_cc;
+    if (sub === 0) { const r = db.prepare('SELECT available_cc FROM perp_accounts WHERE user_id=?').get(uid); return r ? r.available_cc : account(uid).available_cc; }
     return subRowRaw(uid, sub)?.available_cc ?? 0;
   }
   function addAvail(uid, sub, cc) {

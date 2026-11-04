@@ -236,7 +236,9 @@ test('portfolio stat cards hug their content; one page-title style across Browse
       if (vp === 'desk') assert.ok(Math.abs((csv.y + csv.h / 2) - (tab.y + tab.h / 2)) <= 2 && csv.b <= tabs.b, `${theme}: Export CSV on the tab row`);
       // The Sort control is a styled select, not the native widget.
       await page.waitForSelector('[data-testid=pos-sort]');
-      const sel = await page.$eval('[data-testid=pos-sort]', (e) => { const cs = getComputedStyle(e); return { app: cs.appearance, h: e.getBoundingClientRect().height, img: cs.backgroundImage }; });
+      // One evaluation (query + read together): the positions panel re-marks live on price ticks, so an element handle
+      // from a separate round trip can already be detached (empty computed style).
+      const sel = await page.evaluate(() => { const e = document.querySelector('[data-testid=pos-sort]'); const cs = getComputedStyle(e); return { app: cs.appearance, h: e.getBoundingClientRect().height, img: cs.backgroundImage }; });
       assert.equal(sel.app, 'none'); assert.equal(sel.h, 32); assert.match(sel.img, /gradient/);
 
       const styles = {};

@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS pm_archive_perps_balances (batch_id TEXT NOT NULL, us
   PRIMARY KEY (batch_id, user_id, subaccount));
 `;
 
-function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, options = {} }) {
+function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, cms = null, security = null, options = {} }) {
   const P = engine.perps;
   if (!P) return null;
   db.exec(SCHEMA);
@@ -57,6 +57,18 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
   const iso = (t) => (t ? new Date(t).toISOString() : null);
   const requireUser = (req, res, next) => (req.auth ? next() : next(E.unauthorized()));
   const isSystem = (uid) => !!db.prepare('SELECT is_system FROM users WHERE id=?').get(uid)?.is_system;
+  // Waitlist emails are CMS system templates (email.perps_waitlist_*), sent through the messaging provider (§32.5).
+  const originOf = (req) => (process.env.PUBLIC_ORIGIN || (req && security && security.selfOrigin ? security.selfOrigin(req) : '') || 'http://localhost').replace(/\/+$/, '');
+  function mail(uid, key, vars, req) {
+    const u = db.prepare('SELECT id, email, display_name FROM users WHERE id=?').get(uid);
+    if (!u || !cms || !flags.on('notify.email', { uid })) return;
+    try {
+      const origin = originOf(req);
+      const em = cms.renderSystem(key, { name: u.display_name, link: `${origin}/perps`, ...vars }, { origin });
+      if (auth.hooks.mailer) auth.hooks.mailer({ userId: u.id, to: u.email, subject: em.subject, text: em.text, html: em.html });
+      else db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,created_at) VALUES(?,?,?,?,?,?)').run(newId('em_'), u.id, u.email, em.subject, em.text, nowIso());
+    } catch (e) { console.error('perps waitlist email', e.message); }
+  }
 
   // ---------------------------------------------------------------- treasury → Perps collateral
   if (centralBank) {
@@ -203,11 +215,12 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
     const vo = waitlistVo(u, req);
     if (fresh) {
       notify(u.id, { type: 'perps_waitlist_joined', title: PS('notify.waitlist_joined.title'), body: PS('notify.waitlist_joined.body', { position: vo.position }), link: '/perps' });
+      mail(u.id, 'email.perps_waitlist_joined', { position: String(vo.position) }, req);
       P.emitEvent(u.id, 'perp_waitlist', vo);
     }
     res.status(fresh ? 201 : 200).json({ waitlist: vo });
   });
-  function decide(ids, status, actor, note) {
+  function decide(ids, status, actor, note, req = null) {
     const now = Date.now(); const changed = [];
     tx(db, () => {
       for (const id of ids) {
@@ -219,7 +232,10 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
       }
     });
     for (const id of changed) {
-      if (status === 'approved') notify(id, { type: 'perps_waitlist_approved', title: PS('notify.waitlist_approved.title'), body: PS('notify.waitlist_approved.body'), link: '/perps' });
+      if (status === 'approved') {
+        notify(id, { type: 'perps_waitlist_approved', title: PS('notify.waitlist_approved.title'), body: PS('notify.waitlist_approved.body'), link: '/perps' });
+        mail(id, 'email.perps_waitlist_approved', {}, req);
+      }
       const u = db.prepare('SELECT * FROM users WHERE id=?').get(id);
       if (u) P.emitEvent(id, 'perp_waitlist', waitlistVo(u, null));
     }
@@ -355,7 +371,7 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
       const b = req.body || {};
       const ids = idsOf(b);
       const reason = reasonOf(b);
-      const changed = decide(ids, status, req.auth.user, reason);
+      const changed = decide(ids, status, req.auth.user, reason, req);
       admin.audit(req, action, 'perps_waitlist', ids.length === 1 ? ids[0] : `${ids.length} users`, null, { users: changed.map(emailOf), status }, reason);
       res.json({ changed: changed.length, ...waitlistAdminVo() });
     });
@@ -367,7 +383,7 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
     if (!Number.isInteger(n) || n < 1 || n > 1000) throw fieldErr({ count: 'a whole number from 1 to 1000' });
     const reason = reasonOf(b);
     const ids = db.prepare("SELECT user_id FROM perp_waitlist WHERE status='waiting' ORDER BY joined_ts, user_id LIMIT ?").all(n).map((r) => r.user_id);
-    const changed = decide(ids, 'approved', req.auth.user, reason);
+    const changed = decide(ids, 'approved', req.auth.user, reason, req);
     admin.audit(req, 'perps.waitlist.invite', 'perps_waitlist', `${changed.length} users`, null, { users: changed.map(emailOf) }, reason);
     res.json({ changed: changed.length, ...waitlistAdminVo() });
   });

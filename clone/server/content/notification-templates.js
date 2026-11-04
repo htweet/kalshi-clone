@@ -82,6 +82,25 @@ Object.assign(TEMPLATES, {
       email_html: "<p>The email on your Parlance account was changed to {{masked_email}}. If this wasn't you, contact support.</p>",
     },
   },
+  // Phase 6 (CLONE_SPEC.md §34.9): Perps waitlist emails, sent directly (account notices outside the matrix).
+  'email.perps_waitlist_joined': {
+    kind: 'email', group: 'Perps email', label: 'Joined the Perps waitlist', fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'position', 'link', 'app_name'],
+    sample: { name: 'Ada', position: '12', link: 'https://parlance.example/perps', app_name: 'Parlance' },
+    defaults: {
+      email_subject: 'You joined the Perps waitlist',
+      email_text: 'Hi {{name}},\n\nYou are number {{position}} in line for Perps on {{app_name}}. We will email you as soon as your access is unlocked.\n\n{{link}}',
+      email_html: '<p>Hi {{name}},</p><p>You are number {{position}} in line for Perps on {{app_name}}. We will email you as soon as your access is unlocked.</p><p><a href="{{link}}">Open Perps</a></p>',
+    },
+  },
+  'email.perps_waitlist_approved': {
+    kind: 'email', group: 'Perps email', label: 'Perps access unlocked', fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'link', 'app_name'],
+    sample: { name: 'Ada', link: 'https://parlance.example/perps', app_name: 'Parlance' },
+    defaults: {
+      email_subject: 'Your Perps access is unlocked',
+      email_text: 'Hi {{name}},\n\nYour Perps access on {{app_name}} is unlocked: you can now move funds to Perps and trade perpetual futures.\n\n{{link}}',
+      email_html: '<p>Hi {{name}},</p><p>Your Perps access on {{app_name}} is unlocked: you can now move funds to Perps and trade perpetual futures.</p><p><a href="{{link}}">Start trading Perps</a></p>',
+    },
+  },
   'sms.phone_code': {
     kind: 'sms', group: 'Text messages', label: 'Phone verification code', fields: ['sms'], vars: ['code', 'minutes', 'app_name'],
     sample: { code: '482913', minutes: '10', app_name: 'Parlance' },
