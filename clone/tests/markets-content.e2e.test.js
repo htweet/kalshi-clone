@@ -111,7 +111,14 @@ test('sports derivatives: a spread / total market bought on the event page settl
   await page.waitForURL(/-lines\?side=yes&market=/);
   // The lines page's own header label (no data-status, unlike the game page it replaces) is filled once its game board
   // loads; waiting on it avoids matching the previous page's scoreboard while the route is still switching.
-  await page.waitForFunction(() => /Live|Final/.test(document.querySelector('[data-testid=ev-live-label]:not([data-status])')?.textContent || ''));
+  await page.waitForFunction(() => /Live|Final/.test(document.querySelector('[data-testid=ev-live-label]:not([data-status])')?.textContent || '')).catch(async (e) => {
+    const info = await page.evaluate(async () => {
+      const et = location.pathname.split('/').pop();
+      const r = await fetch(`/v1/sports/events/${encodeURIComponent(et)}`).then((x) => `${x.status} ${(x.headers.get('content-type') || '').slice(0, 20)}`, (x) => String(x));
+      return { url: location.href, label: document.querySelector('[data-testid=ev-live-label]')?.outerHTML || '(none)', board: !!document.querySelector('[data-testid=scoreboard]'), game_api: r };
+    });
+    throw new Error(`${e.message}\n${JSON.stringify(info)}\ngame status in DB: ${JSON.stringify(D.q('SELECT status FROM sports_milestones WHERE id=?', g.id))}`);
+  });
   await page.waitForSelector('[data-testid=scoreboard]'); // the game board on the lines event page
   assert.match(await page.textContent('[data-testid=ev-live-label]'), /Live|Final/);
   await page.waitForSelector('#t-amount');
