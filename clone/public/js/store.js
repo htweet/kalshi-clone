@@ -138,7 +138,15 @@ class SessionStore extends Observable {
   async logout() {
     // Work that needs the session one last time (pwa.js: this browser's Web Push subscription is removed).
     for (const h of logoutHooks) { try { await h(this.uid); } catch { /* best effort */ } }
-    try { await api.logOut(); } catch { /* ignore */ }
+    // The server must end the session before this tab shows "signed out": a failed request (rate limit, network blip)
+    // would otherwise leave the session alive, and the next page load would be signed in again.
+    let ended = false;
+    for (let i = 0; i < 3 && !ended; i++) {
+      try { await api.logOut(); ended = true; } catch (e) {
+        if (i < 2) await new Promise((r) => setTimeout(r, e && e.retryAfter ? Math.min(5, e.retryAfter) * 1000 : 400 * (i + 1)));
+      }
+    }
+    if (!ended) { toast(tx('store.logout.failed')); return false; }
     csrf.clear();
     for (const u of this.unsubs) u();
     this.unsubs = [];

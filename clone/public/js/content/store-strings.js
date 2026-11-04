@@ -5,7 +5,8 @@
 import { register } from '../i18n.js';
 
 export const STRINGS = /* CONTENT_JSON_BEGIN */ {
-  "store.common.you_were_signed_out_of": "You were signed out of this device."
+  "store.common.you_were_signed_out_of": "You were signed out of this device.",
+  "store.logout.failed": "We couldn't sign you out. Check your connection and try again."
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

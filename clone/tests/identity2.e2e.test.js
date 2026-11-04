@@ -598,3 +598,29 @@ test('P3.8 data export (owner, step-up) and account closure (step-up, open posit
   assert.equal((await (await page.context().request.get(WEB + '/v1/session')).json()).user, null);
   await page.context().close();
 });
+
+test('sign-out: a failed log-out request is retried, and the tab only shows "signed out" once the server has ended the session', async () => {
+  // One transient failure: the retry ends the session; a reload stays signed out.
+  const page = await signedUp('logout1', 'Lou Gout');
+  let fails = 1;
+  await page.route('**/v1/log_out', (route) => (fails-- > 0 ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":{"code":"unavailable","message":"try again"}}' }) : route.continue()));
+  await logOutUi(page);
+  await page.reload();
+  await page.waitForSelector('a:has-text("Log in")');
+  assert.equal((await (await page.context().request.get(WEB + '/v1/session')).json()).user, null, 'the server session is gone');
+  await page.unroute('**/v1/log_out');
+  await page.context().close();
+
+  // Every attempt fails: the user is told, stays signed in (truthfully), and the session still works.
+  const p2 = await signedUp('logout2', 'Lou Twice');
+  let calls = 0;
+  await p2.route('**/v1/log_out', (route) => { calls += 1; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":{"code":"unavailable","message":"try again"}}' }); });
+  await p2.click('[data-testid=account-menu]');
+  await p2.click('#logout-btn');
+  await p2.waitForSelector('.toast:has-text("couldn\'t sign you out")');
+  assert.equal(calls, 3, 'three attempts');
+  assert.equal(await p2.locator('[data-testid=account-menu]').count(), 1, 'still shown as signed in');
+  assert.notEqual((await (await p2.context().request.get(WEB + '/v1/session')).json()).user, null, 'and the server agrees');
+  await p2.unroute('**/v1/log_out');
+  await p2.context().close();
+});

@@ -228,7 +228,7 @@ function renderAccount() {
   el.querySelector('#me-btn').onclick = (e) => {
     const m = toggleMenu(e.currentTarget, menuHtml(), 'hamburger-menu');
     if (!m) return;
-    wireMenu(m, { close: closeMenus, navigate, logout: async () => { closeMenus(); await session.logout(); navigate('/'); } });
+    wireMenu(m, { close: closeMenus, navigate, logout: async () => { closeMenus(); if (await session.logout() !== false) navigate('/'); } });
   };
 }
 
