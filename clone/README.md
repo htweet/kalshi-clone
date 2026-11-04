@@ -58,6 +58,8 @@ reaches the device's notification centre, even with Parlance closed; clicking on
   verifies the VAPID signature and decrypts each message (`start({ push: { insecureEndpointHosts: ['127.0.0.1:<port>'] } })`,
   refused in production).
 - `node scripts/make-icons.js` redraws the app icons (`--check` verifies them).
+- Text and app identity are data: every PWA string is keyed in `public/js/content/pwa-strings.js` (server-side text in
+  `server/content/pwa.js`), and the manifest (name, colours, icons, shortcuts) is built from `PWA_CONFIG` there.
 
 ## Trading core (Phase 5A)
 

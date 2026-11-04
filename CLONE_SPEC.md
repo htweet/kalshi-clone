@@ -3748,15 +3748,16 @@ bundle).
 
 | File | Role |
 |---|---|
-| `public/manifest.webmanifest` | Web app manifest, served at `/manifest.webmanifest` as `application/manifest+json` (1 h cache) |
+| `server/content/pwa.js` | `PWA_CONFIG` (the manifest's editable fields; `/manifest.webmanifest` is built from it per request as `application/manifest+json`, 1 h cache), keyed server strings, the offline-page renderer (§31.12) |
+| `public/js/content/pwa-strings.js` | Every PWA user-facing string, keyed (§31.12) |
 | `public/icons/*` | Own "P" mark: `icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png` (180), `badge-72.png` (monochrome notification badge). Drawn by `scripts/make-icons.js` (pure Node rasteriser + PNG encoder; `--check` verifies the committed files); no third-party assets |
 | `public/sw.js` | The service worker, served at `/sw.js` (scope `/`) |
-| `public/offline.html` | Static offline page: no scripts, no inline styles, a Retry link |
+| `public/offline.html` | Template of the static offline page (keyed placeholders; no scripts, no inline styles, a Retry link) |
 | `public/pwa.css` | Update toast, install steps, device list, offline page (tokens only, §27) |
 | `public/js/pwa.js` | Registration, update toast, install prompt, cache clearing at sign-out, Web Push subscribe / unsubscribe / sync |
 | `server/pwa-static.js` | The PWA paths in the static allowlist (§21.8), each with its own headers |
 | `server/webpush.js` | VAPID keys, subscriptions API, RFC 8291 encryption, RFC 8292 signing, persisted outbox and its pump |
-| `scripts/build.js` | Also writes `dist/sw.js` (version + precache list), `dist/offline.html` (stylesheet → hashed bundle) and `pwa: {version, precache}` in `dist/manifest.json` |
+| `scripts/build.js` | Also writes `dist/sw.js` (version, precache list, keyed fallback strings), `dist/offline.html` (strings filled, stylesheet → hashed bundle) and `pwa: {version, precache}` in `dist/manifest.json` |
 
 ### 31.2 Manifest, icons and page tags
 
@@ -3772,15 +3773,16 @@ the dark-theme brand), `apple-touch-icon`, `apple-mobile-web-app-capable` / `-ti
 
 | Request | Handling | Why |
 |---|---|---|
-| Hashed assets of this build (`/assets/*-<hash>.{js,css,woff2}`), `/offline.html`, `/manifest.webmanifest`, `/icons/*` | Precached at install, fetched with `credentials: 'omit'` and `cache: 'reload'`; served cache-first by exact path (no query string); a miss goes to the network and is not stored | Public, immutable, identical for every user. Without credentials the server sees no session, so nothing user-specific can enter the cache |
+| Hashed assets of this build (`/assets/*-<hash>.{js,css,woff2}`), `/offline.html`, `/icons/*` | Precached at install, fetched with `credentials: 'omit'` and `cache: 'reload'`; served cache-first by exact path (no query string); a miss goes to the network and is not stored | Public, immutable, identical for every user. Without credentials the server sees no session, so nothing user-specific can enter the cache |
 | Navigations (any HTML page) | Network only, through navigation preload. Never stored. On a network error: the cached `/offline.html` (else a plain-text 503) | Every page carries a per-response CSP nonce and a signed boot proof (§21.2, §21.6); reusing one would defeat both |
 | `/v1/*`, `/trade-api/*`, the WebSocket, uploads, non-GET, cross-origin, anything else | Not handled: no `respondWith`, so the browser performs the request itself, unchanged | Client-token signing, CSRF, Idempotency-Key, the bot challenge and rate limits see exactly what they saw before |
 | `/sw.js` | Never cached by the worker; `Cache-Control: no-cache` and `updateViaCache: 'none'` | Updates are detected on every check |
+| `/manifest.webmanifest` | Not precached (network, 1 h HTTP cache) | Built from editable config; a cached copy would outlive an admin's change |
 
 A response is stored only if it is a same-origin 200 that is not redirected and not marked `no-store` or `private` (a
 `Set-Cookie` check is kept as a second line of defence; the header is never visible to a worker). One cache per build,
 `plx-static-<version>`; activation deletes the others. Dev mode (`npm run dev`) serves a `dev-<hash of sw.js>`
-version that precaches only the offline page, the manifest and the icons, so stale sources are never served.
+version that precaches only the offline page and the icons, so stale sources are never served.
 
 ### 31.4 Security rules (hard)
 
@@ -3920,6 +3922,25 @@ Every scenario asserts no CSP violations and no page errors.
   (iOS 16.4+).
 - **Old service workers** stay until the browser checks for an update; a broken release is fixed by publishing a new
   build (there is no other remote kill switch).
+
+### 31.12 Content model (ready for the CMS phase)
+
+Every PWA user-facing text, image reference and the manifest are data, so the CMS phase can manage them mechanically:
+- **Client strings:** `public/js/content/pwa-strings.js` exports `PWA_STRINGS` (keys `install.*`, `update.*`,
+  `offline.*`, `push.*`) and `t(key)`. `pwa.js`, the ☰ menus and Settings › System notifications use keys only.
+  The object sits between JSON markers so Node reads it without an ES-module loader (`server/content/pwa.js`
+  `clientStrings()`).
+- **Offline page:** `public/offline.html` is a template with double-brace keys, filled and HTML-escaped by
+  `renderOffline()` at build time (`dist/offline.html`) and by the dev server; an unknown key fails the build.
+- **Service worker text** (offline fallback, default notification title) is filled into `sw.js` from the same keys.
+- **Server strings:** `SERVER_STRINGS` in `server/content/pwa.js` (test notification title, body and link; push API
+  error messages), read with `s(key, vars)`.
+- **Manifest:** `PWA_CONFIG` (name, short name, description, colours, icons, shortcuts); `manifestOf(config)` builds
+  the JSON; `mountPwaStatic(…, { config })` accepts an object or a function, so the CMS can pass the live settings.
+- **Push payloads** carry the notification's own title and body (`features.notify` callers), so the CMS's
+  notification templates drive them.
+- Not yet data: the `theme-color` / Apple meta tags in `index.html`, and icon files (cache-first by fixed path in the
+  worker); the CMS phase should template the meta tags and give edited icons content-hashed URLs.
 
 ---
 
