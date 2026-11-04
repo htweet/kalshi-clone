@@ -3,13 +3,14 @@
 // from the persisted orders, fills, settlements, ledger, RFQ/quote and combo tables (perps transfers come from the
 // ledger's perps_transfer rows; perps internals are not touched).
 const { dollars, ufp, ustr, UNITS, E, encCursor, decCursor } = require('./util');
+const P = require('./pricing'); // `price` below is in centi-cents (CLONE_SPEC.md §28.1)
 
 // ISO-8601 text → unix ms inside SQLite.
 const ms = (col) => `CAST(ROUND((julianday(${col}) - 2440587.5) * 86400000) AS INTEGER)`;
 const GROUPS = {
-  trades: ['fill', 'netting'],
+  trades: ['fill', 'netting', 'collateral_return'],
   orders: ['order', 'cancel'],
-  settlements: ['settlement'],
+  settlements: ['settlement', 'settlement_correction'],
   combos: ['combo', 'rfq', 'quote', 'rfq_execution'],
   cash: ['deposit', 'withdrawal', 'interest', 'perps_transfer', 'credit', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout', 'deposit_return', 'withdrawal_fee', 'withdrawal_reversal', 'credit_expired', 'incentive'],
 };
@@ -18,12 +19,12 @@ const ACTIVITY = {
   deposit: ['deposit', 'deposit_return'],
   withdrawal: ['withdrawal', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout', 'withdrawal_fee', 'withdrawal_reversal'],
   order: ['order', 'cancel', 'rfq', 'quote', 'combo'],
-  trade: ['fill', 'netting', 'rfq_execution'],
-  settlement: ['settlement'],
+  trade: ['fill', 'netting', 'rfq_execution', 'collateral_return'],
+  settlement: ['settlement', 'settlement_correction'],
   credit: ['credit', 'interest', 'credit_expired', 'incentive'],
 };
 const GROUP_OF = Object.fromEntries(Object.entries(GROUPS).flatMap(([g, ks]) => ks.map((k) => [k, g])));
-const TYPE_LABEL = { fill: 'Trade', netting: 'Pairs redeemed', order: 'Order', cancel: 'Canceled', settlement: 'Settlement', combo: 'Combo', rfq: 'RFQ', quote: 'Quote', rfq_execution: 'RFQ executed', deposit: 'Deposit', withdrawal: 'Withdrawal', interest: 'Interest', perps_transfer: 'Perps transfer',
+const TYPE_LABEL = { fill: 'Trade', netting: 'Pairs redeemed', collateral_return: 'Collateral return', settlement_correction: 'Settlement correction', order: 'Order', cancel: 'Canceled', settlement: 'Settlement', combo: 'Combo', rfq: 'RFQ', quote: 'Quote', rfq_execution: 'RFQ executed', deposit: 'Deposit', withdrawal: 'Withdrawal', interest: 'Interest', perps_transfer: 'Perps transfer',
   credit: 'Credit', withdrawal_hold: 'Withdrawal (under review)', withdrawal_hold_reversal: 'Withdrawal returned', closure_payout: 'Closing payout',
   deposit_return: 'Deposit returned', withdrawal_fee: 'Network fee', withdrawal_reversal: 'Withdrawal returned', credit_expired: 'Credit expired', incentive: 'Liquidity reward' }; // payment rails (CLONE_SPEC.md §26); liquidity rewards (§29)
 
@@ -31,21 +32,21 @@ const TYPE_LABEL = { fill: 'Trade', netting: 'Pairs redeemed', order: 'Order', c
 // price, qty, filled, amount, fee, status, role, extra (kind-specific number), memo.
 const UNION = `
   SELECT 'order:'||o.id id, ${ms('o.created_at')} ts, 0 prio, 'order' kind, o.market_ticker market, o.side side, o.action action, o.order_type otype,
-    o.price_cents price, o.initial_count qty, o.filled_count filled, NULL amount, o.fees_cents fee, o.status status, NULL role, NULL extra, '' memo
+    o.price_cc price, o.initial_count qty, o.filled_count filled, NULL amount, o.fees_cents fee, o.status status, NULL role, NULL extra, '' memo
     FROM orders o WHERE o.user_id=:uid
   UNION ALL
-  SELECT 'cancel:'||o.id, ${ms('o.updated_at')}, 3, 'cancel', o.market_ticker, o.side, o.action, o.order_type, o.price_cents, o.remaining_count, o.filled_count, NULL, NULL, CASE WHEN o.cancel_reason='expired' THEN 'expired' ELSE 'canceled' END, NULL, NULL, COALESCE(o.cancel_reason,'')
+  SELECT 'cancel:'||o.id, ${ms('o.updated_at')}, 3, 'cancel', o.market_ticker, o.side, o.action, o.order_type, o.price_cc, o.remaining_count, o.filled_count, NULL, NULL, CASE WHEN o.cancel_reason='expired' THEN 'expired' ELSE 'canceled' END, NULL, NULL, COALESCE(o.cancel_reason,'')
     FROM orders o WHERE o.user_id=:uid AND o.status='canceled'
   UNION ALL
-  SELECT 'fill:'||f.id, f.created_ts, 1, 'fill', f.market_ticker, f.side, COALESCE(o.action,'buy'), o.order_type, f.price_cents, f.count, NULL,
-    -(CASE WHEN f.is_taker=1 THEN (f.count*f.price_cents+${UNITS - 1})/${UNITS} ELSE (f.count*f.price_cents)/${UNITS} END), f.fee_cents, 'filled', CASE WHEN f.is_taker=1 THEN 'taker' ELSE 'maker' END, NULL, ''
+  SELECT 'fill:'||f.id, f.created_ts, 1, 'fill', f.market_ticker, f.side, COALESCE(o.action,'buy'), o.order_type, f.price_cc, f.count, NULL,
+    -(CASE WHEN f.is_taker=1 THEN (f.count*f.price_cc+${P.CC - 1})/${P.CC} ELSE (f.count*f.price_cc)/${P.CC} END), f.fee_cents, 'filled', CASE WHEN f.is_taker=1 THEN 'taker' ELSE 'maker' END, NULL, ''
     FROM fills f LEFT JOIN orders o ON o.id=f.order_id WHERE f.user_id=:uid
   UNION ALL
   SELECT 'settle:'||s.id, ${ms('s.created_at')}, 2, 'settlement', s.market_ticker, s.result, NULL, NULL, NULL, s.yes_count+s.no_count, NULL, s.payout_cents, NULL, s.result, NULL, s.cost_cents, ''
     FROM settlements s WHERE s.user_id=:uid
   UNION ALL
-  SELECT 'ledger:'||l.id, ${ms('l.created_at')}, 2, l.kind, CASE WHEN l.kind='netting' THEN l.ref END, NULL, NULL, NULL, NULL, NULL, NULL, l.amount_cents, NULL, COALESCE((SELECT pt.status FROM payment_transactions pt WHERE pt.id=l.ref AND pt.rail<>'demo'), 'done'), NULL, NULL, l.memo
-    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting','credit','withdrawal_hold','withdrawal_hold_reversal','closure_payout','deposit_return','withdrawal_fee','withdrawal_reversal','credit_expired','incentive')
+  SELECT 'ledger:'||l.id, ${ms('l.created_at')}, 2, l.kind, CASE WHEN l.kind IN ('netting','settlement_correction') THEN l.ref END, NULL, NULL, NULL, NULL, NULL, NULL, l.amount_cents, NULL, COALESCE((SELECT pt.status FROM payment_transactions pt WHERE pt.id=l.ref AND pt.rail<>'demo'), 'done'), NULL, NULL, l.memo
+    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting','collateral_return','settlement_correction','incentive','credit','withdrawal_hold','withdrawal_hold_reversal','closure_payout','deposit_return','withdrawal_fee','withdrawal_reversal','credit_expired')
   UNION ALL
   SELECT 'combo:'||c.combo_ticker, c.created_ts, 0, 'combo', c.combo_ticker, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'created', NULL, NULL, ''
     FROM combo_creations c WHERE c.user_id=:uid
@@ -53,13 +54,13 @@ const UNION = `
   SELECT 'rfq:'||r.id, r.created_ts, 0, 'rfq', r.market_ticker, NULL, NULL, NULL, NULL, r.contracts_units, NULL, NULL, NULL, r.status, 'requester', r.target_cost_cents, ''
     FROM rfqs r WHERE r.user_id=:uid
   UNION ALL
-  SELECT 'quote:'||q.id, q.created_ts, 0, 'quote', r.market_ticker, NULL, NULL, NULL, q.yes_bid_cents, NULL, NULL, NULL, NULL, q.status, 'maker', q.no_bid_cents, ''
+  SELECT 'quote:'||q.id, q.created_ts, 0, 'quote', r.market_ticker, NULL, NULL, NULL, q.yes_bid_cc, NULL, NULL, NULL, NULL, q.status, 'maker', q.no_bid_cc, ''
     FROM rfq_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE q.maker_id=:uid
   UNION ALL
   SELECT 'rfqx:'||q.id, q.executed_ts, 2, 'rfq_execution', r.market_ticker,
     CASE WHEN q.maker_id=:uid THEN q.accepted_side WHEN q.accepted_side='yes' THEN 'no' ELSE 'yes' END, 'buy', 'rfq',
-    CASE WHEN q.maker_id=:uid AND q.accepted_side='yes' THEN q.yes_bid_cents WHEN q.maker_id=:uid THEN q.no_bid_cents
-      WHEN q.accepted_side='yes' THEN 100-q.yes_bid_cents ELSE 100-q.no_bid_cents END,
+    CASE WHEN q.maker_id=:uid AND q.accepted_side='yes' THEN q.yes_bid_cc WHEN q.maker_id=:uid THEN q.no_bid_cc
+      WHEN q.accepted_side='yes' THEN ${P.CC}-q.yes_bid_cc ELSE ${P.CC}-q.no_bid_cc END,
     q.executed_units, NULL, NULL, NULL, 'executed', CASE WHEN q.maker_id=:uid THEN 'maker' ELSE 'requester' END, NULL, ''
     FROM rfq_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE q.status='executed' AND (q.maker_id=:uid OR r.user_id=:uid)`;
 
@@ -104,26 +105,28 @@ function mountHistory({ v1, db, requireUser }) {
     const sell = r.action === 'sell' && ['order', 'cancel', 'fill'].includes(r.kind);
     const side = r.side == null ? null : sell ? (r.side === 'yes' ? 'no' : 'yes') : r.side;
     // Market orders carry a protective 99¢ limit, not a meaningful user price.
-    const price = r.price == null || (['order', 'cancel'].includes(r.kind) && r.otype === 'market') ? null : sell ? 100 - r.price : r.price;
+    const price = r.price == null || (['order', 'cancel'].includes(r.kind) && r.otype === 'market') ? null : sell ? P.CC - r.price : r.price;
+    const L = P.centsLabel;
     const S = side ? side.toUpperCase() : '';
     const typeName = { limit: 'Limit', market: 'Market', dollars: 'Dollars', rfq: 'RFQ' }[r.otype] || 'Limit';
     let desc;
     switch (r.kind) {
       case 'order': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} · ${ustr(r.filled)} of ${ustr(r.qty)} filled`; break;
       case 'cancel': desc = `${typeName} ${sell ? 'sell' : 'buy'} ${S} ${r.memo === 'expired' ? 'expired' : 'canceled'} · ${ustr(r.qty)} unfilled`; break;
-      case 'fill': desc = sell ? `Sold ${S} (bought ${r.side.toUpperCase()} @ ${r.price}¢; pairs net to cash) · ${r.role}` : `Bought ${S} · ${r.role}`; break;
+      case 'fill': desc = sell ? `Sold ${S} (bought ${r.side.toUpperCase()} @ ${L(r.price)}; pairs net to cash) · ${r.role}` : `Bought ${S} · ${r.role}`; break;
       case 'settlement': desc = `Market settled ${String(r.status).toUpperCase()} · cost $${(r.extra / 100).toFixed(2)}`; break;
+      case 'settlement_correction': case 'collateral_return': desc = r.memo || TYPE_LABEL[r.kind]; break;
       case 'combo': desc = 'Combo built'; break;
       case 'rfq': desc = `RFQ for ${r.qty != null ? `${ustr(r.qty)} contracts` : `$${(r.extra / 100).toFixed(2)} target`}`; break;
-      case 'quote': desc = `Quoted Yes ${r.price}¢ / No ${r.extra}¢`; break;
-      case 'rfq_execution': desc = `RFQ executed as ${r.role}: bought ${S} @ ${price}¢`; break;
+      case 'quote': desc = `Quoted Yes ${L(r.price)} / No ${L(r.extra)}`; break;
+      case 'rfq_execution': desc = `RFQ executed as ${r.role}: bought ${S} @ ${L(price)}`; break;
       default: desc = r.memo || TYPE_LABEL[r.kind] || r.kind;
     }
     return {
       id: r.id, time: new Date(r.ts).toISOString(), type: r.kind, type_label: TYPE_LABEL[r.kind] || r.kind, group: GROUP_OF[r.kind],
       market_ticker: r.market || null, market_title: r.market_title || null, link: linkOf(r.market),
       side, action: r.kind === 'order' || r.kind === 'cancel' || r.kind === 'fill' ? (sell ? 'sell' : 'buy') : r.kind === 'rfq_execution' ? 'buy' : null,
-      quantity_fp: r.kind === 'quote' ? null : r.qty == null ? null : ufp(r.qty), price_dollars: price == null || r.kind === 'quote' ? null : dollars(price),
+      quantity_fp: r.kind === 'quote' ? null : r.qty == null ? null : ufp(r.qty), price_dollars: price == null || r.kind === 'quote' ? null : P.ccToDollars(price),
       amount_dollars: r.amount == null ? null : dollars(r.amount), fee_dollars: r.fee ? dollars(-r.fee) : null,
       status: r.status, role: r.role, description: desc,
     };

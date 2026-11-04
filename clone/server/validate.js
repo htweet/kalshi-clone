@@ -130,6 +130,12 @@ const SCHEMAS = {
   },
   perpsClose: { percent: { type: ['number', 'string'], maxLen: 16 } },
   rfqAccept: { accepted_side: S(8) },
+  // Phase 5A (CLONE_SPEC.md §28): RFQ quotes on the finer grid with the HVM last look; resolution desk writes.
+  rfqQuote: { rfq_id: ID, yes_bid: NUMISH, no_bid: NUMISH, contracts_fp: NUMISH, rest_remainder: FLAG, hvm: { type: 'boolean' } },
+  adminResolve: { result: { type: 'string', enum: ['yes', 'no'] }, expiration_value: NUMISH, source_note: { type: 'string', maxLen: 1000 }, settlement_delay_sec: { type: ['number', 'string'], maxLen: 16 } },
+  adminCorrect: { result: { type: 'string', enum: ['yes', 'no'] }, expiration_value: NUMISH, reason: { type: 'string', maxLen: 1000 } }, // required-ness is the handler's (authorization errors keep precedence)
+  adminApproval: { note: { type: 'string', maxLen: 500 } },
+  adminResolutionPolicy: { two_person_rule: { type: 'boolean' } },
   // A post, reply or chat message may be a sticker alone (PLAN P2.2): the handlers require a body or a sticker_id.
   socialPost: { body: { type: 'string', maxLen: 2000, nullable: true }, event_ticker: { ...S(64), nullable: true }, sticker_id: { ...S(40), nullable: true }, position: { type: 'object', nullable: true }, visibility: S(16) },
   socialComment: { body: { type: 'string', maxLen: 2000, nullable: true }, sticker_id: { ...S(40), nullable: true } },
@@ -163,6 +169,12 @@ const ROUTES = [
   ['POST', /^\/perps\/orders$/, 'perpsOrder', {}, 'owner'],
   ['POST', /^\/perps\/positions\/[^/]+\/close$/, 'perpsClose', { unknown: 'reject' }, 'owner'],
   ['PUT', /^\/communications\/(rfqs\/[^/]+\/)?quotes\/[^/]+\/accept$/, 'rfqAccept', {}, 'owner'],
+  ['POST', /^\/communications\/(quotes|rfqs\/[^/]+\/quotes)$/, 'rfqQuote', {}, 'owner'],
+  ['POST', /^\/admin\/resolution\/[^/]+\/resolve$/, 'adminResolve', { unknown: 'reject' }, 'staff'],
+  ['POST', /^\/admin\/resolution\/[^/]+\/correct$/, 'adminCorrect', { unknown: 'reject' }, 'staff'],
+  ['POST', /^\/admin\/resolution\/approvals\/[^/]+\/(approve|reject)$/, 'adminApproval', { unknown: 'reject' }, 'staff'],
+  ['PUT', /^\/admin\/resolution\/policy$/, 'adminResolutionPolicy', { unknown: 'reject' }, 'staff'],
+  ['POST', /^\/users\/([^/]+)\/collateral_returns\/refresh$/, 'empty', { unknown: 'reject' }, 'owner'],
   ['POST', /^\/users\/([^/]+)\/social\/posts$/, 'socialPost', {}, 'owner'],
   ['POST', /^\/users\/([^/]+)\/social\/posts\/[^/]+\/comments$/, 'socialComment', {}, 'owner'],
   ['POST', /^\/users\/([^/]+)\/social\/reports$/, 'report', {}, 'owner'],

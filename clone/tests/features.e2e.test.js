@@ -247,7 +247,7 @@ test('price alert + fill notifications fire live; Activity tab shows the trader 
   // Market buy of 3 YES at the 59¢ ask moves the last price to 59 → alert + fill notifications.
   await mode(page, 'market');
   await page.fill('#t-count', '3');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Price alert")');
   await page.waitForSelector('[data-alert]:has-text("triggered")');
   const types = dbq('SELECT type FROM notifications WHERE user_id=? ORDER BY created_ts', uid(carol.email)).map((r) => r.type);
@@ -293,10 +293,10 @@ test('account limits: deposit and trading limits enforced; loosening waits 24h; 
   await mode(page, 'limit');
   await page.fill('#t-price', '59');
   await page.fill('#t-count', '10');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('#t-error:has-text("daily trading limit")');
   await page.fill('#t-count', '5');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Filled 5")');
   // Session limit: 1 minute per day, then simulate the time being used up.
   await page.goto(BASE + '/account/limits');

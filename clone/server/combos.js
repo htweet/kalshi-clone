@@ -7,7 +7,8 @@
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, ustr, toUnits, UNITS, E, ApiError } = require('./util');
-const { takerFeeCents, takerPrincipal } = require('./engine');
+const { feeSequence, takerPrincipalCc } = require('./engine');
+const P = require('./pricing'); // Phase 5A: combos trade and quote on a finer grid (G12, CLONE_SPEC.md §28.8)
 const { marketVo } = require('./serialize');
 
 const COMBO_SERIES = 'PLXCOMBO';
@@ -15,7 +16,9 @@ const ROLLING_SERIES = 'PLXFLASH';
 const MIN_LEGS = 2;
 const MAX_LEGS = 6;
 const MAX_OPEN_RFQS = 100; // api-reference_communications_create-rfq.md
-const DEFAULTS = { quoteTtlMs: 20000, rfqTtlMs: 10 * 60000, confirmWindowMs: 30000, makerDelayMs: 400, autoConfirmMs: 700, spreadCents: 3 };
+const DEFAULTS = { quoteTtlMs: 20000, rfqTtlMs: 10 * 60000, confirmWindowMs: 30000, hvmConfirmWindowMs: 3000, makerDelayMs: 400, autoConfirmMs: 700, spreadCents: 3 };
+// G12: combo markets use the documented combo grid (0.1¢ in the middle, 0.01¢ within 1¢ of either edge).
+const COMBO_GRID = 'center_deci_edge_centi_cent';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS combo_legs (
@@ -52,11 +55,12 @@ CREATE TABLE IF NOT EXISTS combo_creations (
 );
 `;
 
-// Contracts a requester can buy at `price` cents for `cents` including the taker fee (spec §17.5 sizing).
-function unitsForCost(cents, price, fractional) {
+// Contracts a requester can buy at `pcc` centi-cents for `cents` including the taker fee (spec §17.5 sizing).
+function unitsForCost(cents, pcc, fractional) {
   const step = fractional ? 1 : UNITS;
-  const cost = (u) => takerPrincipal(u, price) + takerFeeCents(u, price);
-  let u = Math.floor((cents * UNITS) / (price + (0.07 * price * (100 - price)) / 100));
+  const cost = (u) => takerPrincipalCc(u, pcc) + feeSequence()(u, pcc);
+  const pc = pcc / P.CC_PER_CENT;
+  let u = Math.floor((cents * UNITS) / (pc + (0.07 * pc * (100 - pc)) / 100));
   u -= u % step;
   while (u > 0 && cost(u) > cents) u -= step;
   while (cost(u + step) <= cents) u += step;
@@ -79,7 +83,12 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   { const has = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
     if (!has('rfqs', 'obscure_creator_id')) db.exec('ALTER TABLE rfqs ADD COLUMN obscure_creator_id INTEGER NOT NULL DEFAULT 0');
     if (!has('rfqs', 'remainder_order_id')) db.exec('ALTER TABLE rfqs ADD COLUMN remainder_order_id TEXT');
-    if (!has('rfq_quotes', 'rest_remainder')) db.exec('ALTER TABLE rfq_quotes ADD COLUMN rest_remainder INTEGER NOT NULL DEFAULT 0'); }
+    if (!has('rfq_quotes', 'rest_remainder')) db.exec('ALTER TABLE rfq_quotes ADD COLUMN rest_remainder INTEGER NOT NULL DEFAULT 0');
+    // Phase 5A: quote prices in centi-cents (the cents columns stay as their rounded view) and the HVM last-look window.
+    if (!has('rfq_quotes', 'yes_bid_cc')) { db.exec('ALTER TABLE rfq_quotes ADD COLUMN yes_bid_cc INTEGER'); db.exec('ALTER TABLE rfq_quotes ADD COLUMN no_bid_cc INTEGER'); }
+    if (!has('rfq_quotes', 'confirm_window_ms')) { db.exec('ALTER TABLE rfq_quotes ADD COLUMN confirm_window_ms INTEGER'); db.exec('ALTER TABLE rfq_quotes ADD COLUMN hvm INTEGER NOT NULL DEFAULT 0'); }
+    db.exec('UPDATE rfq_quotes SET yes_bid_cc = yes_bid_cents * 100, no_bid_cc = no_bid_cents * 100 WHERE yes_bid_cc IS NULL');
+    db.exec(`UPDATE markets SET price_level_structure='${COMBO_GRID}' WHERE mve_collection_ticker IS NOT NULL AND price_level_structure='linear_cent'`); }
   // Docs: other users see the empty-input SHA-256 placeholder until the RFQ executes; the creator always sees the real id.
   const OBSCURED_ID = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
   const rfqCreatorId = (r, viewer, revealed = r.status === 'executed') => (r.obscure_creator_id && viewer !== r.user_id && !revealed ? OBSCURED_ID : commsId(r.user_id));
@@ -91,8 +100,8 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   const emit = (uid, type, msg) => engine.emit('communications', uid, type, msg);
   const prob = (t) => {
     const q = engine.quote(t);
-    if (q.last_price != null) return q.last_price;
-    if (q.yes_bid != null && q.yes_ask != null) return (q.yes_bid + q.yes_ask) / 2;
+    if (q.last_price_cc != null) return q.last_price_cc / P.CC_PER_CENT;
+    if (q.yes_bid_cc != null && q.yes_ask_cc != null) return (q.yes_bid_cc + q.yes_ask_cc) / 2 / P.CC_PER_CENT;
     return 50;
   };
   const eventHref = (t) => { const r = db.prepare('SELECT e.ticker et, s.ticker st, s.slug FROM markets m JOIN events e ON e.ticker=m.event_ticker JOIN series s ON s.ticker=e.series_ticker WHERE m.ticker=?').get(t); return r ? `/markets/${r.st.toLowerCase()}/${r.slug}/${r.et.toLowerCase()}` : '/'; };
@@ -143,10 +152,10 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     tx(db, () => {
       db.prepare('INSERT INTO events(ticker,series_ticker,title,sub_title,category,mutually_exclusive,is_live,live_label,news,featured,created_at) VALUES(?,?,?,?,?,0,0,\'\',\'\',0,?)')
         .run(ticker, COMBO_SERIES, `Combo: ${title}`, `${legs.length}-leg combo`, 'Combos', now);
-      db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at,fractional_trading_enabled,mve_collection_ticker,mve_selected_legs) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)')
+      db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at,fractional_trading_enabled,mve_collection_ticker,mve_selected_legs,price_level_structure) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)')
         .run(ticker, ticker, `Combo: ${title}`, 'All legs hit', 'Any leg misses', '#008751', 'active', now, close, expiry, 5,
           `Resolves YES if every leg resolves as selected: ${rows.map(({ l, m }) => `${m.event_title} → ${label({ l, m })}`).join('; ')}. Resolves NO as soon as any leg resolves the other way.`,
-          now, now, COMBO_SERIES, JSON.stringify(legs));
+          now, now, COMBO_SERIES, JSON.stringify(legs), COMBO_GRID);
       legs.forEach((l, i) => db.prepare('INSERT INTO combo_legs(combo_ticker,leg_index,market_ticker,event_ticker,side) VALUES(?,?,?,?,?)').run(ticker, i, l.market_ticker, l.event_ticker, l.side));
     });
     engine.emit('lifecycle', ticker, 'created', 'active');
@@ -253,10 +262,13 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   function quoteVo(q, viewer) {
     const r = rfqRow(q.rfq_id);
     const m = marketRow(r.market_ticker);
+    const D = P.ccToDollars;
     return { id: q.id, quote_id: q.id, rfq_id: q.rfq_id, market_ticker: r.market_ticker, market_title: m.title, is_combo: !!m.mve_collection_ticker,
-      yes_bid_dollars: dollars(q.yes_bid_cents), no_bid_dollars: dollars(q.no_bid_cents), yes_contracts_fp: ufp(q.yes_units), no_contracts_fp: ufp(q.no_units),
+      yes_bid_dollars: D(q.yes_bid_cc), no_bid_dollars: D(q.no_bid_cc), yes_contracts_fp: ufp(q.yes_units), no_contracts_fp: ufp(q.no_units),
       // What the requester pays per contract: accepting the NO bid buys YES at 100−no_bid; accepting the YES bid buys NO at 100−yes_bid.
-      buy_yes_price_dollars: q.no_bid_cents > 0 ? dollars(100 - q.no_bid_cents) : null, buy_no_price_dollars: q.yes_bid_cents > 0 ? dollars(100 - q.yes_bid_cents) : null,
+      buy_yes_price_dollars: q.no_bid_cc > 0 ? D(P.CC - q.no_bid_cc) : null, buy_no_price_dollars: q.yes_bid_cc > 0 ? D(P.CC - q.yes_bid_cc) : null,
+      price_level_structure: m.price_level_structure, price_ranges: P.priceRanges(m.price_level_structure),
+      hvm: !!q.hvm, confirm_window_seconds: Math.round((q.confirm_window_ms || opt.confirmWindowMs) / 1000), // G12 HVM last look (3 s) vs standard (30 s)
       status: q.status, accepted_side: q.accepted_side, closed_reason: q.closed_reason, created_time: iso(q.created_ts), updated_time: iso(q.updated_ts), expires_time: iso(q.expires_ts),
       accepted_time: iso(q.accepted_ts), confirm_deadline_time: iso(q.confirm_deadline_ts), confirmed_time: iso(q.confirmed_ts), executed_time: iso(q.executed_ts),
       executed_contracts_fp: q.executed_units == null ? null : ufp(q.executed_units), creator_order_id: q.maker_order_id, rfq_creator_order_id: q.taker_order_id,
@@ -277,7 +289,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     for (const q of db.prepare("SELECT id FROM rfq_quotes WHERE rfq_id=? AND status IN ('open','accepted')").all(rfqId)) { touchQuote(q.id, 'cancelled', reason); emitQuote('quote_deleted', q.id); }
   }
   function sizeFor(r, m, price) {
-    if (price <= 0 || price >= 100) return 0;
+    if (price <= 0 || price >= P.CC) return 0;
     if (r.contracts_units != null) return r.contracts_units;
     return unitsForCost(r.target_cost_cents, price, !!m.fractional_trading_enabled);
   }
@@ -328,16 +340,19 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     if (!system && !rfqEnabled(makerId)) throw new ApiError(403, 'rfq_not_enabled', 'turn on RFQs (Portfolio → RFQs) to answer other traders\' RFQs');
     if (r.status !== 'open' || r.expires_ts <= Date.now()) throw new ApiError(409, 'rfq_closed', 'this RFQ is no longer open', `status ${r.status}`);
     const m = marketRow(r.market_ticker);
+    // Bids in dollars on the market's grid (G12: combos quote in 0.1¢ steps, 0.01¢ near the edges); 0 declines a side.
+    const grid = m.price_level_structure;
     const parse = (v, name) => {
-      const n = Number(v);
-      if (v == null || v === '' || !Number.isFinite(n) || n < 0 || n >= 1) throw new ApiError(400, 'invalid_parameters', `${name} must be a price in dollars between 0 and 0.99`);
-      const c = Math.round(n * 100);
-      if (Math.abs(c - n * 100) > 1e-6) throw new ApiError(400, 'invalid_parameters', `${name} must be on the 1¢ price grid`);
+      const c = P.ccFromDollars(v);
+      if (c == null || c >= P.CC) throw new ApiError(400, 'invalid_parameters', `${name} must be a price in dollars between 0 and 0.9999`);
+      if (c !== 0 && !P.onGrid(grid, c)) throw new ApiError(400, 'invalid_parameters', `${name} must be on the market's price grid (${grid === 'linear_cent' ? '1¢ ticks' : `${grid} ticks`})`);
       return c;
     };
     const yb = parse(b.yes_bid, 'yes_bid'); const nb = parse(b.no_bid, 'no_bid');
     if (!yb && !nb) throw new ApiError(400, 'invalid_parameters', 'quote at least one side (yes_bid or no_bid above 0)');
-    if (yb + nb > 100) throw new ApiError(400, 'invalid_parameters', 'yes_bid + no_bid must not exceed $1.00');
+    if (yb + nb > P.CC) throw new ApiError(400, 'invalid_parameters', 'yes_bid + no_bid must not exceed $1.00');
+    // HVM (G12, getting_started_rfqs.md §Timing): a maker may take the 3 s last-look window instead of the standard one.
+    const hvm = b.hvm === true;
     if (db.prepare("SELECT 1 FROM rfq_quotes WHERE rfq_id=? AND maker_id=? AND status IN ('accepted','confirmed')").get(r.id, makerId)) throw E.conflict('quote_accepted', 'your quote on this RFQ was already accepted');
     // Parlance extension (G3): a maker may quote part of a contract-sized RFQ with contracts_fp (≤ the RFQ size).
     let cap = Infinity;
@@ -347,20 +362,20 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
       if (cap == null || cap < 1 || cap > r.contracts_units) throw new ApiError(400, 'invalid_parameters', `contracts_fp must be between 0.01 and the RFQ size (${ufp(r.contracts_units)})`);
       if (cap % UNITS && !m.fractional_trading_enabled) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market', 'quote a whole number of contracts');
     }
-    const yesUnits = yb ? Math.min(sizeFor(r, m, 100 - yb), cap) : 0; // accepting the YES bid: requester buys NO at 100−yes_bid
-    const noUnits = nb ? Math.min(sizeFor(r, m, 100 - nb), cap) : 0;
+    const yesUnits = yb ? Math.min(sizeFor(r, m, P.CC - yb), cap) : 0; // accepting the YES bid: requester buys NO at 100−yes_bid
+    const noUnits = nb ? Math.min(sizeFor(r, m, P.CC - nb), cap) : 0;
     if (!yesUnits && !noUnits) throw new ApiError(400, 'invalid_parameters', 'the target cost buys less than 0.01 contracts at these prices');
     const now = Date.now();
     const id = newId('q_');
     const replaced = db.prepare("SELECT id FROM rfq_quotes WHERE rfq_id=? AND maker_id=? AND status='open'").all(r.id, makerId);
     tx(db, () => {
       for (const o of replaced) touchQuote(o.id, 'cancelled', 'replaced'); // a new quote replaces the maker's previous one
-      db.prepare('INSERT INTO rfq_quotes(id,rfq_id,maker_id,yes_bid_cents,no_bid_cents,yes_units,no_units,status,created_ts,updated_ts,expires_ts,rest_remainder) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, r.id, makerId, yb, nb, yesUnits, noUnits, 'open', now, now, Math.min(r.expires_ts, now + opt.quoteTtlMs), b.rest_remainder === true ? 1 : 0);
+      db.prepare('INSERT INTO rfq_quotes(id,rfq_id,maker_id,yes_bid_cents,no_bid_cents,yes_bid_cc,no_bid_cc,yes_units,no_units,status,created_ts,updated_ts,expires_ts,rest_remainder,hvm,confirm_window_ms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, r.id, makerId, Math.round(yb / P.CC_PER_CENT), Math.round(nb / P.CC_PER_CENT), yb, nb, yesUnits, noUnits, 'open', now, now, Math.min(r.expires_ts, now + opt.quoteTtlMs), b.rest_remainder === true ? 1 : 0, hvm ? 1 : 0, hvm ? opt.hvmConfirmWindowMs : opt.confirmWindowMs);
     });
     for (const o of replaced) emitQuote('quote_deleted', o.id);
     emitQuote('quote_created', id);
-    if (!system) notify(r.user_id, { type: 'rfq_quote', title: `Quote received: ${nb ? `Yes ${100 - nb}¢` : ''}${nb && yb ? ' · ' : ''}${yb ? `No ${100 - yb}¢` : ''}`, body: m.title, link: '/portfolio?tab=rfqs' });
+    if (!system) notify(r.user_id, { type: 'rfq_quote', title: `Quote received: ${nb ? `Yes ${P.centsLabel(P.CC - nb)}` : ''}${nb && yb ? ' · ' : ''}${yb ? `No ${P.centsLabel(P.CC - yb)}` : ''}${hvm ? ' · HVM 3 s' : ''}`, body: m.title, link: '/portfolio?tab=rfqs' });
     return quoteRow(id);
   }
 
@@ -392,20 +407,21 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     const now = Date.now();
     if (r.status !== 'open' || r.expires_ts <= now) throw new ApiError(409, 'rfq_closed', 'this RFQ is no longer open', `status ${r.status}`);
     if (q.status !== 'open' || q.expires_ts <= now) throw new ApiError(409, 'quote_expired', 'this quote is no longer available', `status ${q.status}`);
-    const bid = side === 'yes' ? q.yes_bid_cents : q.no_bid_cents;
+    const bid = side === 'yes' ? q.yes_bid_cc : q.no_bid_cc;
     const units = side === 'yes' ? q.yes_units : q.no_units;
     if (!bid || !units) throw E.badRequest(`the maker declined the ${side} side of this quote`);
-    const price = 100 - bid;
-    const cost = takerPrincipal(units, price) + takerFeeCents(units, price);
+    const price = P.CC - bid;
+    const cost = takerPrincipalCc(units, price) + feeSequence(marketRow(r.market_ticker).fee_multiplier ?? 1)(units, price);
     if (engine.balance(uid) < cost) throw E.conflict('insufficient_balance', 'insufficient balance', `this trade costs $${(cost / 100).toFixed(2)} including fees`);
-    if (checkTrading) checkTrading(uid, takerPrincipal(units, price));
+    if (checkTrading) checkTrading(uid, takerPrincipalCc(units, price));
+    const windowMs = q.confirm_window_ms || opt.confirmWindowMs;
     tx(db, () => {
-      db.prepare("UPDATE rfq_quotes SET status='accepted', accepted_side=?, accepted_ts=?, confirm_deadline_ts=?, updated_ts=? WHERE id=?").run(side, now, now + opt.confirmWindowMs, now, qid);
+      db.prepare("UPDATE rfq_quotes SET status='accepted', accepted_side=?, accepted_ts=?, confirm_deadline_ts=?, updated_ts=? WHERE id=?").run(side, now, now + windowMs, now, qid);
       touchRfq(r.id, 'accepted');
     });
     emitQuote('quote_accepted', qid);
     if (isSystem(q.maker_id)) setTimeout(pumpSafe, opt.autoConfirmMs + 5);
-    else notify(q.maker_id, { type: 'rfq_accepted', title: `Your quote was accepted — confirm within ${Math.round(opt.confirmWindowMs / 1000)}s`, body: marketRow(r.market_ticker).title, link: '/portfolio?tab=quotes' });
+    else notify(q.maker_id, { type: 'rfq_accepted', title: `Your quote was accepted — confirm within ${Math.round(windowMs / 1000)}s${q.hvm ? ' (HVM last look)' : ''}`, body: marketRow(r.market_ticker).title, link: '/portfolio?tab=quotes' });
     return quoteRow(qid);
   }
 
@@ -416,13 +432,13 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     const q = quoteRow(qid);
     const r = rfqRow(q.rfq_id);
     const side = q.accepted_side;
-    const makerSide = side; const makerPrice = side === 'yes' ? q.yes_bid_cents : q.no_bid_cents;
-    const reqSide = side === 'yes' ? 'no' : 'yes'; const reqPrice = 100 - makerPrice;
+    const makerSide = side; const makerPrice = side === 'yes' ? q.yes_bid_cc : q.no_bid_cc;
+    const reqSide = side === 'yes' ? 'no' : 'yes'; const reqPrice = P.CC - makerPrice;
     const units = side === 'yes' ? q.yes_units : q.no_units;
     db.prepare("UPDATE rfq_quotes SET status='confirmed', confirmed_ts=?, updated_ts=? WHERE id=?").run(Date.now(), Date.now(), qid);
     let makerOrder;
     try {
-      makerOrder = engine.placeOrder(q.maker_id, { ticker: r.market_ticker, side: makerSide, price: makerPrice, count: units, post_only: true, source: 'rfq', order_type: 'rfq' });
+      makerOrder = engine.placeOrder(q.maker_id, { ticker: r.market_ticker, side: makerSide, price_cc: makerPrice, count: units, post_only: true, source: 'rfq', order_type: 'rfq' });
     } catch (e) {
       if (e instanceof ApiError && e.code === 'insufficient_balance' && !isSystem(q.maker_id)) {
         db.prepare("UPDATE rfq_quotes SET status='accepted', confirmed_ts=NULL, updated_ts=? WHERE id=?").run(Date.now(), qid); // maker may top up and retry within the window
@@ -434,7 +450,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     }
     let takerOrder;
     try {
-      takerOrder = engine.placeOrder(r.user_id, { ticker: r.market_ticker, side: reqSide, price: reqPrice, count: units, time_in_force: 'ioc', exact_reserve: true, source: 'rfq', order_type: 'rfq', match_order_id: makerOrder.id });
+      takerOrder = engine.placeOrder(r.user_id, { ticker: r.market_ticker, side: reqSide, price_cc: reqPrice, count: units, time_in_force: 'ioc', exact_reserve: true, source: 'rfq', order_type: 'rfq', match_order_id: makerOrder.id });
     } catch (e) {
       try { engine.cancelOrder(q.maker_id, makerOrder.id); } catch { /* already gone */ }
       touchQuote(qid, 'cancelled', 'requester_insufficient_balance'); touchRfq(r.id, 'open');
@@ -451,8 +467,8 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     const wanted = r.contracts_units;
     if (r.rest_remainder && wanted != null && takerOrder.filled_count < wanted) {
       try {
-        if (checkTrading) checkTrading(r.user_id, Math.ceil(((wanted - takerOrder.filled_count) * reqPrice) / UNITS));
-        remainder = engine.placeOrder(r.user_id, { ticker: r.market_ticker, side: reqSide, price: reqPrice, count: wanted - takerOrder.filled_count, time_in_force: 'gtc', source: 'rfq_remainder', order_type: 'limit', allow_fractional: true });
+        if (checkTrading) checkTrading(r.user_id, Math.ceil(((wanted - takerOrder.filled_count) * reqPrice) / P.CC));
+        remainder = engine.placeOrder(r.user_id, { ticker: r.market_ticker, side: reqSide, price_cc: reqPrice, count: wanted - takerOrder.filled_count, time_in_force: 'gtc', source: 'rfq_remainder', order_type: 'limit', allow_fractional: true });
         db.prepare('UPDATE rfqs SET remainder_order_id=? WHERE id=?').run(remainder.id, r.id);
       } catch (e) { remainderError = e; }
     }
@@ -465,8 +481,8 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     emitQuote('quote_executed', qid);
     emitRfq('rfq_deleted', r.id);
     const title = marketRow(r.market_ticker).title;
-    notify(r.user_id, { type: 'rfq_executed', title: `RFQ executed: bought ${ustr(takerOrder.filled_count)} ${reqSide.toUpperCase()} @ ${reqPrice}¢${remainder ? ` · ${ustr(remainder.remaining_count ?? (wanted - takerOrder.filled_count))} resting` : ''}`, body: remainderError ? `${title} · the remainder could not rest: ${remainderError.message}` : title, link: eventHref(r.market_ticker) });
-    if (!isSystem(q.maker_id)) notify(q.maker_id, { type: 'rfq_executed', title: `Quote executed: bought ${ustr(takerOrder.filled_count)} ${makerSide.toUpperCase()} @ ${makerPrice}¢`, body: title, link: '/portfolio?tab=quotes' });
+    notify(r.user_id, { type: 'rfq_executed', title: `RFQ executed: bought ${ustr(takerOrder.filled_count)} ${reqSide.toUpperCase()} @ ${P.centsLabel(reqPrice)}${remainder ? ` · ${ustr(remainder.remaining_count ?? (wanted - takerOrder.filled_count))} resting` : ''}`, body: remainderError ? `${title} · the remainder could not rest: ${remainderError.message}` : title, link: eventHref(r.market_ticker) });
+    if (!isSystem(q.maker_id)) notify(q.maker_id, { type: 'rfq_executed', title: `Quote executed: bought ${ustr(takerOrder.filled_count)} ${makerSide.toUpperCase()} @ ${P.centsLabel(makerPrice)}`, body: title, link: '/portfolio?tab=quotes' });
     return quoteRow(qid);
   }
 
@@ -476,7 +492,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     if (q.status !== 'accepted') throw new ApiError(409, 'quote_not_accepted', 'only an accepted quote can be confirmed', `status ${q.status}`);
     if (q.confirm_deadline_ts <= Date.now()) { pump(); throw new ApiError(409, 'quote_expired', 'the confirmation window has passed'); }
     // G4 (PLAN §7): the maker's daily trading limit applies to the order confirming a quote creates (maker bid × size).
-    if (checkTrading) { const yes = q.accepted_side === 'yes'; checkTrading(uid, Math.ceil(((yes ? q.yes_units : q.no_units) * (yes ? q.yes_bid_cents : q.no_bid_cents)) / UNITS)); }
+    if (checkTrading) { const yes = q.accepted_side === 'yes'; checkTrading(uid, Math.ceil(((yes ? q.yes_units : q.no_units) * (yes ? q.yes_bid_cc : q.no_bid_cc)) / P.CC)); }
     return execute(qid);
   }
 

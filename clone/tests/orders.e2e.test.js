@@ -78,7 +78,7 @@ test('limit orders from the ticket (GTC and custom expiry) show grouped in Resti
   assert.equal(await pr.inputValue('[data-testid=t-expiry]'), 'never');
   await pr.fill('#t-price', '55');
   await pr.fill('#t-count', '3');
-  await pr.click('[data-testid=submit-order]');
+  await pr.click('[data-testid=submit-order]'); await pr.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pr.waitForSelector('.toast:has-text("Order resting")');
   o55 = dbq("SELECT * FROM orders WHERE user_id=? ORDER BY seq DESC LIMIT 1", uid(R))[0];
   assert.deepEqual([o55.price_cents, o55.remaining_count, o55.expiration_ts, o55.reserved_cents], [55, 300, null, reserve(300, 55)]);
@@ -89,7 +89,7 @@ test('limit orders from the ticket (GTC and custom expiry) show grouped in Resti
   await pr.waitForSelector('[data-testid=t-invalid]:has-text("expiry time in the future")');
   const local = await pr.evaluate(() => { const d = new Date(Date.now() + 2 * 3600000); d.setSeconds(0, 0); const z = (n) => String(n).padStart(2, '0'); return { v: `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`, ms: d.getTime() }; });
   await pr.fill('#t-expiry-at', local.v);
-  await pr.click('[data-testid=submit-order]');
+  await pr.click('[data-testid=submit-order]'); await pr.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await pr.waitForSelector('.toast:has-text("Order resting")');
   o20 = dbq("SELECT * FROM orders WHERE user_id=? ORDER BY seq DESC LIMIT 1", uid(R))[0];
   assert.deepEqual([o20.price_cents, o20.remaining_count, o20.expiration_ts], [20, 250, local.ms]);

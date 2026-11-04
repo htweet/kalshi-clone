@@ -334,7 +334,7 @@ test('browser: each action sends a fresh Idempotency-Key and the automatic retry
   await page.click('[data-otype=limit]');
   await page.fill('#t-count', '2');
   await page.fill('#t-price', '3');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForFunction(() => /Submitting/.test(document.querySelector('[data-testid=submit-order]')?.textContent || '') === false);
   await sleep(500);
   const ords = seen.filter((s) => s.path.endsWith('/orders'));

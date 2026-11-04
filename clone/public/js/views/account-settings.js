@@ -5,11 +5,12 @@
 //   4. Marketing text messages: status, SMS disclosure, consent checkbox, "Opt in to marketing texts" / "No thanks"
 //   5. Security notifications toggle (Phase 2's preference, mounted from the same module)
 //   6. Theme System / Light / Dark + Accessible colors (red-green safe palette)
-//   7. Trade mechanics toggles (stored now; engine behaviour arrives in Phase 5 except the RFQ opt-in)
+//   7. Trade mechanics toggles (live since Phase 5A, CLONE_SPEC.md §28.5–§28.6: flip sell, auto-sell prompt, order review, collateral return)
 //   8. Market preview price type: Last traded price / Current buy price
 // Every change is saved to the account at once (PUT /users/:uid/preferences) and applied app-wide.
 import { session } from '../store.js';
 import { idApi } from '../identity-api.js';
+import { api } from '../api.js';
 import { esc, toast, relTime } from '../lib.js';
 import { eventCard } from './components.js';
 
@@ -62,7 +63,13 @@ export async function render(panel, { navigate }) {
   const drawPreview = () => { panel.querySelector('[data-testid=display-preview]').innerHTML = eventCard(SAMPLE); };
   drawPreview();
   for (const r of panel.querySelectorAll('input[type=radio]')) r.onchange = () => { if (r.checked) save({ [r.name]: r.value }); };
-  for (const c of panel.querySelectorAll('[data-pref]')) c.onchange = () => save({ [c.dataset.pref]: c.checked });
+  for (const c of panel.querySelectorAll('[data-pref]')) {
+    c.onchange = async () => {
+      await save({ [c.dataset.pref]: c.checked });
+      // Collateral return re-derives at once: on releases what hedged positions guarantee, off stops new releases.
+      if (c.dataset.pref === 'trade_collateral_return') api.refreshCollateral(session.uid).catch(() => {});
+    };
+  }
   panel.querySelector('[data-testid=display-preview]').addEventListener('click', (e) => { if (e.target.closest('a')) { e.preventDefault(); e.stopPropagation(); } }, true); // preview only
   for (const b of panel.querySelectorAll('[data-revoke]')) {
     b.onclick = async () => { await idApi.revokeApp(session.uid, b.dataset.revoke); toast('Access removed'); render(panel, { navigate }); };

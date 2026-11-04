@@ -5,7 +5,7 @@ import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares } from '../lib.js';
+import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars } from '../lib.js';
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
@@ -17,11 +17,15 @@ import { mountEventExtras, renderPromos } from './social2.js'; // follow event, 
 
 const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60], all: [365 * 86400, 1440] };
 const FEE_RATE = 0.07; // display estimate; mirrors the server design choice
+// Scalar markets (CLONE_SPEC.md §28.4): YES pays (value − floor) / (cap − floor) of $1, clamped to [0, 1].
+const isScalar = (m) => m.market_type === 'scalar';
+const unitOf = (m) => m.scalar_unit || '';
+const fmtVal = (m, v) => `${Number(v).toLocaleString('en-US', { maximumFractionDigits: 4 })}${unitOf(m)}`;
+const scalarRange = (m) => `${fmtVal(m, m.floor_strike)} to ${fmtVal(m, m.cap_strike)}`;
 const TABS = [['ideas', 'Social'], ['trades', 'Activity'], ['book', 'Order book'], ['rules', 'Rules'], ['holders', 'Top holders']];
 const MODES = [['dollars', 'Dollars'], ['market', 'Contracts'], ['limit', 'Limit order']];
 const RFQ_MODE = ['rfq', 'Request quote']; // shown when the rfq_enabled user property is on (spec §17.6)
 const COMBO_SERIES = 'PLXCOMBO';
-const feeCents = (c, p) => Math.ceil((FEE_RATE * c * p * (100 - p)) / 100);
 const SVG = {
   cal: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="4.5" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4" stroke="currentColor" stroke-width="1.6"/></svg>',
   chat: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3.5c4.1 0 7 2.6 7 5.8s-2.9 5.8-7 5.8c-.9 0-1.8-.1-2.6-.4L4 16l.9-3C3.7 12 3 10.7 3 9.3c0-3.2 2.9-5.8 7-5.8z" stroke="currentColor" stroke-width="1.6"/></svg>',
@@ -98,6 +102,7 @@ export async function render({ el, params, query, navigate }) {
         <div id="chart"></div>
         <div class="range-row"><span class="num" id="ev-vol"></span><div class="seg" role="tablist" aria-label="Chart range">${Object.keys(RANGES).map((r) => `<button data-range="${esc(r)}" class="${r === state.range ? 'on' : ''}">${esc(r.toUpperCase())}</button>`).join('')}</div></div>
       </section>
+      <div id="scalar-card"></div>
       <table class="mkt-table" aria-label="Outcomes"><thead><tr><th class="ta-l"></th><th>Chance</th><th></th><th></th></tr></thead><tbody id="mkt-rows"></tbody></table>
       <div id="series-events"></div>
       <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${t}" class="${t === state.bottomTab ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -173,13 +178,13 @@ export async function render({ el, params, query, navigate }) {
       const p = prob(m);
       const tradable = m.status === 'active';
       const d = p != null && m.previous_day_price_dollars != null ? p - cents(m.previous_day_price_dollars) : 0;
-      const yesAsk = cents(m.yes_ask_dollars); const noAsk = cents(m.no_ask_dollars);
-      const statusNote = tradable ? '' : `<div class="faint">${m.status === 'finalized' || m.status === 'determined' ? 'Resolved ' + esc(m.result.toUpperCase()) : esc(m.status)}</div>`;
+      const statusNote = tradable ? (isScalar(m) ? `<div class="faint" data-testid="scalar-range">Scalar · pays by value, ${esc(scalarRange(m))}</div>` : '')
+        : `<div class="faint">${m.status === 'finalized' || m.status === 'determined' ? (isScalar(m) ? `Settled at ${esc(fmtVal(m, m.expiration_value))} · YES ${esc(px(m.settlement_value_dollars))}` : 'Resolved ' + esc(m.result.toUpperCase())) : esc(m.status)}</div>`;
       return `<tr data-ticker="${esc(m.ticker)}" class="${m.ticker === state.selected ? 'selected' : ''}">
-        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-xl">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${showShares() ? `Yes ${cents(m.yes_ask_dollars) ?? '—'}¢ · No ${cents(m.no_ask_dollars) ?? '—'}¢` : multiplier(m)}</div></div></div></td>
+        <td><div class="d-flex gap-16 ai-center">${ocAvatar(m)}<div><div class="fs-xl">${esc(m.yes_sub_title)}</div>${statusNote}<div class="faint">${qty(m.volume_fp)} traded · ${showShares() ? `Yes ${esc(px(m.yes_ask_dollars))} · No ${esc(px(m.no_ask_dollars))}` : multiplier(m)}</div></div></div></td>
         <td class="ta-c nowrap"><span class="prob" data-testid="prob-${esc(m.ticker)}">${p == null ? '—' : p + '%'}</span>${d ? ` <span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}</span>` : ''}</td>
-        <td class="ta-r"><button class="yes-btn ${pickOn(m, 'yes') ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${yesAsk ? yesAsk + '¢' : '—'}</button></td>
-        <td><button class="no-btn ${pickOn(m, 'no') ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${noAsk ? noAsk + '¢' : '—'}</button></td></tr>`;
+        <td class="ta-r"><button class="yes-btn ${pickOn(m, 'yes') ? 'on' : ''}" data-pick="yes" ${tradable ? '' : 'disabled'}>Yes ${esc(px(m.yes_ask_dollars))}</button></td>
+        <td><button class="no-btn ${pickOn(m, 'no') ? 'on' : ''}" data-pick="no" ${tradable ? '' : 'disabled'}>No ${esc(px(m.no_ask_dollars))}</button></td></tr>`;
     }).join('');
     for (const tr of el.querySelectorAll('#mkt-rows tr')) {
       tr.onclick = (e) => {
@@ -189,10 +194,24 @@ export async function render({ el, params, query, navigate }) {
         state.selected = tr.dataset.ticker;
         if (pick) { state.side = pick.dataset.pick; state.action = 'buy'; }
         drawRows(); drawTicket(pick ? defaultPrice() : null);
-        if (changed) { subscribeBook(); drawHeadline(); drawBottom(); drawPosition(); drawAlerts(); }
+        if (changed) { subscribeBook(); drawHeadline(); drawScalar(); drawBottom(); drawPosition(); drawAlerts(); }
       };
     }
     drawLegend(); drawH2H();
+  }
+
+  // Scalar payout explanation (CLONE_SPEC.md §28.4): range, formula, a worked example and, once settled, the payout.
+  function drawScalar() {
+    const box = $('#scalar-card');
+    const m = market();
+    if (!isScalar(m)) { box.innerHTML = ''; return; }
+    const span = m.cap_strike - m.floor_strike;
+    const mid = m.floor_strike + span / 2;
+    const settled = ['determined', 'finalized'].includes(m.status) && m.settlement_value_dollars != null;
+    box.innerHTML = `<section class="card scalar-card" data-testid="scalar-card"><h3>How this market pays</h3>
+      <p class="muted">YES pays a share of $1 set by the reported value between <b>${esc(fmtVal(m, m.floor_strike))}</b> (pays $0) and <b>${esc(fmtVal(m, m.cap_strike))}</b> (pays $1): (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, span))}. NO pays the rest. Values outside the range pay at the nearest end.</p>
+      <div class="tkt-row"><span>Example: value ${esc(fmtVal(m, mid))}</span><strong class="num">YES $0.50 · NO $0.50</strong></div>
+      ${settled ? `<div class="tkt-row" data-testid="scalar-result"><span>Settled at ${esc(fmtVal(m, m.expiration_value))}</span><strong class="num">YES ${esc(money(m.settlement_value_dollars))} · NO ${esc(money(1 - Number(m.settlement_value_dollars)))}</strong></div>` : ''}</section>`;
   }
 
   function drawHeadline() {
@@ -216,7 +235,7 @@ export async function render({ el, params, query, navigate }) {
     try {
       const series2 = await Promise.all(ms.map(async (m, i) => {
         const c = await api.candles(ev.series_ticker, m.ticker, { start_ts: now - span, end_ts: now, period_interval: period });
-        return { name: m.yes_sub_title, color: seriesColor(m, i), points: c.candlesticks.map((k) => ({ t: k.end_period_ts, v: cents(k.price.close_dollars) })) };
+        return { name: m.yes_sub_title, color: seriesColor(m, i), points: c.candlesticks.map((k) => ({ t: k.end_period_ts, v: ccOf(k.price.close_dollars) / 100 })) }; // sub-cent prices keep their decimals
       }));
       $('#chart').innerHTML = multiChart(series2, { height: 300, endLabels: ms.length > 1 });
     } catch (e) { $('#chart').innerHTML = `<p class="faint">Chart unavailable: ${esc(e.message)}</p>`; }
@@ -231,15 +250,18 @@ export async function render({ el, params, query, navigate }) {
   }
 
   // ---------- ticket: idle → editing → submitting → confirmed | error ----------
+  // Prices in the ticket are centi-cents on the market's grid (CLONE_SPEC.md §28.1); the inputs show cents with decimals.
   const defaultPrice = () => {
     const m = market();
-    return state.side === 'yes' ? cents(m.yes_ask_dollars) || prob(m) || 50 : cents(m.no_ask_dollars) || (100 - (prob(m) || 50));
+    const last = ccOf(m.last_price_dollars);
+    return snapCc(m, state.side === 'yes' ? ccOf(m.yes_ask_dollars) || last || 5000 : ccOf(m.no_ask_dollars) || (last ? 10000 - last : 5000));
   };
   // When selling, the price shown is what the held side sells for (its bid).
   const sellPrice = () => {
     const m = market();
-    return state.side === 'yes' ? cents(m.yes_bid_dollars) || 1 : cents(m.no_bid_dollars) || 1;
+    return (state.side === 'yes' ? ccOf(m.yes_bid_dollars) : ccOf(m.no_bid_dollars)) || minTickCc(m);
   };
+  const tp = () => session.props || {}; // trade mechanics (Settings, CLONE_SPEC.md §28.5)
   let ticketPrice = null;
   async function refreshHeld() {
     if (!session.user) { state.held = { yes: 0, no: 0 }; return; }
@@ -255,7 +277,8 @@ export async function render({ el, params, query, navigate }) {
     if (ticketPrice == null) ticketPrice = defaultPrice();
     const t = $('#ticket');
     if (m.status !== 'active') {
-      t.innerHTML = `<div class="tkt-body"><div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div><p class="muted" data-testid="ticket-closed">Trading is ${m.status === 'initialized' ? 'not open yet. Opens ' + shortDate(m.open_time) : 'closed for this market'}.${m.result ? ` Result: <strong>${esc(m.result.toUpperCase())}</strong>` : ''}</p></div>`;
+      const res = !m.result ? '' : isScalar(m) ? ` Settled at <strong data-testid="scalar-settled">${esc(fmtVal(m, m.expiration_value))}</strong>: YES pays ${esc(px(m.settlement_value_dollars))}, NO pays ${esc(pxc(10000 - ccOf(m.settlement_value_dollars)))}.` : ` Result: <strong>${esc(m.result.toUpperCase())}</strong>`;
+      t.innerHTML = `<div class="tkt-body"><div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div><p class="muted" data-testid="ticket-closed">Trading is ${m.status === 'initialized' ? 'not open yet. Opens ' + shortDate(m.open_time) : 'closed for this market'}.${res}</p></div>`;
       return;
     }
     const selling = state.action === 'sell';
@@ -264,7 +287,8 @@ export async function render({ el, params, query, navigate }) {
     if (!MODE_LIST.some(([k]) => k === mode)) mode = 'dollars';
     const frac = !!m.fractional_trading_enabled; // fractional contracts (spec §16.5)
     const step = frac ? '0.01' : '1';
-    const yesAsk = cents(m.yes_ask_dollars); const noAsk = cents(m.no_ask_dollars);
+    const yesAsk = ccOf(m.yes_ask_dollars); const noAsk = ccOf(m.no_ask_dollars);
+    const tick = minTickCc(m); // price input step in cents: 1, 0.1 or 0.01
     const held = state.held[state.side];
     t.innerHTML = `<div class="tkt-head"><button data-action="buy" class="${!selling ? 'on' : ''}">BUY</button><button data-action="sell" class="${selling ? 'on' : ''}" data-testid="sell-tab">SELL</button>
         <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(MODE_LIST.find(([k]) => k === mode)[1].toUpperCase())} ▾</button>
@@ -273,18 +297,22 @@ export async function render({ el, params, query, navigate }) {
         <div class="tkt-q">${esc(state.ev.title)}</div>
         <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
         <div class="d-flex ai-center jc-between gap-12 fw-wrap">
-          <div class="yn-toggle side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">YES ${(selling ? cents(m.yes_bid_dollars) : yesAsk) || '—'}¢</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">NO ${(selling ? cents(m.no_bid_dollars) : noAsk) || '—'}¢</button></div>
+          <div class="yn-toggle side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">YES ${esc(pxc(selling ? ccOf(m.yes_bid_dollars) : yesAsk))}</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">NO ${esc(pxc(selling ? ccOf(m.no_bid_dollars) : noAsk))}</button></div>
           <button class="interest-link" id="interest-btn" type="button">3.5% Interest</button>
         </div>
         ${selling ? `<div class="tkt-row" data-testid="held"><span>You hold</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
         ${mode === 'dollars' ? '<label class="tkt-input">Dollars<input id="t-amount" type="number" min="1" step="1" placeholder="$0" inputmode="decimal" aria-label="Dollars"></label>' : ''}
-        ${mode === 'limit' ? `<label class="tkt-input">Limit price (¢)<input id="t-price" type="number" min="1" max="99" step="1" value="${esc(selling ? sellPrice() : ticketPrice)}" inputmode="numeric"></label>` : ''}
+        ${mode === 'limit' ? `<label class="tkt-input">Limit price (¢)<input id="t-price" type="number" min="${esc(tick / 100)}" max="${esc(100 - tick / 100)}" step="${esc(tick / 100)}" value="${esc((selling ? sellPrice() : ticketPrice) / 100)}" inputmode="decimal" data-testid="t-price"></label>
+          ${tick < 100 ? `<div class="faint tkt-grid" data-testid="t-grid">Ticks: ${esc(m.price_ranges.map((r) => `${pxc(ccOf(r.step))} from ${pxc(ccOf(r.start))}`).join(' · '))}</div>` : ''}` : ''}
         ${mode === 'limit' ? `<label class="tkt-input tkt-select">Expires<select id="t-expiry" data-testid="t-expiry" aria-label="Order expiry"><option value="never">Never (GTC)</option><option value="eod">End of day</option><option value="custom">Custom</option></select></label>
           <input id="t-expiry-at" class="tkt-expiry-at" type="datetime-local" hidden aria-label="Expiry time">` : ''}
         ${mode !== 'dollars' ? `<label class="tkt-input">Contracts<input id="t-count" type="number" min="${step}" step="${step}" value="${esc(selling ? held || 1 : 10)}" inputmode="${frac ? 'decimal' : 'numeric'}" data-testid="t-count"></label>` : ''}
+        ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">Scalar: YES pays (value − ${esc(fmtVal(m, m.floor_strike))}) ÷ ${esc(fmtVal(m, m.cap_strike - m.floor_strike))} of $1, NO the rest.</div>` : ''}
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
-        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? 'Sign up to trade' : mode === 'rfq' ? 'Request quote' : `${selling ? 'Sell' : 'Buy'} ${state.side === 'yes' ? 'Yes' : 'No'}`}</button>
+        <div id="t-review"></div>
+        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? 'Sign up to trade' : mode === 'rfq' ? 'Request quote' : `${!tp().trade_skip_review ? 'Review · ' : ''}${selling ? 'Sell' : 'Buy'} ${state.side === 'yes' ? 'Yes' : 'No'}`}</button>
+        <div id="t-after"></div>
       </div>`;
     for (const b of t.querySelectorAll('[data-side]')) b.onclick = () => { state.side = b.dataset.side; drawRows(); drawTicket(defaultPrice()); };
     for (const b of t.querySelectorAll('[data-action]')) b.onclick = async () => { state.action = b.dataset.action; if (state.action === 'sell') await refreshHeld(); drawTicket(); };
@@ -302,72 +330,144 @@ export async function render({ el, params, query, navigate }) {
       const closeLabel = `<span>Max payout<div class="faint">${shortDate(m.close_time)}</div></span>`;
       if (mode === 'dollars') {
         const amt = Number(t.querySelector('#t-amount').value || 0);
-        const p = state.side === 'yes' ? yesAsk : noAsk;
-        const per = p ? p + Math.ceil((FEE_RATE * p * (100 - p)) / 100) : 0;
+        const p = state.side === 'yes' ? yesAsk : noAsk; // cc
+        const pc = p ? p / 100 : 0; // cents, may have decimals
+        const per = p ? pc + Math.ceil((FEE_RATE * pc * (100 - pc)) / 100) : 0;
         const c = p ? (frac ? Math.floor((amt * 10000) / per) / 100 : Math.floor((amt * 100) / per)) : 0; // floor to 0.01 where fractional
-        sum.innerHTML = `<div class="tkt-row"><span>Odds</span><strong>${p ? (state.side === 'yes' ? p : 100 - p) : '—'}% chance</strong></div>
-          <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${qty(c)} contracts at ${p || '—'}¢</div>`;
+        sum.innerHTML = `<div class="tkt-row"><span>Odds</span><strong>${p ? Math.round(state.side === 'yes' ? pc : 100 - pc) : '—'}% chance</strong></div>
+          <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div><div class="faint" data-testid="t-contracts">${qty(c)} contracts at ${esc(pxc(p))}</div>`;
         t.querySelector('#t-submit').disabled = !!session.user && !(c > 0);
         return;
       }
       const c = Number(t.querySelector('#t-count').value);
-      const sizeOk = validQty(c, frac || (selling && c === held));
+      const flipOn = !!tp().trade_flip_sell;
+      const flip = selling && flipOn && c > held ? Math.round((c - held) * 100) / 100 : 0; // A8: the part that buys the other side
+      const sizeOk = validQty(c, frac || (selling && c === held)) && (!flip || frac || Number.isInteger(flip));
       if (mode === 'rfq') {
         sum.innerHTML = sizeOk ? `<div class="faint" data-testid="rfq-hint">Makers reply with Yes and No prices for ${qty(c)} contracts. Accept one side in <a href="/portfolio?tab=rfqs" data-link>Portfolio → RFQs</a>.</div>`
           : `<span class="faint">Enter ${frac ? 'at least 0.01 contracts (2 decimals)' : 'a whole number of contracts'}.</span>`;
         t.querySelector('#t-submit').disabled = !!session.user && !sizeOk;
         return;
       }
-      const p = mode === 'market' ? (selling ? sellPrice() : defaultPrice()) : Number(t.querySelector('#t-price').value);
+      const p = mode === 'market' ? (selling ? sellPrice() : defaultPrice()) : Math.round(Number(t.querySelector('#t-price').value) * 100); // cc
       if (mode === 'limit' && !selling) ticketPrice = p;
       const exp = t.querySelector('#t-expiry');
       if (exp) {
         t.querySelector('#t-expiry-at').hidden = exp.value !== 'custom';
         if (exp.value === 'custom' && !(Date.parse(t.querySelector('#t-expiry-at').value) > Date.now())) { sum.innerHTML = '<span class="faint" data-testid="t-invalid">Pick an expiry time in the future.</span>'; t.querySelector('#t-submit').disabled = !!session.user; return; }
       }
-      const ok = Number.isInteger(p) && p >= 1 && p <= 99 && sizeOk && (!selling || c <= held);
-      if (!ok) { sum.innerHTML = `<span class="faint" data-testid="t-invalid">${selling && c > held ? `You hold ${qty(held)} contracts.` : `Enter a price between 1¢ and 99¢ and ${frac ? 'at least 0.01 contracts (up to 2 decimals)' : 'a whole number of contracts'}.`}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return; }
+      const ok = onGrid(m, p) && sizeOk && (!selling || c <= held || flip > 0);
+      if (!ok) {
+        const why = selling && c > held && !flipOn ? `You hold ${qty(held)} contracts. Turn on Flip sell in Settings to sell more and buy the other side.`
+          : !onGrid(m, p) ? `Enter a price on this market's grid (${pxc(minTickCc(m))} steps, between ${pxc(minTickCc(m))} and ${pxc(10000 - minTickCc(m))}).`
+            : `Enter ${frac ? 'at least 0.01 contracts (up to 2 decimals)' : 'a whole number of contracts'}.`;
+        sum.innerHTML = `<span class="faint" data-testid="t-invalid">${esc(why)}</span>`; t.querySelector('#t-submit').disabled = !!session.user; return;
+      }
+      const other = state.side === 'yes' ? 'NO' : 'YES';
+      const flipLine = flip ? `Sells ${qty(held)} ${state.side.toUpperCase()} you hold and buys ${qty(flip)} ${other} at ${pxc(10000 - p)}` : '';
       sum.innerHTML = selling
-        ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. proceeds' : 'Proceeds at limit'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 100)}</strong></div>`
-        : `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 100)}</strong></div>
-           <div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num">${money(feeCents(c, p) / 100)}</strong></div>
+        ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. proceeds' : 'Proceeds at limit'}</span><strong class="num" data-testid="t-cost">${money((p * Math.min(c, held)) / 10000)}</strong></div>
+           ${flip ? `<div class="tkt-flip" data-testid="flip-line">Flip sell: ${esc(flipLine)}</div>` : ''}`
+        : `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="t-cost">${money((p * c) / 10000)}</strong></div>
+           <div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num" data-testid="t-fee">${money(feeDollars(c, p))}</strong></div>
            <div class="tkt-row">${closeLabel}<span class="payout" data-testid="t-payout">${money(c)}</span></div>`;
+      state.review = { c, p, flip, flipLine, fee: selling ? null : feeDollars(c, p) };
       t.querySelector('#t-submit').disabled = false;
     };
     t.querySelectorAll('input').forEach((i) => { i.oninput = recalc; });
     t.querySelector('#t-expiry')?.addEventListener('change', recalc);
     recalc();
-    t.querySelector('#t-submit').onclick = async () => {
-      if (!session.user) return navigate('/sign-up?next=' + encodeURIComponent(location.pathname));
+    // Build the order body from the inputs (prices as 4-decimal dollar strings on the market grid).
+    const buildBody = () => {
+      const body = { ticker: m.ticker, side: state.side, action: state.action, type: mode };
+      if (mode === 'dollars') body.amount_dollars = Number(t.querySelector('#t-amount').value || 0);
+      else body.count = Number(t.querySelector('#t-count').value);
+      if (mode === 'limit') body.price_dollars = ccDollars(Math.round(Number(t.querySelector('#t-price').value) * 100));
+      // Good-til-time limit orders (spec §17.10): end of the local day or a custom time; Never = GTC.
+      const exp = t.querySelector('#t-expiry')?.value;
+      if (mode === 'limit' && exp === 'eod') { const d = new Date(); d.setHours(23, 59, 59, 999); body.expiration_time = d.toISOString(); }
+      if (mode === 'limit' && exp === 'custom') body.expiration_time = new Date(Date.parse(t.querySelector('#t-expiry-at').value)).toISOString();
+      return body;
+    };
+    // A7 order review (Settings › Trade mechanics › Skip order review, off by default): what will be placed, its cost and
+    // fee, and any warning (a flip sell always asks, even with review skipped).
+    // While reviewing (or answering the auto-sell prompt) the ticket shows only that panel, so a sticky ticket never
+    // grows past the viewport.
+    const focusPanel = (id) => { t.classList.toggle('tkt-focus', !!id); for (const x of t.querySelectorAll('.tkt-keep')) x.classList.remove('tkt-keep'); if (id) t.querySelector(id).classList.add('tkt-keep'); };
+    const showReview = (body) => {
+      const r = state.review || {};
+      const box = t.querySelector('#t-review');
+      const c = mode === 'dollars' ? null : body.count;
+      const priceLine = mode === 'dollars' ? `Spend up to ${money(body.amount_dollars)} at ${pxc(selling ? sellPrice() : defaultPrice())}` : mode === 'market' ? `Market order (best available, ${pxc(r.p)} now)` : `Limit ${px(body.price_dollars)}${body.expiration_time ? ` · expires ${new Date(body.expiration_time).toLocaleString()}` : ' · good til canceled'}`;
+      box.innerHTML = `<section class="tkt-review" data-testid="order-review" aria-label="Review order"><h4>Review order</h4>
+        <div class="tkt-row"><span>Order</span><strong>${esc(selling ? 'Sell' : 'Buy')} ${c != null ? `${esc(qty(c))} ` : ''}${esc(state.side.toUpperCase())} · ${esc(m.yes_sub_title)}</strong></div>
+        <div class="tkt-row"><span>Price</span><strong data-testid="review-price">${esc(priceLine)}</strong></div>
+        ${c != null && !selling ? `<div class="tkt-row"><span>${mode === 'market' ? 'Est. cost' : 'Max cost'}</span><strong class="num" data-testid="review-cost">${money((r.p * c) / 10000)}</strong></div><div class="tkt-row"><span>Est. fee (if taken)</span><strong class="num" data-testid="review-fee">${money(r.fee || 0)}</strong></div>` : ''}
+        ${c != null && !selling ? `<div class="tkt-row"><span>${isScalar(m) ? 'Payout range' : 'Payout if right'}</span><strong class="num">${isScalar(m) ? `$0.00 to ${money(c)}` : money(c)}</strong></div>` : ''}
+        ${r.flip ? `<p class="tkt-flip" data-testid="review-flip">Flip sell: ${esc(r.flipLine)}.</p>` : ''}
+        <div class="tkt-review-actions"><button class="btn" type="button" data-testid="review-edit">Edit</button><button class="btn btn-primary" type="button" data-testid="review-confirm">Place order</button></div></section>`;
+      focusPanel('#t-review');
+      box.querySelector('[data-testid=review-edit]').onclick = () => { box.innerHTML = ''; focusPanel(null); };
+      box.querySelector('[data-testid=review-confirm]').onclick = async (e) => { e.target.disabled = true; focusPanel(null); box.innerHTML = ''; await place(body); };
+    };
+    // A7 auto-sell prompt (Settings › Auto-sell prompt after buy): after a buy fills, offer a resting take-profit sell.
+    const showAutoSell = (o, avgDollars) => {
+      const box = t.querySelector('#t-after');
+      if (!box) return;
+      const filled = Number(o.fill_count_fp);
+      const avg = ccOf(avgDollars) || defaultPrice();
+      const target = snapCc(m, Math.min(10000 - minTickCc(m), avg + Math.max(minTickCc(m), 1000)));
+      box.innerHTML = `<section class="tkt-autosell" data-testid="auto-sell-prompt" aria-label="Auto-sell"><h4>Set an automatic sell?</h4>
+        <p class="faint">Filled ${esc(qty(filled))} ${esc(o.side.toUpperCase())} at ${esc(pxc(avg))} on average. A resting sell takes profit if the price gets there.</p>
+        <label class="tkt-input">Sell at (¢)<input type="number" data-testid="auto-sell-price" step="${esc(minTickCc(m) / 100)}" min="${esc(minTickCc(m) / 100)}" max="${esc(100 - minTickCc(m) / 100)}" value="${esc(target / 100)}" inputmode="decimal"></label>
+        <div class="form-error" role="alert" data-testid="auto-sell-error"></div>
+        <div class="tkt-review-actions"><button class="btn" type="button" data-testid="auto-sell-dismiss">No thanks</button><button class="btn btn-primary" type="button" data-testid="auto-sell-place">Place sell for ${esc(qty(filled))}</button></div></section>`;
+      focusPanel('#t-after');
+      box.querySelector('[data-testid=auto-sell-dismiss]').onclick = () => { box.innerHTML = ''; focusPanel(null); };
+      box.querySelector('[data-testid=auto-sell-place]').onclick = async () => {
+        const cc = Math.round(Number(box.querySelector('[data-testid=auto-sell-price]').value) * 100);
+        const err = box.querySelector('[data-testid=auto-sell-error]');
+        if (!onGrid(m, cc)) { err.textContent = `Pick a price on the grid (${pxc(minTickCc(m))} steps).`; return; }
+        try {
+          const r = await api.submitOrder(session.uid, { ticker: m.ticker, side: o.side, action: 'sell', type: 'limit', count: filled, price_dollars: ccDollars(cc) });
+          toast(`Auto-sell placed: ${qty(r.order.remaining_count_fp)} ${o.side.toUpperCase()} at ${pxc(cc)}${Number(r.order.fill_count_fp) ? ` (${qty(r.order.fill_count_fp)} sold now)` : ''}`);
+          box.innerHTML = ''; focusPanel(null);
+          drawPosition();
+        } catch (ex) { err.textContent = ex.message; }
+      };
+    };
+    const place = async (body) => {
       const btn = t.querySelector('#t-submit');
       const errEl = t.querySelector('#t-error');
       errEl.textContent = '';
       const label = btn.textContent;
       btn.disabled = true; btn.textContent = 'Submitting…';
       try {
-        if (mode === 'rfq') {
-          const r = await api.createRfq({ market_ticker: m.ticker, contracts_fp: Number(t.querySelector('#t-count').value).toFixed(2) });
-          toast(`RFQ sent for ${qty(r.rfq.contracts_fp)} contracts`);
-          return;
-        }
-        const body = { ticker: m.ticker, side: state.side, action: state.action, type: mode };
-        if (mode === 'dollars') body.amount_dollars = Number(t.querySelector('#t-amount').value || 0);
-        else body.count = Number(t.querySelector('#t-count').value);
-        if (mode === 'limit') body.price = Number(t.querySelector('#t-price').value);
-        // Good-til-time limit orders (spec §17.10): end of the local day or a custom time; Never = GTC.
-        const exp = t.querySelector('#t-expiry')?.value;
-        if (mode === 'limit' && exp === 'eod') { const d = new Date(); d.setHours(23, 59, 59, 999); body.expiration_time = d.toISOString(); }
-        if (mode === 'limit' && exp === 'custom') body.expiration_time = new Date(Date.parse(t.querySelector('#t-expiry-at').value)).toISOString();
         const r = await api.submitOrder(session.uid, body);
         const o = r.order;
-        if (selling) toast(`Sold ${qty(o.fill_count_fp)} ${state.side.toUpperCase()}${o.status === 'resting' ? `, ${qty(o.remaining_count_fp)} listed` : ''}`);
+        if (selling) toast(r.flip ? `Flip sell: closed ${qty(r.flip.closed_fp)}, opening ${qty(r.flip.opened_fp)} ${r.flip.opened_side.toUpperCase()} (${o.status === 'resting' ? `${qty(o.remaining_count_fp)} resting` : 'filled'})` : `Sold ${qty(o.fill_count_fp)} ${state.side.toUpperCase()}${o.status === 'resting' ? `, ${qty(o.remaining_count_fp)} listed` : ''}`);
         else toast(o.status === 'executed' ? `Filled ${qty(o.fill_count_fp)} ${o.side.toUpperCase()}` : o.status === 'resting' ? `Order resting · ${qty(o.fill_count_fp)} filled, ${qty(o.remaining_count_fp)} open` : `Order ${o.status} · ${qty(o.fill_count_fp)} filled`);
         queries.invalidate(['home']);
         drawPosition();
         if (selling) { await refreshHeld(); drawTicket(); return; }
+        if (tp().trade_auto_sell_prompt && Number(o.fill_count_fp) > 0) showAutoSell(o, r.fill_avg_price_dollars);
       } catch (e) {
         errEl.textContent = e.unauthorized ? 'Your session expired. Please log in again.' : e.message;
       } finally { if (btn.isConnected) { btn.disabled = false; btn.textContent = label; } }
+    };
+    t.querySelector('#t-submit').onclick = async () => {
+      if (!session.user) return navigate('/sign-up?next=' + encodeURIComponent(location.pathname));
+      if (mode === 'rfq') {
+        const errEl = t.querySelector('#t-error');
+        try {
+          const r = await api.createRfq({ market_ticker: m.ticker, contracts_fp: Number(t.querySelector('#t-count').value).toFixed(2) });
+          toast(`RFQ sent for ${qty(r.rfq.contracts_fp)} contracts`);
+        } catch (e) { errEl.textContent = e.message; }
+        return;
+      }
+      const body = buildBody();
+      if (!tp().trade_skip_review || (state.review && state.review.flip && mode !== 'dollars')) { showReview(body); return; }
+      await place(body);
     };
   }
 
@@ -379,16 +479,16 @@ export async function render({ el, params, query, navigate }) {
     const ticker = state.selected;
     api.orderbook(ticker).then((ob) => {
       if (state.selected !== ticker) return;
-      state.book = { yes: new Map(ob.orderbook_fp.yes_dollars.map(([p, c]) => [cents(p), Number(c)])), no: new Map(ob.orderbook_fp.no_dollars.map(([p, c]) => [cents(p), Number(c)])) };
+      state.book = { yes: new Map(ob.orderbook_fp.yes_dollars.map(([p, c]) => [ccOf(p), Number(c)])), no: new Map(ob.orderbook_fp.no_dollars.map(([p, c]) => [ccOf(p), Number(c)])) }; // keys in cc
       if (state.bottomTab === 'book') drawBottom();
     }).catch(() => {});
     unsubBook = socket.subscribe({ channels: ['orderbook'], market_tickers: [ticker] }, (msg) => {
       if (msg.msg.market_ticker !== state.selected) return;
       if (msg.type === 'orderbook_snapshot') {
-        state.book = { yes: new Map(msg.msg.yes_dollars.map(([p, c]) => [cents(p), Number(c)])), no: new Map(msg.msg.no_dollars.map(([p, c]) => [cents(p), Number(c)])) };
+        state.book = { yes: new Map(msg.msg.yes_dollars.map(([p, c]) => [ccOf(p), Number(c)])), no: new Map(msg.msg.no_dollars.map(([p, c]) => [ccOf(p), Number(c)])) };
       } else if (msg.type === 'orderbook_delta') {
         const map = state.book[msg.msg.side];
-        const p = cents(msg.msg.price_dollars);
+        const p = ccOf(msg.msg.price_dollars);
         const n = (map.get(p) || 0) + Number(msg.msg.delta_fp);
         if (n <= 0) map.delete(p); else map.set(p, n);
       }
@@ -412,11 +512,11 @@ export async function render({ el, params, query, navigate }) {
     } else if (tab === 'book') {
       // "Hide fractional shares" (order-book setting, DB-persisted): sizes round down to whole contracts for display.
       const shown = (entries) => (state.hideFrac ? entries.map(([p, c]) => [p, Math.floor(c + 1e-9)]).filter(([, c]) => c > 0) : entries);
-      const asks = shown([...state.book.no.entries()].map(([p, c]) => [100 - p, c])).sort((a, b) => a[0] - b[0]).slice(0, 8).reverse();
+      const asks = shown([...state.book.no.entries()].map(([p, c]) => [10000 - p, c])).sort((a, b) => a[0] - b[0]).slice(0, 8).reverse();
       const bids = shown([...state.book.yes.entries()]).sort((a, b) => b[0] - a[0]).slice(0, 8);
       const max = Math.max(1, ...asks.map((a) => a[1]), ...bids.map((b) => b[1]));
-      const row = (p, c, color) => `<div class="book-row"><span class="bar v-w v-bg"${vars({ '--w': `${(c / max) * 100}%`, '--bg': color })}></span><span>${esc(p)}¢</span><span class="ta-r">${qty(c)}</span></div>`;
-      box.innerHTML = `<div class="card p-20" data-testid="orderbook"><div class="book-head"><span class="faint">${esc(m.yes_sub_title)}</span><label class="book-setting"><input type="checkbox" id="hide-frac" data-testid="hide-fractional" ${state.hideFrac ? 'checked' : ''}> Hide fractional shares</label></div><div class="book">
+      const row = (p, c, color) => `<div class="book-row"><span class="bar v-w v-bg"${vars({ '--w': `${(c / max) * 100}%`, '--bg': color })}></span><span data-testid="book-price">${esc(pxc(p))}</span><span class="ta-r">${qty(c)}</span></div>`;
+      box.innerHTML = `<div class="card p-20" data-testid="orderbook"><div class="book-head"><span class="faint">${esc(m.yes_sub_title)}${m.price_level_structure && m.price_level_structure !== 'linear_cent' ? ` · <span data-testid="book-grid">${esc(m.price_level_structure.replace(/_/g, ' '))} ticks</span>` : ''}</span><label class="book-setting"><input type="checkbox" id="hide-frac" data-testid="hide-fractional" ${state.hideFrac ? 'checked' : ''}> Hide fractional shares</label></div><div class="book">
         <div><h4 class="c-no">Offers to sell YES</h4>${asks.map(([p, c]) => row(p, c, 'var(--no)')).join('') || '<p class="faint">None</p>'}</div>
         <div><h4 class="c-yes">Bids to buy YES</h4>${bids.map(([p, c]) => row(p, c, 'var(--yes)')).join('') || '<p class="faint">None</p>'}</div></div></div>`;
       box.querySelector('#hide-frac').onchange = (e) => {
@@ -429,7 +529,7 @@ export async function render({ el, params, query, navigate }) {
         const r = await api.socialTrades({ event_ticker: ev.event_ticker });
         if (stale()) return;
         box.innerHTML = `<div class="card p-4-20"><table class="table" data-testid="trades"><thead><tr><th>Trader</th><th>Outcome</th><th>Bought</th><th class="num">Price</th><th class="num">Contracts</th><th class="num">When</th></tr></thead><tbody>
-          ${r.trades.slice(0, 25).map((t) => { const px = t.taker_side === 'yes' ? cents(t.price_dollars) : 100 - cents(t.price_dollars); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : '<span class="faint">Anonymous</span>'}</td><td>${esc(t.outcome)}</td><td><strong class="c-${esc(t.taker_side)}">${esc(t.taker_side.toUpperCase())}</strong></td><td class="num">${px}¢</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
+          ${r.trades.slice(0, 25).map((t) => { const tpx = pxc(t.taker_side === 'yes' ? ccOf(t.price_dollars) : 10000 - ccOf(t.price_dollars)); return `<tr><td>${t.taker_nickname ? `<a href="/social/profile/${encodeURIComponent(t.taker_nickname)}" data-link><strong>@${esc(t.taker_nickname)}</strong></a>` : '<span class="faint">Anonymous</span>'}</td><td>${esc(t.outcome)}</td><td><strong class="c-${esc(t.taker_side)}">${esc(t.taker_side.toUpperCase())}</strong></td><td class="num">${esc(tpx)}</td><td class="num">${qty(t.count_fp)}</td><td class="num faint">${relTime(t.create_date)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="faint">No trades yet</td></tr>'}</tbody></table></div>`;
       } catch (e) { box.innerHTML = `<p class="faint">${esc(e.tooManyRequests ? 'Too many requests, try again shortly.' : e.message)}</p>`; }
     } else if (tab === 'ideas') {
       const r = await api.posts({ event_ticker: ev.event_ticker });
@@ -485,7 +585,7 @@ export async function render({ el, params, query, navigate }) {
       const mine = positions.filter((p) => p.event_ticker === ev.event_ticker && p.side);
       const resting = orders.filter((o) => state.ev.markets.some((m) => m.ticker === o.ticker));
       box.innerHTML = (mine.length || resting.length) ? `<section class="card side-card" data-testid="my-position"><h3>Your position</h3>
-        ${mine.map((p) => `<div class="outcome-row"><span class="outcome-name">${esc(p.outcome)} · <strong>${esc(p.side.toUpperCase())}</strong></span><span class="num">${qty(p.position_fp)} @ ${cents(p.avg_price_dollars)}¢</span></div>`).join('')}
+        ${mine.map((p) => `<div class="outcome-row"><span class="outcome-name">${esc(p.outcome)} · <strong>${esc(p.side.toUpperCase())}</strong></span><span class="num">${qty(p.position_fp)} @ ${esc(px(p.avg_price_dollars))}</span></div>`).join('')}
         ${resting.length ? `<div class="faint mt-6">${resting.length} resting order(s) — manage in <a href="/portfolio" data-link>Portfolio</a></div>` : ''}</section>` : '';
     } catch { box.innerHTML = ''; }
   }
@@ -518,10 +618,12 @@ export async function render({ el, params, query, navigate }) {
       <div class="d-flex gap-6 fw-wrap mt-8">
         <button class="btn" data-admin="deactivate">Pause</button><button class="btn" data-admin="activate">Resume</button>
         <button class="btn" data-admin="close">Close</button>
-        <button class="btn" data-admin="determine" data-result="yes">Resolve YES</button><button class="btn" data-admin="determine" data-result="no">Resolve NO</button></div></section>`;
+        ${isScalar(m) ? `<label class="field">Value (${esc(unitOf(m) || 'units')})<input type="number" step="any" data-testid="admin-scalar-value" id="admin-scalar-value"></label><button class="btn" data-admin="determine" data-scalar="1">Resolve at value</button>`
+    : '<button class="btn" data-admin="determine" data-result="yes">Resolve YES</button><button class="btn" data-admin="determine" data-result="no">Resolve NO</button>'}</div></section>`;
     for (const b of el.querySelectorAll('[data-admin]')) {
       b.onclick = async () => {
-        try { await api.admin(m.ticker, b.dataset.admin, b.dataset.result ? { result: b.dataset.result } : {}); toast(`Market ${b.dataset.admin} ok`); await refreshEvent(); } catch (e) { toast(e.message, 'error'); }
+        const body = b.dataset.result ? { result: b.dataset.result } : b.dataset.scalar ? { expiration_value: Number($('#admin-scalar-value').value) } : {};
+        try { await api.admin(m.ticker, b.dataset.admin, body); toast(`Market ${b.dataset.admin} ok`); await refreshEvent(); } catch (e) { toast(e.message, 'error'); }
       };
     }
   }
@@ -581,7 +683,7 @@ export async function render({ el, params, query, navigate }) {
   async function refreshEvent() {
     const r = await api.event(eventTicker);
     state.ev = r.event;
-    drawRows(); drawTicket(); drawAdmin(); drawPosition(); drawHeadline(); drawComboLegs();
+    drawRows(); drawTicket(); drawAdmin(); drawPosition(); drawHeadline(); drawScalar(); drawComboLegs();
   }
 
   // ---------- live updates ----------
@@ -610,7 +712,7 @@ export async function render({ el, params, query, navigate }) {
   if (session.user) unsubs.push(socket.subscribe({ channels: ['fill'] }, (msg) => { if (tickers.includes(msg.msg.ticker)) drawPosition(); }));
 
   await refreshHeld();
-  drawWatch(); drawRows(); drawHeadline(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated(); drawComboLegs();
+  drawWatch(); drawRows(); drawHeadline(); drawScalar(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated(); drawComboLegs();
   // Keep canonical URL (slug is decorative, spec §3).
   const canonical = eventHref({ ...ev, series_slug: series.slug });
   if (location.pathname !== canonical) history.replaceState({}, '', canonical);

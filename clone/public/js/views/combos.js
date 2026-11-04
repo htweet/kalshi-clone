@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, prob, money, qty, cents, toast, secsLeft, catLabel } from '../lib.js';
+import { esc, prob, money, qty, toast, secsLeft, catLabel, px } from '../lib.js';
 import { evIcon } from './components.js';
 
 const MAX_LEGS = 6;
@@ -78,15 +78,14 @@ export async function render({ el, navigate }) {
     const q = state.quote;
     if (state.phase === 'requesting' || (state.phase === 'waiting' && !q)) return '<div class="combo-quote" data-testid="quote-state">Requesting a quote…</div>';
     if (state.phase === 'quoted' && q) {
-      const px = cents(q.buy_yes_price_dollars);
-      return `<div class="combo-quote" data-testid="combo-quote"><div class="tkt-row"><span>Quote</span><strong data-testid="quote-price">Yes ${px}¢</strong></div>
+      return `<div class="combo-quote" data-testid="combo-quote"><div class="tkt-row"><span>Quote</span><strong data-testid="quote-price">Yes ${esc(px(q.buy_yes_price_dollars))}</strong></div>
         <div class="tkt-row"><span>Contracts</span><strong class="num" data-testid="quote-contracts">${qty(q.no_contracts_fp)}</strong></div>
         <div class="tkt-row"><span>Pays if every leg hits</span><strong class="payout">${money(q.no_contracts_fp)}</strong></div>
         <button class="cta" data-testid="accept-quote" id="accept-quote">Accept · <span data-countdown="${esc(q.expires_time)}">${secsLeft(q.expires_time)}s</span></button></div>`;
     }
     if (state.phase === 'expired') return '<div class="combo-quote" data-testid="quote-state">Quote expired · fetching a new one…</div>';
     if (state.phase === 'accepting' || state.phase === 'confirming') return `<div class="combo-quote"><button class="cta" disabled data-testid="quote-state">${state.phase === 'accepting' ? 'Accepting…' : 'Confirming…'}</button></div>`;
-    if (state.phase === 'executed' && state.executed) return `<div class="combo-quote done" data-testid="quote-executed">Executed: ${qty(state.executed.executed_contracts_fp)} contracts at ${cents(state.executed.buy_yes_price_dollars)}¢ · <a href="${esc(state.executed.link)}" data-link data-testid="combo-link">View combo</a></div>`;
+    if (state.phase === 'executed' && state.executed) return `<div class="combo-quote done" data-testid="quote-executed">Executed: ${qty(state.executed.executed_contracts_fp)} contracts at ${esc(px(state.executed.buy_yes_price_dollars))} · <a href="${esc(state.executed.link)}" data-link data-testid="combo-link">View combo</a></div>`;
     return '';
   }
 

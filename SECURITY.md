@@ -194,7 +194,20 @@ exchange ↔ its own provider simulators (loopback HTTP).
 | D | Webhook flooding | Anonymous rate tier, 64 KB raw-body limit, rejection logging throttled per kind and IP | ✅ |
 | E | Staff moving money without trace | Reconciliation adjustments, AML decisions and payment settings need `users.money` / `settings.write`, a reason and step-up; all hash-chain audited | ✅ |
 
-### 12. Markets and content (Phase 5B, `CLONE_SPEC.md` §29)
+### 12. Trading core and resolution integrity (Phase 5A, `CLONE_SPEC.md` §28)
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| T | Off-grid or over-precise prices create unmatchable levels or rounding exploits | Every limit is checked against the market's grid in the engine (`invalid_price`); prices are integers (centi-cents), so there is no float math in matching | ✅ (`trading-core` grid test) |
+| T | Fee rounding drift (many tiny fills each rounded up, or rounding skimmed silently) | Exact micro-dollar fees with BigInt; one accumulator per order; journal books the rounding cent separately (`house:fees:rounding`) and the audit reconciles it against `orders.fee_micro` | ✅ |
+| E | Releasing collateral that a user's positions do not actually guarantee | Guarantee computed from the worst single-winner scenario (and "no winner") inside the fill / settlement transaction; scalar events excluded; repayment at once when the hedge shrinks; advances journaled against `house:collateral_advance` and audited | ✅ |
+| T | A wrong or malicious resolution pays the wrong side | Source note required; settlement delay as a review window; **two-person rule** option (a different admin with `resolution.write` must approve; self-approval refused; requests lapse after 24 h); step-up for corrections and for changing the policy | ✅ (`trading-core` two-person test) |
+| R | "Nobody decided that" after a payout is reversed | Every request, approval, rejection and correction is a hash-chained audit row with the reason, requester and approver; `settlement_corrections` keeps the before/after value, the claw-back and the re-pay | ✅ |
+| T | Correction leaves money unaccounted for, or a user's balance silently wrong | Settlement rows are append-only (`effective_payout_cents` tracks the corrected amount); each difference is a ledger + journal entry against the market escrow, which must return to zero; negative cash follows the Phase 4 debt rule (withdrawals blocked); every affected user is notified | ✅ (ledger audit in the suite) |
+| E | Unprivileged staff create or reshape markets | Drafting markets (including scalar bounds and grids) needs `catalog.write`; resolution needs `resolution.write`; policy needs `settings.write`; all routes are in the authz matrix | ✅ (`authz`) |
+| D | Flip sell or auto-sell used to place oversized orders | Both go through the normal order path: Idempotency-Key, body schema, trading limits, balance reservation, fractional rules | ✅ |
+
+### 13. Markets and content (Phase 5B, `CLONE_SPEC.md` §29)
 
 Trust boundaries added: CMS news text → summarizer (and, when configured, → an external model API and back); browser →
 ballot lookup (a postal address); resting orders → incentive rewards → the journal.
@@ -220,6 +233,9 @@ ballot lookup (a postal address); resting orders → incentive rewards → the j
   monitoring programme. KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
 - Signed API keys for the public trading API are not built (P7.1).
 - Property-based tests for perps margin/liquidation invariants (P6 gate).
+- Trading core (Phase 5A, `CLONE_SPEC.md` §28.11): the two-person rule assumes distinct people behind distinct admin
+  accounts; corrections are refused (not cascaded) when a combo already resolved from the leg; the MECNET guarantee is
+  conservative (it assumes no outcome may win).
 - Phase 5B (`CLONE_SPEC.md` §29.10): the injection filter and moderation blocklist are heuristics; output validation is
   the real control. No wash-trading or self-matching detection for incentive rewards yet. The ballot rate limit and
   the summary budget are per process (PLAN §10 RS1). A saved ballot area is not yet part of the data export.

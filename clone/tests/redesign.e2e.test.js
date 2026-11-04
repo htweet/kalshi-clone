@@ -129,7 +129,7 @@ test('ticket: Dollars buy, SELL tab sells held contracts (netting to cash), mode
   await page.fill('#t-amount', '10');
   const expect = Number((await page.textContent('[data-testid=t-contracts]')).match(/^(\d+)/)[1]);
   assert.ok(expect >= 15 && expect <= 20, `contracts for $10: ${expect}`);
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector(`.toast:has-text("Filled ${expect} YES")`);
   assert.equal(pos().yes_count, expect * 100); // stored in units (hundredths of a contract, spec §16)
   await mode(page, 'market');
@@ -140,7 +140,7 @@ test('ticket: Dollars buy, SELL tab sells held contracts (netting to cash), mode
   assert.equal(await page.isDisabled('[data-testid=submit-order]'), true);
   const before = dbq('SELECT balance_cents b FROM users WHERE id=?', uid())[0].b;
   await page.fill('#t-count', '5');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Sold 5 YES")');
   await page.waitForSelector(`[data-testid=held]:has-text("${expect - 5} YES")`);
   assert.equal(pos().yes_count, (expect - 5) * 100);
@@ -197,7 +197,7 @@ test('rolling Above/Below markets: live card, trade Above, window settles, Deter
   await page.waitForSelector('#ticket .side-toggle button.on-yes');
   await mode(page, 'market');
   await page.fill('#t-count', '3');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Filled 3 YES")');
   const w = () => dbq('SELECT * FROM flash_windows WHERE event_ticker=?', ev)[0];
   const deadline = Date.now() + 20000;

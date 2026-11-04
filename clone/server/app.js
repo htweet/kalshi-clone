@@ -4,13 +4,15 @@ const { tx } = require('./db');
 const { nowIso, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, encCursor, decCursor } = require('./util');
 const { marketVo, eventVo, seriesVo, orderVo, fillVo } = require('./serialize');
 const { mountFeatures, CATEGORIES } = require('./features');
-const { perContractFeeCap } = require('./engine');
+const { perContractFeeCapCc } = require('./engine');
+const P = require('./pricing'); // Phase 5A price grids and centi-cent prices (CLONE_SPEC.md §28)
 const { mountRolling } = require('./rolling');
 const { mountPerps } = require('./perps');
 const { mountCombos, COMBO_SERIES } = require('./combos');
 const { mountHistory } = require('./history');
 const { mountOrders, parseExpiry } = require('./orders');
 const { mountPositions } = require('./positions');
+const { mountTradingCore } = require('./trading-core'); // Phase 5A: collateral return, settlement corrections, two-person rule (CLONE_SPEC.md §28)
 const { mountSports } = require('./sports');
 const { mountAdmin } = require('./admin');
 const { mountChat } = require('./chat');
@@ -134,6 +136,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   const ordersApi = mountOrders({ v1, db, engine, requireUser, notify: feat.notify });
   mountPositions({ v1, db, engine, requireUser });
   app.locals.marketsContent = mountMarketsContent({ v1, db, engine, auth, admin, identity: app.locals.identity, feat, security, requireUser, eventFull, getEvent, options: marketsContent || {} });
+  app.locals.tradingCore = mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify: feat.notify });
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
@@ -167,7 +170,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     let where = '';
     if (req.query.ticker) { where = 'WHERE market_ticker=?'; args.push(req.query.ticker); }
     const rows = db.prepare(`SELECT * FROM trades ${where} ORDER BY created_ts DESC LIMIT ?`).all(...args, limit);
-    res.json({ cursor: '', trades: rows.map((t) => ({ trade_id: t.id, ticker: t.market_ticker, yes_price_dollars: dollars(t.yes_price_cents), no_price_dollars: dollars(100 - t.yes_price_cents), count_fp: ufp(t.count), taker_side: t.taker_side, created_time: new Date(t.created_ts).toISOString() })) });
+    res.json({ cursor: '', trades: rows.map((t) => ({ trade_id: t.id, ticker: t.market_ticker, yes_price_dollars: P.ccToDollars(t.yes_price_cc), no_price_dollars: P.ccToDollars(P.CC - t.yes_price_cc), count_fp: ufp(t.count), taker_side: t.taker_side, created_time: new Date(t.created_ts).toISOString() })) });
   });
 
   v2.get('/markets/:ticker', (req, res) => {
@@ -183,9 +186,10 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     const lv = (map) => {
       let a = [...map.entries()].sort((x, y) => x[0] - y[0]);
       if (depth) a = a.slice(-depth);
-      return a.map(([p, c]) => [dollars(p), ufp(c)]);
+      return a.map(([p, c]) => [P.ccToDollars(p), ufp(c)]);
     };
-    res.json({ orderbook_fp: { yes_dollars: lv(b.yes), no_dollars: lv(b.no) } });
+    const m = db.prepare('SELECT price_level_structure s FROM markets WHERE ticker=?').get(req.params.ticker);
+    res.json({ orderbook_fp: { yes_dollars: lv(b.yes), no_dollars: lv(b.no) }, price_level_structure: m.s, price_ranges: P.priceRanges(m.s), tick_size_dollars: P.ccToDollars(P.minTick(m.s)) });
   });
 
   v2.get('/events', (req, res) => {
@@ -230,8 +234,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     if (start >= end) throw E.badRequest('start_ts must be before end_ts');
     const step = period * 60;
     if ((end - start) / step > 5000) throw E.badRequest('too many candlesticks requested');
-    const trades = db.prepare('SELECT yes_price_cents p, count c, created_ts ts FROM trades WHERE market_ticker=? AND created_ts>=? AND created_ts<? ORDER BY created_ts').all(m.ticker, start * 1000, end * 1000);
-    const prevRow = db.prepare('SELECT yes_price_cents p FROM trades WHERE market_ticker=? AND created_ts<? ORDER BY created_ts DESC LIMIT 1').get(m.ticker, start * 1000);
+    const trades = db.prepare('SELECT yes_price_cc p, count c, created_ts ts FROM trades WHERE market_ticker=? AND created_ts>=? AND created_ts<? ORDER BY created_ts').all(m.ticker, start * 1000, end * 1000);
+    const prevRow = db.prepare('SELECT yes_price_cc p FROM trades WHERE market_ticker=? AND created_ts<? ORDER BY created_ts DESC LIMIT 1').get(m.ticker, start * 1000);
+    const dollars = P.ccToDollars; // candle prices are cc (sub-cent grids, CLONE_SPEC.md §28.1)
     let prev = prevRow ? prevRow.p : null;
     const out = [];
     let i = 0;
@@ -279,10 +284,10 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     let v = 0;
     for (const p of db.prepare('SELECT * FROM positions WHERE user_id=? AND (yes_count>0 OR no_count>0)').all(uid)) {
       const qq = q(p.market_ticker);
-      const mark = qq.last_price ?? 50;
-      v += p.yes_count * mark + p.no_count * (100 - mark); // units × cents
+      const mark = qq.last_price_cc ?? P.CC / 2;
+      v += p.yes_count * mark + p.no_count * (P.CC - mark); // units × cc
     }
-    return Math.round(v / UNITS);
+    return Math.round(v / (UNITS * P.CC_PER_CENT));
   }
 
   v1.get('/users/:uid/balance', requireUser, (req, res) => {
@@ -305,6 +310,21 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     if (b.count_fp != null && b.count != null && toUnits(b.count) !== u) throw E.badRequest('count and count_fp must match');
     return u;
   }
+  // Limit price (spec §5.1, CLONE_SPEC.md §28.1): `price_dollars` (4-decimal dollar string) or `price` in cents (a whole
+  // number, or with decimals on sub-cent grids, e.g. 45.3). Returns cc, or null when absent.
+  function parsePrice(b) {
+    if (b.price_dollars != null && b.price_dollars !== '') {
+      const cc = P.ccFromDollars(b.price_dollars);
+      if (cc == null) throw E.badRequest('price_dollars must be a dollar amount with at most 4 decimals');
+      return cc;
+    }
+    if (b.price == null || b.price === '') return null;
+    const cc = P.ccFromCents(b.price);
+    if (cc == null) throw E.badRequest('price must be a number of cents (up to 2 decimals on sub-cent markets)');
+    return cc;
+  }
+  const tradePref = (uid, key) => { const r = db.prepare('SELECT value FROM user_settings WHERE user_id=? AND key=?').get(uid, key); try { return r ? JSON.parse(r.value) === true : false; } catch { return false; } };
+  app.locals.tradePref = tradePref;
   v1.post('/users/:uid/orders', requireUser, (req, res) => {
     const b = { ...(req.body || {}) };
     const uid = req.auth.user.id;
@@ -314,12 +334,12 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     if (!['buy', 'sell'].includes(action)) throw E.badRequest('action must be buy or sell');
     if (!['yes', 'no'].includes(b.side)) throw E.badRequest('side must be yes or no');
     const ticker = String(b.ticker || '');
-    const mk = db.prepare('SELECT fractional_trading_enabled f FROM markets WHERE ticker=?').get(ticker);
+    const mk = db.prepare('SELECT fractional_trading_enabled f, price_level_structure pls FROM markets WHERE ticker=?').get(ticker);
     if (!mk) throw E.notFound();
-    let price = b.price;
-    if (b.price_dollars != null) price = Math.round(Number(b.price_dollars) * 100);
+    let pcc = parsePrice(b);
     let units = type === 'dollars' ? null : parseCount(b);
     let allowFractional = false;
+    let flipUnits = 0;
     const wholeOnly = (u) => { if (u % UNITS !== 0 && !mk.f && !allowFractional) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market', 'order a whole number of contracts'); };
     // Selling YES at p is buying NO at 100-p; the bought contracts net against the held ones for $1 a pair (spec §15.4).
     let side = b.side;
@@ -327,17 +347,24 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       const pos = db.prepare('SELECT yes_count, no_count FROM positions WHERE user_id=? AND market_ticker=?').get(uid, ticker) || { yes_count: 0, no_count: 0 };
       const held = b.side === 'yes' ? pos.yes_count : pos.no_count;
       if (type === 'dollars') throw E.badRequest('sell orders take a contract count, not a dollar amount');
-      if (units > held) throw E.conflict('insufficient_position', 'you cannot sell more contracts than you hold', `you hold ${ustr(held)} ${b.side.toUpperCase()}`);
-      allowFractional = units === held; // a held fractional position can always be closed in full
+      if (units > held) {
+        // A8 flip sell (Settings › Trade mechanics, CLONE_SPEC.md §28.5): selling more than held closes the position and
+        // buys the other side for the remainder — the same single order, since the bought contracts net against the held
+        // ones first. Without the setting the old rule stands.
+        if (!tradePref(uid, 'trade_flip_sell')) throw E.conflict('insufficient_position', 'you cannot sell more contracts than you hold', `you hold ${ustr(held)} ${b.side.toUpperCase()}; turn on Flip sell in Settings to sell more and buy the other side`);
+        flipUnits = units - held;
+        allowFractional = !!mk.f || flipUnits % UNITS === 0;
+      } else allowFractional = units === held; // a held fractional position can always be closed in full
       side = b.side === 'yes' ? 'no' : 'yes';
-      if (type === 'limit') { if (!Number.isInteger(price) || price < 1 || price > 99) throw E.badRequest('price must be an integer number of cents between 1 and 99'); price = 100 - price; }
+      if (type === 'limit') { if (pcc == null || pcc < 1 || pcc >= P.CC) throw E.badRequest('price must be between 1¢ and 99¢ (sub-cent ticks where the market allows them)'); pcc = P.CC - pcc; }
     }
     if (units != null) wholeOnly(units);
     let tif = type === 'limit' ? 'gtc' : 'ioc';
     // Good-til-time (spec §17.10): limit orders may carry expiration_time; IOC types may not.
     const expiration = parseExpiry(b.expiration_time);
     if (expiration != null && type !== 'limit') throw E.badRequest('expiration_time is only valid on limit orders');
-    if (type === 'market') price = 99;
+    if (type === 'limit' && pcc == null) throw E.badRequest('a limit order needs price or price_dollars');
+    if (type === 'market') pcc = P.maxPrice(mk.pls); // protective limit at the top of the grid (99¢ on whole-cent markets)
     let maxCost = null;
     if (type === 'dollars') {
       // Spend up to amount_dollars at the current best ask (fee included), immediate-or-cancel.
@@ -345,19 +372,20 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       const amt = Math.round(Number(b.amount_dollars) * 100);
       if (!Number.isFinite(amt) || amt < 1) throw E.badRequest('amount_dollars must be at least $0.01');
       const qq = engine.quote(ticker);
-      const ask = side === 'yes' ? qq.yes_ask : qq.no_ask;
+      const ask = side === 'yes' ? qq.yes_ask_cc : qq.no_ask_cc;
       if (ask == null) throw E.conflict('no_liquidity', 'there are no offers to buy from right now');
       const m = engine.market(ticker);
-      const per = ask + perContractFeeCap(ask, m.fee_multiplier);
-      units = Math.floor((amt * UNITS) / per);
+      const per = ask + perContractFeeCapCc(ask, m.fee_multiplier) * P.CC_PER_CENT; // cc per contract, fee bound included
+      units = Math.floor((amt * P.CC) / per);
       if (!mk.f) units -= units % UNITS;
-      if (units < 1) throw E.badRequest(`amount is below the price of ${mk.f ? '0.01 contracts' : 'one contract'} (${ask}¢ plus fee)`);
-      price = ask;
+      if (units < 1) throw E.badRequest(`amount is below the price of ${mk.f ? '0.01 contracts' : 'one contract'} (${P.centsLabel(ask)} plus fee)`);
+      pcc = ask;
       maxCost = amt;
     }
-    if (Number.isInteger(price) && units > 0) feat.checkTrading(uid, Math.ceil((units * price) / UNITS));
-    const order = engine.placeOrder(uid, { ticker, side, price, count: units, time_in_force: tif, client_order_id: b.client_order_id, max_cost_cents: maxCost, allow_fractional: allowFractional, action, order_type: type, expiration_ts: expiration ?? null });
-    res.status(201).json({ order: orderVo(order), status: order.status });
+    if (Number.isInteger(pcc) && units > 0) feat.checkTrading(uid, Math.ceil((units * pcc) / P.CC));
+    const order = engine.placeOrder(uid, { ticker, side, price_cc: pcc, count: units, time_in_force: tif, client_order_id: b.client_order_id, max_cost_cents: maxCost, allow_fractional: allowFractional, action, order_type: type, expiration_ts: expiration ?? null, flip_units: flipUnits });
+    const fa = db.prepare('SELECT COALESCE(SUM(count),0) n, COALESCE(SUM(count*price_cc),0) v FROM fills WHERE order_id=? AND user_id=?').get(order.id, uid);
+    res.status(201).json({ order: orderVo(order), status: order.status, fill_avg_price_dollars: fa.n ? P.ccToDollars(Math.round(fa.v / fa.n)) : null, ...(flipUnits ? { flip: { closed_fp: ufp(units - flipUnits), opened_side: side, opened_fp: ufp(flipUnits) } } : {}) });
   });
   v1.delete('/users/:uid/orders/:oid', requireUser, (req, res) => res.json({ order: orderVo(engine.cancelOrder(req.auth.user.id, req.params.oid)) }));
   v1.get('/users/:uid/orders', requireUser, (req, res) => {
@@ -371,12 +399,12 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     const rows = db.prepare('SELECT p.*, m.title, m.yes_sub_title, m.status, m.event_ticker, m.mve_collection_ticker FROM positions p JOIN markets m ON m.ticker=p.market_ticker WHERE p.user_id=? ORDER BY p.updated_at DESC').all(req.auth.user.id);
     res.json({ positions: rows.map((p) => {
       const qq = q(p.market_ticker);
-      const mark = qq.last_price ?? 50;
+      const mark = qq.last_price_cc ?? P.CC / 2;
       const held = p.yes_count > 0 ? 'yes' : p.no_count > 0 ? 'no' : null;
       const count = p.yes_count || p.no_count; // units
       const cost = p.yes_cost_cents + p.no_cost_cents;
-      const value = Math.round((p.yes_count * mark + p.no_count * (100 - mark)) / UNITS);
-      return { ticker: p.market_ticker, event_ticker: p.event_ticker, market_title: p.title, outcome: p.yes_sub_title, market_status: p.status, is_combo: !!p.mve_collection_ticker, side: held, position_fp: ufp(count), total_cost_dollars: dollars(cost), avg_price_dollars: count ? dollars(Math.round((cost * UNITS) / count)) : null, market_value_dollars: dollars(value), unrealized_pnl_dollars: dollars(value - cost), realized_pnl_dollars: dollars(p.realized_pnl_cents), fees_paid_dollars: dollars(p.fees_paid_cents) };
+      const value = Math.round((p.yes_count * mark + p.no_count * (P.CC - mark)) / (UNITS * P.CC_PER_CENT));
+      return { ticker: p.market_ticker, event_ticker: p.event_ticker, market_title: p.title, outcome: p.yes_sub_title, market_status: p.status, is_combo: !!p.mve_collection_ticker, side: held, position_fp: ufp(count), total_cost_dollars: dollars(cost), avg_price_dollars: count ? P.ccToDollars(Math.round((cost * UNITS * P.CC_PER_CENT) / count)) : null, market_value_dollars: dollars(value), unrealized_pnl_dollars: dollars(value - cost), realized_pnl_dollars: dollars(p.realized_pnl_cents), fees_paid_dollars: dollars(p.fees_paid_cents) };
     }) });
   });
 
@@ -386,7 +414,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   });
   v1.get('/users/:uid/settlement_history', requireUser, (req, res) => {
     const rows = db.prepare('SELECT s.*, m.title FROM settlements s JOIN markets m ON m.ticker=s.market_ticker WHERE s.user_id=? ORDER BY s.created_at DESC').all(req.auth.user.id);
-    res.json({ settlements: rows.map((s) => ({ ticker: s.market_ticker, market_title: s.title, market_result: s.result, yes_count_fp: ufp(s.yes_count), no_count_fp: ufp(s.no_count), revenue_dollars: dollars(s.payout_cents), cost_dollars: dollars(s.cost_cents), settled_time: s.created_at })) });
+    res.json({ settlements: rows.map((s) => ({ ticker: s.market_ticker, market_title: s.title, market_result: s.result, yes_count_fp: ufp(s.yes_count), no_count_fp: ufp(s.no_count), revenue_dollars: dollars(s.effective_payout_cents ?? s.payout_cents), cost_dollars: dollars(s.cost_cents), settled_time: s.created_at,
+      settlement_value_dollars: P.ccToDollars(s.settlement_value_cc), original_revenue_dollars: dollars(s.payout_cents), corrected_time: s.corrected_at || null })) }); // G6 corrections (CLONE_SPEC.md §28.7)
   });
   const ledgerRows = (uid) => db.prepare('SELECT * FROM ledger WHERE user_id=? ORDER BY created_at DESC, rowid DESC').all(uid);
   v1.get('/users/:uid/transactions', requireUser, (req, res) => res.json({ transactions: ledgerRows(req.auth.user.id).map((l) => ({ id: l.id, kind: l.kind, amount_dollars: dollars(l.amount_cents), ref: l.ref, memo: l.memo, created_time: l.created_at })) }));
@@ -506,7 +535,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   v1.post('/admin/markets/:ticker/:action', requireAdmin, (req, res) => {
     const t = req.params.ticker;
     switch (req.params.action) {
-      case 'determine': engine.determine(t, req.body && req.body.result); break;
+      case 'determine': engine.determine(t, req.body && req.body.result, { expiration_value: req.body && req.body.expiration_value }); break;
       case 'close': engine.close(t); break;
       case 'deactivate': engine.deactivate(t); break;
       case 'activate': engine.activate(t); break;

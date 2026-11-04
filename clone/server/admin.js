@@ -10,7 +10,8 @@
 const fs = require('node:fs');
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, usd, UNITS, E, ApiError, slugify } = require('./util');
-const { marketVo } = require('./serialize');
+const { marketVo, scalarVo } = require('./serialize');
+const { STRUCTURES } = require('./pricing'); // Phase 5A price grids (CLONE_SPEC.md §28.1)
 const { CATEGORIES } = require('./features');
 const auditChain = require('./audit-chain');
 
@@ -99,6 +100,7 @@ const SAFE_LINK = /^(\/(?!\/)[^\s]*|https:\/\/[^\s]+)$/;
 const F = {
   text: (min, max, def) => ({ def, parse: (v) => { const s = String(v ?? '').trim(); if (s.length < min) throw min === 1 ? 'is required' : `must be at least ${min} characters`; if (s.length > max) throw `must be at most ${max} characters`; return s; } }),
   int: (min, max, def) => ({ def, parse: (v) => { const n = Number(v); if (v === '' || v == null || !Number.isInteger(n) || n < min || n > max) throw `must be a whole number from ${min} to ${max}`; return n; } }),
+  optNum: () => ({ def: null, parse: (v) => { if (v === '' || v == null) return null; const n = Number(v); if (!Number.isFinite(n) || Math.abs(n) > 1e12) throw 'must be a number'; return n; } }),
   num: (min, max, def) => ({ def, parse: (v) => { const n = Number(v); if (v === '' || v == null || !Number.isFinite(n) || n < min || n > max) throw `must be a number from ${min} to ${max}`; return n; } }),
   bool: (def) => ({ def, parse: (v) => (v === true || v === 1 || v === '1' || v === 'true' || v === 'on' ? 1 : 0) }),
   oneOf: (list, def) => ({ def, parse: (v) => { if (!list.includes(v)) throw `must be one of ${list.join(', ')}`; return v; } }),
@@ -168,6 +170,10 @@ const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rollingWindowSec = 900 }) {
   db.exec(SCHEMA);
+  { // Phase 5A draft-market columns (price grid, scalar bounds); additive.
+    const have = new Set(db.prepare('PRAGMA table_info(cms_draft_markets)').all().map((c) => c.name));
+    for (const [c, def] of [['price_level_structure', "TEXT NOT NULL DEFAULT 'linear_cent'"], ['market_type', "TEXT NOT NULL DEFAULT 'binary'"], ['floor_strike', 'REAL'], ['cap_strike', 'REAL'], ['scalar_unit', "TEXT NOT NULL DEFAULT ''"]]) if (!have.has(c)) db.exec(`ALTER TABLE cms_draft_markets ADD COLUMN ${c} ${def}`);
+  }
   // Promo-card targeting (gap G8; spec §13.11 series_ticker_list / preferred_categories / hide_on_explore_page_web_logged_out).
   { const promoCols = new Set(db.prepare('PRAGMA table_info(cms_promos)').all().map((c) => c.name));
     if (!promoCols.has('series_tickers')) db.exec("ALTER TABLE cms_promos ADD COLUMN series_tickers TEXT NOT NULL DEFAULT '[]'");
@@ -196,6 +202,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   }
   const apyNow = () => { const r = db.prepare('SELECT value FROM meta WHERE key=?').get(APY_META_KEY); return r ? Number(r.value) : DEFAULT_APY; };
   const features = () => setting('features');
+  const hooks = { resolutionGate: null }; // set by server/trading-core.js (two-person rule, CLONE_SPEC.md §28.7)
   // Runtime-editable exchange settings (gap G7): applied at boot from the persisted values, changed live by PUT /settings.
   setTakerFeeCoefficient(setting('taker_fee')?.coefficient ?? DEFAULT_TAKER_FEE_COEFFICIENT);
   const persistedRollingWindow = () => setting('rolling_window')?.seconds ?? null;
@@ -470,6 +477,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     event_ticker: F.ticker(), title: F.text(0, 200, ''), yes_sub_title: F.text(1, 80), no_sub_title: F.text(0, 80, ''), color: F.color('#5b5bd6'),
     open_time: F.time(), close_time: F.time(), expected_expiration_time: F.time(true), settlement_timer_seconds: F.int(0, 604800, 300), rules_primary: F.text(0, 4000, ''),
     fractional: F.bool(1), initial_price: F.int(1, 99, 50), seed_liquidity: F.bool(1),
+    // Phase 5A (CLONE_SPEC.md §28.1, §28.4): price grid and scalar payout bounds; creation needs catalog.write.
+    price_level_structure: F.oneOf(STRUCTURES, 'linear_cent'), market_type: F.oneOf(['binary', 'scalar'], 'binary'),
+    floor_strike: F.optNum(), cap_strike: F.optNum(), scalar_unit: F.text(0, 12, ''),
   };
   const draftSeries = (t) => db.prepare('SELECT * FROM cms_draft_series WHERE ticker=?').get(t);
   const draftEvent = (t) => db.prepare('SELECT * FROM cms_draft_events WHERE ticker=?').get(t);
@@ -489,6 +499,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   const marketRow = (m, state) => {
     const base = { state, ticker: m.ticker, event_ticker: m.event_ticker, title: m.title, yes_sub_title: m.yes_sub_title, no_sub_title: m.no_sub_title, color: m.color, open_time: m.open_time,
       close_time: m.close_time, expected_expiration_time: m.expected_expiration_time, settlement_timer_seconds: m.settlement_timer_seconds, rules_primary: m.rules_primary };
+    Object.assign(base, { price_level_structure: m.price_level_structure || 'linear_cent', market_type: m.market_type || 'binary', floor_strike: m.floor_strike ?? null, cap_strike: m.cap_strike ?? null, scalar_unit: m.scalar_unit || '' });
     if (state === 'draft') return { ...base, status: 'draft', fractional: !!m.fractional, initial_price: m.initial_price, seed_liquidity: !!m.seed_liquidity, import_batch: m.import_batch };
     const vo = marketVo(m, engine.quote(m.ticker));
     return { ...base, status: m.status, result: m.result, fractional: !!m.fractional_trading_enabled, volume_fp: vo.volume_fp, open_interest_fp: vo.open_interest_fp, last_price_dollars: vo.last_price_dollars };
@@ -553,6 +564,12 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (!errs.close_time && !errs.open_time && Date.parse(v.close_time) <= Date.parse(v.open_time)) errs.close_time = 'must be after the open time';
     if (v.expected_expiration_time && !errs.close_time && Date.parse(v.expected_expiration_time) < Date.parse(v.close_time)) errs.expected_expiration_time = 'must be at or after the close time';
   }
+  function validateScalar(v, errs) {
+    if (v.market_type !== 'scalar') { v.floor_strike = null; v.cap_strike = null; return; }
+    if (v.floor_strike == null) errs.floor_strike = 'a scalar market needs a floor';
+    if (v.cap_strike == null) errs.cap_strike = 'a scalar market needs a cap';
+    if (v.floor_strike != null && v.cap_strike != null && !(v.cap_strike > v.floor_strike)) errs.cap_strike = 'must be above the floor';
+  }
   function marketDraftFrom(b, batch, actor) {
     const errs = {};
     let ticker; try { ticker = F.ticker().parse(b.ticker ?? b.market_ticker); if (tickerTaken.markets(ticker)) errs.ticker = 'is already used'; } catch (m) { errs.ticker = m; }
@@ -562,6 +579,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (!parent) errs.event_ticker = 'no such event';
     else if (parent.series_ticker === COMBO_SERIES || parent.series_ticker === FLASH_SERIES) errs.event_ticker = 'markets cannot be added to this event';
     if (v) validateMarketTimes(v, errs);
+    if (v) validateScalar(v, errs);
     if (Object.keys(errs).length) throw new FieldError(errs);
     if (!v.no_sub_title) v.no_sub_title = `Not ${v.yes_sub_title}`;
     if (!v.title) v.title = parent.mutually_exclusive ? `${parent.title} — ${v.yes_sub_title}` : parent.title;
@@ -571,8 +589,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   }
   const insertDraftMarket = ({ ticker, v, batch, actor }) => {
     const now = nowIso();
-    db.prepare('INSERT INTO cms_draft_markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,fractional,initial_price,seed_liquidity,import_batch,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(ticker, v.event_ticker, v.title, v.yes_sub_title, v.no_sub_title, v.color, v.open_time, v.close_time, v.expected_expiration_time, v.settlement_timer_seconds, v.rules_primary, v.fractional, v.initial_price, v.seed_liquidity, batch || null, actor, now, now);
+    db.prepare('INSERT INTO cms_draft_markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,fractional,initial_price,seed_liquidity,import_batch,created_by,created_at,updated_at,price_level_structure,market_type,floor_strike,cap_strike,scalar_unit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(ticker, v.event_ticker, v.title, v.yes_sub_title, v.no_sub_title, v.color, v.open_time, v.close_time, v.expected_expiration_time, v.settlement_timer_seconds, v.rules_primary, v.fractional, v.initial_price, v.seed_liquidity, batch || null, actor, now, now,
+        v.price_level_structure || 'linear_cent', v.market_type || 'binary', v.floor_strike ?? null, v.cap_strike ?? null, v.scalar_unit || '');
   };
   v1.post(`${A}/catalog/markets`, can('catalog.write'), (req, res) => {
     const d = marketDraftFrom(req.body || {}, null, req.auth.user.id);
@@ -635,13 +654,14 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
       if (['closed', 'determined', 'finalized'].includes(p.status)) { delete body.close_time; delete body.expected_expiration_time; }
     }
     const v = check(body, MARKET_SPEC, cur);
-    const errs = {}; validateMarketTimes(v, errs);
+    const errs = {}; validateMarketTimes(v, errs); if (d) validateScalar(v, errs);
     if (Object.keys(errs).length) throw new FieldError(errs);
     const before = marketRow(d || p, d ? 'draft' : 'published');
     if (d) {
       if (!getEvent(v.event_ticker) && !draftEvent(v.event_ticker)) throw new FieldError({ event_ticker: 'no such event' });
-      db.prepare('UPDATE cms_draft_markets SET event_ticker=?, title=?, yes_sub_title=?, no_sub_title=?, color=?, open_time=?, close_time=?, expected_expiration_time=?, settlement_timer_seconds=?, rules_primary=?, fractional=?, initial_price=?, seed_liquidity=?, updated_at=? WHERE ticker=?')
-        .run(v.event_ticker, v.title, v.yes_sub_title, v.no_sub_title || `Not ${v.yes_sub_title}`, v.color, v.open_time, v.close_time, v.expected_expiration_time || v.close_time, v.settlement_timer_seconds, v.rules_primary, v.fractional, v.initial_price, v.seed_liquidity, nowIso(), t);
+      db.prepare('UPDATE cms_draft_markets SET event_ticker=?, title=?, yes_sub_title=?, no_sub_title=?, color=?, open_time=?, close_time=?, expected_expiration_time=?, settlement_timer_seconds=?, rules_primary=?, fractional=?, initial_price=?, seed_liquidity=?, price_level_structure=?, market_type=?, floor_strike=?, cap_strike=?, scalar_unit=?, updated_at=? WHERE ticker=?')
+        .run(v.event_ticker, v.title, v.yes_sub_title, v.no_sub_title || `Not ${v.yes_sub_title}`, v.color, v.open_time, v.close_time, v.expected_expiration_time || v.close_time, v.settlement_timer_seconds, v.rules_primary, v.fractional, v.initial_price, v.seed_liquidity,
+          v.price_level_structure || 'linear_cent', v.market_type || 'binary', v.floor_strike ?? null, v.cap_strike ?? null, v.scalar_unit || '', nowIso(), t);
     } else {
       db.prepare('UPDATE markets SET title=?, yes_sub_title=?, no_sub_title=?, color=?, open_time=?, close_time=?, expected_expiration_time=?, settlement_timer_seconds=?, rules_primary=?, updated_at=? WHERE ticker=?')
         .run(v.title, v.yes_sub_title, v.no_sub_title || `Not ${v.yes_sub_title}`, v.color, v.open_time, v.close_time, v.expected_expiration_time || v.close_time, v.settlement_timer_seconds, v.rules_primary, nowIso(), t);
@@ -692,8 +712,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     publishEventRow(d.event_ticker, published);
     const now = nowIso();
     const status = Date.parse(d.open_time) <= Date.now() ? 'active' : 'initialized';
-    db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at,fractional_trading_enabled) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(d.ticker, d.event_ticker, d.title, d.yes_sub_title, d.no_sub_title, d.color, status, d.open_time, d.close_time, d.expected_expiration_time, d.settlement_timer_seconds, d.rules_primary, now, now, d.fractional);
+    db.prepare('INSERT INTO markets(ticker,event_ticker,title,yes_sub_title,no_sub_title,color,status,open_time,close_time,expected_expiration_time,settlement_timer_seconds,rules_primary,created_at,updated_at,fractional_trading_enabled,price_level_structure,market_type,floor_strike,cap_strike,scalar_unit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(d.ticker, d.event_ticker, d.title, d.yes_sub_title, d.no_sub_title, d.color, status, d.open_time, d.close_time, d.expected_expiration_time, d.settlement_timer_seconds, d.rules_primary, now, now, d.fractional,
+        d.price_level_structure || 'linear_cent', d.market_type || 'binary', d.floor_strike ?? null, d.cap_strike ?? null, d.scalar_unit || '');
     db.prepare('DELETE FROM cms_draft_markets WHERE ticker=?').run(t);
     const pl = setting('publish_liquidity');
     if (d.seed_liquidity && pl.enabled) {
@@ -839,7 +860,8 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     return { ticker: m.ticker, event_ticker: m.event_ticker, event_title: ev?.title || '', title: m.title, outcome: m.yes_sub_title, status: m.status, result: m.result || null, close_time: m.close_time,
       can_close_early: !!m.can_close_early, settlement_timer_seconds: m.settlement_timer_seconds, settles_at: settles, settled_at: m.settled_at, settlement,
       open_interest_fp: vo.open_interest_fp, volume_fp: vo.volume_fp, last_price_dollars: vo.last_price_dollars,
-      payouts: m.status === 'finalized' ? { users: db.prepare('SELECT COUNT(*) c FROM settlements WHERE market_ticker=?').get(m.ticker).c, paid_dollars: dollars(db.prepare('SELECT COALESCE(SUM(payout_cents),0) c FROM settlements WHERE market_ticker=?').get(m.ticker).c) } : null,
+      payouts: m.status === 'finalized' ? { users: db.prepare('SELECT COUNT(*) c FROM settlements WHERE market_ticker=?').get(m.ticker).c, paid_dollars: dollars(db.prepare('SELECT COALESCE(SUM(COALESCE(effective_payout_cents,payout_cents)),0) c FROM settlements WHERE market_ticker=?').get(m.ticker).c) } : null,
+      market_type: m.market_type || 'binary', ...scalarVo(m),
       resolution: resVo(r) };
   }
   v1.get(`${A}/resolution/queue`, can('catalog.read'), (req, res) => {
@@ -851,17 +873,20 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const open = db.prepare("SELECT m.* FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND m.status IN ('active','inactive') AND m.close_time>? ORDER BY m.close_time LIMIT 300").all(COMBO_SERIES, FLASH_SERIES, now);
     res.json({ queue: rows.map(deskRow), open: open.map((m) => ({ ticker: m.ticker, title: m.title, outcome: m.yes_sub_title, status: m.status, close_time: m.close_time, can_close_early: !!m.can_close_early })) });
   });
-  v1.get(`${A}/resolution/:ticker`, can('catalog.read'), (req, res) => {
+  v1.get(`${A}/resolution/:ticker`, can('catalog.read'), (req, res, next) => {
+    if (['approvals', 'policy'].includes(req.params.ticker)) return next(); // Phase 5A routes (server/trading-core.js)
     const m = getMarket(req.params.ticker);
     if (!m) throw E.notFound();
     res.json({ market: deskRow(m), history: db.prepare('SELECT * FROM res_resolutions WHERE market_ticker=? ORDER BY created_at DESC, rowid DESC').all(m.ticker).map(resVo) });
   });
-  v1.post(`${A}/resolution/:ticker/resolve`, can('resolution.write'), (req, res) => {
-    const m = getMarket(req.params.ticker);
-    if (!m) throw E.notFound();
-    const b = req.body || {};
+  // Resolve a market: binary YES/NO, or a scalar market's expiration value (CLONE_SPEC.md §28.4). With the two-person
+  // rule on (server/trading-core.js, §28.7) the request is queued for a second admin and answered 202.
+  function validateResolve(m, b) {
     const errs = {};
-    if (!['yes', 'no'].includes(b.result)) errs.result = 'choose YES or NO';
+    const scalar = m.market_type === 'scalar';
+    let value = null;
+    if (scalar) { value = Number(b.expiration_value); if (b.expiration_value === undefined || b.expiration_value === null || b.expiration_value === '' || !Number.isFinite(value)) errs.expiration_value = 'enter the settlement value'; }
+    else if (!['yes', 'no'].includes(b.result)) errs.result = 'choose YES or NO';
     const note = String(b.source_note || '').trim();
     if (note.length < 5 || note.length > 1000) errs.source_note = 'a source note of 5-1000 characters is required';
     let delay = m.settlement_timer_seconds;
@@ -873,22 +898,36 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (getEvent(m.event_ticker)?.series_ticker === COMBO_SERIES) throw E.conflict('combo_market', 'combo markets resolve from their legs');
     if (!['closed', 'active', 'inactive'].includes(m.status)) throw E.conflict('invalid_transition', `cannot resolve a ${m.status} market`);
     if (['active', 'inactive'].includes(m.status) && Date.parse(m.close_time) > Date.now() && !m.can_close_early) throw E.conflict('not_closed', 'this market is still open and cannot close early');
+    return { result: scalar ? 'scalar' : b.result, expiration_value: scalar ? value : null, source_note: note, settlement_delay_sec: delay };
+  }
+  // Runs a validated resolution; `actor` is the request whose admin is audited (the approver under the two-person rule).
+  function executeResolve(req, ticker, v, extraAudit = {}) {
+    const m = getMarket(ticker);
+    if (!m) throw E.notFound();
+    const p = validateResolve(m, v);
     const before = deskRow(m);
-    db.prepare('UPDATE markets SET settlement_timer_seconds=? WHERE ticker=?').run(delay, m.ticker);
-    engine.determine(m.ticker, b.result);
+    db.prepare('UPDATE markets SET settlement_timer_seconds=? WHERE ticker=?').run(p.settlement_delay_sec, m.ticker);
+    engine.determine(m.ticker, p.result, { expiration_value: p.expiration_value });
     db.prepare('INSERT INTO res_resolutions(id,market_ticker,result,source_note,settlement_delay_sec,status,resolved_by,created_at) VALUES(?,?,?,?,?,?,?,?)')
-      .run(newId('res_'), m.ticker, b.result, note, delay, 'determined', req.auth.user.id, nowIso());
-    if (delay === 0) engine.finalize(m.ticker);
+      .run(newId('res_'), m.ticker, p.result === 'scalar' ? `scalar:${p.expiration_value}` : p.result, p.source_note, p.settlement_delay_sec, 'determined', req.auth.user.id, nowIso());
+    if (p.settlement_delay_sec === 0) engine.finalize(m.ticker);
     const after = deskRow(getMarket(m.ticker));
-    audit(req, 'resolution.resolve', 'market', m.ticker, before, after, note);
-    res.json({ market: after });
+    audit(req, 'resolution.resolve', 'market', m.ticker, before, { ...after, ...extraAudit }, p.source_note);
+    return after;
+  }
+  v1.post(`${A}/resolution/:ticker/resolve`, can('resolution.write'), (req, res) => {
+    const m = getMarket(req.params.ticker);
+    if (!m) throw E.notFound();
+    const p = validateResolve(m, req.body || {});
+    if (hooks.resolutionGate) { const pending = hooks.resolutionGate(req, 'resolve', m.ticker, p); if (pending) return res.status(202).json(pending); }
+    res.json({ market: executeResolve(req, m.ticker, p) });
   });
   // Reversal is only possible before finalization (no money has moved yet). See CLONE_SPEC §18.4.
   v1.post(`${A}/resolution/:ticker/reverse`, can('resolution.write'), (req, res) => {
     const m = getMarket(req.params.ticker);
     if (!m) throw E.notFound();
     const note = reasonOf({ reason: (req.body || {}).note ?? (req.body || {}).reason }, 5);
-    if (m.status === 'finalized') throw E.conflict('already_settled', 'this market has already settled; payouts cannot be reversed from the desk');
+    if (m.status === 'finalized') throw E.conflict('already_settled', 'this market has already settled; payouts cannot be reversed from the desk', 'use POST /admin/resolution/:ticker/correct (settlement correction with claw-back, CLONE_SPEC.md §28.7)');
     if (m.status !== 'determined') throw E.conflict('invalid_transition', `only a determined market can be reversed (status is ${m.status})`);
     if (hasTable('combo_legs')) {
       const dep = db.prepare("SELECT cm.ticker FROM combo_legs cl JOIN markets cm ON cm.ticker=cl.combo_ticker WHERE cl.market_ticker=? AND cm.status IN ('determined','finalized') LIMIT 1").get(m.ticker);
@@ -1401,7 +1440,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     for (let t = a; t < b; t += 86400000) days.push(dayKey(t));
     const byDay = Object.fromEntries(days.map((d) => [d, { day: d, trades: 0, volume_units: 0, volume_cents_x: 0, fees_cents: 0, deposits_cents: 0, withdrawals_cents: 0, active_users: 0, signups: 0 }]));
     const DAY = "strftime('%Y-%m-%d', created_ts/1000, 'unixepoch')";
-    for (const r of db.prepare(`SELECT ${DAY} d, COUNT(*) n, COALESCE(SUM(count),0) u, COALESCE(SUM(count*yes_price_cents),0) c FROM trades WHERE created_ts>=? AND created_ts<? GROUP BY d`).all(a, b)) {
+    for (const r of db.prepare(`SELECT ${DAY} d, COUNT(*) n, COALESCE(SUM(count),0) u, COALESCE(SUM(count*yes_price_cc),0)/100 c FROM trades WHERE created_ts>=? AND created_ts<? GROUP BY d`).all(a, b)) {
       if (byDay[r.d]) Object.assign(byDay[r.d], { trades: r.n, volume_units: r.u, volume_cents_x: r.c });
     }
     for (const r of db.prepare(`SELECT ${DAY} d, COALESCE(SUM(fee_cents),0) f, COUNT(DISTINCT f.user_id) au FROM fills f JOIN users u ON u.id=f.user_id WHERE u.is_system=0 AND created_ts>=? AND created_ts<? GROUP BY d`).all(a, b)) {
@@ -1430,7 +1469,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
       return { ticker: m.ticker, event_title: m.et, outcome: m.yes_sub_title, status: m.status, open_interest_fp: vo.open_interest_fp, notional_dollars: dollars(Math.round(Number(vo.open_interest_fp) * 100)),
         last_price_dollars: vo.last_price_dollars, house_side: p ? p.side : null, house_position_fp: p ? p.position_fp : '0.00', house_cost_dollars: p ? p.total_cost_dollars : '0.0000', house_value_dollars: p ? p.market_value_dollars : '0.0000' };
     }).filter((x) => Number(x.open_interest_fp) > 0 || Number(x.house_position_fp) > 0).sort((x, y) => Number(y.open_interest_fp) - Number(x.open_interest_fp)).slice(0, 25);
-    const top = db.prepare('SELECT t.market_ticker, COUNT(*) n, SUM(t.count) u, SUM(t.count*t.yes_price_cents) c FROM trades t WHERE t.created_ts>=? AND t.created_ts<? GROUP BY t.market_ticker ORDER BY u DESC LIMIT 10').all(a, b)
+    const top = db.prepare('SELECT t.market_ticker, COUNT(*) n, SUM(t.count) u, SUM(t.count*t.yes_price_cc)/100 c FROM trades t WHERE t.created_ts>=? AND t.created_ts<? GROUP BY t.market_ticker ORDER BY u DESC LIMIT 10').all(a, b)
       .map((r) => { const m = getMarket(r.market_ticker); return { ticker: r.market_ticker, title: m?.title || r.market_ticker, outcome: m?.yes_sub_title || '', trades: r.n, volume_fp: ufp(r.u), volume_dollars: dollars(Math.round(r.c / UNITS)) }; });
     return {
       from, to, generated_at: nowIso(),
@@ -1510,7 +1549,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     });
   });
 
-  return { decorateEvent, rolesOf, asUser, requote, can, rollingWindowSec: persistedRollingWindow };
+  return { decorateEvent, rolesOf, asUser, requote, can, rollingWindowSec: persistedRollingWindow, audit, deskRow, executeResolve, validateResolve, hooks, setting, putSetting, getMarket };
 }
 
 module.exports = { mountAdmin, ROLE_PERMS, PERMS, parseCsv, IMPORT_COLUMNS };

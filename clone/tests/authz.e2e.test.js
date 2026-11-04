@@ -231,6 +231,12 @@ const EXPECT = {
   'GET /v1/admin/payments/ledger_audit': perm('users.read'), 'POST /v1/admin/payments/ledger_audit/run': perm('users.money'),
   'GET /v1/admin/payments/settings': perm('settings.write'), 'PUT /v1/admin/payments/settings': perm('settings.write'),
   'GET /v1/admin/payments/webhooks': perm('audit.read'), 'POST /v1/admin/payments/sandbox/crypto/mine': perm('users.money'),
+  // ---- Phase 5A: trading core (CLONE_SPEC.md §28): collateral return, flip preview, settlement corrections, two-person rule
+  'GET /v1/users/:uid/collateral_returns': O, 'POST /v1/users/:uid/collateral_returns/refresh': O, 'GET /v1/users/:uid/positions/:ticker/flip_preview': O,
+  'GET /v1/admin/resolution/policy': perm('resolution.write'), 'PUT /v1/admin/resolution/policy': perm('settings.write'),
+  'GET /v1/admin/resolution/approvals': perm('catalog.read'), 'POST /v1/admin/resolution/approvals/:id/approve': perm('resolution.write'),
+  'POST /v1/admin/resolution/approvals/:id/reject': perm('resolution.write'), 'POST /v1/admin/resolution/:ticker/correct': perm('resolution.write'),
+  'GET /v1/admin/resolution/:ticker/corrections': perm('catalog.read'),
   // ---- Phase 5B: markets and content (CLONE_SPEC.md §29). Ballot lookup and hub widgets are public reads (lookup is a
   // rate-limited POST so the address never sits in a URL); saved ballot areas and incentive enrolment are the owner's;
   // AI-summary moderation needs content.write (settings: settings.write); incentive programs markets.ops, payouts

@@ -78,7 +78,7 @@ test('fractional buy in Contracts mode: 2.55 contracts, exact conserving cents, 
   await mode(page, 'market');
   assert.equal(await page.getAttribute('#t-count', 'step'), '0.01');
   await page.fill('#t-count', '2.55');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Filled 2.55 YES")');
   assert.equal(pos().yes_count, 255);
   const o = dbq("SELECT * FROM orders WHERE user_id=? ORDER BY seq DESC LIMIT 1", uid())[0];
@@ -113,7 +113,7 @@ test('Dollars mode buys fractional contracts (floored to 0.01) within the amount
   assert.match(shown, /^\d+\.\d{1,2}$/, `fractional estimate ${shown}`);
   const before = bal();
   const held0 = pos().yes_count;
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector(`.toast:has-text("Filled ${shown} YES")`);
   const o = dbq("SELECT * FROM orders WHERE user_id=? ORDER BY seq DESC LIMIT 1", uid())[0];
   assert.equal(o.order_type, 'dollars');
@@ -131,14 +131,14 @@ test('Dollars mode buys fractional contracts (floored to 0.01) within the amount
   await mode(page, 'market');
   await page.fill('#t-count', '1.25');
   const b1 = bal();
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Sold 1.25 YES")');
   assert.equal(pos().yes_count, held0 + o.filled_count - 125);
   assert.ok(bal() > b1, 'selling returns cash (netting)');
   const rest = ((held0 + o.filled_count - 125) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
   await page.waitForSelector(`[data-testid=held]:has-text("${rest} YES")`);
   await page.fill('#t-count', rest);
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector(`.toast:has-text("Sold ${rest} YES")`);
   assert.deepEqual([pos().yes_count, pos().no_count], [0, 0]);
   const sold = dbq("SELECT action, order_type FROM orders WHERE user_id=? ORDER BY seq DESC LIMIT 1", uid())[0];
@@ -190,7 +190,7 @@ test('order book: a 0.5-contract level shows, "Hide fractional shares" hides it 
   await mode(page, 'limit');
   await page.fill('#t-price', '30');
   await page.fill('#t-count', '0.5');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Order resting")');
   const o = dbq("SELECT * FROM orders WHERE user_id=? AND status='resting'", uid())[0];
   assert.deepEqual([o.initial_count, o.price_cents], [50, 30]);

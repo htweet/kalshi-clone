@@ -6,6 +6,7 @@
 const { WebSocketServer } = require('ws');
 const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
+const { ccToDollars } = require('./pricing');
 
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives']);
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments', 'incentive_rewards']);
@@ -79,7 +80,7 @@ function attachWs(server, { engine, auth, security }) {
   }
   function snapshot(c, sid, ticker) {
     const b = engine.book(ticker);
-    const lv = (m) => [...m.entries()].sort((a, z) => a[0] - z[0]).map(([p, n]) => [dollars(p), ufp(n)]);
+    const lv = (m) => [...m.entries()].sort((a, z) => a[0] - z[0]).map(([p, n]) => [ccToDollars(p), ufp(n)]); // book prices are cc (CLONE_SPEC.md §28.1)
     const sub = c.subs.get(sid);
     sub.seq += 1;
     send(c, { type: 'orderbook_snapshot', sid, seq: sub.seq, msg: { market_ticker: ticker, yes_dollars: lv(b.yes), no_dollars: lv(b.no) } });
@@ -96,11 +97,11 @@ function attachWs(server, { engine, auth, security }) {
     }
   }
 
-  engine.on('ticker', (t, qq) => publish('ticker', t, 'ticker', { market_ticker: t, yes_bid_dollars: dollars(qq.yes_bid), yes_ask_dollars: dollars(qq.yes_ask), last_price_dollars: dollars(qq.last_price), previous_price_dollars: dollars(qq.previous_price), volume_fp: ufp(qq.volume), open_interest_fp: ufp(qq.open_interest), ts: Date.now() }));
+  engine.on('ticker', (t, qq) => publish('ticker', t, 'ticker', { market_ticker: t, yes_bid_dollars: ccToDollars(qq.yes_bid_cc), yes_ask_dollars: ccToDollars(qq.yes_ask_cc), last_price_dollars: ccToDollars(qq.last_price_cc), previous_price_dollars: ccToDollars(qq.previous_price_cc), volume_fp: ufp(qq.volume), open_interest_fp: ufp(qq.open_interest), ts: Date.now() }));
   engine.on('book_delta', (t, deltas) => {
-    for (const d of deltas) publish('orderbook', t, 'orderbook_delta', { market_ticker: t, side: d.side, price_dollars: dollars(d.price), delta_fp: ufp(d.delta) });
+    for (const d of deltas) publish('orderbook', t, 'orderbook_delta', { market_ticker: t, side: d.side, price_dollars: ccToDollars(d.price), delta_fp: ufp(d.delta) });
   });
-  engine.on('trade', (tr) => publish('trade', tr.market_ticker, 'trade', { trade_id: tr.trade_id, market_ticker: tr.market_ticker, yes_price_dollars: dollars(tr.yes_price), no_price_dollars: dollars(100 - tr.yes_price), count_fp: ufp(tr.count), taker_side: tr.taker_side, ts: tr.ts }));
+  engine.on('trade', (tr) => publish('trade', tr.market_ticker, 'trade', { trade_id: tr.trade_id, market_ticker: tr.market_ticker, yes_price_dollars: ccToDollars(tr.yes_price_cc), no_price_dollars: ccToDollars(10000 - tr.yes_price_cc), count_fp: ufp(tr.count), taker_side: tr.taker_side, ts: tr.ts }));
   engine.on('lifecycle', (t, eventType, status) => publish('market_lifecycle_v2', t, 'market_lifecycle_v2', { market_ticker: t, event_type: eventType, status }));
   engine.on('live_data', (id, msg) => publish('live_data', id, 'live_data', msg)); // sports scoreboards (server/sports.js)
   engine.on('chat', (t, type, msg) => publish('chat', t, type, msg)); // event live chat (server/chat.js), filtered by event ticker
