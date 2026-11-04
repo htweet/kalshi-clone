@@ -175,7 +175,16 @@ test('OAuth (mock OIDC): new account through the UI, same identity signs back in
   assert.ok(D.q('SELECT email_verified_at FROM identity_profiles WHERE user_id=?', uid)[0].email_verified_at, 'provider-verified email');
   // Sign out and back in with the same provider identity: same account.
   await logOutUi(page);
+  // The first sign-in config request fails (a transient 503): the page retries and still offers the provider buttons.
+  let failedOnce = false;
+  await page.route('**/v1/identity/config', (route) => { if (failedOnce) return route.continue(); failedOnce = true; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":{"code":"unavailable","message":"try again"}}' }); });
   await page.goto(WEB + '/sign-in');
+  await page.waitForSelector('[data-testid=oauth-google]', { state: 'visible', timeout: 15000 }).catch(async (e) => {
+    const alt = await page.evaluate(() => ({ alt: document.querySelector('[data-auth-alt]')?.outerHTML || '(no provider area)', url: location.href }));
+    throw new Error(`${e.message}\nprovider area on ${alt.url}: ${alt.alt}\npage errors: ${JSON.stringify(page.errors || [])}`);
+  });
+  assert.equal(failedOnce, true, 'the first config request was failed on purpose');
+  await page.unroute('**/v1/identity/config');
   await page.click('[data-testid=oauth-google]');
   await page.fill('[data-testid=mock-oidc-email]', email('goog'));
   await page.click('[data-testid=mock-oidc-approve]');

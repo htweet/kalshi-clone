@@ -86,7 +86,17 @@ export async function render({ el, params, query, navigate }) {
 
   // Passkey and provider sign-in (CLONE_SPEC §25).
   const alt = form.querySelector('[data-auth-alt]');
-  const cfg = await idApi.config().catch(() => null);
+  // A transient failure (rate limit, network blip) must not silently drop the provider buttons: retry briefly.
+  const cfg = await (async () => {
+    for (let i = 0; i < 3; i++) {
+      try { return await idApi.config(); } catch (e) {
+        if (i === 2 || !form.isConnected) return null;
+        await new Promise((r) => setTimeout(r, e && e.retryAfter ? Math.min(5, e.retryAfter) * 1000 : 400 * (i + 1)));
+      }
+    }
+    return null;
+  })();
+  if (!form.isConnected) return;
   const buttons = [];
   if (!signUp && passkeysSupported() && cfg?.passkeys) buttons.push(`<button type="button" class="btn w-full h-48" data-passkey data-testid="passkey-login" data-flag="signin.passkey">${te('auth.render.log_in_with_a_passkey')}</button>`);
   for (const p of cfg?.oauth_providers || []) buttons.push(`<button type="button" class="btn w-full h-48" data-oauth="${esc(p.id)}" data-testid="oauth-${esc(p.id)}" data-flag="signin.oauth signin.${esc(p.id)}">${te('auth.render.continue_with', { label: esc(p.label), value: p.mock ? ` <span class="faint">${te('auth.render.test')}</span>` : '' })}</button>`);

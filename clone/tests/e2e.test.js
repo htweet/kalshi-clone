@@ -535,7 +535,7 @@ test('database lock: a leftover lock naming a live unrelated process does not bl
     assert.equal(c.listening, true, `server must take over after a crash:\n${c.out}`);
     await homeRenders(portA + 2);
     // Persistence across the crash: the same database file is in use (seeded data still there).
-    const r = await fetch(`http://127.0.0.1:${portA + 2}/trade-api/v2/markets?limit=1`).catch((e) => { throw new Error(`server after takeover stopped answering (${e.cause?.code || e.message}); exit=${c.child.exitCode ?? c.child.signalCode}\n${c.out}`); });
+    const r = await fetch(`http://127.0.0.1:${portA + 2}/trade-api/v2/markets?limit=1`).catch((e) => { throw new Error(`server after takeover stopped answering (${e.message}; cause: ${e.cause?.name} ${e.cause?.code || ''} ${e.cause?.message || ''}${e.cause?.errors ? ` [${e.cause.errors.map((x) => x.code || x.message).join(', ')}]` : ''}); exit=${c.child.exitCode ?? c.child.signalCode}\n${c.out}`); });
     assert.equal(r.status, 200);
     assert.ok((await r.json()).markets.length >= 1);
     c.child.kill('SIGINT');
