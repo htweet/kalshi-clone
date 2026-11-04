@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 11 (2026-11-04):** §34 Perps completion (PLAN Phase 6): order amend and decrease, order groups, subaccounts and transfers, server-side trailing stops, size-tiered margin with portfolio (cross) maintenance margin and liquidation, fractional perps, a double-entry perps journal, APY on collateral, Perps referrals, waitlist access; property-based liquidation and funding invariants. §14 updated where behaviour changed.
+>
 > **Revision 10 (2026-11-04):** §33 feature flags (PLAN Phase 5D): a DB-backed flag per feature and module with rollout, targeting, schedule and kill switch, enforced on the server; play mode on play money with the Central Bank and the Vault Heist; the switch to production with a two-person reset; per-user and site-wide deposit / withdrawal controls; the Central Bank as the promotions treasury.
 >
 > **Revision 9 (2026-11-03):** §28 trading core (PLAN Phase 5A): sub-cent price grids, the fee accumulator, scalar markets, order review / auto-sell / flip sell, MECNET collateral return, settlement correction with the two-person rule, combos on the finer grid with the HVM window.
@@ -390,6 +392,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §7.2 WS: shared connection, dedup subscriptions, 5 s response timeout, backoff, resubscribe | yes | plus private `notifications` channel |
 | §8 settings persisted server-side (theme, chart range, tabs, sort, browse layout, social feed) | yes | per the user's 100%-DB requirement |
 | §14 Perps margin product: markets, mark/index, isolated margin up to max leverage, liquidation, funding, price bands, fees, TP/SL, transfers, WS | yes | see §14 for design choices; tests `clone/tests/perps.e2e.test.js` |
+| §34 Perps completion (Phase 6): amend / decrease, order groups (limit, OCO, group cancel), subaccounts and transfers, trailing stops, size-tiered margin, portfolio (cross) margin and liquidation, fractional perps, perps double-entry journal, APY on collateral, referrals, waitlist, Admin › Perps ops | yes | tests `perps-trading`, `perps-risk`, `perps-growth`, `perps-invariants`; design choices (§34.13) |
 | §15 redesign: dark shell, home, browse frequency, event page, BUY/SELL + Dollars ticket, interest, rolling 15-min markets, Pro | yes | tests `clone/tests/redesign.e2e.test.js` |
 | §16 fractional contracts (0.01-contract units, conserving cent rounding, per-market flag, migration) | yes | tests `fractional.e2e.test.js` |
 | §17 combos (multivariate markets), two-sided RFQ/quotes, portfolio tabs Positions · Resting · RFQs · Quotes · History | yes | tests `combos`, `rfq`, `orders`, `positions`, `history` |
@@ -407,7 +410,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §33 feature flags, play mode, Central Bank and money controls (Phase 5D): a flag for every feature and module (on/off, kill switch, rollout, allow/deny by user, role and region, schedule) enforced by a server gate with jobs paused and the UI hidden live, Admin › Feature flags with reason, step-up, history and audit; play mode with signup bonus, free deposits and no withdrawals; Vault Heist against the Central Bank vault; two-person switch to production with backup, archives and reset; per-user deposit / withdrawal revocation; the promotions treasury | yes | tests `flags`, `playmode`; design choices (not observed) |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 259 Playwright scenarios across 32 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 284 end-to-end scenarios across 36 files in `clone/tests/` (run `npm run test:e2e`), each against a real server and a real SQLite file, in Chromium (Playwright) wherever there is UI; the Phase 6 security gate (`perps-invariants`) drives the live engine with property-based sequences. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -506,7 +509,7 @@ Quantities are now fractional in places (`count_fp: "19.65"`, `volume_fp: "15954
   - `contract_size: 0.0001`, `last_price`, `previous_price`, `asset_class`;
   - chart gradient colors.
 - A spotlight card advertises "Perps 7% APY" (`type:"tentpole_spotlight"`, `share_link …/perps?action=interest`).
-- **Not implemented in the clone.**
+- **Clone:** the Perps product is §14; interest on Perps collateral (APY) is §34.7. The spotlight card itself is not built (the home hero carousel stays).
 
 ### 13.11 Spotlights (OBSERVED HAR3#28)
 
@@ -676,7 +679,7 @@ Implementation: `clone/server/perps.js` (engine + REST), `clone/server/ws.js` (c
 | Asset classes | `PERPS_ASSET_CLASSES = [Crypto, Equities, Metals, FX, Energy, Indices, Rates, Compute, GPU, EventContracts]` (chunk `0b-vmmhwqitt_.js`); the docs enum is `Crypto, Equities, Metals, Indices, Energy` (`api-reference_get-funding-schedule.md`). | Seven invented markets: `PLXBTCPERP`, `PLXETHPERP`, `PLXSOLPERP` (Crypto), `PLXGOLDPERP` (Metals), `PLXOILPERP` (Energy), `PLXUS10YPERP` (Rates), `PLXGPUHRPERP` (Compute). Chips appear in the bundle's order, and only for classes that have markets. |
 | Routes | Landing `/perps` with `/perps/{ticker}` (chunk `23fib2gc7zn_d.js`, `landing:"/perps"`); category route `/perps/categories/{assetClass}` lower-cased (chunk `23fib2gc7zn_d.js`); portfolio `portfolioProductRoutes.perpetuals = "/portfolio/perps"` with `perpsTab ∈ positions\|orders\|history`, default `positions` (chunk `0b-vmmhwqitt_.js`). | All of these routes exist. `/portfolio?perpsTab=…` also renders the Perps portfolio, and the Predictions portfolio links to it. |
 | Contract size and price | BTC `contract_size 0.0001`, `last_price 7.7923` **[live]**: per-contract price = underlying level × contract size. The bundle computes contracts = dollars × leverage ÷ (conversionPrice × contractSize) (chunk `36qdzse90bk1i.js`). Tick is $0.0001 (`margin_price-banding.md`). | Orders, fills and books are priced **per contract** in 4-dp dollars. Internally prices are integer centicents (1 cc = $0.0001 = one tick). The UI shows the underlying level (contract price ÷ contract size), for example BTC at $100,000.00. |
-| Quantities | Fixed-point counts with fractional contracts down to 0.01 (`FixedPointCount` in `margin-rest_risk_get-risk.md`). | **Design choice:** whole contracts only, emitted as `"99.00"` `fp` strings. |
+| Quantities | Fixed-point counts with fractional contracts down to 0.01 (`FixedPointCount` in `margin-rest_risk_get-risk.md`). | Integer units (hundredths of a contract) since Phase 6, emitted as `"2.57"` `fp` strings; fractional per market (§34.5). Originally whole contracts. |
 | Display terms | `PERPS_DISPLAY_TERMS = {marginRequirement:"Cost", positionEquity:"Position value", notionalExposure:"Total size"}` (chunks `36qdzse90bk1i.js`, `3x09fsrfwgctp.js`). Leverage is shown as `"10x"` (`formatLeverage`) and the funding rate as a percent with 4 dp (`formatFundingRate`), both in chunk `0b-vmmhwqitt_.js`. | Ticket rows: Contracts, Total size, Cost (margin), Est. fees, Est. liq. price. The positions table has a Position value column. |
 
 ### 14.2 Prices: last, index (reference) and mark
@@ -690,15 +693,15 @@ Implementation: `clone/server/perps.js` (engine + REST), `clone/server/ws.js` (c
 
 - Initial margin = maintenance margin × `initial_margin_multiplier` (`margin-rest_risk_get-risk-parameters.md`). Liquidation happens at a margin ratio threshold (`liquidation_margin_ratio_threshold`), and there is also a queue-entry threshold.
 - Docs leverage is 1 ÷ margin rate and falls as notional grows (`leverage_estimates` keyed 1k…1M in `margin-rest_market_get-market.md`). Live values are about 2x–15x **[live]**.
-- **UNKNOWN**: the real maintenance-margin model. The docs describe scenario matrices (hvar/apc/aug/funding), market-impact liquidation configs, and subgroups that share margin (`api-reference_get-maintenance-margin-metadata.md`). **Design:** a flat rate per market. Initial margin rate = 1 ÷ `max_leverage`, and maintenance rate = initial rate ÷ 2 (multiplier 2), so BTC at 20x max gives 5% initial and 2.5% maintenance. `leverage_estimates` are reported, but leverage limits do not scale with size.
-- Docs have both cross and isolated margin: `SubaccountType` is `cross | isolated | auto_rebalance`, and the exit-trigger endpoints exist in both cross and isolated variants (`margin-rest_portfolio_get-balance.md`, `margin-rest_exit-triggers_*`). **Design: isolated margin per (user, market)**, reported as `subaccount 0`, `subaccount_type "isolated"`, `is_portfolio false`. The user picks leverage from 1x up to the market max. Cost = notional ÷ leverage is moved from Perps available collateral into the position's margin.
+- **UNKNOWN**: the real maintenance-margin model. The docs describe scenario matrices (hvar/apc/aug/funding), market-impact liquidation configs, and subgroups that share margin (`api-reference_get-maintenance-margin-metadata.md`). **Design:** tier 1 of each market's size tiers has initial margin rate = 1 ÷ `max_leverage` and maintenance rate = initial rate ÷ 2 (multiplier 2), so BTC at 20x max gives 5% initial and 2.5% maintenance; since Phase 6 the requirements rise with notional through bracketed size tiers, leverage limits scale with size, and the last tier caps the position (§34.4).
+- Docs have both cross and isolated margin: `SubaccountType` is `cross | isolated | auto_rebalance`, and the exit-trigger endpoints exist in both cross and isolated variants (`margin-rest_portfolio_get-balance.md`, `margin-rest_exit-triggers_*`). **Design:** subaccounts (0 = primary) are `isolated` (margin per (user, subaccount, market)) or `cross` (portfolio maintenance margin, §34.1, §34.4), reported in `subaccount`, `subaccount_type` and `is_portfolio`. The user picks leverage from 1x up to the maximum at the position's size. Cost = notional ÷ leverage is moved from the subaccount's free collateral into the position's margin.
 - Position equity = margin + unrealized PnL, with unrealized PnL = qty × (mark − entry), signed. Maintenance requirement = |qty| × mark × maintenance rate.
 - Liquidation price, with long and short both written in terms of |q|:
   - long: (|q|·E − M) ÷ (|q|·(1 − r))
   - short: (M + |q|·E) ÷ (|q|·(1 + r))
-- **Liquidation (design):** each tick, any position whose equity is below maintenance margin is closed in full at the liquidation mark. The liquidity account takes over the position.
-  - Remaining equity minus a liquidation fee goes back to available. The fee is the smaller of the remaining equity and ½ × maintenance margin.
-  - A shortfall is recorded against an insurance tally in `perp_meta`. Losses never draw on other collateral, because margin is isolated.
+- **Liquidation (design):** each tick, any isolated position whose equity is below its (tiered) maintenance margin is closed in full at the liquidation mark; cross subaccounts liquidate on their portfolio maintenance margin, largest requirement first (§34.4). The liquidity account takes over the position.
+  - Remaining equity minus a liquidation fee goes back to available. The fee is the smaller of the remaining equity and ½ × maintenance margin; it goes to the insurance fund.
+  - A shortfall is paid by the insurance fund, then the backstop (journaled, §34.6; the `perp_meta` tally is kept). An isolated loss never draws on other collateral.
   - Each liquidation writes a `perp_liquidations` row, a `perp_fills` row (`source=liquidation`), a liquidation trade print, ledger rows, and a `perp_liquidation` notification.
 - Reporting: `GET /v1/perps/risk` follows `margin-rest_risk_get-risk.md` literally, where `position_leverage` = notional ÷ maintenance margin. It also returns `effective_leverage` and `margin_ratio`. `GET /v1/perps/balance` follows `margin-rest_portfolio_get-balance.md` (`subaccount_balances[]` with position_value, account_equity, maintenance_margin, initial_margin, resting_orders_margin, available_balance, plus `settled_funds`) and adds `predictions_cash_dollars`.
 
@@ -727,7 +730,7 @@ Implementation: `clone/server/perps.js` (engine + REST), `clone/server/ws.js` (c
 - **UNKNOWN**: market orders. The docs only have limit orders plus TIF. **Design:** `type: "market"` is an IOC limit at mark ± 5%.
 - Matching is price-time priority. Makers get their resting price. Each fill writes `perp_trades` and two `perp_fills` rows (with `entry_price` and `realized_pnl` as in `margin-rest_portfolio_get-fills.md`). Fills against an open opposite position close it first, then open the rest (flip).
 - A resting limit order holds margin for every contract: ⌈price ÷ leverage⌉ plus the taker-fee cap. That holding is released pro rata on fill or on cancel. Taker orders are dry-run against the book first, and rejected with `409 insufficient_margin` if margin and fees exceed available collateral.
-- Not built: amend, decrease, order groups, subaccounts, batch endpoints (`margin.md` says batch is not available on margin anyway), `market_version`, `expiration_time`.
+- Amend, decrease, order groups and subaccounts are built in §34.1–§34.2. Not built: batch endpoints (`margin.md` says batch is not available on margin anyway), `market_version`, `expiration_time`.
 
 ### 14.6 Price banding
 
@@ -747,16 +750,16 @@ Fees are maker and taker rates expressed as a decimal fraction of notional; the 
 
 - Docs: a bracket (`stop_loss_price` and/or `take_profit_price`) or a trailing stop, set on a position. It fires reduce-only orders that close the position and is evaluated against the mark every tick.
 - Statuses are `pending_on_entry|active|filled|failed|canceled`. Reasons are `user_canceled|position_closed|order_rejected|position_flipped|…`. `triggered_leg` is `stop_loss|take_profit`. Sources: `margin-rest_exit-triggers_set-isolated-exit-trigger.md` and related files.
-- Clone: `PUT|DELETE /v1/perps/positions/:ticker/exit_trigger`, `GET /v1/perps/exit_triggers`. Brackets only; trailing stops and order-anchored triggers are not built.
+- Clone: `PUT|DELETE /v1/perps/positions/:ticker/exit_trigger`, `GET /v1/perps/exit_triggers`. Brackets and, since Phase 6, trailing stops tracked on the server (§34.3); order-anchored triggers are not built.
 - **Design:** take profit and stop loss must sit on the profitable or protective side of the current mark.
 - When a leg fires, the clone sends a reduce-only market order (`source=exit_trigger`), sets the trigger to `filled` with its `triggered_leg`, and sends a `perp_exit_trigger` notification. Closing or flipping the position cancels the trigger with the matching reason.
 
 ### 14.9 Transfers between Predictions cash and Perps collateral
 
 - Docs: `POST /portfolio/intra_exchange_instance_transfer` with `source` and `destination` in `event_contract|margined`, an `amount` in **centicents**, and an optional `client_transfer_id` (a duplicate returns 409). The docs say it is processed asynchronously and is "not yet available" in production (`margin-rest_portfolio_intra-account-transfer.md`, `margin.md`). The bundle tracks perps cash apart from predictions cash (`account_equity` checks in chunk `3gq1uugohtlk0.js`) and has a `margin_transfer_completed` notification (chunk `0b-vmmhwqitt_.js`).
-- Clone: `POST /v1/perps/transfers` accepts either `{direction: to_perps|to_predictions, amount_dollars}` or the docs shape. Transfers are whole cents and complete synchronously.
+- Clone: `POST /v1/perps/transfers` accepts either `{direction: to_perps|to_predictions, amount_dollars}` or the docs shape, and an optional `subaccount` (default 0). Transfers are whole cents and complete synchronously. Moves between subaccounts use `POST /v1/perps/subaccounts/transfers` (§34.1).
 - Prediction cash moves through `engine.credit(uid, ±cents, 'perps_transfer', …)`, so the existing ledger and `user_balance` WS events stay consistent.
-- Each transfer writes `perp_transfers` and `perp_ledger` rows and sends a notification. `GET /v1/perps/enabled` mirrors `/margin/enabled` (`margin-rest_exchange_get-enabled-status.md`); it is true for any signed-in user.
+- Each transfer writes `perp_transfers` and `perp_ledger` rows, posts the perps journal (`perps:bridge`, §34.6) and sends a notification. `GET /v1/perps/enabled` mirrors `/margin/enabled` (`margin-rest_exchange_get-enabled-status.md`); it is true for any signed-in user.
 
 ### 14.10 Liquidity
 
@@ -777,7 +780,7 @@ It re-quotes when the mark moves or its orders fill, at most once a second unles
 
 ### 14.12 Persistence
 
-The engine owns these SQLite tables, created with `CREATE TABLE IF NOT EXISTS`: `perp_markets` (config and simulation state), `perp_price_history`, `perp_accounts`, `perp_orders`, `perp_trades`, `perp_fills`, `perp_positions`, `perp_funding_rates`, `perp_funding_payments`, `perp_liquidations`, `perp_exit_triggers`, `perp_transfers`, `perp_ledger`, and `perp_meta`. The only in-memory state is throttle timestamps, such as the last ticker emit and the last re-quote. Seeding is idempotent per ticker. `perps.e2e.test.js` restarts the server twice and checks that positions, collateral, the pinned simulation, history, triggers, liquidations, funding and transfers all survive.
+The engine owns these SQLite tables, created with `CREATE TABLE IF NOT EXISTS`: `perp_markets` (config and simulation state), `perp_price_history`, `perp_accounts`, `perp_orders`, `perp_trades`, `perp_fills`, `perp_positions`, `perp_funding_rates`, `perp_funding_payments`, `perp_liquidations`, `perp_exit_triggers`, `perp_transfers`, `perp_ledger`, and `perp_meta`; Phase 6 adds the tables of §34.10 (forward-only migrations: additive columns, a one-time units migration and a one-time rebuild of `perp_positions` keyed by subaccount). The only in-memory state is throttle timestamps, such as the last ticker emit and the last re-quote. Seeding is idempotent per ticker. `perps.e2e.test.js` restarts the server twice and checks that positions, collateral, the pinned simulation, history, triggers, liquidations, funding and transfers all survive.
 
 ---
 
@@ -1366,7 +1369,7 @@ Users with no role who open `/admin` get a friendly page (`data-testid=admin-for
 - Combo eligibility: `ops_market_flags.combo_eligible = 0` hides the market from the combo collection, and leg validation rejects it with `400 invalid_leg`. Both are enforced in `admin.js` without editing `combos.js`, and the toggle only appears if `server/combos.js` exists.
 - Rolling-market window: read-only view of the window length (set at boot), the current window and recent results.
 
-**Perps ops** update `perp_markets.status` (`halted`/`active`) and `max_leverage` directly; the perps engine already rejects orders on non-active markets and skips them in its tick. "Run funding" calls the exported `engine.perps.runFunding()`. `perps.js` was not modified.
+**Perps ops** update `perp_markets.status` (`halted`/`active`); the perps engine rejects orders on non-active markets and skips them in its tick. Max leverage goes through `engine.perps.setMaxLeverage()`, which rescales the market's size tiers so tier 1 matches (§34.4). "Run funding" calls the exported `engine.perps.runFunding()`. Since Phase 6 the page also holds margin tiers, risk limits, APY, the waitlist, referral settings and the perps journal check (§34.10).
 
 **Settings**
 
@@ -4506,6 +4509,275 @@ allow / deny users and roles, regions; schedule boundaries live on an open page;
 audit chain and the Admin UI with a live update of another user's page; the sports job paused; per-user money controls
 from Admin › Users on every rail with the reason live, and the site-wide switches; persistence across a restart and the
 start override over a DB kill switch. `clone/tests/playmode.e2e.test.js` (8 scenarios): see the file header.
+
+## 34. Perps completion (Phase 6)
+
+PLAN Phase 6 (gap G11): order amend and decrease, order groups, subaccounts with transfers, trailing stops (P6.1);
+size-tiered margin, a portfolio maintenance-margin model and fractional perps (P6.2); APY on collateral, referrals and
+waitlist access (P6.3); and the security gate (liquidation and funding invariants under property-based tests, risk
+limits at the API). Evidence is what §13.19 and §14 already cite: the margin docs have `amend` / `decrease` and order
+groups for both products, `SubaccountType = cross | isolated | auto_rebalance` with subaccount numbers, trailing-stop exit
+triggers, `leverage_estimates` that fall with notional, `FixedPointCount` sizes, the "Perps 7% APY" spotlight (§13.10),
+`GET /v1/users/{id}/margin_waitlist` and the referrals summary shape (§13.19). Formulas, limits and screens are
+Parlance design choices, marked as such. Tests: `clone/tests/perps-trading.e2e.test.js` (8 scenarios, P6.1),
+`perps-risk.e2e.test.js` (7, P6.2), `perps-growth.e2e.test.js` (5, P6.3) and `perps-invariants.e2e.test.js` (4, the
+security gate); `perps.e2e.test.js` (12) still passes on the rewritten engine.
+
+| File | Role |
+|---|---|
+| `server/perps.js` | The engine and its REST API: units, subaccounts, cost basis, size tiers, amend / decrease, order groups, trailing stops, isolated and portfolio liquidation, zero-sum funding, collateral bridge |
+| `server/perps-ledger.js` | The perps double-entry journal (centicents) and its audit, joined to the main ledger audit |
+| `server/perps-risk.js` | Bracketed tier requirements, blended max leverage, closed-form liquidation price, tier validation, risk-limit defaults |
+| `server/perps-ops.js` | Admin › Perps ops API (tiers, risk limits, APY, waitlist, referral settings, journal check); the waitlist gate, APY accrual and payouts, the Perps referral program, the production-switch hooks |
+| `server/referrals.js` | Reusable referral programs (codes, fraud checks, qualification, rewards, caps); Phase 8 adds programs to it |
+| `server/content/perps.js` | Server wording, keyed (`server.perps.*`, Admin › Content › Texts) |
+| `public/js/views/perps-more.js`, `public/js/views/admin/perps-ops.js` | Subaccounts, order groups, rewards, waitlist card, amend and trailing editors, tier table; Admin › Perps ops panels |
+| `public/js/content/{perps2,admin.perps}-strings.js` | Client text catalog modules (§32.3) |
+
+### 34.1 Subaccounts and transfers (P6.1)
+
+- Subaccount `0` is the primary (its free collateral stays in `perp_accounts.available_cc`, so nothing existing moved);
+  `POST /perps/subaccounts {name, margin_mode}` adds `1…31` (Admin limit, default 10). Each has a name and a margin
+  mode, `isolated` (margin per position, as before) or `cross` (portfolio margin, §34.4); `PUT /perps/subaccounts/:n`
+  renames or changes the mode, the mode only when the subaccount is flat with no resting orders (`409 subaccount_busy`).
+- Orders, closes, exit triggers and the Predictions transfer take `subaccount` (default 0); positions are keyed by
+  (user, subaccount, market); reads filter with `?subaccount=`. Self-trade prevention spans all of a user's
+  subaccounts.
+- `POST /perps/subaccounts/transfers {from_subaccount, to_subaccount, amount_dollars, client_transfer_id?}` moves free
+  collateral between two subaccounts of the caller (whole cents; `Idempotency-Key`; a duplicate `client_transfer_id` is
+  `409`); `perp_transfers` records it with `source = destination = margined` and both numbers. Unknown subaccounts are
+  `404 subaccount_not_found`; they are per user, so another user's numbers do not exist for the caller.
+- UI: Perps portfolio › **Subaccounts** (table with mode, free, equity, maintenance, margin ratio; create; move funds;
+  switch mode); the ticket and the transfer box get a subaccount picker once there are two; positions show the
+  subaccount and "Portfolio margin".
+
+### 34.2 Order amend, decrease and order groups (P6.1)
+
+- `POST /perps/orders/:id/decrease {reduce_by | reduce_to}` (contracts, `_fp` spellings too) shrinks a resting order
+  in place (same id, same queue place); the reservation is released pro rata; zero cancels it (`cancel_reason
+  decreased`).
+- `POST /perps/orders/:id/amend {price?, count?, client_order_id?}`: `count` is the new remaining size. The same price
+  with a smaller count is a decrease; a new price or a larger count cancels the order (`cancel_reason amended`) and
+  places its replacement (new id, `amended_from`) **in one transaction** with every check (band, margin, tiers, limits,
+  group); if any check fails nothing changes. Response `{old_order, order}`.
+- **Order groups** (`perp_order_groups`): `POST /perps/order_groups {kind: limit | oco, contracts_limit?, subaccount?}`,
+  `GET`, `GET /:id` (with its orders), `DELETE /:id` (group-level cancel: every resting order of the group, then the
+  group is `canceled`), `POST /:id/reset` (a triggered group becomes active again with nothing filled). Orders join
+  with `order_group_id` (same subaccount, active group).
+  - `limit`: the group's fills never exceed `contracts_limit`: a taker's size is capped, makers are filled only up to the
+    remaining capacity during matching, and at the limit every other resting order of the group is canceled
+    (`order_group_limit`), status `triggered`.
+  - `oco` (one cancels the other): the first fill of any order cancels the group's other orders (`order_group_oco`); two
+    makers of one OCO group are never both filled by one sweep.
+  - Limits: active groups per user (20) and open orders per group (25), Admin-editable.
+- UI: Open orders › **Edit** (price and contracts left; smaller size at the same price = decrease); Perps portfolio ›
+  **Order groups** (create, filled of limit, open orders, Cancel all, Reset); the ticket's group picker.
+
+### 34.3 Trailing stops (P6.1)
+
+- `PUT /perps/positions/:ticker/exit_trigger {kind: 'trailing', trail_percent | trail_amount, subaccount?}`;
+  one active bracket and one active trailing stop per position (`DELETE …?kind=trailing`). Stored with the trail
+  (`trail_bps` or `trail_cc`), the **watermark** (best mark since it was set: highest for a long, lowest for a short) and
+  the current stop.
+- Server-side tracking: on every evaluation (each engine tick and every index change) the watermark is updated first
+  and persisted, then the stop is recomputed (`watermark ∓ trail`) and compared with the mark. A gap through the stop
+  fires at that evaluation with a reduce-only market order (mark ± 5 %); the trigger row is updated in the **same
+  transaction** as the order, so it fires exactly once; `triggered_leg = trailing_stop`, `fired_mark_cc`, fill source
+  `trailing_stop`, a notification. Between two evaluations only the endpoint mark is seen (design choice; ticks are
+  sub-second). Closing or flipping the position cancels it. With the flag off no new trailing stop can be set; active
+  ones keep protecting their positions.
+
+### 34.4 Size-tiered margin, portfolio margin and risk limits (P6.2)
+
+- **Tiers** (`perp_margin_tiers`, Admin › Perps ops): notional brackets with an initial and a maintenance rate. The
+  requirement is **bracketed**: `MM(N) = Σ rate_k × (part of N inside tier k)` (continuous, rising faster than linearly);
+  the blended maximum leverage at N is `N / IM(N)`; tier 1's initial rate is `1 / max_leverage` (editing either keeps
+  the other in sync); the last cap is the **maximum position**. Defaults from max leverage: $50k at the full leverage,
+  $250k at half, $1M at a quarter, maintenance = initial / 2, so every position of §14 keeps its old numbers.
+  `leverage_estimates` and `margin_tiers` / `max_position_notional_dollars` in the market and `risk_parameters` come
+  from the tiers.
+- **Risk limits**, checked before collateral, on the worst case (this order's fills and resting remainder plus the
+  subaccount's other same-side resting orders), only when exposure grows: `409 position_limit` above the maximum
+  position; `400 leverage_exceeds_tier` when the chosen leverage exceeds the blended maximum at that size; `400` above
+  max leverage; `409 open_order_limit` for open orders per market (50) and in total (200); subaccounts (10) and order
+  groups (20) per user. A market order's check applies to what it can fill against the book.
+- **Isolated** positions liquidate when margin + unrealized PnL < their bracketed MM. The estimated liquidation price
+  is the closed-form root of `margin + q(m − entry) = MM(|q|·m)` solved tier by tier.
+- **Portfolio (cross) margin** per subaccount: equity = free + reserved + Σ(margin + unrealized PnL); the portfolio
+  MM is Σ of each position's bracketed MM. New exposure must leave equity ≥ Σ initial margin. When equity < portfolio
+  MM, the subaccount's resting orders are canceled, then positions are closed at the mark **largest requirement first**
+  until equity covers what is left. A loss beyond a position's margin draws first on the subaccount's free collateral,
+  then on its other positions' margins, then the insurance fund, then the backstop. The liquidation price shown for a
+  cross position holds the others at their marks.
+
+### 34.5 Fractional perps (P6.2)
+
+- Quantities are integer **units** (hundredths of a contract), as event contracts (§16.1); a one-time migration
+  (`perp_meta units_v1`) multiplied every count column by 100. Inputs `count` / `count_fp` follow §16.4 (≤ 2 decimals,
+  ≥ 0.01, must match); per-market `fractional_trading_enabled` (`PLXUS10YPERP` is whole-contract only:
+  `400 fractional_not_enabled`); the flag `perps.fractional` off allows whole contracts only; a held fractional
+  position can always be closed in full. Fees, margin and funding are computed on units exactly
+  (`fee = ⌈units·p·rate/100⌉`, `margin = ⌈units·p/(100·lev)⌉`, `funding = round(−units·mark·rate/100)`).
+
+### 34.6 Money: cost basis and the perps journal
+
+- Positions keep an integer **cost basis** in unit-centicents (`cost_ucc = Σ units × price`); a close releases cost
+  pro rata and realizes `closing × price − released` (long) exactly; the user side is paid whole centicents rounded down
+  and the remainder is the `rounding_ucc` tally. So, exactly, `Σ realized + Σ unrealized = 0` over all parties.
+- `server/perps-ledger.js` journals **every perps money movement double-entry in centicents**: transfers through
+  `perps:bridge` (always `−100 ×` the main journal's `perps:collateral`), order reservations, margin locks and releases,
+  fees, realized PnL, funding (`perps:funding`, zero after every event), liquidation fees and shortfalls
+  (`perps:insurance`, then `perps:backstop`), subaccount transfers, APY and rewards, the liquidity float. Its audit is
+  part of the main ledger audit (Admin › Payments, the audit job, Admin › Perps ops › Perps journal): entries balance,
+  tables equal postings per subaccount, nothing negative, the bridge, funding zero-sum, insurance ≥ 0, and
+  `−100 × perps:pnl + rounding = Σ signed cost basis of open positions`. Entries carry the money mode and epoch (the
+  §33.5 triggers now include `perp_journal_entries`).
+- Funding is zero-sum by construction: each user position pays or receives `round(−q·mark·rate)` and the liquidity
+  account takes the exact opposite of their sum.
+
+### 34.7 APY on Perps collateral (P6.3)
+
+- Admin › Perps ops › APY (`PUT /admin/perps_ops/apy {enabled, rate_percent | rate_bps, payout_interval_ms, reason}`,
+  step-up, audited): a yearly rate on each subaccount's collateral (free + reserved + margin; unrealized PnL does not
+  earn). The accrual job (flag `perps.apy`) accrues continuously (`base × rate × Δt / 365 d`, per subaccount, in
+  `perp_apy_accruals`) and pays whole cents at each interval (`perp_apy_payouts`; "Pay out now" too). Turning it on
+  starts its clock; nothing is back-dated for time it was off.
+- Funding source (§33.7): **play mode** → play money minted from `play:mint`; **production** → the promotions treasury:
+  paid from `bank:vault` while it covers the amount, otherwise **queued** (`cb_payout_queue` with a Perps destination,
+  paid FIFO into the subaccount when the vault is funded) or **refused** (per the treasury setting; refused interest is
+  dropped); production without the Central Bank → refused. Journaled in both journals in one transaction.
+- Test hook: the accrual clock is the start option `perps.apy.now` (ignored in production); no request field reaches it.
+- `GET /perps/apy` (rate, accrued, next payout, payouts); Perps portfolio › **Rewards**; at most one notice per hour.
+
+### 34.8 Perps referrals (P6.3, reusable module)
+
+- `server/referrals.js` holds programs (`referrals:<program>` settings), codes (one per user per program, 10 symbols
+  from a 32-letter alphabet without look-alikes, crypto RNG), referrals (`pending → rewarded | expired | void`) and
+  rewards (`paid | queued | refused | capped`); the owning module supplies the payout and eligibility. Phase 8 adds
+  predictions referrals as another program.
+- Perps program: a friend adds a code (`POST /perps/referrals/apply`) within 30 days of signing up and before their first
+  Perps trade; once their Perps volume reaches the threshold ($100) within 30 days, the friend gets a bonus ($5) and
+  the referrer a reward ($10) in Perps collateral, through the same treasury path as APY; lifetime caps per referrer
+  (20 rewards, $200; 0 = none) mark rewards over the cap `capped`. Fraud checks: no self-referral, one code per user,
+  late codes refused, 5 attempts per user per minute (code guessing), system accounts never qualify.
+- `GET /perps/referrals` follows the observed summary shape (§13.19): code, offer, caps, earned, pending / completed /
+  expired, referrals, referred-by progress, rewards. Admin › Perps ops › Referrals edits the settings (step-up).
+
+### 34.9 Waitlist access (P6.3)
+
+- Flag `perps.waitlist` (off by default; on = access by invitation). `GET /perps/waitlist` returns the observed shape
+  (`has_joined, beta_unlocked, can_start_onboarding, …`) plus `status`, `position` and `waiting_count`;
+  `POST /perps/waitlist` joins (idempotent).
+- Enforced in the flag gate before any route: while on, Perps writes that add money or risk (orders except reduce-only,
+  amends, transfers in, subaccounts, order groups) need access: `403 perps_waitlist` with the caller's waitlist state.
+  Reads, cancels, decreases, closes, reduce-only orders, exit triggers, referral codes and transfers back to Predictions
+  always work, so no money is trapped. Staff and users with earlier Perps activity are approved automatically
+  (`grandfathered`). Deny a user or role on the flag to exempt them.
+- Admin › Perps ops › Waitlist: positions in line, **Invite next N** (FIFO), **Approve selected**, **Revoke selected**,
+  with reasons in the audit log. In-app notifications `perps_waitlist_joined` / `perps_waitlist_approved` (templates
+  `notify.perps_waitlist_*`; account notices outside the observed §13.16 matrix, which stays as observed) and system
+  emails `email.perps_waitlist_joined` / `email.perps_waitlist_approved` (Admin › Content › Templates › Perps email,
+  sent through the messaging provider while `notify.email` is on), all wording keyed; the user's open page unlocks live
+  over the `perp_account` channel.
+
+### 34.10 Admin, flags, API, tables, WebSocket
+
+- **Admin › Perps ops** (`perps.ops`; Risk and Admin roles): the market table (§18.6) plus Margin tiers (per market,
+  add / remove / edit, validated: caps increase, rates never fall, maintenance below initial), Risk limits, APY,
+  Waitlist, Referrals and the Perps journal (balanced, insurance, backstop, fees). Every change: reason + audit; tiers,
+  risk limits, APY and referral rewards also a fresh step-up.
+- **Flags** (under `perps`): `perps.subaccounts`, `perps.portfolio_margin`, `perps.order_groups`, `perps.amend`,
+  `perps.trailing_stops`, `perps.fractional`, `perps.apy` (job), `perps.referrals` (job), `perps.waitlist` (off by
+  default); route rules in `server/flags.js` (signed-in reads answer 401 before `feature_disabled`); `mountPerpsOps`
+  maps to `perps`. Tiered margin and the risk limits are not switchable (risk controls always apply).
+- **User API** (`/v1/perps`, signed in, scoped to the caller): `subaccounts` (GET, POST), `subaccounts/:n` (PUT),
+  `subaccounts/transfers` (POST), `orders/:id/amend`, `orders/:id/decrease`, `order_groups` (POST, GET),
+  `order_groups/:id` (GET, DELETE), `order_groups/:id/reset`, `apy`, `waitlist` (GET, POST), `referrals`,
+  `referrals/apply`; public `markets/:ticker/margin_tiers`. **Admin** (`/v1/admin/perps_ops`, `perps.ops`):
+  `margin_tiers`, `margin_tiers/:ticker`, `risk`, `apy`, `apy/payout`, `waitlist`, `waitlist/{approve,revoke,invite}`,
+  `referrals`, `ledger`. All classified in `tests/authz.e2e.test.js`; body schemas and size limits in
+  `server/validate.js`; `Idempotency-Key` on subaccount transfers and amends.
+- **Tables** (new): `perp_subaccounts`, `perp_order_groups`, `perp_margin_tiers`, `perp_journal_entries` /
+  `_postings` / `_balances`, `perp_waitlist`, `perp_apy_accruals`, `perp_apy_payouts`, `referral_codes`, `referrals`,
+  `referral_rewards`, `pm_archive_perps_balances`; new columns: `subaccount` on orders, fills, funding payments,
+  liquidations, triggers and the perps ledger; `cost_ucc` on positions (key now user + subaccount + market, rebuilt
+  once); `order_group_id`, `amended_from`, `cancel_reason` on orders; trailing columns on triggers;
+  `from_subaccount` / `to_subaccount` on transfers; `fractional_trading_enabled` on markets; `dest_json` on the treasury
+  queue. Settings `perps_risk`, `perps_apy`, `perps_apy_state`, `referrals:perps`.
+- **WebSocket**: the private `perp_account` channel also carries `perp_subaccounts`, `perp_order_group`,
+  `perp_waitlist`, `perp_apy` and `perp_referral` messages.
+
+### 34.11 Security gate
+
+- Property-based tests with a small deterministic harness (`tests/lib/property.js`: seeded PRNG, generators, the seed
+  and the last actions printed on failure; `PROPERTY_SEED` / `PROPERTY_RUNS` replay or widen a run):
+  fill arithmetic conserves PnL exactly (300 seeds); tiered MM is continuous and non-decreasing and the liquidation
+  price solves equity = MM (300 seeds); the live engine under random orders, amends, decreases, closes, index moves
+  with ±25 % gaps, funding, transfers, subaccount moves, trailing stops and order groups on isolated and cross
+  subaccounts (5 seeds × 110 actions): after **every** action the ledger audit balances, an independent equation over
+  the tables holds (collateral held = money bridged in + realized − fees + funding + shortfalls covered), nothing is
+  negative, insurance + backstop = liquidation fees − shortfalls with the fund ≥ 0, every funding event sums to zero,
+  open interest pairs, and after every mark change nothing stays open under maintenance margin; targeted gaps cover an
+  isolated shortfall (other collateral untouched) and a portfolio liquidation.
+- Risk limits at the API (`perps-risk`): max leverage, leverage per tier, max position counting resting orders,
+  open orders per market and in total, subaccounts and order groups; IDOR probes (`authz`) for amend / decrease, order
+  groups and subaccounts. See `SECURITY.md` §17.
+
+### 34.12 Switch to production
+
+The §33.6 reset now also archives every subaccount's free collateral and unpaid APY accrual
+(`pm_archive_perps_balances`), deletes accruals, cancels queued APY payouts and queued referral rewards, voids pending
+referrals, cancels active order groups and every resting perps order, zeroes all collateral, and closes every perps
+journal account into `perps:reset:<batch>` before the epoch changes; the liquidity float is reopened in the real
+epoch. The preview counts subaccounts with a balance, accruals, queued payouts, pending referrals, queued rewards and
+active groups, with the accrued total. The reverse guard counts subaccount balances.
+
+### 34.13 Design choices to confirm
+
+- Subaccount 0 keeps its balance in `perp_accounts`; up to 32 subaccount numbers, 10 by default; `auto_rebalance` is
+  not built.
+- Amend's `count` is the new remaining size; an amend that is a pure decrease keeps the order id and queue place.
+- Limit groups cap fills during matching (never overfill); OCO keeps the filled order's remainder.
+- Trailing stops see the mark at each evaluation (tick or index change), not intra-tick highs; they keep firing while
+  their flag is off.
+- Tier defaults ($50k / $250k / $1M at 1×, 2×, 4× the base initial rate, maintenance = half) and bracketed (marginal)
+  requirements; leverage checked against the blended maximum of the worst-case size.
+- Portfolio margin closes the largest requirement first; a cross loss draws on free collateral, then other margins.
+- A margin lock never overdraws: when rounding leaves a maker a few centicents short, the position's margin is that
+  much smaller (instead of an insurance draw).
+- APY on free + reserved + margin, accrued per subaccount, whole cents per payout, refused interest dropped; 7 %
+  default rate offered but off until an admin enables it.
+- Referral defaults ($10 / $5, $100 volume, 30 days, caps 20 / $200), rewards in Perps collateral.
+- Waitlist: grandfathering on prior Perps activity; staff exempt; protective actions always allowed; its emails are
+  system emails (always sent while email delivery is on), not a new row of the observed notification matrix.
+- APY payouts use the Transfers row of the matrix and referral rewards the observed "Referral rewards" row.
+
+### 34.14 Residual risks
+
+- Per-process state: referral attempt limits, APY notice throttling and the flag cache (PLAN §10 RS1).
+- The APY base is sampled per accrual step (about a second); collateral moved between steps earns on the sampled value.
+- Trailing stops and liquidations act on discrete evaluations; a market that gaps between them fills at the next mark
+  (with the 5 % market-order band). The liquidity account is the only counterparty for liquidations; a real exchange
+  would need a liquidation queue and an auction.
+- The backstop is an accounting account (the house); there is no auto-deleveraging.
+- Referral fraud checks are account-level only (no device or payment-instrument linkage yet; Phase 8 / P3.7 signals).
+- The units migration and the position-table rebuild run once on first boot of an old database; take a backup first.
+
+### 34.15 Verification
+
+`perps-trading` (8): subaccounts created and funded through the UI, moves between them, trading in a subaccount, the
+journal balanced; amend and decrease from Open orders (same id vs replacement, reservations); a limit group that
+cancels the rest at its limit, OCO, group-level cancel and reset; a trailing stop whose watermark follows live and that
+fires exactly once on a spike-and-gap; each capability's flag off and on; persistence across a restart (a persisted
+watermark fires after it); 390 px layouts. `perps-risk` (7): tiers on the market page and in the ticket, edited in
+Admin › Perps ops; risk limits at the API (also through Admin › Perps ops › Risk limits); a position across tiers
+liquidating on its bracketed MM; a cross subaccount surviving the move that liquidates the same isolated position, then
+liquidating largest-first with no negative collateral; fractional sizes (UI, `count_fp`, partial close, whole-contract
+market, funding on units, the flag); persistence. `perps-growth` (5): APY set in the admin UI, accrued on the injected
+clock, queued, paid when the vault is funded, refused per setting, paused by its flag; referrals through the UI with
+fraud checks and caps; the waitlist gate, join with position, bulk invite unlocking an open page live, a CMS-edited
+approval email, revoke, persistence; play-money APY and rewards and the production switch zeroing the new balances.
+`perps-invariants` (4): §34.11.
 
 ---
 

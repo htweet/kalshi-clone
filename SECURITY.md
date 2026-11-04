@@ -135,7 +135,7 @@ test that proves it), **◑ partial**, **☐ planned** (PLAN item).
 |---|---|---|---|
 | S/I | Reading or cancelling another user's perps orders/positions | All perps reads/writes keyed by `req.auth.user.id`; order cancel checks owner (404 otherwise); IDOR probes in the matrix test | ✅ P1.7 |
 | T | Duplicate order/transfer/close on retry | `Idempotency-Key` on `/perps/orders`, `/perps/transfers`, `/perps/positions/:t/close` | ✅ P1.9 |
-| T | Margin/liquidation invariants broken by rounding | Centicent arithmetic, margin reserved before matching; property-based tests planned | ◑ P6 gate |
+| T | Margin/liquidation invariants broken by rounding | Integer units and an integer cost basis (exact realized PnL), margin reserved before matching, a double-entry perps journal in the ledger audit; property-based tests of conservation, non-negative collateral, insurance accounting and zero-sum funding (`perps-invariants`) | ✅ P6 gate (§17) |
 | E | Users calling perps admin endpoints (index, simulation, funding) | `requireAdmin` (is_admin) — matrix test | ✅ |
 | D | Funding/liquidation loop overload | Tick-driven, bounded per tick | ✅ |
 
@@ -279,6 +279,27 @@ could tamper with.
 | T | **Treasury overdraft** | Payouts from `bank:vault` only when it covers them (inside the transaction); otherwise queued or refused; audit check `vault_non_negative` | ✅ |
 | I | **Backup file exposure** | Written with mode 600 inside the data directory (already denied to coding agents by `.claude/settings.json`) | residual: not encrypted as a file; move off-host in production |
 
+### 17. Perps completion (Phase 6, `CLONE_SPEC.md` §34)
+
+New attack surface: subaccounts and transfers between them, order amend / decrease and order groups (writes on existing
+orders), trailing stops (server-side triggers), portfolio margin (losses shared across positions), money paid by the
+house into collateral (APY, referral rewards), referral codes, the waitlist gate, Admin › Perps ops.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| S / I / T | **IDOR on new objects**: amending, decreasing or cancelling another user's order; reading or cancelling another user's order group; moving another user's subaccount funds | Every lookup is keyed by `req.auth.user.id` (orders, groups, subaccounts are per user; foreign ids answer 404); a group must belong to the caller and the order's subaccount | ✅ (`authz` IDOR probes + matrix) |
+| T | **Money created or lost by rounding** in fills, funding, liquidations, transfers, APY | Integer units and cost basis; realized PnL paid rounded down with the remainder tallied; funding made zero-sum with the liquidity account absorbing rounding; every movement journaled double-entry and audited (bridge = main collateral, tables = postings, PnL conservation) | ✅ (`perps-invariants`: independent table equation after every action) |
+| T | **Negative collateral / loss socialised to other users** after a gap | Isolated losses beyond margin are covered by the insurance fund then the backstop (house), never by other collateral; cross losses draw on the subaccount's own free collateral and margins first; a margin lock never overdraws | ✅ (property + targeted gap tests) |
+| E | **Bypassing risk limits** by splitting orders, using resting orders, or subaccounts | Worst-case check includes the subaccount's same-side resting orders; leverage checked against the blended maximum at that size; open-order limits per market and in total per user; limits on subaccounts and groups; self-trade prevention across all of a user's subaccounts | ✅ (`perps-risk` at the API) / residual: per-subaccount position limits (a user may hold the max in each subaccount) |
+| T | **Amend race / partial replace** (old order canceled, new one refused) | Amend runs cancel + placement in one transaction with every check; any refusal rolls back | ✅ (`perps-trading`) |
+| T | **Trailing stop firing twice or not at all** under fast moves | Watermark updated and persisted before the check on every evaluation; the trigger row is updated in the same transaction as its order; evaluation after every index change and tick | ✅ (spike-and-gap test) / residual: discrete evaluation |
+| T / E | **Referral abuse** (self-referral, code guessing, farming) | Own code refused; one code per user per program; codes from the crypto RNG (50 bits); 5 attempts per user per minute; codes only within 30 days of sign-up and before the first trade; volume threshold; lifetime caps per referrer; system accounts excluded | ✅ / residual: no device or payment-instrument linkage |
+| T | **Treasury drained by APY or rewards** | Paid only while the vault covers the amount (inside the transaction), otherwise queued or refused; vault audit check; APY rate and referral rewards need `perps.ops`, a reason and a fresh step-up; no APY without an admin enabling it | ✅ |
+| T | **Clock manipulation of APY accrual** | The accrual clock is a process start option for tests, ignored when `NODE_ENV=production`; no request field reaches it; turning APY on never back-dates | ✅ |
+| E | **Waitlist bypass** (trading before approval through another route) | Enforced in the `/v1` flag gate before any router, for every Perps write that adds money or risk; protective actions (cancel, close, reduce-only, transfers out) stay allowed so funds are never trapped | ✅ (`perps-growth`) |
+| T / R | **Unaccountable risk changes** (tiers, limits) | `perps.ops` + reason + step-up + hash-chained audit; tier validation (caps increase, rates never fall, maintenance below initial) | ✅ |
+| T | **Play money crossing into production** through the new balances | The production switch archives and zeroes subaccounts, accruals, queued payouts and pending referrals and closes every perps journal account; perps journal entries carry the money mode and epoch (audit check for mixed epochs) | ✅ (`perps-growth`) |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -287,7 +308,9 @@ could tamper with.
   and derived secrets, an in-process tokenizer instead of provider-hosted fields, three AML rule hooks rather than a
   monitoring programme. KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
 - Signed API keys for the public trading API are not built (P7.1).
-- Property-based tests for perps margin/liquidation invariants (P6 gate).
+- Phase 6 (`CLONE_SPEC.md` §34.14): trailing stops and liquidations act on discrete evaluations; the liquidity account
+  is the only liquidation counterparty (no liquidation queue, auction or auto-deleveraging); referral fraud checks are
+  account-level only; position limits are per subaccount; throttles are per process (RS1).
 - Trading core (Phase 5A, `CLONE_SPEC.md` §28.11): the two-person rule assumes distinct people behind distinct admin
   accounts; corrections are refused (not cascaded) when a combo already resolved from the leg; the MECNET guarantee is
   conservative (it assumes no outcome may win).
