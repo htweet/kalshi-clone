@@ -22,6 +22,8 @@ export const inPreview = () => previewOn;
 // A media slot's image ({url, alt}) or null when the slot keeps its built-in artwork.
 export const media = (slot) => current.media[slot] || null;
 export const footerContent = () => current.footer;
+// <img> markup for a media slot, or '' when the slot keeps its built-in artwork (escaped; the URL is a /media path).
+export const slotImg = (slot, cls = 'cms-slot-img') => { const m = media(slot); return m ? `<img src="${esc(m.url)}" alt="${esc(m.alt || '')}" class="${esc(cls)}" width="${esc(m.width)}" height="${esc(m.height)}" data-slot="${esc(slot)}" loading="lazy">` : ''; };
 
 function themeLink() {
   return document.getElementById('cms-theme');

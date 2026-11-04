@@ -2,6 +2,7 @@
 // popular + per-category sections; right rail with Perps promo, hubs, Trending, Harbor 2026 and Top movers.
 import { t as tx, te, ts, tr } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../content/home-strings.js';
+import { slotImg } from '../content-live.js'; // CMS media slots (CLONE_SPEC.md §32.6)
 import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { queries, session } from '../store.js';
@@ -46,8 +47,9 @@ export async function render({ el, navigate }) {
         <div class="cards2">${s.events.slice(0, 2).map(eventCard).join('')}</div>`).join('')}
     </div>
     <aside class="rail">
-      ${home.promos ? home.promos.map(promoCard).join('') : `<a class="card promo" href="/perps" data-link data-testid="perps-promo"><span><span class="overline">${te('home.render.perps')}</span><b>${te('home.render.trade_with_up_to_10x')}</b><span class="sub">${te('home.render.crypto_metals_and_rates_24')}</span></span><span class="art" aria-hidden="true"></span><span class="faint">›</span></a>`}
-      ${home.hubs.map((h, i) => `<a class="card promo ${i ? 'hub2' : 'hub'}" href="${h.category === 'Elections' ? '/hubs/elections' : `/category/${catSlug(h.category)}`}" data-link><span><b>${esc(h.title)}</b><span class="sub">${te('home.render.volume_events', { money0: money0(h.dollar_volume), events: esc(h.events) })}</span></span><span class="faint ml-auto">›</span></a>`).join('')}
+      ${slotImg('hero.home', 'cms-slot-img card rail-art')}
+      ${home.promos ? home.promos.map(promoCard).join('') : `<a class="card promo" href="/perps" data-link data-testid="perps-promo"><span><span class="overline">${te('home.render.perps')}</span><b>${te('home.render.trade_with_up_to_10x')}</b><span class="sub">${te('home.render.crypto_metals_and_rates_24')}</span></span>${slotImg('promo.perps', 'art art-img') || '<span class="art" aria-hidden="true"></span>'}<span class="faint">›</span></a>`}
+      ${home.hubs.map((h, i) => `<a class="card promo ${i ? 'hub2' : 'hub'}" href="${h.category === 'Elections' ? '/hubs/elections' : `/category/${catSlug(h.category)}`}" data-link><span><b>${esc(h.title)}</b><span class="sub">${te('home.render.volume_events', { money0: money0(h.dollar_volume), events: esc(h.events) })}</span></span>${slotImg(h.category === 'Elections' ? 'hub.elections' : 'hub.economics', 'art art-img')}<span class="faint ml-auto">›</span></a>`).join('')}
       <div class="card rail-box"><h3>${te('home.render.trending')} <a href="/browse?order_by=trending" data-link>›</a></h3>${rankList(home.trending)}</div>
       <div class="card rail-box"><h3>${te('home.render.harbor_2026')} <a href="/category/elections" data-link>›</a></h3>${rankList(home.featured_list)}</div>
       <div class="card rail-box"><h3>${te('home.render.top_movers')} <a href="/browse?order_by=trending" data-link>›</a></h3>${rankList(home.top_movers)}</div>

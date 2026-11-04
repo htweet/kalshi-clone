@@ -94,5 +94,5 @@ async function renderTerms(el) {
   document.title = tx('incentives.render_terms.liquidity_incentive_program_terms_2');
   const t = await get('/v1/incentive_programs/terms');
   el.innerHTML = `<article class="card lip-terms-page" data-testid="lip-terms"><div class="overline">${te('incentives.render_terms.version', { version: esc(t.version) })}</div><h1 class="page-title">${te('incentives.render_terms.liquidity_incentive_program_terms')}</h1>
-    ${t.paragraphs.map((p) => `<p>${esc(p)}</p>`).join('')}<a class="btn" href="/incentives" data-link>${te('incentives.render_terms.back_to_programs')}</a></article>`;
+    ${t.html ? `<div class="cms-body" data-testid="lip-terms-cms">${t.html /* eslint-disable-line parlance/no-unescaped-html -- CMS page body, sanitised by the server allowlist (server/cms/sanitize.js) */}</div>` : t.paragraphs.map((p) => `<p>${esc(p)}</p>`).join('')}<a class="btn" href="/incentives" data-link>${te('incentives.render_terms.back_to_programs')}</a></article>`;
 }

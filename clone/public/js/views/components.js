@@ -1,5 +1,6 @@
 // Shared UI pieces: market card (browse grid), outcome rows, rank list, chart, post card.
 import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
+import { media } from '../content-live.js';
 import '../content/components-strings.js';
 import { vars } from '../dynstyle.js';
 import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, avatar, relTime, ICON, money0 as fmtMoney0, pxCents, fmtDay, fmtDateTime } from '../lib.js';
@@ -28,6 +29,8 @@ export function ocAvatar(m, cls = '') {
   return `<span class="oc-av ${esc(cls)} v-bg v-color"${vars({ '--bg': c, '--color': c })} aria-hidden="true"><span class="c-white">${esc(String(m.yes_sub_title || '?')[0].toUpperCase())}</span></span>`;
 }
 export function evIcon(ev, cls = '') {
+  const icon = media(`category.${ev.category}`); // CMS category icon slot (CLONE_SPEC.md §32.6)
+  if (icon && !ev.icon_color) return `<span class="ev-icon ev-icon-img ${esc(cls)}" aria-hidden="true"><img src="${esc(icon.url)}" alt="" width="40" height="40"></span>`;
   return `<span class="ev-icon ${esc(cls)} v-bg"${vars({ '--bg': ev.icon_color || catColor(ev.category) })} aria-hidden="true">${esc(String(ev.series_title || ev.title || '?')[0])}</span>`;
 }
 // Name with a coloured underline whose length tracks the chance (observed card pattern, spec §15.3).

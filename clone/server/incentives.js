@@ -23,7 +23,13 @@ const { check } = require('./validate');
 const auditChain = require('./audit-chain');
 
 const MICRO = 1_000_000;
-const TERMS_VERSION = '2026-11';
+const BASE_TERMS_VERSION = '2026-11';
+// CMS page incentives/terms (CLONE_SPEC.md §32.7): when an admin publishes a body it replaces the built-in paragraphs, and
+// each published version is a new terms version (participants accept it again).
+let termsSource = () => null;
+const setTermsSource = (fn) => { termsSource = fn; };
+const termsPage = () => { try { const p = termsSource(); return p && p.body ? p : null; } catch { return null; } };
+const termsVersion = () => { const p = termsPage(); return p ? `${BASE_TERMS_VERSION}-cms${p.version}` : BASE_TERMS_VERSION; };
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS incentive_programs (id TEXT PRIMARY KEY, event_ticker TEXT NOT NULL, market_tickers TEXT NOT NULL DEFAULT '[]', title TEXT NOT NULL DEFAULT '', incentive_type TEXT NOT NULL DEFAULT 'liquidity',
   start_ts INTEGER NOT NULL, end_ts INTEGER NOT NULL, reward_pool_cents INTEGER NOT NULL, competition TEXT NOT NULL DEFAULT 'auto', target_size_units INTEGER NOT NULL, max_spread_cents INTEGER NOT NULL DEFAULT 3,
@@ -203,7 +209,7 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
     const rows = db.prepare(`SELECT * FROM incentive_programs WHERE ${where} ORDER BY reward_pool_cents DESC, start_ts LIMIT ?`).all(size);
     res.json({ incentive_programs: rows.map(programVo), region: r });
   });
-  v1.get('/incentive_programs/terms', (req, res) => res.json({ version: TERMS_VERSION, paragraphs: TERMS }));
+  v1.get('/incentive_programs/terms', (req, res) => { const p = termsPage(); res.json({ version: termsVersion(), paragraphs: p ? [] : TERMS, ...(p ? { html: p.body, title: p.title } : {}) }); });
   v1.get('/users/:uid/incentives', requireUser, (req, res) => {
     const uid = req.auth.user.id; const r = recheck(req);
     const en = db.prepare('SELECT * FROM incentive_enrollments WHERE user_id=?').get(uid);
@@ -213,7 +219,7 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
     const pendingCents = Math.max(0, Math.floor(pending.m / MICRO) - pending.p);
     const programs = db.prepare('SELECT a.*, p.title, p.event_ticker, p.status FROM incentive_accruals a JOIN incentive_programs p ON p.id=a.program_id WHERE a.user_id=? ORDER BY a.updated_ts DESC').all(uid);
     res.json({
-      enrolled: !!en, eligible: r.eligible, region: r, terms_version: TERMS_VERSION, accepted_terms_version: en ? en.terms_version : null,
+      enrolled: !!en, eligible: r.eligible, region: r, terms_version: termsVersion(), accepted_terms_version: en ? en.terms_version : null,
       month: { key: month, label: monthLabel(), rewards_dollars: dollars(rewards.filter((x) => x.month === month).reduce((s, x) => s + x.amount_cents, 0)), pending_dollars: dollars(pendingCents) },
       lifetime_dollars: dollars(rewards.reduce((s, x) => s + x.amount_cents, 0)),
       rewards: rewards.map((x) => ({ id: x.id, program_id: x.program_id, title: x.title || x.event_ticker, amount_dollars: dollars(x.amount_cents), mode: x.mode, paid_time: new Date(x.created_ts).toISOString() })),
@@ -223,12 +229,12 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
   v1.post('/users/:uid/incentives/enrollment', requireUser, (req, res) => {
     const b = check(req.body, ENROLL, { unknown: 'reject', maxKeys: 2 });
     if (b.accept_terms !== true) throw E.badRequest('accept the program terms to take part');
-    if (b.terms_version && b.terms_version !== TERMS_VERSION) throw E.conflict('terms_changed', 'the terms have changed', 'reload the page and review the current terms');
+    if (b.terms_version && b.terms_version !== termsVersion()) throw E.conflict('terms_changed', 'the terms have changed', 'reload the page and review the current terms');
     const r = region(req);
     if (!r.eligible) throw new ApiError(403, 'region_not_eligible', 'Incentive programs are not available in your region', r.country_name);
     const at = nowIso();
-    db.prepare('INSERT INTO incentive_enrollments(user_id,terms_version,country,eligible,enrolled_at,checked_at) VALUES(?,?,?,1,?,?) ON CONFLICT(user_id) DO UPDATE SET terms_version=excluded.terms_version, country=excluded.country, eligible=1, checked_at=excluded.checked_at').run(req.auth.user.id, TERMS_VERSION, r.country, at, at);
-    res.status(201).json({ enrolled: true, terms_version: TERMS_VERSION });
+    db.prepare('INSERT INTO incentive_enrollments(user_id,terms_version,country,eligible,enrolled_at,checked_at) VALUES(?,?,?,1,?,?) ON CONFLICT(user_id) DO UPDATE SET terms_version=excluded.terms_version, country=excluded.country, eligible=1, checked_at=excluded.checked_at').run(req.auth.user.id, termsVersion(), r.country, at, at);
+    res.status(201).json({ enrolled: true, terms_version: termsVersion() });
   });
   v1.delete('/users/:uid/incentives/enrollment', requireUser, (req, res) => {
     db.prepare('DELETE FROM incentive_enrollments WHERE user_id=?').run(req.auth.user.id);
@@ -327,7 +333,7 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
       .run(id, v.event_ticker, JSON.stringify(v.market_tickers || []), v.title || '', v.start_ts, v.end_ts, v.reward_pool_cents, v.competition || 'auto', v.target_size_units || 100 * UNITS, v.max_spread_cents ?? 3, v.discount ?? 0.5, v.payout_mode || 'cash', v.start_ts <= Date.now() ? 'active' : 'scheduled', null, at, at);
     return id;
   }
-  return { snapshotAll, payout, createProgram, TERMS_VERSION };
+  return { snapshotAll, payout, createProgram, TERMS_VERSION: BASE_TERMS_VERSION, termsVersion };
 }
 
-module.exports = { mountIncentives, MICRO, TERMS_VERSION };
+module.exports = { setTermsSource, mountIncentives, MICRO, TERMS_VERSION: BASE_TERMS_VERSION, termsVersion };

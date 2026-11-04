@@ -78,7 +78,7 @@ export const helpView = {
     try { pages = (await request('GET', '/v1/help')).pages; } catch { /* optional */ }
     document.title = tx('admin.site.help_view_render.help_parlance_2', { title: r.page.title });
     el.innerHTML = `<div class="help-layout"><nav class="help-nav card" aria-label="${te('admin.site.help_view_render.help_pages')}"><h2>${te('admin.site.help_view_render.help')}</h2>${pages.map((p) => `<a href="/help/${esc(p.slug)}" data-link class="${p.slug === r.page.slug ? 'on' : ''}">${esc(p.title)}</a>`).join('')}</nav>
-      <article class="card help-page" data-testid="help-page"><h1 class="typ-title-x10">${esc(r.page.title)}</h1><div class="help-body" data-testid="help-body">${renderHelpText(r.page.body)}</div><p class="faint">${te('admin.site.help_view_render.updated', { fmt_date: fmtDate(r.page.updated_time) })}</p></article></div>`;
+      <article class="card help-page" data-testid="help-page"><h1 class="typ-title-x10">${esc(r.page.title)}</h1><div class="help-body" data-testid="help-body">${r.page.format === 'html' ? r.page.html /* eslint-disable-line parlance/no-unescaped-html -- CMS help page (CLONE_SPEC.md §32.7), sanitised by the server allowlist */ : renderHelpText(r.page.body)}</div><p class="faint">${te('admin.site.help_view_render.updated', { fmt_date: fmtDate(r.page.updated_time) })}</p></article></div>`;
   },
 };
 

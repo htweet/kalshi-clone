@@ -275,6 +275,8 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     return isDefault ? '/* brand colours: code defaults (public/app.css) */\n' : `/* brand colours from Admin › Content › Branding (CLONE_SPEC.md §32.8) */\n:root,:root[data-theme="dark"]{${decl('dark')}}\n:root[data-theme="light"]{${decl('light')}}\n`;
   }
   app.locals.pwaConfig = pwaConfig;
+  // The incentive terms page (CLONE_SPEC.md §32.7): published body + version for server/incentives.js.
+  try { require('../incentives').setTermsSource(() => { const v = store.get('page', 'incentives/terms'); const p = v.published; return p && p.body ? { body: sanitize(p.body, 'page'), title: p.title, version: v.published_version } : null; }); } catch (e) { console.error('cms incentive terms', e); }
   app.locals.pageTransform = pageTransform;
 
   // ---------------------------------------------------------------- public routes
@@ -296,6 +298,9 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     if (preview) res.setHeader('Cache-Control', 'no-store');
     res.json({ page: { ...p, body: sanitize(p.body, 'page'), preview } });
   };
+  // Help articles (CLONE_SPEC.md §32.7): CMS pages under help/<slug> are served by /v1/help(/:slug) too, after the §18.5
+  // help collection (whose own rows keep their markdown-like rendering).
+  app.locals.cmsHelp = { list: () => pageList(false).filter((p) => p.slug.startsWith('help/')).map((p) => ({ slug: p.slug.slice(5), title: p.title })), get: (slug) => { const p = pageOf(`help/${slug}`); return p && p.body ? { ...p, body: sanitize(p.body, 'page') } : null; } };
   v1.get('/pages/:a', pageRoute);
   v1.get('/pages/:a/:b', pageRoute);
   // Classic script loaded before the app modules: strings read while modules evaluate already see the published text.

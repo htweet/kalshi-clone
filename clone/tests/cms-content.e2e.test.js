@@ -196,6 +196,13 @@ test('media: re-encoded uploads (EXIF and text chunks gone), polyglots and SVG r
   assert.equal((await admin.call('POST', '/v1/admin/cms/media/rollback', { key: 'logo', version: 1, reason: 'back to the first logo' })).status, 200);
   await visitor.waitForSelector(`[data-testid=brand-logo-img][src="/media/${assetId}.png"]`);
 
+  // A view slot: the perps promo art on the home page swaps in live.
+  await visitor.goto(BASE + '/');
+  await visitor.waitForSelector('[data-testid=perps-promo] .art');
+  assert.equal((await draft('media', 'promo.perps', { asset_id: wide.body.asset.id, alt: 'Perps' })).status, 200);
+  assert.equal((await publish('media', 'promo.perps')).status, 200);
+  await visitor.waitForSelector(`[data-testid=perps-promo] img[data-slot="promo.perps"][src="/media/${wide.body.asset.id}.png"]`);
+
   // The app-icon slot drives the manifest, the apple-touch icon and the favicon.
   assert.equal((await draft('media', 'pwa_icon', { asset_id: icon.body.asset.id })).status, 200);
   assert.equal((await publish('media', 'pwa_icon')).status, 200);
@@ -257,6 +264,22 @@ test('pages: create, schedule, publish with SEO fields, roll back; legal pages n
   await ap.click('[data-testid=step-up-submit]');
   await H.until(async () => /Updated terms/.test(await (await fetch(`${BASE}/v1/pages/legal/terms`)).text()));
   assert.ok(D.q("SELECT 1 FROM admin_audit WHERE action='cms.publish' AND target_id='legal/terms@en-NG' AND reason='Terms version 2'")[0]);
+
+  // Help articles (merged with the help CMS) and the incentive terms are CMS pages too.
+  assert.equal((await draft('page', 'help/getting-started', { title: 'Getting started', section: 'help', body: '<p>Open an account, then <b>deposit</b>.</p>' })).status, 200);
+  assert.equal((await publish('page', 'help/getting-started')).status, 200);
+  assert.ok((await (await fetch(`${BASE}/v1/help`)).json()).pages.some((x) => x.slug === 'getting-started'));
+  await visitor.goto(`${BASE}/help/getting-started`);
+  await visitor.waitForSelector('[data-testid=help-body] b:has-text("deposit")');
+  const v0 = (await (await fetch(`${BASE}/v1/incentive_programs/terms`)).json()).version;
+  assert.equal((await draft('page', 'incentives/terms', { title: 'Liquidity Incentive Program terms', section: 'legal', body: '<h2>Program terms</h2><p>Rewards accrue on resting orders.</p>' })).status, 200);
+  assert.equal((await publish('page', 'incentives/terms')).code, 'step_up_required', 'also a legal page');
+  assert.equal((await admin.call('POST', '/v1/step_up', { password: ADMIN.password })).status, 200);
+  assert.equal((await publish('page', 'incentives/terms')).status, 200);
+  const terms = await (await fetch(`${BASE}/v1/incentive_programs/terms`)).json();
+  assert.notEqual(terms.version, v0, 'a published terms page is a new terms version');
+  await visitor.goto(`${BASE}/incentives/terms`);
+  await visitor.waitForSelector('[data-testid=lip-terms-cms] h2:has-text("Program terms")');
 
   // Footer: links must be site paths or https; the published footer reaches open pages live.
   const badFooter = await draft('footer', 'links', { tagline: 'Hi', columns: [{ title: 'X', links: [{ label: 'Bad', href: `java${''}script:alert(1)` }] }] });
