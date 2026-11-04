@@ -109,9 +109,10 @@ test('sports derivatives: a spread / total market bought on the event page settl
   const total = lines.find((l) => l.kind === 'total');
   await page.click(`[data-testid=line-row][data-ticker="${total.market_ticker}"] [data-testid=line-yes]`);
   await page.waitForURL(/-lines\?side=yes&market=/);
-  // The lines page's own header label (no data-status, unlike the game page it replaces) is filled once its game board
-  // loads; waiting on it avoids matching the previous page's scoreboard while the route is still switching.
-  await page.waitForFunction(() => /Live|Final/.test(document.querySelector('[data-testid=ev-live-label]:not([data-status])')?.textContent || '')).catch(async (e) => {
+  // The lines page (recognised by its link back to the moneyline game, which the game page itself does not have) fills
+  // its header label once its game board loads; waiting on it avoids matching the previous page's scoreboard while the
+  // route is still switching. The game may finish meanwhile (the label then gains data-status and reads Final).
+  await page.waitForFunction(() => document.querySelector('[data-testid=moneyline-link]') && /Live|Final/.test(document.querySelector('[data-testid=ev-live-label]')?.textContent || '')).catch(async (e) => {
     const info = await page.evaluate(async () => {
       const et = location.pathname.split('/').pop();
       const r = await fetch(`/v1/sports/events/${encodeURIComponent(et)}`).then((x) => `${x.status} ${(x.headers.get('content-type') || '').slice(0, 20)}`, (x) => String(x));
