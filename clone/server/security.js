@@ -14,6 +14,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const express = require('express');
 const { createBot } = require('./bot');
+const { mountPwaStatic } = require('./pwa-static');
 const { ApiError } = require('./util');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -273,6 +274,7 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
       target.use('/fonts', onlyExt(['.woff2', '.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400')));
     }
     target.use('/fonts', onlyExt(['.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400'))); // OFL licences
+    mountPwaStatic(target, { assets, notFound }); // /manifest.webmanifest, /sw.js, /offline.html, /icons/* (CLONE_SPEC §31)
     target.use(spa);
   }
 

@@ -8,6 +8,10 @@
 // Output: dist/index.html (the page template, with __CSP_NONCE__ / __PLX_BOOT__ placeholders the server fills per
 // response), dist/assets/main-<hash>.js + chunk-<hash>.js (ES modules, code-split), dist/assets/app-<hash>.css (every
 // stylesheet linked from public/index.html, in order) and the fonts it references, dist/manifest.json (source hash).
+// PWA (CLONE_SPEC.md §31): dist/offline.html (static fallback page, its stylesheet links pointed at the bundle) and
+// dist/sw.js (the service worker with this build's version and precache list: every hashed asset, the offline page,
+// the web app manifest and the icons). The version is derived from the source hash, the output file list and an
+// optional `salt` (tests use it to produce a "new version" without touching the sources).
 // No .map files and no sourceMappingURL comments are produced. The build goes to a temporary directory first and is
 // swapped in, so a running server never sees a half-written dist/.
 const fs = require('node:fs');
@@ -50,7 +54,15 @@ function isStale() {
 
 const STYLE_LINK = /^[ \t]*<link rel="stylesheet" href="\/([A-Za-z0-9_-]+\.css)"[^>]*>[ \t]*\r?\n/gm;
 
-async function build({ quiet = false } = {}) {
+// The service worker: version and precache list filled into public/sw.js.
+const PWA_STATIC = ['/offline.html', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/icons/apple-touch-icon.png', '/icons/badge-72.png'];
+function renderServiceWorker(src, version, precache) {
+  const out = src.replace(/'__PLX_SW_VERSION__'/, JSON.stringify(version)).replace(/\/\* __PLX_PRECACHE__ \*\/ \[[^\]]*\]/, JSON.stringify(precache));
+  if (out.includes('__PLX_SW_VERSION__') || out.includes('__PLX_PRECACHE__')) throw new Error('public/sw.js placeholders were not filled');
+  return out;
+}
+
+async function build({ quiet = false, salt = '' } = {}) {
   let esbuild;
   try { esbuild = require('esbuild'); } catch {
     throw new Error('esbuild is not installed (it is a devDependency). Run `npm install` (or build on a machine with dev dependencies and ship dist/).');
@@ -89,13 +101,25 @@ async function build({ quiet = false } = {}) {
     page = page.replace(/src="\/js\/main\.js"/, `src="/assets/${mainJs}"`);
     if (page === before) throw new Error('public/index.html has no /js/main.js module script');
     fs.writeFileSync(path.join(tmp, 'index.html'), page);
+    // Offline fallback page: the same single hashed stylesheet in place of its per-file links.
+    let firstOff = true;
+    const offline = fs.readFileSync(path.join(PUBLIC, 'offline.html'), 'utf8').replace(STYLE_LINK, (line) => {
+      if (!firstOff) return '';
+      firstOff = false;
+      return line.replace(/href="\/[^"]+"/, `href="/assets/${appCss}"`);
+    });
+    if (firstOff) throw new Error('public/offline.html links no stylesheet');
+    fs.writeFileSync(path.join(tmp, 'offline.html'), offline);
 
     const files = walk(assets).map((f) => path.relative(tmp, f).replace(/\\/g, '/'));
     for (const f of files) {
       if (f.endsWith('.map')) throw new Error(`source map emitted: ${f}`);
       if (/\.(js|css)$/.test(f) && /sourceMappingURL/.test(fs.readFileSync(path.join(tmp, f), 'utf8'))) throw new Error(`sourceMappingURL left in ${f}`);
     }
-    fs.writeFileSync(path.join(tmp, MANIFEST), JSON.stringify({ source_hash: hash, built_at: new Date().toISOString(), esbuild: esbuild.version, entry: { js: mainJs, css: appCss }, files }, null, 1));
+    const precache = [...PWA_STATIC, ...files.map((f) => `/${f}`)];
+    const version = crypto.createHash('sha256').update(`${hash}\0${files.join('\n')}\0${salt}`).digest('hex').slice(0, 16);
+    fs.writeFileSync(path.join(tmp, 'sw.js'), renderServiceWorker(fs.readFileSync(path.join(PUBLIC, 'sw.js'), 'utf8'), version, precache));
+    fs.writeFileSync(path.join(tmp, MANIFEST), JSON.stringify({ source_hash: hash, built_at: new Date().toISOString(), esbuild: esbuild.version, entry: { js: mainJs, css: appCss }, files, pwa: { version, precache } }, null, 1));
 
     fs.rmSync(DIST, { recursive: true, force: true });
     fs.renameSync(tmp, DIST);
@@ -115,7 +139,7 @@ async function ensureBuilt({ quiet = true } = {}) {
   return pending;
 }
 
-module.exports = { build, ensureBuilt, isStale, sourceHash, DIST, PUBLIC };
+module.exports = { build, ensureBuilt, isStale, sourceHash, readManifest, renderServiceWorker, PWA_STATIC, DIST, PUBLIC };
 
 if (require.main === module) {
   const skip = process.argv.includes('--if-stale') && !isStale();

@@ -169,6 +169,10 @@ const EXPECT = {
   'GET /v1/users/:uid/notifications/preferences': O, 'PUT /v1/users/:uid/notifications/preferences': O, 'PUT /v1/users/:uid/notifications/settings/:type': O,
   'GET /v1/users/:uid/notifications/push_devices': O, 'POST /v1/users/:uid/notifications/push_devices': O, 'DELETE /v1/users/:uid/notifications/push_devices/:id': O,
   'GET /v1/users/:uid/notifications/deliveries': O,
+  // ---- Web Push (CLONE_SPEC.md §31): the VAPID public key is public; subscriptions are the owner's.
+  'GET /v1/push/vapid_public_key': P, 'GET /manifest.webmanifest': P, 'GET /sw.js': P, 'GET /offline.html': P,
+  'GET /v1/users/:uid/push_subscriptions': O, 'POST /v1/users/:uid/push_subscriptions': O, 'DELETE /v1/users/:uid/push_subscriptions': O,
+  'DELETE /v1/users/:uid/push_subscriptions/:id': O, 'POST /v1/users/:uid/push_subscriptions/:id/test': O,
   'GET /v1/users/:uid/notifications/price_movement_subscriptions': O, 'POST /v1/users/:uid/notifications/price_movement_subscriptions': O, 'DELETE /v1/users/:uid/notifications/price_movement_subscriptions': O,
   'GET /v1/users/:uid/notifications/social_account_subscriptions': O, 'POST /v1/users/:uid/notifications/social_account_subscriptions': O, 'DELETE /v1/users/:uid/notifications/social_account_subscriptions': O,
   'GET /v1/users/:uid/groups': O, 'POST /v1/users/:uid/groups': O, 'GET /v1/users/:uid/groups/candidates': O, 'GET /v1/users/:uid/groups/:gid': O, 'PUT /v1/users/:uid/groups/:gid': O,

@@ -43,6 +43,11 @@ module.exports = [
     },
   },
   {
+    // The service worker (CLONE_SPEC.md §31) is a classic script in the ServiceWorkerGlobalScope.
+    files: ['public/sw.js'],
+    languageOptions: { sourceType: 'script', globals: { ...globals.serviceworker } },
+  },
+  {
     // Node server, tests, tooling (CommonJS).
     files: ['server/**/*.js', 'tests/**/*.js', 'eslint-rules/**/*.js', 'eslint.config.js'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'commonjs', globals: { ...globals.node } },

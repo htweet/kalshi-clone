@@ -17,6 +17,7 @@ const { mountSports } = require('./sports');
 const { mountAdmin } = require('./admin');
 const { mountChat } = require('./chat');
 const { mountCommunity } = require('./community'); // Phase 2: social and community completion (CLONE_SPEC.md §24)
+const { mountWebPush } = require('./webpush'); // Web Push for the Push notification channel (CLONE_SPEC.md §31)
 const { mountIdentity } = require('./identity'); // Phase 3: accounts, identity, compliance (CLONE_SPEC.md §25)
 const { mountAccountArea } = require('./account-area'); // Phase 3: account area, settings, documents, rewards (§25)
 const { mountPayments } = require('./payments'); // Phase 4: payments, sandbox only (CLONE_SPEC.md §26)
@@ -54,7 +55,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -126,7 +127,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Payments, sandbox only (CLONE_SPEC.md §26): rails, webhooks, limits, AML, reconciliation, ledger audit, Admin › Payments.
   app.locals.payments = mountPayments({ v1, db, engine, auth, admin, identity: app.locals.identity, security, feat, keyDir, options: paymentsOptions || {} });
   // Phase 2 community: post extras, stickers, mutes, topics, Inner Circle, group chats, notification matrix (§24).
-  const community = mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEvent });
+  // Web Push (CLONE_SPEC.md §31): VAPID keys, browser subscriptions, encrypted outbox; the Push channel delivers through it.
+  app.locals.webpush = mountWebPush({ v1, db, engine, requireUser, keyDir, options: pushOptions || {} });
+  const community = mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEvent, webpush: app.locals.webpush });
   app.locals.rolling = mountRolling({ v1, db, engine, windowSec: admin.rollingWindowSec() ?? rollingWindowSec }); // window editable live (G7)
   mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
   mountCombos({ v1, db, engine, requireUser, notify: feat.notify, eventFull, checkTrading: feat.checkTrading, options: combos });

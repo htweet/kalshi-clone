@@ -26,7 +26,38 @@ npm run test:e2e     # 216 end-to-end browser scenarios across 26 files (Playwri
 
 Port: with `PORT` unset the server tries 3000-3019 and prints the URL it actually bound. With `PORT=8080 npm start` (PowerShell: `$env:PORT=8080; npm start`) it uses exactly that port and exits with a clear message if the port is busy.
 
-Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_PASSWORD`, `SECRET_KEY` / `SECRET_KEY_FILE` (default: `secret.key` next to the database), `SECURE_COOKIES=1` behind a TLS proxy, `SCRYPT_LOG_N` (see `.env.example`). Requires Node ≥ 22.5 (`node:sqlite`).
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC`; identity: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_PASSWORD`, `SECRET_KEY` / `SECRET_KEY_FILE` (default: `secret.key` next to the database), `SECURE_COOKIES=1` behind a TLS proxy, `SCRYPT_LOG_N`; Web Push: `VAPID_SUBJECT`, `PUSH_ALLOWED_HOSTS` (see `.env.example`). Requires Node ≥ 22.5 (`node:sqlite`).
+
+## Install as an app (PWA)
+
+Parlance is a Progressive Web App (`../CLONE_SPEC.md` §31). Browsers only allow it on `https://` or on `localhost` /
+`127.0.0.1`, so a plain-http address on your LAN shows no install option.
+- **Chrome, Edge, Android:** open the site, then ☰ → **Install app** (or the install icon in the address bar). Signed
+  out, a ☰ button appears next to Log in while installation is possible. The installed app opens in its own window
+  and offers Markets, Portfolio and Deposit shortcuts on its icon.
+- **iPhone / iPad (Safari):** ☰ → **Install app** shows the steps: Share → **Add to Home Screen** → Add.
+- **Offline:** page loads that fail show a small offline page with **Retry**. Prices, balances and orders always need
+  the network; only the public, content-hashed app files are cached (never pages, API responses or anything personal).
+- **Updates:** after a deploy, open tabs show **New version available — Reload**. Nothing switches until you click.
+- `npm start` (production bundle) precaches the whole bundle; `npm run dev` registers a development worker that caches
+  only the offline page and icons, so edited sources are never served stale. To reset: DevTools › Application ›
+  Service workers › Unregister, or sign out (which empties the caches).
+
+**Push notifications (Web Push).** Settings › Notifications › *Push in this browser* › **Turn on for this device**
+asks for the notification permission, subscribes this browser with the server's VAPID key and lists it under the
+device list (with **Send test notification** and **Remove**). Then every notification type whose **Push** pill is on
+reaches the device's notification centre, even with Parlance closed; clicking one opens its page.
+- The server generates its VAPID key pair on first start and stores it encrypted with the master key
+  (`SECRET_KEY` / `data/secret.key`). Changing that key drops existing subscriptions; users turn push on again.
+- Set `VAPID_SUBJECT=mailto:you@example.com` (or an https URL) so push services can reach the operator. Only the
+  push services of Chrome / Android, Firefox, Safari and Edge are accepted; `PUSH_ALLOWED_HOSTS` adds others.
+- Locally, delivery goes out from your machine to the browser vendor's push service, so push works on `localhost` with
+  internet access. Undeliverable messages are retried with backoff from a database outbox (they survive a restart);
+  a subscription the push service reports gone (404/410) is deleted. Signing out unsubscribes the browser.
+- The tests never touch the network: `tests/pwa.e2e.test.js` points subscriptions at a local fake push service that
+  verifies the VAPID signature and decrypts each message (`start({ push: { insecureEndpointHosts: ['127.0.0.1:<port>'] } })`,
+  refused in production).
+- `node scripts/make-icons.js` redraws the app icons (`--check` verifies them).
 
 ## Trading core (Phase 5A)
 

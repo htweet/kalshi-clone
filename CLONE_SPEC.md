@@ -400,9 +400,10 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §26 payments, sandbox only: observed funds routes (cards, bank link, crypto, deposits/withdrawals, withdrawal_times, metadata, credit_history), card tokenizer (no PAN stored), ACH pending → settled / returns, crypto confirmations, signed webhooks with replay protection, double-entry journal + audit, reconciliation queue, limits, AML hooks, holds, withdrawal 2FA, non-withdrawable credits, Admin › Payments | yes (sandbox) | tests `payments`; UI is a Parlance design (screens not observed) |
 | §28 trading core (Phase 5A): price grids `linear_cent` / `deci_cent` / `tapered` / combo `center_deci_edge_centi_cent` in centi-cents, G1 fee accumulator, scalar markets, order review + auto-sell prompt, flip sell, MECNET collateral return, settlement correction (claw-back, debt rule, step-up, audit) with the optional two-person rule, combos on the finer grid + HVM 3 s window | yes | tests `trading-core`; tick bands and the tapered name are design choices (§28.1) |
 | §29 markets and content (Phase 5B): sports spreads and totals settled from the final score, ice-hockey league, running clocks and live header label (G9), calendar `event_limits`, ballot lookup on invented jurisdictions (no address stored), AI news summaries + timeline (offline extractive default with citations, optional external adapter, cache, cost caps, injection handling, admin hide/regenerate), Liquidity Incentive Program (A13, journaled payouts), hub widgets: Senate map, Fed funds outlook, forecast history (A15) | yes | tests `markets-content`; civic data, rates and news invented; accrual formula is a design choice |
-| Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS/push delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
+| §31 Progressive Web App: web app manifest + own icons, service worker (precache of the hashed bundle, network-only navigations, offline page, user-confirmed updates), install entry (prompt / iOS steps), real Web Push (VAPID RFC 8292, aes128gcm RFC 8291, encrypted outbox with retries) | yes | tests `pwa`; design choices (not observed on the live site) |
+| Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 216 Playwright scenarios across 26 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 225 Playwright scenarios across 27 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -1807,7 +1808,7 @@ Modes: `npm start` (and `NODE_ENV=production`, or `ASSETS=dist`) serves `dist/`,
 
 ### 21.8 Static allowlist (P1.12)
 
-Served: `/assets/*.{js,css,woff2}` (dist), or `/js/**/*.js`, the root `*.css` files that exist and `/fonts/*.woff2` (dev); `/fonts/*.txt` (licences); `/robots.txt`. The SPA page is served only for GET/HEAD on extension-less paths with no dot-segment, outside `/v1` and `/trade-api`. Anything else (`/foo.png`, `/index.html`, `/manifest.json`, `/markets/x/y/z.json`) is a plain 404. `dotfiles: 'deny'` and `redirect: false` on every static mount.
+Served: `/assets/*.{js,css,woff2}` (dist), or `/js/**/*.js`, the root `*.css` files that exist and `/fonts/*.woff2` (dev); `/fonts/*.txt` (licences); `/robots.txt`; the PWA files `/manifest.webmanifest`, `/sw.js`, `/offline.html` and `/icons/*.{png,svg}` (§31). The SPA page is served only for GET/HEAD on extension-less paths with no dot-segment, outside `/v1` and `/trade-api`. Anything else (`/foo.png`, `/index.html`, `/manifest.json`, `/markets/x/y/z.json`) is a plain 404. `dotfiles: 'deny'` and `redirect: false` on every static mount.
 
 ### 21.9 Runtime-editable exchange settings (G7)
 
@@ -2428,7 +2429,8 @@ also email (CLONE_SPEC §22.3); the toggle adds push for every sensitive-action 
 "Order filled: N YES @ avg P¢" summary, de-duplicated per order in `notif_order_done`); 4. **email** → a
 `notif_deliveries` row, then the existing dev mailbox `email_outbox` (no SMTP; subject "Parlance: …"); 5. **push** → a
 `notif_deliveries` row delivered to the user's registered browsers (`push_devices`) as a `push` frame on the private
-`notifications` WebSocket channel; status `sent`, or `no_device` when none is registered; 6. **in-app** → the inbox row
+`notifications` WebSocket channel, and as real **Web Push** to every subscribed device (§31.7); status `sent`, or
+`no_device` when neither exists; 6. **in-app** → the inbox row
 and the live toast. At most 120 email and 120 push deliveries per user per hour (`dropped_rate` beyond).
 **Browser push** (the flag): Settings › "Push in this browser" registers the browser (`POST …/push_devices`), stores its
 id locally and asks for the Notification permission; the client shows `new Notification(…)` only for frames that list
@@ -3733,6 +3735,191 @@ ai: { adapter, regeneratePer10Min }, incentives: { snapshotMs }, ballot: { ballo
 **Confirmed by the owner (2026-11-04):** the design choices above as built: the incentive reward formula (§29.7),
 spreads and totals as a separate event per game on half-point lines, calendar caps (15-minute and hourly 3, daily 2,
 sports never capped), the optional external summarizer with the pinned official SDK, and the `npm start`-only demo data.
+
+---
+
+## 31. Progressive Web App
+
+Status 2026-11-04 · PLAN §9 row "PWA" · branch `pwa`. Nothing here is observed on the live site: every value is a
+Parlance design choice, stated as such. Tests: `clone/tests/pwa.e2e.test.js` (9 browser scenarios against the production
+bundle).
+
+### 31.1 Pieces
+
+| File | Role |
+|---|---|
+| `public/manifest.webmanifest` | Web app manifest, served at `/manifest.webmanifest` as `application/manifest+json` (1 h cache) |
+| `public/icons/*` | Own "P" mark: `icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png` (180), `badge-72.png` (monochrome notification badge). Drawn by `scripts/make-icons.js` (pure Node rasteriser + PNG encoder; `--check` verifies the committed files); no third-party assets |
+| `public/sw.js` | The service worker, served at `/sw.js` (scope `/`) |
+| `public/offline.html` | Static offline page: no scripts, no inline styles, a Retry link |
+| `public/pwa.css` | Update toast, install steps, device list, offline page (tokens only, §27) |
+| `public/js/pwa.js` | Registration, update toast, install prompt, cache clearing at sign-out, Web Push subscribe / unsubscribe / sync |
+| `server/pwa-static.js` | The PWA paths in the static allowlist (§21.8), each with its own headers |
+| `server/webpush.js` | VAPID keys, subscriptions API, RFC 8291 encryption, RFC 8292 signing, persisted outbox and its pump |
+| `scripts/build.js` | Also writes `dist/sw.js` (version + precache list), `dist/offline.html` (stylesheet → hashed bundle) and `pwa: {version, precache}` in `dist/manifest.json` |
+
+### 31.2 Manifest, icons and page tags
+
+`name` "Parlance Exchange", `short_name` "Parlance", `id`, `start_url` and `scope` `/`, `display: standalone`,
+`theme_color` `#008751` (the light-theme brand green, §27.6), `background_color` `#0d0e11` (the dark surface; the app's
+default theme). Icons: 192 and 512 "any" (rounded tile, transparent corners), 512 "maskable" (full-bleed tile, the mark
+inside the 80% safe zone), the SVG. Shortcuts: Markets (`/browse`), Portfolio (`/portfolio`), Deposit
+(`/funds/deposit`). `index.html` adds `<link rel=manifest>`, `theme-color` for light (`#008751`) and dark (`#13a866`,
+the dark-theme brand), `apple-touch-icon`, `apple-mobile-web-app-capable` / `-title` / `-status-bar-style` and
+`mobile-web-app-capable`. The site CSP already allowed `manifest-src 'self'` and `worker-src 'self'` (§21.2).
+
+### 31.3 What the service worker caches, and why
+
+| Request | Handling | Why |
+|---|---|---|
+| Hashed assets of this build (`/assets/*-<hash>.{js,css,woff2}`), `/offline.html`, `/manifest.webmanifest`, `/icons/*` | Precached at install, fetched with `credentials: 'omit'` and `cache: 'reload'`; served cache-first by exact path (no query string); a miss goes to the network and is not stored | Public, immutable, identical for every user. Without credentials the server sees no session, so nothing user-specific can enter the cache |
+| Navigations (any HTML page) | Network only, through navigation preload. Never stored. On a network error: the cached `/offline.html` (else a plain-text 503) | Every page carries a per-response CSP nonce and a signed boot proof (§21.2, §21.6); reusing one would defeat both |
+| `/v1/*`, `/trade-api/*`, the WebSocket, uploads, non-GET, cross-origin, anything else | Not handled: no `respondWith`, so the browser performs the request itself, unchanged | Client-token signing, CSRF, Idempotency-Key, the bot challenge and rate limits see exactly what they saw before |
+| `/sw.js` | Never cached by the worker; `Cache-Control: no-cache` and `updateViaCache: 'none'` | Updates are detected on every check |
+
+A response is stored only if it is a same-origin 200 that is not redirected and not marked `no-store` or `private` (a
+`Set-Cookie` check is kept as a second line of defence; the header is never visible to a worker). One cache per build,
+`plx-static-<version>`; activation deletes the others. Dev mode (`npm run dev`) serves a `dev-<hash of sw.js>`
+version that precaches only the offline page, the manifest and the icons, so stale sources are never served.
+
+### 31.4 Security rules (hard)
+
+- **Never cache HTML navigations**, any `/v1`, `/trade-api` or WebSocket traffic, anything `no-store` / `private`, or
+  anything fetched with credentials. Pass every unhandled request through untouched.
+- **Own CSPs.** `/sw.js` gets `default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; …` (a worker
+  runs under the CSP of its script response, and the API policy would block its `fetch()`). `/offline.html` gets
+  `default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; …` with no script source at all.
+- **Static allowlist.** The PWA paths are added to §21.8 (`/icons/` accepts only `[a-z0-9-]+.(png|svg)`); everything
+  else stays a 404.
+- **Links from push payloads** must be same-origin paths (`/…`, not `//…`); anything else opens `/`.
+- **Sign-out** clears every Cache Storage entry (on the transition from signed-in to signed-out, here or forced
+  elsewhere), and, before the session ends, deletes this browser's push subscription on the server and unsubscribes it
+  locally. The next full page load precaches again.
+
+### 31.5 Updates
+
+The worker never calls `skipWaiting()` on its own. When a new version finishes installing while a page is controlled,
+the page shows the toast **"New version available — Reload"**; the click posts `SKIP_WAITING`, the new worker activates
+(deleting the old cache and claiming the clients) and `controllerchange` reloads the page (a 4 s fallback reloads
+anyway). Checks: on registration, whenever the tab becomes visible, and every 30 minutes. The version is the build
+hash: SHA-256 of the source hash, the output file list and an optional salt (`build({ salt })`, used by the test to
+produce a new version without touching the sources).
+
+### 31.6 Install
+
+`beforeinstallprompt` is captured (default prevented, so no mini-infobar) and shows **Install app** in the ☰ account
+menu and, signed out, in a ☰ menu next to Log in / Sign up that exists only while installation is possible. The click
+shows the deferred prompt once. On iOS Safari (no prompt API) the entry opens Add-to-Home-Screen steps (Share → Add to
+Home Screen → Add). Hidden when `display-mode: standalone` matches or `navigator.standalone` is true, and after
+`appinstalled`.
+
+### 31.7 Web Push (the Push channel of §24.5)
+
+- **Keys (RFC 8292).** One P-256 VAPID key pair per deployment, generated on first start. The private JWK is stored in
+  `push_vapid`, AES-256-GCM encrypted under the HKDF sub-key `web-push:v1` of the master key (§22.8), AAD
+  `push_vapid.private:1`. If it cannot be decrypted (master key changed), a new pair is generated and every
+  subscription is removed (they are bound to the old key). `GET /v1/push/vapid_public_key` publishes the public key.
+  `VAPID_SUBJECT` (mailto: or https:) is the `sub` claim.
+- **Subscriptions.** `push_subscriptions`, one row per browser: endpoint and keys AES-GCM encrypted with row-bound AAD,
+  an HMAC of the endpoint for lookups, push service name, label ("Chrome on Linux"), expiry, last success / failure,
+  failure count. Endpoint rules: `https:` on the default port, a host name (no IP literal, no `localhost`) on a known
+  push service (`fcm.googleapis.com`, `android.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`,
+  `*.notify.windows.com`; `PUSH_ALLOWED_HOSTS` adds more). `push.insecureEndpointHosts` (tests only) allows the listed
+  `host:port` over http and is refused when `NODE_ENV=production`. Keys: `p256dh` an uncompressed point on P-256
+  (checked by an ECDH), `auth` 16 bytes. At most 10 per user. Subscribing an endpoint that already exists moves the row
+  to the caller (another account signed in on that browser) and drops what was queued for the previous owner.
+  Endpoints and keys are never returned by the API.
+- **Delivery.** `notify-prefs` `send()` (after the matrix gate, quiet hours and the hourly cap) calls
+  `webpush.enqueueUser()`: one `push_outbox` row per subscription, payload AES-GCM encrypted at rest. A pump (engine
+  tick, plus an immediate kick) claims due rows (`pending` → `sending`, attempts + 1) and POSTs `aes128gcm` bodies
+  (RFC 8291: ephemeral ECDH, HKDF with the auth secret, one 4096-byte record, padded to a 128-byte boundary) with
+  `Authorization: vapid t=<ES256 JWT {aud: endpoint origin, exp: +12 h, sub}>, k=<public key>`, `TTL` (the remaining
+  lifetime: 12 h, 24 h for security notices, 1 h for promotions), `Urgency` (`high` for security, `low` for
+  promotions, else `normal`), `redirect: 'error'` and a 10 s timeout.
+  - 2xx → `sent`; 404 / 410 → the subscription is deleted (and its queued rows marked `gone`).
+  - 429, 5xx, network errors → `pending` again after exponential backoff (30 s × 2ⁿ⁻¹, ±20%, at most 1 h; `Retry-After`
+    honoured) up to 8 attempts, then `failed`; other 4xx → `failed`; TTL elapsed before sending → `expired`.
+  - At boot, rows left in `sending` return to `pending` (at-least-once). The notification tag is the delivery id, so a
+    duplicate replaces the earlier one instead of stacking. Finished rows are pruned after 7 days.
+- **Payload.** `{title, body, link, tag, ts}`: exactly the in-app notification's title, body and deep link (title ≤ 120,
+  body ≤ 300 characters, JSON ≤ 3000 bytes). Nothing else.
+- **Service worker.** `push` → `showNotification(title, {body, icon, badge, tag, data.link})`; `notificationclick` →
+  focuses an open window and routes it client-side to the link, else opens one. `pushsubscriptionchange` re-subscribes
+  with the same key; the page re-registers the subscription at its next sign-in sync (a worker holds no session).
+- **UI.** Settings › Notifications › "Push in this browser": the in-page pop-up switch (§24.5) and **System
+  notifications**: "Turn on for this device" (permission → subscribe with the VAPID key → `POST …/push_subscriptions`),
+  "Turn off on this device", and the device list with service, added, last delivered, failures, **Send test
+  notification** and **Remove**. A browser with a Web Push subscription does not also show the in-page pop-up. On each
+  sign-in the page re-sends this browser's subscription, or unsubscribes one that belongs to another account.
+
+### 31.8 API
+
+| Method + path | Auth | Notes |
+|---|---|---|
+| `GET /v1/push/vapid_public_key` | public | `{public_key}` (base64url, 65-byte uncompressed point) |
+| `GET /v1/users/:uid/push_subscriptions` | owner | devices, without endpoints or keys |
+| `POST /v1/users/:uid/push_subscriptions` | owner | `{endpoint, keys: {p256dh, auth}, expiration_time?, label?}`; 201 new, 200 re-subscribed; schema in `validate.js` (unknown fields rejected), 4 KB body limit |
+| `DELETE /v1/users/:uid/push_subscriptions` | owner | `{endpoint}`: this browser unsubscribes itself |
+| `DELETE /v1/users/:uid/push_subscriptions/:id` | owner | remove a device from the list |
+| `POST /v1/users/:uid/push_subscriptions/:id/test` | owner | queue a test notification (5, then one per 30 s) |
+| `GET /manifest.webmanifest`, `/sw.js`, `/offline.html`, `/icons/*` | public | static, classified in the authz matrix |
+
+Start option `push: { subject, allowedHosts, insecureEndpointHosts, retryBaseMs, maxAttempts, timeoutMs }`.
+
+### 31.9 Design choices to confirm
+
+- Precache the whole hashed bundle (about 1.2 MB, every lazy chunk) rather than only the entry files, so the offline
+  page is styled even on a cold start and later visits load from the cache.
+- No offline data at all: market data and account pages need the network; the offline page says so.
+- Theme colour: brand green in both modes (light `#008751`, dark `#13a866`) and in the manifest; background the dark
+  surface.
+- A known push-service allowlist on top of "https only" (SSRF guard); new browsers' services need `PUSH_ALLOWED_HOSTS`.
+- Sign-out unsubscribes this browser from Web Push; an expired session keeps delivering until the user removes the
+  device or the push service reports it gone.
+- The signed-out ☰ menu exists only while installation is possible, so the signed-out header is otherwise unchanged.
+
+### 31.10 Tests (`clone/tests/pwa.e2e.test.js`)
+
+1. Manifest fields and content type, icons at their declared sizes (PNG headers and decoding in the page), page tags,
+   no manifest errors reported by Chromium.
+2. Registration (scope `/`, navigation preload on) and control; the hashed entry JS / CSS served by the worker; a
+   fresh nonce on every navigation; Cache Storage holds exactly the precache list, no `/v1` / `/trade-api` entry,
+   nothing `no-store`, and the only HTML is the offline page, without nonce, boot proof or script.
+3. `context.setOffline(true)` → the offline page, styled from the cache, at the requested URL; online again → Retry
+   loads the page.
+4. A salted rebuild → the toast; the new worker waits; Reload → navigation, the new cache, the old one deleted.
+5. Emulated `beforeinstallprompt` → signed-out ☰ and account ☰ entries, the prompt shown once, the 390 px header
+   fits; iOS Safari user agent → instructions; standalone → never offered.
+6. Web Push end to end. The UI subscribes; the browser's `PushManager` is replaced by one that returns a subscription
+   to the **local fake push service**, and full Chromium runs headless because the headless shell denies
+   notifications. A market order fills with taker Push on. The fake service verifies the VAPID JWT (ES256 signature
+   over the server's key, `aud`, `exp`, `sub`) and decrypts the aes128gcm body with its own independent RFC 8291
+   code. The payload equals the inbox row; endpoint, keys and payload are encrypted at rest. The decrypted message
+   delivered to the worker (`ServiceWorker.deliverPushMessage`) becomes a notification whose click routes to the deep
+   link; a hostile link falls back to `/`. Then: Send test notification, validation errors, another user's path / id
+   refused, and a 410 deletes the subscription and empties the list.
+7. A 503 is retried with backoff; the server restarts; a row left `sending` resumes; both are delivered.
+8. Sign-out: caches emptied, the server row deleted, the browser unsubscribed; a reload precaches again.
+9. Forced bot challenge (`challengeMode: 'all'`) through the controlling worker: the 429 page arrives via the worker,
+   is solved, the page reloads, and a sign-up (client token, CSRF) succeeds.
+
+Every scenario asserts no CSP violations and no page errors.
+
+### 31.11 Residual risks
+
+- **At-least-once delivery.** A crash between the push service's 201 and the row update re-sends after restart; the tag
+  makes the duplicate replace the first notification.
+- **Lock screens show the text.** The payload is what the inbox shows; on a shared or unlocked device that text is
+  visible outside the app. Users can keep Push off per type in the matrix.
+- **The push service sees metadata** (timing, size bucket, endpoint), never plaintext; padding hides lengths only to
+  128-byte buckets.
+- **VAPID key loss** (master key rotated or lost) invalidates every subscription; users must turn system notifications
+  on again (§22.8 has no key rotation).
+- **The outbox pump is per process** (PLAN §10 RS1).
+- **Push-service allowlist** may lag new browsers. **iOS** delivers Web Push only to apps installed on the Home Screen
+  (iOS 16.4+).
+- **Old service workers** stay until the browser checks for an update; a broken release is fixed by publishing a new
+  build (there is no other remote kill switch).
 
 ---
 

@@ -224,6 +224,24 @@ ballot lookup (a postal address); resting orders → incentive rewards → the j
 | T / E | Gaming incentive rewards (self-match, system liquidity, ineligible regions) | Only enrolled users from an eligible region accrue (re-checked on each visit; ineligible → suspended); system accounts never score; per-side score capped at the target size; rewards accrue in micro-cents and pay whole cents once; payouts need `users.money`, a reason and step-up, and post balanced journal entries (`house:incentives` or `house:promotions`); the ledger audit covers them | ✅ (payout + ledger audit test). Wash-trading detection is a residual |
 | T | Spread / total settled against the wrong score | Lines resolve from the persisted final state of the same deterministic simulation that drives the scoreboard, through the normal determine → finalize path; half-point lines cannot push | ✅ |
 
+### 14. Progressive Web App and Web Push (`CLONE_SPEC.md` §31)
+
+Trust boundaries added: a service worker between the page and the network; Cache Storage on the user's device; the
+server → third-party push services (an outbound request to a URL the browser supplied) → the user's lock screen.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| T / I | **Cache poisoning / leakage**: a personalised or attacker-influenced response is cached and served to later users of the device (or after sign-out) | The worker stores only the build's precache list, fetched with `credentials: 'omit'` (no session, so no user data), exact paths without query strings, same-origin 200s that are not redirected, `no-store` or `private`; runtime responses are never written; one cache per build, old ones deleted on activation; sign-out empties Cache Storage | ✅ (`pwa`: every cache entry inspected; sign-out test) |
+| S / T | **Nonce and boot-proof reuse**: a cached HTML page replays an old CSP nonce or signed boot proof | Navigations are network-only (navigation preload) and never stored; the only cached HTML is the static offline page, which has no script, no nonce and its own `default-src 'none'` policy without a script source | ✅ (fresh nonce on every navigation; offline page asserted script-free) |
+| T / E | The worker weakens the perimeter (strips client tokens, CSRF, Idempotency-Key, bypasses the bot challenge) | `/v1`, `/trade-api`, the WebSocket, non-GET and cross-origin requests are not intercepted at all; the challenge page arrives through the worker unchanged and is solved | ✅ (forced-challenge scenario through a controlling worker) |
+| T | A malicious or stale worker persists | Served from the origin only (`worker-src 'self'`, scope `/`), `no-cache` and `updateViaCache: 'none'`, its own restrictive CSP; updates activate only on the user's click; a fixed build replaces it on the next check | ✅ / residual (no remote kill switch beyond a new `/sw.js`) |
+| I | **Push payload privacy**: notification text exposed to the push service, at rest, or beyond what the user already sees | Payloads are encrypted end to end (RFC 8291 aes128gcm, padded to 128-byte buckets); the push service sees only metadata. The payload is the in-app notification's title, body and deep link, nothing more. Outbox payloads, endpoints and subscription keys are AES-GCM encrypted at rest with row-bound AAD; the API never returns endpoints or keys | ✅ (fake service decrypts with the subscription key only; DB rows asserted encrypted) / residual: text shows on lock screens |
+| S / I | **VAPID key handling**: the private key leaks or is forged | Generated server-side once, stored AES-256-GCM encrypted under an HKDF sub-key of the master key (`web-push:v1`), never logged or returned; JWTs are ES256, audience-bound to the push service origin, valid 12 h, cached per audience | ✅ (fake service verifies signature, `aud`, `exp`, `sub` against the published key) |
+| T / E | **SSRF** through the subscription endpoint (the server POSTs to a browser-supplied URL) | `https:` on the default port, host name only (no IP literal, no `localhost`), on a known push-service allowlist (`PUSH_ALLOWED_HOSTS` extends it); re-checked before every send; `redirect: 'error'`, 10 s timeout; the http test allowlist is refused in production | ✅ (validation cases) |
+| S / I | One user's notifications reach another person (shared browser, re-subscription) | A re-subscribed endpoint moves to the new account and the old owner's queue is dropped; signing in as a different account unsubscribes a foreign subscription in the browser; sign-out deletes this browser's subscription first; owner-only routes, IDOR-checked | ✅ (`pwa`, `authz`) |
+| D | Push storms or a dead push service exhaust the server | Matrix gate and the hourly per-user cap apply first; at most 10 devices per user; test sends rate-limited; exponential backoff (≤ 1 h, Retry-After honoured), at most 8 attempts, TTL expiry, 404/410 delete the subscription; finished rows pruned after 7 days | ✅ |
+| T | Hostile push content (forged or replayed message) opens an external site | Notification clicks accept only same-origin paths; anything else opens `/` | ✅ (hostile link test) |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -239,5 +257,9 @@ ballot lookup (a postal address); resting orders → incentive rewards → the j
 - Phase 5B (`CLONE_SPEC.md` §29.10): the injection filter and moderation blocklist are heuristics; output validation is
   the real control. No wash-trading or self-matching detection for incentive rewards yet. The ballot rate limit and
   the summary budget are per process (PLAN §10 RS1). A saved ballot area is not yet part of the data export.
+- PWA (`CLONE_SPEC.md` §31.11): Web Push is at-least-once (a crash after the push service accepted a message re-sends
+  it; the tag de-duplicates on the device); notification text is visible on lock screens; the VAPID key is tied to the
+  master key, so a key change invalidates every subscription; a released service worker can only be replaced, not
+  remotely disabled.
 
 Review this document whenever a phase passes the §6 security gate in `PLAN.md`.

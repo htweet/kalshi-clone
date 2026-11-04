@@ -5,6 +5,7 @@
 import { session } from '../store.js';
 import { idApi } from '../identity-api.js';
 import { esc, toast, money, catSlug, catLabel, ICON } from '../lib.js';
+import { installMenuItem, installApp } from '../pwa.js'; // "Install app" (CLONE_SPEC.md §31)
 
 const ITEMS = [
   ['/account', 'Account & security', 'menu-account'], ['/account/activity', 'Your activity', 'menu-activity'], ['/perps', 'Invest', 'menu-invest'],
@@ -31,6 +32,7 @@ export function menuHtml() {
     ${GROUPS.map(([key, label, links]) => `<details class="menu-group" data-testid="menu-group-${key}"><summary>${esc(label)}</summary>${links.map(([slug, l]) => `<a href="/${esc(key)}/${esc(slug)}" data-link>${esc(l)}</a>`).join('')}</details>`).join('')}
     <hr>
     <button id="promo-btn" data-testid="menu-promo">Enter promo code</button>
+    ${installMenuItem()}
     <button id="theme-toggle" data-testid="theme-toggle">${dark ? 'Light mode' : 'Dark mode'}</button>
     <button id="logout-btn" data-testid="menu-logout">Log out</button>`;
 }
@@ -40,6 +42,18 @@ export function wireMenu(m, { close, logout }) {
   m.querySelector('#theme-toggle').onclick = () => { session.setProp('theme', dark ? 'light' : 'dark'); close(); };
   m.querySelector('#logout-btn').onclick = logout;
   m.querySelector('#promo-btn').onclick = () => { close(); promoDialog(); };
+  wireInstall(m, close);
+}
+const wireInstall = (m, close) => { const b = m.querySelector('[data-install-app]'); if (b) b.onclick = () => { close(); installApp(); }; };
+
+// Signed-out ☰ menu: shown only while the app can be installed (CLONE_SPEC.md §31); Log in / Sign up stay in the header.
+export function guestMenuHtml() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  return `${installMenuItem()}<a href="/sign-in" data-link>Log in</a><a href="/sign-up" data-link>Sign up</a><hr><button id="guest-theme" data-testid="guest-theme">${dark ? 'Light mode' : 'Dark mode'}</button>`;
+}
+export function wireGuestMenu(m, { close, toggleTheme }) {
+  wireInstall(m, close);
+  m.querySelector('#guest-theme').onclick = () => { toggleTheme(); close(); };
 }
 
 // "Enter promo code" (A12): server-validated, single use per account, credited to the balance as a ledger credit.
