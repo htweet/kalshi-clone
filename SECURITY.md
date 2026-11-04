@@ -257,6 +257,28 @@ bodies, templates, images, colours); uploaded files → the server's image decod
 | D | Abuse of uploads, test sends or writes | Admin rate tier plus per-user CMS limits (writes 120/min, uploads 30/min, test sends 10/min); body limits per route | ✅ |
 | T | Supply chain of the JPEG codec | `jpeg-js` 0.4.4 pinned exactly (official package, no dependencies, BSD-3), resolution and memory limits set; `npm audit` clean | ✅ / residual: third-party decoder |
 
+### 16. Feature flags, play mode, Central Bank and money controls (Phase 5D, `CLONE_SPEC.md` §33)
+
+Trust boundaries added: staff → switches that change what every user can do (flags, play mode, the production reset,
+money controls, the vault); users → a game that moves (play) money out of a shared vault; the client → a flag bundle it
+could tamper with.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| E / T | **Client-side bypass of a switched-off feature** (calling the API of a hidden page, editing the flag bundle) | Server-authoritative evaluation on every request: the `/v1` gate (`feature_disabled`) runs before every router, pipelines and jobs ask the server state; the bundle only drives the UI | ✅ (`flags`: every flag off blocks its API) |
+| I | **Targeting lists leak** (who is allow- or deny-listed, rollout membership of others) | The public bundle carries the caller's booleans only; lists are admin-only (`settings.write`) | ✅ |
+| E | **Authorization signal changes** (a disabled flag answering before authz would reveal resources or mask IDOR checks) | The gate leaves requests to the route when there is no session on a write or the `:uid` is not the caller; admin routes are gated only by explicit rules | ✅ (`authz` matrix unchanged with every flag on) |
+| D / E | **Locking staff out** (password sign-in disabled) | `signin.password` never refuses a staff email; `FEATURE_FLAGS` overrides the DB for incident recovery | ✅ |
+| R / E | Unaccountable or hasty changes | Reason, fresh step-up, history per flag and the hash-chained audit on every flag, play-mode, Central Bank and money-control change | ✅ |
+| T / E | **A single admin wiping balances** (the production reset) | Typed `RESET`, step-up for request and approval, a different admin must approve (two-person rule), 24 h lapse, one pending request, executes once; backup snapshot before any change | ✅ / residual: one person with two admin accounts |
+| T | **Play and real money mixing** (play money withdrawn, or real money reset) | Play mode refuses to start while real customer money exists; withdrawals refused on every path in play mode (gate + `payments.js`); rails unreachable; trigger-stamped money mode / epoch on every ledger row and journal entry, audit checks for mixed epochs and minted play money in a real epoch | ✅ |
+| T / I | **Cheating the heist** (reading the code, replaying guesses, racing payouts) | Code drawn with `crypto.randomInt`, stored AES-GCM encrypted with row-bound AAD, returned only after the end; guesses judged server-side in a transaction re-reading heist and vault; numbered guesses replay instead of consuming; idempotent starts; per-user rate limits, daily attempts, jail; loot capped by the vault inside the transaction | ✅ (`playmode`: concurrent cracks within the pot, journal balanced) |
+| T | **RNG manipulation through the API** | The deterministic RNG is a process start option for tests, ignored when `NODE_ENV=production`; no request field reaches it | ✅ |
+| I | **Personal data in the public heist feed** | Display names only; no ids or emails on the `central_bank` channel | ✅ |
+| T / E | **Bypassing a per-user revocation** through another rail | One classifier for every deposit / withdrawal path in the gate plus the same guard inside `payments.js` | ✅ (`flags`: every rail refused) |
+| T | **Treasury overdraft** | Payouts from `bank:vault` only when it covers them (inside the transaction); otherwise queued or refused; audit check `vault_non_negative` | ✅ |
+| I | **Backup file exposure** | Written with mode 600 inside the data directory (already denied to coding agents by `.claude/settings.json`) | residual: not encrypted as a file; move off-host in production |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -276,5 +298,9 @@ bodies, templates, images, colours); uploaded files → the server's image decod
   it; the tag de-duplicates on the device); notification text is visible on lock screens; the VAPID key is tied to the
   master key, so a key change invalidates every subscription; a released service worker can only be replaced, not
   remotely disabled.
+
+- Phase 5D (`CLONE_SPEC.md` §33.13): the flag cache, heist rate limits and job pauses are per process (RS1); the
+  pre-production backup is a plain SQLite file in the data directory; region targeting uses the simulated location data
+  of Phase 3; the two-person reset relies on distinct people behind distinct admin accounts.
 
 Review this document whenever a phase passes the §6 security gate in `PLAN.md`.

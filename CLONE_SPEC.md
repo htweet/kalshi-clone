@@ -2,6 +2,8 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 10 (2026-11-04):** §33 feature flags (PLAN Phase 5D): a DB-backed flag per feature and module with rollout, targeting, schedule and kill switch, enforced on the server; play mode on play money with the Central Bank and the Vault Heist; the switch to production with a two-person reset; per-user and site-wide deposit / withdrawal controls; the Central Bank as the promotions treasury.
+>
 > **Revision 9 (2026-11-03):** §28 trading core (PLAN Phase 5A): sub-cent price grids, the fee accumulator, scalar markets, order review / auto-sell / flip sell, MECNET collateral return, settlement correction with the two-person rule, combos on the finer grid with the HVM window.
 >
 > **Revision 8 (2026-11-03):** §26 payments, sandbox only (PLAN Phase 4).
@@ -402,9 +404,10 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §29 markets and content (Phase 5B): sports spreads and totals settled from the final score, ice-hockey league, running clocks and live header label (G9), calendar `event_limits`, ballot lookup on invented jurisdictions (no address stored), AI news summaries + timeline (offline extractive default with citations, optional external adapter, cache, cost caps, injection handling, admin hide/regenerate), Liquidity Incentive Program (A13, journaled payouts), hub widgets: Senate map, Fed funds outlook, forecast history (A15) | yes | tests `markets-content`; civic data, rates and news invented; accrual formula is a design choice |
 | §31 Progressive Web App: web app manifest + own icons, service worker (precache of the hashed bundle, network-only navigations, offline page, user-confirmed updates), install entry (prompt / iOS steps), real Web Push (VAPID RFC 8292, aes128gcm RFC 8291, encrypted outbox with retries) | yes | tests `pwa`; design choices (not observed on the live site) |
 | §32 content management (Phase 5C): every SPA string in a keyed text catalog (client and server `t()`, admin overrides, declared variables, plain or allowlist rich text, live updates, staff preview), notification / email / SMS templates on every send, media library with server-side re-encode and slots (logo, icons, manifest), CMS pages with SEO and legal step-up, footer, brand colours with a contrast check, drafts → schedule → publish → rollback with hash-chained audit, editor / publisher roles, JSON export / import with dry run, hard-coded-text enforcement | yes | tests `cms`, `cms-content` |
+| §33 feature flags, play mode, Central Bank and money controls (Phase 5D): a flag for every feature and module (on/off, kill switch, rollout, allow/deny by user, role and region, schedule) enforced by a server gate with jobs paused and the UI hidden live, Admin › Feature flags with reason, step-up, history and audit; play mode with signup bonus, free deposits and no withdrawals; Vault Heist against the Central Bank vault; two-person switch to production with backup, archives and reset; per-user deposit / withdrawal revocation; the promotions treasury | yes | tests `flags`, `playmode`; design choices (not observed) |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 243 Playwright scenarios across 30 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 259 Playwright scenarios across 32 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -4237,6 +4240,272 @@ page bodies and links; export → import with a dry-run diff; the enforcement ch
 in the in-app, push and SMS sends; media re-encode, polyglot / SVG refusal, live slot swap, manifest icons; pages with
 schedule, SEO, rollback and legal step-up; brand contrast refusal and live colours in both themes, manifest and
 theme-color; 390 px light and dark.
+
+---
+
+## 33. Feature flags, play mode, Central Bank and money controls (Phase 5D)
+
+Owner requirement (PLAN Phase 5D, scope approved 2026-11-04): every feature and module can be switched and rolled out
+from the admin panel; the exchange can run as a "fun ride" on play money with a Central Bank and a Vault Heist game, and
+be switched to production with every play balance archived and reset; deposits and withdrawals can be switched off site
+wide or per user. Nothing here is observed on the live site: every value is a Parlance design choice, stated as such.
+Tests: `clone/tests/flags.e2e.test.js` (8 scenarios) and `clone/tests/playmode.e2e.test.js` (8 scenarios).
+
+### 33.1 Pieces
+
+| File | Role |
+|---|---|
+| `server/flags.js` | Flag registry (`REGISTRY`), route rules (`ROUTE_RULES`), platform core (`CORE_ROUTES`), module map (`MODULE_FLAGS`), job flags; evaluation, the `/v1` gate, changes with history, Admin › Feature flags API, the public bundle |
+| `server/play-mode.js` | Play mode master switch and settings, mode markers (SQLite triggers), money gate (play rails, per-user revocation), play deposits, signup bonus, reverse guard, preview, two-person production switch with backup and reset, audit-chain checks |
+| `server/central-bank.js` | Vault account, funding, promotions treasury (`engine.treasury`), payout queue, Vault Heist (code, guesses, loot, jail, limits, feed, Most Wanted) |
+| `server/content/playmode.js` | Every server-side string of the phase, keyed (`server.playmode.*`, Admin › Content › Texts) |
+| `public/js/flags.js` | Client bundle, `flagOn()`, `[data-flag]` hiding (MutationObserver), route gating with the CMS "not available" state, play banner and labels |
+| `public/js/views/admin/flags.js`, `public/js/views/admin/playmode.js` | Admin › Feature flags; Admin › Play mode and Admin › Central Bank |
+| `public/js/views/heist.js`, `public/playmode.css` | The Vault Heist page; flag, banner, notice and heist styles (tokens only, §27) |
+| `public/js/content/{flags,heist,admin.flags,admin.playmode}-strings.js` | Client text catalog modules (§32.3) |
+
+### 33.2 Flags: registry and evaluation
+
+- **Registry.** 51 flags in groups trading, markets, sports, social, notifications, payments, identity, content, pwa,
+  platform and play, each with a scope (`both`: routes and UI, `server`: pipeline or job only, `client`: UI only) and a
+  parent (a child is off when its parent is): `trading` (limit / market / amount orders, order review, flip sell,
+  fractional, scalar, collateral return), `trading.rolling`, `combos` → `combos.rfq`, `perps`, `sports` → `sports.lines`,
+  `sports.live_clocks`, `social` → `social.chat`, `social.group_chat`, `watchlist`, `price_alerts`, `payments.deposits`,
+  `payments.withdrawals`, `payments.card|bank|crypto`, `interest`, `identity.kyc`, `accounts.signup`, `signin.password`,
+  `signin.oauth` → `signin.google|apple`, `signin.passkey`, `ai_summaries`, `ballot`, `incentives`, `rewards`, `hubs` →
+  `hubs.widgets`, `notify.inapp|email|push`, `pwa.install`, `pwa.push`, `currency_switch`, `cms.live_updates`,
+  `play.signup_bonus`, `play.free_deposits`, `central_bank` → `heist`. New databases start with every flag on except
+  `central_bank` (once on it is the promotions treasury, see §33.7).
+- **State per flag** (`feature_flags`): `enabled`, `kill`, `rollout_pct` (0–100), `allow_users` / `deny_users` (ids;
+  the admin types emails), `allow_roles` / `deny_roles` (admin roles plus `guest`, `user` = any signed-in account,
+  `staff` = any admin role), `allow_regions` / `deny_regions` (2-letter countries from the §25 location decision),
+  `starts_at` / `ends_at`, `version`.
+- **Evaluation** (server-authoritative, per request, for the flag and each parent):
+  1. technical override: `FEATURE_FLAGS=perps=off,sports=on` or `start({ flags: { overrides } })` wins over the DB;
+  2. kill switch → off; 3. `enabled` false → off; 4. outside the schedule → off; 5. legacy Admin › Settings switch
+     (social / perps / combos, §18) off → off; 6. parent off → off;
+  7. deny user / role / region → off; 8. allow user / role → on, skipping the rollout; 9. allow regions set and the
+     request's region not in it → off; 10. rollout: `bucket(key, uid) < rollout_pct`, where the bucket is the first 4
+     bytes of SHA-256(`<key>:<uid>`) mod 100 (stable per user and flag); a visitor without an account is in only at 100 %.
+- **Precedence of environment variables.** Technical availability first (`SPORTS=0`, `PAYMENTS_SANDBOX=0`,
+  `PAYMENTS_DEMO_FUNDS=0`, `KYC_REQUIRED`, AI keys: the module or provider is not running at all), then
+  `FEATURE_FLAGS`, then the kill switch, then the flag's DB state. Documented in `.env.example` and the README.
+
+### 33.3 Enforcement
+
+- **Server gate** (`app.use('/v1', flags.gate)`, after the session, step-up and client-token middleware, before every
+  router and the card tokenizer): every request is matched against `ROUTE_RULES` (method + path regex, optionally a body
+  predicate: order `type`, a fractional count, a scalar or spread / total market); a matching flag that is off for the
+  caller answers **403 `feature_disabled`** with `details` and `feature` set to the flag key (CMS key
+  `server.playmode.flag.disabled`, client `error.feature_disabled`). Requests the route itself refuses first (no session
+  on a write, another user's `/users/:uid`) are left to it, so authorization errors keep their codes; admin routes are
+  gated only where a rule says so (`currency_switch`); `signin.password` never locks out staff (a staff email may still
+  sign in to repair a flag).
+- **Handlers and pipelines**: fractional and flip-sell checks in the order handler, collateral return in
+  `trading-core.js`, notification channels in `features.notify` (in-app; account and money notices always stored) and
+  `notify-prefs` (email / push enqueue and send), CMS live pushes in `cms/index.js`.
+- **Jobs** pause while their flag is globally off (`jobOn`: override, kill, enabled, schedule, parent; rollout and
+  targeting never pause a shared job): sports simulation, perps tick, rolling markets, RFQ maker pump, social
+  evaluation, chat housekeeping, interest accrual, incentive snapshots, email / push delivery (queued rows wait as
+  `deferred`), Web Push pump, heist expiry, treasury queue.
+- **Client**: `GET /v1/feature_flags` → `{flags: {key: bool}, version, next_change_time, play_mode, money}` (booleans
+  only, never the targeting lists). `[data-flag="a b"]` elements get `.flag-off` (display none) while any listed flag
+  is off — nav links, ☰ and MORE entries, the ticket's order types and review step, event buttons (combo, chat,
+  watchlist, alerts, interest, AI summary, spread & total), portfolio tabs, payment methods, sign-in buttons, PWA
+  install and push settings, hub widgets, the rolling card; pages of a switched-off feature show the CMS-managed
+  "not available" state (`flags.unavailable.*`). The public `feature_flags` WebSocket channel nudges every open page on a
+  change (and a schedule boundary, checked each engine tick); the page refetches its own bundle and re-renders.
+- **Enforcement test**: every mounted route is matched by a flag rule or by `CORE_ROUTES`; every rule matches at least
+  one route; every `mount*` module of `server/app.js` is in `MODULE_FLAGS`; every `[data-flag]` in the SPA and every admin
+  label names a registered flag. A new feature module or route group without a flag fails `flags.e2e.test.js`.
+
+### 33.4 Admin › Feature flags
+
+`settings.write`. Table by group with the effective state and why (`kill_switch`, `schedule`, `parent:…`,
+`env_override`, `legacy_switch`), rollout, targeting, schedule, job marker; filter and search; **Kill** / **Revive**
+(one click, reason) and **Edit** (every field, routes the flag guards, change history). Every change needs a reason
+(3–500 characters) and a fresh step-up (`feature_flag_change`), writes a `feature_flag_history` row (version, action
+`update` / `kill` / `unkill`, before / after, reason, actor) and one hash-chained `flags.*` audit row, bumps the bundle
+version and reaches open pages live. Unknown fields, roles, users or countries, a percentage outside 0–100 and an end
+before the start are refused.
+
+### 33.5 Play mode
+
+- **Master switch** (Admin › Play mode, `settings.write`, reason, step-up). Turning it on is refused with
+  `real_money_exists` (counts in the body) while any customer (non-system) account has a non-zero balance, an open
+  position or resting order, a perps balance or position, a pending payment or a held withdrawal. Turning it off is only
+  the production switch (§33.6).
+- **Mode markers.** `meta.money_mode` (`real` | `play`) and `meta.money_epoch` (`genesis`, then `pe_…` for each play
+  period and `rb_…` for each reset batch). SQLite triggers stamp every new `ledger` row and `journal_entries` row with
+  both, so no call site can forget; the ledger audit (§26.6) gains `money_mode_mixed` (an entry of the current epoch in
+  another mode), `play_money_in_real_epoch` (postings to `play:mint` in a real epoch) and `vault_non_negative`.
+  Balances never mix: real money must be zero to enter play mode and play money is archived to zero to leave it.
+- **Signup bonus** (`play.signup_bonus`): an admin-set amount (whole naira; stored in internal cents, §30) credited
+  once to every new account (password and OAuth sign-up, through the new-account-defaults hook), as cash minted from
+  `play:mint` or paid from the Central Bank vault (setting `source`), with a `bonus_credited` notice (CMS template).
+- **Deposits** (`play.free_deposits`): `POST deposits` without a method is a free, instant credit (rail `play`, contra
+  `play:mint`, a `payment_transactions` row, Idempotency-Key honoured, the user's own §13.8 limit applies) up to an
+  optional daily cap per user (UTC day, `play_deposit_cap`). Every real rail is unreachable: payment-method setup,
+  rail deposits and the tokenizer answer `play_mode_rails_off` (gate and `payments.js`).
+- **Withdrawals** are refused on every path (`withdrawals_play_mode`: demo, card, bank, crypto, also inside
+  `payments.js`); a closed play account's balance goes back to the mint instead of a payout.
+- **Labels**: the "Play money" banner on every page (with a link to the heist), "Play cash" in the header balance, a
+  "Play money" chip on Portfolio, Transfers and the heist (CMS texts `flags.play.*`).
+
+### 33.6 Switch to production and the reverse guard
+
+1. **Preview** (`GET /admin/play_mode/preview`): exact counts (accounts with a balance, open orders, positions and
+   holders, markets with escrow, perps accounts / positions / orders, open RFQs and quotes, active credits, heists in
+   progress; accounts and markets kept) and totals (balances, cash, credits, held, reserved, position cost, escrow, perps
+   collateral, collateral advances, vault).
+2. **Request** (`POST /admin/play_mode/production_switch {reason, confirm: "RESET"}`, `settings.write`, step-up): a
+   pending `pm_approvals` row with the preview; other admins are notified; one pending request at a time; 24 h lapse.
+3. **Approval by a different admin** (`…/approvals/:id/approve {confirm: "RESET"}`, step-up; same admin →
+   `same_admin`; the two-person rule of §28.7, its own table so the resolution desk never sees it) or rejection with a
+   note.
+4. **Backup first**: `VACUUM INTO <data dir>/backups/parlance-pre-production-<batch>.db` (mode 600). If it cannot be
+   written nothing changes (`backup_failed`).
+5. **One transaction**: customer resting orders canceled (`production_reset`, reservations released) and archived;
+   open RFQs / quotes closed; customer perps orders canceled, every perps position archived and closed; every prediction
+   position archived and deleted (every holder, so YES and NO open interest stay paired), collateral advances cleared;
+   the journal accounts that held play money outside user accounts (market escrow, `house:collateral_advance`,
+   `perps:collateral`, `bank:vault`) closed into `reset:<batch>`; every customer's cash, credits, reservations, holds and
+   perps balance archived (`pm_archive_balances`) and set to zero with a `play_reset` ledger row and a balanced journal
+   entry; credit grants and held withdrawals marked `reset`; heists voided; play mode, the bonus and the `heist` flag
+   off; the real-money epoch `rb_<batch>` starts; the batch, approval, events and a `play_mode.production_switch` audit
+   row are written.
+6. Live: book deltas, balances, a `production_reset` notice to every customer (CMS template), the bundle nudge (the
+   banner disappears).
+
+Accounts, markets, content, history, fills, trades and settlements are kept. The approval executes once
+(`approval_closed`), a second request answers `play_mode_off`. System accounts (house liquidity) keep their cash and
+resting orders so markets stay quotable; their positions are archived with everyone's.
+
+### 33.7 Central Bank and the promotions treasury
+
+- **Vault**: journal account `bank:vault` (positive = money held); Admin › Central Bank funds (mint from `bank:funding`)
+  and defunds (back to it, never below zero) with `users.money`, a reason and step-up; each operation is a `cb_ops` row
+  and a `central_bank.fund|defund` audit row. The balance is live on the public `central_bank` channel while play mode
+  is on (in production only admins see it).
+- **Switches**: the `central_bank` and `heist` flags (Admin › Central Bank shows and flips them with reason and step-up).
+- **Play mode**: the vault is the heist's prize pot; crew fees go in, loot comes out; it can also pay the signup bonus.
+- **Production**: the vault is the promotions treasury. While the Central Bank is on, the signup bonus (a
+  non-withdrawable, expiring credit), incentive rewards (§29.7) and the referral hook (`payments.grantCredit`, Phase 8)
+  draw from it. A payout larger than the budget is queued (`cb_payout_queue`, user told) or refused (setting
+  `treasury.on_empty`); queued payouts are paid FIFO when the vault is funded (after each funding, every 5 s, or
+  "Pay queued now"). With the Central Bank off, incentive rewards keep their §29 accounts and there is no production
+  bonus. Every payout is an `engine.credit(…, { contra: 'bank:vault' })`, so the journal reconciles.
+
+### 33.8 Vault Heist
+
+| Rule | Default (Admin › Central Bank) |
+|---|---|
+| Crew fee (into the vault) | ₦500 |
+| Code | `base_digits` (4) + ⌊level / 2⌋ different digits, drawn with `crypto.randomInt` |
+| Tries | `base_guesses` (10) − level, at least 3 |
+| Timer | 60 s |
+| Feedback per try | exact (right digit, right place) and near (right digit, wrong place); alarm = tries used / tries × 100 |
+| Loot when cracked | ⌊min(vault × 10 %, ₦50,000, daily cap left) × (0.4 + 0.3 × time left share + 0.3 × tries left share)⌋, never more than the vault |
+| Daily loot cap per user | ₦100,000 |
+| Attempts per user per UTC day | 5 |
+| Caught or out of time | fee lost, jail 10 min |
+| Security level | +1 per cracked vault (max 6), −1 per 60 min |
+
+- **Server-authoritative**: the code is AES-GCM encrypted at rest (HKDF sub-key `heist-code:v1`, row-bound AAD) and
+  returned only once the heist is over; guesses are validated and judged on the server inside a transaction that
+  re-reads the heist and the vault, so two crews cracking at once can never overdraw it.
+- **Idempotent**: a start with the same `client_id` returns the same heist (no second fee); each guess carries its
+  number `n` and a retried one replays the stored answer (`guess_out_of_order` otherwise).
+- **Rate limited**: 6 starts a minute and 10 guesses per 5 s per user, on top of the tiers of §21.
+- **Test RNG**: `start({ centralBank: { rng } })` replaces the random draw in tests; it is a process option, ignored
+  when `NODE_ENV=production`, never a request field.
+- **Feed and Most Wanted**: display names only, current epoch; live on `central_bank`.
+- **UI** (`/heist`, MORE menu while play mode is on): the vault door (spins while a heist runs, opens or flashes), the
+  security pips, the timer ring, the alarm meter, digit boxes, tries with teal pegs, the result with the revealed code,
+  the live feed and Most Wanted; 390 px layout; reduced-motion respected.
+
+### 33.9 Money controls
+
+- **Site wide**: the `payments.deposits` and `payments.withdrawals` flags (every deposit / withdrawal route, every
+  rail) with the full flag targeting.
+- **Per user** (Admin › Users › Money controls, `users.money`, reason, step-up): revoke deposits, withdrawals or both
+  (`money_controls`, history in `money_control_history`, `users.money_controls` audit). Enforced by the gate on every
+  deposit path (demo / play, card payment and session, bank deposit, crypto address and simulated deposit) and every
+  withdrawal path, and again inside `payments.js`; answers `deposits_revoked` / `withdrawals_revoked` with the reason
+  (CMS keys `server.playmode.money.*`). The user gets a `money_controls` notice (template) and the open Transfers page
+  switches to the blocked state with the reason, live. `GET /users/:uid/money_controls` and the flag bundle carry it.
+
+### 33.10 API (all `/v1`; every route classified in `tests/authz.e2e.test.js`)
+
+| Method + path | Who |
+|---|---|
+| `GET feature_flags`, `GET play_mode`, `GET central_bank`, `GET central_bank/feed`, `GET central_bank/most_wanted` | public |
+| `GET users/:uid/heists`, `POST users/:uid/heists {client_id?}`, `POST users/:uid/heists/:id/guesses {guess, n?}`, `GET users/:uid/play_money`, `GET users/:uid/money_controls` | owner |
+| `GET admin/flags`, `GET admin/flags/:key`, `PUT admin/flags/:key`, `POST admin/flags/:key/kill` | settings.write |
+| `GET admin/play_mode`, `GET admin/play_mode/preview`, `PUT admin/play_mode {on: true}`, `PUT admin/play_mode/settings`, `POST admin/play_mode/production_switch`, `POST admin/play_mode/approvals/:id/{approve,reject}` | settings.write |
+| `GET admin/central_bank` | users.read |
+| `POST admin/central_bank/{fund,defund}`, `POST admin/central_bank/queue/process` | users.money |
+| `PUT admin/central_bank/settings` | settings.write |
+| `GET admin/users/:id/money_controls` / `PUT …` | users.read / users.money |
+
+Tables: `feature_flags`, `feature_flag_history`, `money_controls`, `money_control_history`, `pm_events`, `pm_approvals`,
+`pm_reset_batches`, `pm_archive_balances`, `pm_archive_positions`, `pm_archive_orders`, `pm_archive_perps`,
+`pm_archive_accounts`, `cb_ops`, `cb_heists`, `cb_guesses`, `cb_payout_queue`; columns `money_mode`, `money_epoch` on
+`ledger` and `journal_entries` (additive, filled by triggers). Settings rows `admin_settings.play_mode`,
+`central_bank`, `central_bank_state`. WebSocket: public `feature_flags` (also per-user), `central_bank`. Start options
+`flags: { overrides }`, `playMode`, `centralBank: { rng, now }` (tests only, ignored in production). New error codes are
+in the client catalog (`scripts/cms-error-keys.js`). Notification templates `notify.bonus_credited`,
+`notify.heist_result`, `notify.money_controls`, `notify.production_reset` (Transfers row of the matrix).
+
+**Changes to existing code** (small, exact edits): `app.js` (flag creation and gate, mounts, fractional and flip-sell
+checks), `index.js` (options), `ws.js` (channels), `journal.js` (audit hook), `currency.js` (new-account hook),
+`payments.js` (play deposit routing, money guard calls, treasury for `grantCredit`), `payments-admin.js` (play rail
+excluded from provider reconciliation), `identity.js` (closure contra in play mode), `incentives.js` (treasury payouts),
+`history.js` (new ledger kinds), `notify-prefs.js` and `features.js` (channel flags, new types), `trading-core.js`
+(collateral-return flag), `cms/index.js` (live-update flag), `cms/texts.js` (server module, preview routes), the tick
+handlers of `sports.js`, `perps.js`, `rolling.js`, `combos.js`, `chat.js`, `social2.js`, `incentives.js`, `webpush.js`
+(job pause), and `[data-flag]` hooks in the views. Existing tests: `authz.e2e.test.js` classifies the new routes; no
+existing assertion changed.
+
+### 33.11 Design choices to confirm
+
+- `central_bank` starts off on a new database (so §29 incentive payouts keep their accounts until the treasury is
+  funded and switched on); every other flag starts on.
+- The legacy Admin › Settings feature switches (social, perps, combos) stay and are evaluated together with the flags.
+- The production switch keeps the house liquidity account's cash and resting orders (markets stay quotable) but archives
+  every position, including house positions, so open interest stays paired.
+- Production bonus = non-withdrawable promotional credit from the treasury; play bonus = play cash.
+- Play deposits keep the user's own deposit limit and Idempotency-Key; the daily cap is per UTC day.
+- Money notices (bonus, heist, controls, reset) use the Transfers row of the notification matrix (email and push on by
+  default).
+- The heist uses unique digits and the loot formula above; the security level decays one step per 60 minutes.
+- A play-mode account closure returns the balance to the mint (no payout).
+
+### 33.12 Security
+
+See `SECURITY.md` §16: server-authoritative evaluation, booleans-only bundle, gate order (authorization first), staff
+sign-in bypass, step-up + reason + audit on every change, two-person rule + typed RESET + backup on the reset, trigger
+mode markers and audit checks, vault overdraw prevention by transaction, encrypted heist codes, test-only RNG, rate
+limits, idempotency.
+
+### 33.13 Residual risks
+
+- Per-process state: flag cache, heist rate limits and the job pauses assume one server (PLAN §10 RS1).
+- The backup is a plain SQLite file in the data directory (not encrypted beyond the column-level encryption of §25);
+  move it off the host for production.
+- The reset is one transaction on SQLite; a very large database would hold the write lock for its duration.
+- Region targeting uses the simulated IP table / browser location of §25 (not a real geolocation provider).
+- A rollout is by account; anonymous visitors only see a feature at 100 %.
+- The funding of the vault is a mint in this sandbox; a real treasury would be funded from a real account.
+
+### 33.14 Verification
+
+`clone/tests/flags.e2e.test.js` (8 scenarios): the enforcement scan; every flag off hides its UI and blocks its API
+(42 flags probed through the UI and/or API, parents, in-app and email channels, CMS live updates); rollout buckets,
+allow / deny users and roles, regions; schedule boundaries live on an open page; kill switch, reason, step-up, history,
+audit chain and the Admin UI with a live update of another user's page; the sports job paused; per-user money controls
+from Admin › Users on every rail with the reason live, and the site-wide switches; persistence across a restart and the
+start override over a DB kill switch. `clone/tests/playmode.e2e.test.js` (8 scenarios): see the file header.
 
 ---
 

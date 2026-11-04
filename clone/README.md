@@ -11,7 +11,7 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 233 end-to-end browser scenarios across 28 files (Playwright + node:test)
+npm run test:e2e     # 259 end-to-end browser scenarios across 32 files (Playwright + node:test)
 ```
 
 **If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
@@ -110,9 +110,62 @@ with the page background), and the app name and short name used by the browser t
 **Backups** (Import / export): download all content as JSON; importing a file shows exactly what would change before
 you apply it.
 
-Fees, limits, features, payments and Currency & defaults stay in their own settings panels, linked from the overview.
+Fees, limits, features, payments and Currency & defaults stay in their own settings panels, linked from the overview;
+feature flags, play mode and the Central Bank have their own sections (below).
 For developers: new strings go in through `node scripts/cms-extract.js <file>`; `npm run lint` fails on hard-coded
 user-facing text (`CLONE_SPEC.md` §32).
+
+## Feature flags, play mode and the Central Bank (Phase 5D)
+
+Admin guide for `../CLONE_SPEC.md` §33. Every change below needs a reason and a password check, is written to the
+hash-chained audit log, and reaches open pages at once.
+
+**Feature flags** (Admin › Feature flags, `settings.write`). Every feature and module has a flag: trading mechanics
+(order types, order review, flip sell, fractional, scalar, collateral return, rolling markets), combos and RFQs, perps,
+sports (spread & total, live clocks), social, live chat and group chats, watchlist, price alerts, deposits,
+withdrawals and each payment rail, interest, identity verification, sign-up and each sign-in method, AI summaries,
+ballot, incentives, rewards, hubs and their widgets, the in-app / email / push channels, app install and push devices,
+the currency switch, live content updates, and the play-mode features.
+- **Kill** switches a feature off for everyone at once; **Revive** releases the kill switch.
+- **Edit** sets: on / off; **rollout** (a percentage of signed-in users, stable per user: the same people keep it as you
+  raise it; signed-out visitors only at 100 %); **allow / deny users** (emails); **allow / deny roles** (`guest`, `user`
+  = any signed-in account, `staff`, or an admin role); **regions** (2-letter countries, from the location check of
+  Admin › Compliance); a **start** and **end** time. The dialog lists the server routes the flag guards and its history.
+- Off means: its pages show "not available", its menu entries and buttons disappear, its API answers
+  `403 feature_disabled`, and its background jobs (simulations, deliveries, accruals) pause.
+- Order of precedence: a module that is not running at all (for example `SPORTS=0`) → the `FEATURE_FLAGS` environment
+  variable (`FEATURE_FLAGS=perps=off,sports=on`, a technical override for incidents) → the kill switch → the flag's own
+  settings. The old Admin › Settings switches for social, perps and combos still work alongside.
+
+**Play mode** (Admin › Play mode, `settings.write`): the whole site runs on free play money.
+- **Turn play mode on** only works while no customer holds real money (balances, positions, open orders, perps,
+  pending payments, held withdrawals); the panel shows those counts.
+- **Bonus and deposits**: a signup bonus for every new account (minted, or paid from the Central Bank vault) and an
+  optional daily play-money deposit cap per user. Deposits are free and instant (Transfers › Deposit shows a play-money
+  form); card, bank and crypto are not used; withdrawals are off everywhere. A "Play money" banner is on every page.
+- **Switch to production**: **Preview the reset** shows exactly what will be archived and set to ₦0. Type `RESET` and a
+  reason to request it; a **second admin** approves (typing `RESET` again). A database backup is written to
+  `data/backups/` first, then customer orders are canceled and every balance, position, perps account and the vault
+  are archived and set to ₦0. Accounts, markets and content stay. Users get a notice. Play mode cannot be turned on again
+  while real money exists.
+
+**Central Bank** (Admin › Central Bank; views `users.read`, funding `users.money`, settings `settings.write`).
+- Switch the Central Bank and the Vault Heist on or off; **Fund vault** / **Defund** with a reason.
+- In play mode the vault is the Vault Heist prize pot (`/heist`, MORE menu): players pay a crew fee into the vault, guess
+  a secret code (a teal dot for each right digit in the right place, a ring for a right digit in the wrong place) before
+  the timer and the alarm run out, and take a share of the vault. Settings: crew fee, timer, code length and tries,
+  share and caps per heist and per day, attempts per day, jail time, security level and its decay.
+- In production the vault is the **promotions treasury**: signup bonuses (as promotional credit), liquidity rewards and
+  referral credits are paid from it. When the budget is short, payouts are **queued** (paid in order once you fund the
+  vault, or with **Pay queued now**) or **refused**, per setting.
+
+**Money controls** (Admin › Users › a user › Money controls, `users.money`): revoke deposits, withdrawals or both for
+one account, with a reason the user sees on Transfers and in a notice. Site-wide, use the **Deposits** and
+**Withdrawals** flags.
+
+For developers: a new feature module or route group must get a flag in `server/flags.js` (`REGISTRY`, `ROUTE_RULES`,
+`MODULE_FLAGS`) or be listed as platform core; `tests/flags.e2e.test.js` fails otherwise. Hide its entry points with
+`data-flag="<key>"` and its pages through `ROUTE_FLAGS` in `public/js/flags.js`.
 
 ## Trading core (Phase 5A)
 
@@ -169,7 +222,7 @@ Not built yet (PLAN.md Phases 6-9; payments: sandbox rails built, no real money)
 
 Perimeter security (`../CLONE_SPEC.md` §21): CSP with per-response nonces and the other security headers, CORS allowlist (`ALLOWED_ORIGINS`), proof-of-work bot challenge for suspicious HTML requests, signed client tokens on `/v1` writes and the WebSocket, honeypot paths, tiered persisted rate limits, Admin › Security event log. Taker fee coefficient, rolling window, rate limits and bot settings are editable live in Admin › Settings & health. Fonts are self-hosted (`public/fonts/`, SIL OFL).
 
-Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1), `PAYMENTS_DEMO_FUNDS` (`0`/`1`, instant demo funds; default on outside production), `PAYMENTS_SANDBOX` (`0`/`1`, sandbox payment rails; default on outside production), `ANTHROPIC_API_KEY` + `AI_SUMMARY_MODEL` (optional external AI summarizer; both must be set, see above).
+Environment: `PORT`, `DB_FILE`, `RATE_BURST`, `RATE_PER_SEC` (anonymous rate-limit tier defaults), `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ASSETS` (`dist` or `src`), `ROLLING_WINDOW_SEC` (rolling market window, default 900), `SPORTS=0` (turn the sports simulation off), `SPORTS_SPEED` (game seconds per real second, default 1), `PAYMENTS_DEMO_FUNDS` (`0`/`1`, instant demo funds; default on outside production), `PAYMENTS_SANDBOX` (`0`/`1`, sandbox payment rails; default on outside production), `ANTHROPIC_API_KEY` + `AI_SUMMARY_MODEL` (optional external AI summarizer; both must be set, see above), `FEATURE_FLAGS` (technical flag overrides, `key=on|off,…`, see Feature flags).
 
 ## Styling
 
