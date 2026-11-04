@@ -986,7 +986,8 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     const res = tx(db, () => {
       const o = ownResting(uid, oid);
       const by = parseUnits(b, 'reduce_by', { required: false });
-      const to = by == null ? (b.reduce_to === 0 || b.reduce_to === '0' || b.reduce_to_fp === '0' || b.reduce_to_fp === '0.00' ? 0 : parseUnits(b, 'reduce_to', { required: false })) : null;
+      const zero = [b.reduce_to, b.reduce_to_fp].some((v) => v != null && v !== '' && toUnits(v) === 0);
+      const to = by == null ? (zero ? 0 : parseUnits(b, 'reduce_to', { required: false })) : null;
       if (by == null && to == null) throw E.badRequest(PS('error.decrease_args'));
       const m = getMarket(o.ticker);
       const newRem = by != null ? o.remaining_count - by : to;
