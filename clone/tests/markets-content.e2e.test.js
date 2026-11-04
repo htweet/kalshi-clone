@@ -113,7 +113,7 @@ test('sports derivatives: a spread / total market bought on the event page settl
   assert.match(await page.textContent('[data-testid=ev-live-label]'), /Live|Final/);
   await page.waitForSelector('#t-amount');
   await page.fill('#t-amount', '5');
-  await page.click('[data-testid=submit-order]');
+  await page.click('[data-testid=submit-order]'); await page.click('[data-testid=review-confirm]'); // order review step (Phase 5A, A7)
   await page.waitForSelector('.toast:has-text("Filled")');
   const spread = lines[0];
   const r = await H.call(page, 'POST', `/v1/users/${uid}/orders`, { ticker: spread.market_ticker, side: 'no', type: 'dollars', amount_dollars: 4 });
@@ -203,7 +203,8 @@ test('calendar event_limits: a daily family is capped at two per section with a 
   assert.ok(cal.sections.every((s) => s.event_limits.every((l) => !l.event_tickers.some((t) => /^PLX(CPL|CHL|GPL|IHL)/.test(t)))), 'sports fixtures are never capped');
   const page = await newPage();
   await page.goto(BASE + '/calendar');
-  const section = page.locator(`[data-testid=cal-section][data-date="${sec.date}"]`);
+  // The Live section also carries today's date while a game is in play; the capped family is in the dated section.
+  const section = page.locator(`[data-testid=cal-section][data-live="false"][data-date="${sec.date}"]`);
   await section.waitFor();
   const visible = () => section.locator('[data-testid=event-card][data-event^="PLXTEMP-"]:visible').count();
   assert.equal(await visible(), 2);
