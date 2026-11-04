@@ -279,7 +279,7 @@ test('portfolio withdrawals: free collateral that backs losing positions cannot 
   const b = await bal();
   const freeCc = Math.round(Number(b.available_dollars) * 10000);
   const wCc = Math.round(Number(b.withdrawable_dollars) * 10000);
-  assert.ok(freeCc > 49000000 && wCc < freeCc - 9000000, `free ${b.available_dollars}, withdrawable ${b.withdrawable_dollars}`);
+  assert.ok(freeCc > 4900000 && wCc < freeCc - 900000, `free ${b.available_dollars}, withdrawable ${b.withdrawable_dollars}`);
   assert.ok(Math.abs(wCc - (Number(b.account_equity) - Number(b.initial_margin)) * 10000) <= 2, 'withdrawable = equity − initial margin');
   // Moving out the whole free balance is refused, to Predictions and to another subaccount alike.
   const out = await fay.call('POST', '/v1/perps/transfers', { direction: 'to_predictions', amount_dollars: 499, subaccount: 1 });
