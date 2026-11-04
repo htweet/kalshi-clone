@@ -513,7 +513,7 @@ test('database lock: a leftover lock naming a live unrelated process does not bl
   // A live process that is not a Parlance server (the Windows case: the crashed server's pid now belongs to a service).
   const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
   const portA = PORT + 230;
-  let a = null;
+  let a = null; let b = null; let c = null;
   try {
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
     fs.writeFileSync(`${dbFile}.lock`, String(bystander.pid));
@@ -522,7 +522,7 @@ test('database lock: a leftover lock naming a live unrelated process does not bl
     await homeRenders(portA);
 
     // A genuine second server on the same database is refused, naming the running one.
-    const b = await runServer(portA + 1);
+    b = await runServer(portA + 1);
     assert.equal(b.code, 1);
     assert.match(b.out, new RegExp(`Another Parlance server \\(process ${a.child.pid}\\) is already using`));
     assert.doesNotMatch(b.out, /node:internal|at Object\./);
@@ -531,19 +531,20 @@ test('database lock: a leftover lock naming a live unrelated process does not bl
     a.child.kill('SIGKILL');
     await exited(a.child);
     assert.equal(fs.existsSync(`${dbFile}.lock`), true, 'the crash leaves the info file behind');
-    const c = await runServer(portA + 2);
+    c = await runServer(portA + 2);
     assert.equal(c.listening, true, `server must take over after a crash:\n${c.out}`);
     await homeRenders(portA + 2);
     // Persistence across the crash: the same database file is in use (seeded data still there).
-    const r = await fetch(`http://127.0.0.1:${portA + 2}/trade-api/v2/markets?limit=1`);
+    const r = await fetch(`http://127.0.0.1:${portA + 2}/trade-api/v2/markets?limit=1`).catch((e) => { throw new Error(`server after takeover stopped answering (${e.cause?.code || e.message}); exit=${c.child.exitCode ?? c.child.signalCode}\n${c.out}`); });
     assert.equal(r.status, 200);
     assert.ok((await r.json()).markets.length >= 1);
     c.child.kill('SIGINT');
     await exited(c.child);
     assert.equal(fs.existsSync(`${dbFile}.lock`), false, 'a clean shutdown removes the info file');
   } finally {
+    // Never leave a child server behind: a live child keeps the test runner from exiting.
     bystander.kill();
-    if (a && a.child.exitCode == null && !a.child.signalCode) a.child.kill('SIGKILL');
+    for (const s of [a, b, c]) if (s && s.child.exitCode == null && !s.child.signalCode) s.child.kill('SIGKILL');
   }
 });
 
