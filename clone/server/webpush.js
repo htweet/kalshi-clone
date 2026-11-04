@@ -93,7 +93,7 @@ function decryptPayload(body, uaPrivate, uaPublic, auth) {
 }
 
 // ------------------------------------------------------------------------------------------------ module
-function mountWebPush({ v1, db, engine, requireUser, keyDir, options = {} }) {
+function mountWebPush({ v1, db, engine, requireUser, keyDir, options = {}, template = null }) {
   db.exec(SCHEMA);
   const production = process.env.NODE_ENV === 'production';
   const encKey = kc.deriveKey('web-push:v1', { dir: keyDir });
@@ -241,7 +241,8 @@ function mountWebPush({ v1, db, engine, requireUser, keyDir, options = {} }) {
     const s = db.prepare('SELECT id FROM push_subscriptions WHERE id=? AND user_id=?').get(String(req.params.id), uid);
     if (!s) throw E.notFound();
     limit(res, [[tests, uid]]);
-    const id = enqueue(s.id, uid, null, { title: content.s('push.test_title'), body: content.s('push.test_body'), link: content.s('push.test_link') }, 'normal', 600);
+    const tp = template ? template('push.test', {}) : null; // template push.test (Admin › Content › Templates, CLONE_SPEC.md §32.5)
+    const id = enqueue(s.id, uid, null, { title: tp ? tp.push_title : 'Test notification', body: tp ? tp.push_body : '', link: content.s('push.test_link') }, 'normal', 600);
     pumpSoon();
     res.status(202).json({ queued: true, id });
   });

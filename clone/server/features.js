@@ -48,7 +48,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   // Extension points used by the Phase 2 community modules (server/community.js, CLONE_SPEC.md §24): serializer
   // decorators, feed filters and extra feeds, post / reply creation (stickers, verified position tags, circle-only
   // visibility), per-post visibility, and the notification gate (type × channel preferences, quiet hours, mutes).
-  const hooks = { postVo: [], commentVo: [], profileVo: [], feeds: [], feedFilter: null, beforePost: null, afterPost: null, beforeComment: null, afterComment: null, commentFilter: null, canView: null, notifyGate: null, afterPostNotify: null };
+  const hooks = { postVo: [], commentVo: [], profileVo: [], feeds: [], feedFilter: null, beforePost: null, afterPost: null, beforeComment: null, afterComment: null, commentFilter: null, canView: null, notifyGate: null, afterPostNotify: null, notifyTemplate: null };
   // ======================= notifications =======================
   const notifVo = (n) => ({ id: n.id, type: n.type, title: n.title, body: n.body, link: n.link, read: !!n.read_at, created_time: new Date(n.created_ts).toISOString() });
   function notify(userId, { type, title, body = '', link = '', actor = null, meta = null }) {
@@ -56,7 +56,11 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     const gate = hooks.notifyGate ? hooks.notifyGate(userId, { type, title, body, link, actor, meta }) : null;
     if (gate && !gate.store) return null;
     const n = { id: newId('n_'), user_id: userId, type, title: (gate && gate.title) || title, body, link, read_at: null, created_ts: Date.now() };
-    db.prepare('INSERT INTO notifications(id,user_id,type,title,body,link,read_at,created_ts) VALUES(?,?,?,?,?,?,?,?)').run(n.id, userId, type, n.title, body, link, null, n.created_ts);
+    // In-app channel template (Admin › Content › Templates, CLONE_SPEC.md §32.5): the inbox row and the live toast.
+    let tpl = null;
+    try { tpl = hooks.notifyTemplate ? hooks.notifyTemplate(type, { title: n.title, body, link }) : null; } catch (e) { console.error('notify template', e); }
+    if (tpl) { n.title = String(tpl.inapp.title).slice(0, 200) || n.title; n.body = String(tpl.inapp.body).slice(0, 1000); }
+    db.prepare('INSERT INTO notifications(id,user_id,type,title,body,link,read_at,created_ts) VALUES(?,?,?,?,?,?,?,?)').run(n.id, userId, type, n.title, n.body, link, null, n.created_ts);
     engine.emit('notification', userId, gate && gate.quiet ? { ...notifVo(n), quiet: true } : notifVo(n));
     return n.id;
   }

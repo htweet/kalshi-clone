@@ -191,4 +191,7 @@ html[data-feat-combos=off] a[href="/combos"] { display: none !important; }
 .cms-asset { margin: 0; padding: var(--space-2); display: grid; gap: var(--space-1); justify-items: center; }
 .cms-thumb { width: 96px; height: 96px; object-fit: contain; border-radius: var(--rounded-x10); background: var(--surface-x30); }
 td .cms-thumb { width: 48px; height: 48px; }
-.cms-colours { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); }
+.cms-colours { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: var(--space-3); }
+.cms-colour input { min-width: 0; flex: 1; }
+.cms-editor { min-width: 0; }
+.cms-editor .field, .cms-editor input, .cms-editor textarea, .cms-editor select { max-width: 100%; min-width: 0; }

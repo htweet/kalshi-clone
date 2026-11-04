@@ -42,8 +42,7 @@ const PWA_CONFIG = {
 };
 
 const SERVER_STRINGS = {
-  'push.test_title': 'Test notification',
-  'push.test_body': 'Push notifications are working on this device.',
+  // The test notification's title and body are the template push.test (server/content/notification-templates.js).
   'push.test_link': '/notifications/settings',
   'push.error_service_unsupported': 'this browser\'s push service is not supported',
   'push.error_too_many_devices': 'at most {max} devices can receive push notifications; remove one first',

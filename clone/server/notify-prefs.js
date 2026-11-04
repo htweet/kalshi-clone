@@ -268,12 +268,19 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
     if (d.channel === 'email') {
       const u = db.prepare('SELECT id, email FROM users WHERE id=?').get(d.user_id);
       if (!u) return;
-      // Dev mailbox stub shared with the sign-in alerts (email_outbox, server/auth.js); no SMTP in this build.
-      db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,created_at) VALUES(?,?,?,?,?,?)')
-        .run(newId('em_'), u.id, u.email, `Parlance: ${d.title}`.slice(0, 200), `${d.body}${d.link ? `\n\nOpen: ${d.link}` : ''}`.slice(0, 2000), nowIso());
+      // Email channel template + shared layout (CLONE_SPEC.md §32.5), rendered when the email is sent (a deferred one uses
+      // the template published by then). Dev mailbox stub shared with the sign-in alerts (email_outbox, server/auth.js).
+      const cms = app?.locals?.cms;
+      const em = cms ? cms.renderNotificationEmail(d.type, { title: d.title, body: d.body, link: d.link }) : { subject: `Parlance: ${d.title}`, text: `${d.body}${d.link ? `\n\nOpen: ${d.link}` : ''}`, html: null };
+      if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'html')) db.exec('ALTER TABLE email_outbox ADD COLUMN html TEXT');
+      db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,html,created_at) VALUES(?,?,?,?,?,?,?)')
+        .run(newId('em_'), u.id, u.email, String(em.subject).slice(0, 200), String(em.text).slice(0, 4000), em.html ? String(em.html).slice(0, 40000) : null, nowIso());
       db.prepare("UPDATE notif_deliveries SET status='sent', sent_ts=? WHERE id=?").run(now, d.id);
     } else {
       const devices = db.prepare('SELECT id FROM push_devices WHERE user_id=?').all(d.user_id).map((x) => x.id);
+      // Push channel template (CLONE_SPEC.md §32.5): Web Push payloads and the in-browser push use the same text.
+      const tpl = app?.locals?.cms ? app.locals.cms.renderNotification(d.type, { title: d.title, body: d.body, link: d.link }) : null;
+      if (tpl) d = { ...d, title: String(tpl.push.title).slice(0, 200), body: String(tpl.push.body).slice(0, 1000) };
       // Web Push (server/webpush.js, CLONE_SPEC §31): one encrypted outbox row per subscribed browser, sent by its pump.
       const web = webpush ? webpush.enqueueUser(d.user_id, { id: d.id, pref: d.pref, title: d.title, body: d.body, link: d.link }) : 0;
       db.prepare('UPDATE notif_deliveries SET status=?, devices=?, sent_ts=? WHERE id=?').run(devices.length || web ? 'sent' : 'no_device', devices.length + web, now, d.id);

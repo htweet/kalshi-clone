@@ -112,7 +112,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   // 'revoked' (sids[]) — the WebSocket hub drops those connections; 'signup' / 'login' / 'email_change' ({user, req, …})
   // — identity onboarding, email verification and passkey policy hooks (server/identity.js, server/webauthn.js).
   const events = new EventEmitter();
-  const hooks = { mailer: null, stepUpExtras: () => [], preSession: [] }; // set by server/identity.js and server/webauthn.js
+  const hooks = { mailer: null, stepUpExtras: () => [], preSession: [], template: null }; // set by server/identity.js, server/webauthn.js and the CMS (template)
   let beginLogin = null; // defined in mountRoutes (needs the user serializer)
   let notify = () => {};
   let rolesOf = (u) => (u && u.is_admin ? ['admin'] : []);
@@ -185,13 +185,16 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   }
   // Email goes through the messaging provider (server/messaging.js: dev outbox or SMTP, RS6) once identity.js sets the
   // hook; before that (and in unit use) messages are written to the email_outbox table.
-  function sendEmail(user, subject, body, to = user.email) {
-    if (hooks.mailer) { hooks.mailer({ userId: user.id, to, subject, text: body }); return; }
+  function sendEmail(user, subject, body, to = user.email, html = null) {
+    if (hooks.mailer) { hooks.mailer({ userId: user.id, to, subject, text: body, html }); return; }
     db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,created_at) VALUES(?,?,?,?,?,?)').run(newId('em_'), user.id, to, subject, body, nowIso());
   }
   function alertUser(user, title, body) {
     try { notify(user.id, { type: 'security', title, body, link: '/account/security' }); } catch (e) { console.error('security notify', e); }
-    sendEmail(user, `Parlance security alert: ${title}`, `${body}\n\nIf this wasn't you, change your password and review your signed-in devices in Account › Security.`);
+    // Template email.security_alert (Admin › Content › Templates, CLONE_SPEC.md §32.5).
+    const em = hooks.template ? hooks.template('email.security_alert', { title, body }) : null;
+    if (em) sendEmail(user, em.subject, em.text, user.email, em.html);
+    else sendEmail(user, `Parlance security alert: ${title}`, `${body}\n\nIf this wasn't you, change your password and review your signed-in devices in Account › Security.`);
   }
   function audit(actor, action, targetType, targetId, before, after, reason = '') {
     if (!hasTable('admin_audit')) return;
@@ -698,7 +701,11 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       db.prepare('UPDATE users SET email=? WHERE id=?').run(em, u.id);
       clearFailures(u.email);
       logEvent(u.id, 'email_change', req, { from: maskEmail(u.email), to: maskEmail(em) });
-      sendEmail(u, 'Parlance security alert: your email address was changed', `The email on your Parlance account was changed to ${maskEmail(em)}. If this wasn't you, contact support.`, u.email);
+      { // Template email.email_changed (CLONE_SPEC.md §32.5), to the old address.
+        const m = hooks.template ? hooks.template('email.email_changed', { masked_email: maskEmail(em) }) : null;
+        if (m) sendEmail(u, m.subject, m.text, u.email, m.html);
+        else sendEmail(u, 'Parlance security alert: your email address was changed', `The email on your Parlance account was changed to ${maskEmail(em)}. If this wasn't you, contact support.`, u.email);
+      }
       alertUser({ ...u, email: em }, 'Email address changed', `Your account email is now ${em}.`);
       events.emit('email_change', { user: getUser(u.id), req });
       res.json({ user: userBody(getUser(u.id)) });

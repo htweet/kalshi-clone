@@ -131,7 +131,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.payments = mountPayments({ v1, db, engine, auth, admin, identity: app.locals.identity, security, feat, keyDir, options: paymentsOptions || {} });
   // Phase 2 community: post extras, stickers, mutes, topics, Inner Circle, group chats, notification matrix (§24).
   // Web Push (CLONE_SPEC.md §31): VAPID keys, browser subscriptions, encrypted outbox; the Push channel delivers through it.
-  app.locals.webpush = mountWebPush({ v1, db, engine, requireUser, keyDir, options: pushOptions || {} });
+  app.locals.webpush = mountWebPush({ v1, db, engine, requireUser, keyDir, options: pushOptions || {}, template: (k, v) => app.locals.cms?.renderSystem(k, v) });
   const community = mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEvent, webpush: app.locals.webpush });
   app.locals.rolling = mountRolling({ v1, db, engine, windowSec: admin.rollingWindowSec() ?? rollingWindowSec }); // window editable live (G7)
   mountPerps({ v1, db, engine, requireUser, requireAdmin, notify: feat.notify, options: perps });
@@ -144,6 +144,10 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.marketsContent = mountMarketsContent({ v1, db, engine, auth, admin, identity: app.locals.identity, feat, security, requireUser, eventFull, getEvent, options: marketsContent || {} });
   app.locals.tradingCore = mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify: feat.notify });
   app.locals.cms = mountCms({ v1, app, db, engine, admin, auth, options: cmsOptions || {} }); // texts, templates, media, pages, branding (§32)
+  // Every send goes through the templates (CLONE_SPEC.md §32.5): in-app (features.notify), email and push (notify-prefs),
+  // account emails (auth, identity), the phone code SMS and the push test (identity, webpush).
+  feat.hooks.notifyTemplate = (type, msg) => app.locals.cms.renderNotification(type, msg);
+  auth.hooks.template = (k, v) => app.locals.cms.renderSystem(k, v);
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });

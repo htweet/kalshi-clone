@@ -414,7 +414,8 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
         .run(id, uid, hash, seal(uid, 'phone_pending', { e164: n.e164 }), masked, country, kc.hmacHex(keys.code, `${id}:${code}`), now, now + opt.phoneCodeTtlMs);
       db.prepare('INSERT INTO sms_send_log(ts,user_id,number_hash,ip_hash,country,outcome) VALUES(?,?,?,?,?,?)').run(now, uid, hash, ip, country, 'sent');
     });
-    await messaging.sendSms({ userId: uid, to: n.e164, masked, kind: 'phone_verification', body: `Your Parlance code is ${code}. It expires in ${Math.round(opt.phoneCodeTtlMs / MIN)} minutes. Never share it with anyone.` });
+    // Template sms.phone_code (CLONE_SPEC.md §32.5).
+    await messaging.sendSms({ userId: uid, to: n.e164, masked, kind: 'phone_verification', body: app.locals.cms.renderSystem('sms.phone_code', { code, minutes: String(Math.round(opt.phoneCodeTtlMs / MIN)) }).sms });
     logEvent(uid, 'phone_code_sent', req, { to: masked, country });
     res.status(201).json({ sent: true, masked, expires_time: new Date(now + opt.phoneCodeTtlMs).toISOString(), resend_available_time: new Date(now + opt.phoneCooldownSec * 1000).toISOString(), attempts_left: opt.phoneMaxAttempts, code_length: 4 });
   });
@@ -542,8 +543,9 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
   // ------------------------------------------------------------------ email verification (P3.1)
   async function sendVerification(user, req) {
     const t = signToken('email_verify', user.id, opt.emailTokenTtlMs, { em: emailFingerprint(user.email) });
-    await messaging.sendEmail({ userId: user.id, to: user.email, subject: 'Confirm your email for Parlance',
-      text: `Hi ${user.display_name},\n\nConfirm this email address for your Parlance account:\n${origin(req)}/verify-email?token=${t}\n\nThe link works once and expires in 24 hours. If you didn't create a Parlance account, ignore this email.` });
+    // Template email.verify_email (Admin › Content › Templates, CLONE_SPEC.md §32.5).
+    const em = app.locals.cms.renderSystem('email.verify_email', { name: user.display_name, link: `${origin(req)}/verify-email?token=${t}`, hours: String(Math.round(opt.emailTokenTtlMs / 3600000)) }, { origin: origin(req) });
+    await messaging.sendEmail({ userId: user.id, to: user.email, subject: em.subject, text: em.text, html: em.html });
     logRequest('email_verify', kc.sha256hex(user.id));
   }
   v1.post('/users/:uid/email_verification', requireUser, async (req, res) => {
@@ -581,8 +583,9 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     const u = db.prepare('SELECT * FROM users WHERE email=? AND is_system=0').get(email);
     if (allowed && u && statusOf(u.id) !== 'closed') {
       const t = signToken('password_reset', u.id, opt.resetTokenTtlMs, { fp: pwFingerprint(u.password_hash) });
-      await messaging.sendEmail({ userId: u.id, to: u.email, subject: 'Reset your Parlance password',
-        text: `Someone (hopefully you) asked to reset the password for your Parlance account.\n\nChoose a new password here:\n${origin(req)}/reset-password?token=${t}\n\nThe link works once and expires in ${Math.round(opt.resetTokenTtlMs / MIN)} minutes. If you didn't ask for this, you can ignore this email; your password stays the same.` });
+      // Template email.password_reset (CLONE_SPEC.md §32.5).
+      const em = app.locals.cms.renderSystem('email.password_reset', { link: `${origin(req)}/reset-password?token=${t}`, minutes: String(Math.round(opt.resetTokenTtlMs / MIN)) }, { origin: origin(req) });
+      await messaging.sendEmail({ userId: u.id, to: u.email, subject: em.subject, text: em.text, html: em.html });
       logEvent(u.id, 'password_reset_requested', req, {});
     }
     res.status(202).json(uniformReset); // same answer for unknown emails and when rate-limited (no account-existence signal)

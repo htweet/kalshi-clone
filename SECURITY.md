@@ -242,6 +242,21 @@ server → third-party push services (an outbound request to a URL the browser s
 | D | Push storms or a dead push service exhaust the server | Matrix gate and the hourly per-user cap apply first; at most 10 devices per user; test sends rate-limited; exponential backoff (≤ 1 h, Retry-After honoured), at most 8 attempts, TTL expiry, 404/410 delete the subscription; finished rows pruned after 7 days | ✅ |
 | T | Hostile push content (forged or replayed message) opens an external site | Notification clicks accept only same-origin paths; anything else opens `/` | ✅ (hostile link test) |
 
+### 15. Content management (Phase 5C, `CLONE_SPEC.md` §32)
+
+Trust boundaries added: staff editors and publishers → content that every visitor renders (texts, rich text, page
+bodies, templates, images, colours); uploaded files → the server's image decoders.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| T / E | **Stored XSS through managed content** (a text, rich text, page body, footer link, template or alt text carrying markup or script) | Plain texts are escaped wherever shown (`t()` is "unescaped" to `parlance/no-unescaped-html`; `te()` escapes) and markup-like input is refused on save; rich text, page bodies and email HTML pass an allowlist sanitiser (tokenizer, re-escaped text, allowlisted elements, `href` only, `https:` / `mailto:` / site paths); no inline handlers, no `javascript:` / `data:` URLs, no inline styles (colours are CSS variables from `/v1/content/theme.css`) | ✅ (`cms`, `cms-content`: XSS in texts, rich text, templates, pages, links) |
+| T / E | **Template injection** | Logic-free `{{name}}` placeholders with declared variables only; other syntax refused; variables HTML-escaped in email HTML, link variables must be safe URLs | ✅ |
+| T / E / D | **Malicious uploads**: SVG with script, polyglots (image + HTML/JS), metadata leaks, decompression bombs | Magic-byte detection (PNG/JPEG only), size and dimension limits, inflate output capped, refusal of trailing data and embedded markup, re-encode from pixels (metadata and payloads cannot survive); served `nosniff` with `default-src 'none'; sandbox` | ✅ (EXIF / text chunk gone, polyglot / SVG refused) |
+| I | **Draft leakage** (unpublished terms, announcements) | Drafts only in staff-only, `no-store` preview responses; public bundle, pages and the WebSocket message never contain them | ✅ |
+| E / R | Unauthorised or unaccountable changes | `content.write` vs `content.publish`; legal pages need step-up; reasons required; every publish, schedule, rollback, import, upload and test send in the hash-chained audit log; versions with rollback | ✅ (`authz` matrix, `cms`) |
+| D | Abuse of uploads, test sends or writes | Admin rate tier plus per-user CMS limits (writes 120/min, uploads 30/min, test sends 10/min); body limits per route | ✅ |
+| T | Supply chain of the JPEG codec | `jpeg-js` 0.4.4 pinned exactly (official package, no dependencies, BSD-3), resolution and memory limits set; `npm audit` clean | ✅ / residual: third-party decoder |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).

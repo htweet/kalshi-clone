@@ -401,6 +401,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §28 trading core (Phase 5A): price grids `linear_cent` / `deci_cent` / `tapered` / combo `center_deci_edge_centi_cent` in centi-cents, G1 fee accumulator, scalar markets, order review + auto-sell prompt, flip sell, MECNET collateral return, settlement correction (claw-back, debt rule, step-up, audit) with the optional two-person rule, combos on the finer grid + HVM 3 s window | yes | tests `trading-core`; tick bands and the tapered name are design choices (§28.1) |
 | §29 markets and content (Phase 5B): sports spreads and totals settled from the final score, ice-hockey league, running clocks and live header label (G9), calendar `event_limits`, ballot lookup on invented jurisdictions (no address stored), AI news summaries + timeline (offline extractive default with citations, optional external adapter, cache, cost caps, injection handling, admin hide/regenerate), Liquidity Incentive Program (A13, journaled payouts), hub widgets: Senate map, Fed funds outlook, forecast history (A15) | yes | tests `markets-content`; civic data, rates and news invented; accrual formula is a design choice |
 | §31 Progressive Web App: web app manifest + own icons, service worker (precache of the hashed bundle, network-only navigations, offline page, user-confirmed updates), install entry (prompt / iOS steps), real Web Push (VAPID RFC 8292, aes128gcm RFC 8291, encrypted outbox with retries) | yes | tests `pwa`; design choices (not observed on the live site) |
+| §32 content management (Phase 5C): every SPA string in a keyed text catalog (client and server `t()`, admin overrides, declared variables, plain or allowlist rich text, live updates, staff preview), notification / email / SMS templates on every send, media library with server-side re-encode and slots (logo, icons, manifest), CMS pages with SEO and legal step-up, footer, brand colours with a contrast check, drafts → schedule → publish → rollback with hash-chained audit, editor / publisher roles, JSON export / import with dry run, hard-coded-text enforcement | yes | tests `cms`, `cms-content` |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
 Verification: 233 Playwright scenarios across 28 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
@@ -3823,6 +3824,9 @@ plain numbers in naira) and keep the original names (`amount_usd`, `price_dollar
   the history of earlier messages; seeded titles are written once at seed time.
 - Calendar sections follow the configured zone; responsible-trading limits, withdrawal limits and reports stay UTC.
 - PDF statements use "NGN" instead of "₦"; CSV money columns are plain numbers named by currency.
+- **Approved by the owner (2026-11-04):** whole-naira display without kobo when there is none; "NGN" in PDFs (no ₦
+  glyph); `_ngn` CSV columns; UTC daily limits with Lagos-day calendar grouping; new-account defaults apply only to
+  accounts created after a change.
 
 ### 30.7 Verification
 
@@ -4042,6 +4046,197 @@ Every PWA user-facing text, image reference and the manifest are data, so the CM
   notification templates drive them.
 - Not yet data: the `theme-color` / Apple meta tags in `index.html`, and icon files (cache-first by fixed path in the
   worker); the CMS phase should template the meta tags and give edited icons content-hashed URLs.
+
+## 32. Content management (CMS)
+
+Owner requirement (2026-11-04): every user-facing value, text, image, notification and email template is managed in
+the admin panel; only technical configuration stays in code (PLAN Phase 5C). Code lives in `clone/server/cms/`
+(store, texts, templates, images, sanitiser, routes), `clone/server/content/` (keyed defaults), `clone/public/js/i18n.js`,
+`clone/public/js/content-live.js`, `clone/public/js/content/*-strings.js` and `clone/public/js/views/admin/cms.js`.
+
+### 32.1 What is managed where
+
+| Content | Admin › Content & settings | Delivered by | Default when unset |
+|---|---|---|---|
+| Every SPA string (labels, headings, buttons, placeholders, empty states, help text, toasts, client errors) | Texts | `/content-bundle.js`, `/v1/content/bundle` | `public/js/content/<area>-strings.js` |
+| Server wording (currency messages, PWA errors) | Texts (`server.*` keys) | server `t()` (`server/content/catalog.js`) | `server/content/*.js` |
+| API error messages | Texts (`error.<code>`) | client `errorText()` | `{message}` (the server's own text) |
+| Notification channels (in-app, push, email) per type, account emails, SMS, push test, email layout | Templates | `features.notify`, `notify-prefs`, `messaging`, `auth`, `identity`, `webpush` | `server/content/notification-templates.js` |
+| Images (logo, wordmark, favicon, app icon, promo / hero / hub art, category icons, email header, empty states) | Media | `/media/<id>.<png\|jpg>`, bundle `media` | built-in artwork |
+| Pages (legal, help, info) and the footer | Pages & footer | `/v1/pages/…`, page template SEO tags, bundle `footer` | `server/content/pages.js` |
+| Brand and YES colours per theme, app name, short name, description | Branding | `/v1/content/theme.css`, page template, `/manifest.webmanifest` | `public/app.css`, `server/content/pwa.js` |
+| Fees, limits, features, payments, Currency & defaults | links from the hub to the existing panels (§18.6, §26, §30) | unchanged | unchanged |
+
+Home hero, hubs, promos, banners, navigation, info cards, news and help articles keep their §18.5 collections (linked
+from the hub); help articles are also served as CMS pages under `help/<slug>`.
+
+### 32.2 Store, roles and workflow
+
+- **Tables:** `cms_entries(type, key, locale, draft_json, published_json, published_version, scheduled_json,
+  scheduled_at, …)` and `cms_versions(type, key, locale, version, value_json, action, author_id, author_email, reason,
+  created_at)`; media in `cms_media` (originals and generated icon sizes). Additive; nothing else changes schema except
+  the `email_outbox.html` column.
+- **Roles:** `content.write` (editor: drafts, preview, test send, uploads, export, import dry run) and the new
+  `content.publish` (publish, schedule, unschedule, rollback, apply an import). The new role **publisher** has
+  `catalog.read`, `content.write` and `content.publish`; admin has everything; editor is unchanged.
+- **Draft → preview → publish → schedule → history.** Drafts never reach a public route or the public bundle. The staff
+  preview (`?cms_preview=1`, a banner with "Exit preview") swaps in `/v1/admin/cms/preview_bundle` (content.write,
+  `no-store`); for anyone else the route answers 401/403 and the client drops the flag. Publishing needs a reason
+  (3–500 characters); `at` schedules it (future, within a year). The scheduler (`cms.tickMs`, default 1 s) reads due
+  rows from the database, so a schedule that falls due while the server is down is published when it starts.
+- **Versions and rollback:** every publish, scheduled publish, rollback and import writes a version; rollback to any
+  version, or to version 0 (the code default), is itself a new version.
+- **Audit:** each publish, schedule, unschedule, rollback, import, upload and test send writes one hash-chained
+  `admin_audit` row (`cms.*`, §22.7) with before/after and the reason.
+- **Step-up:** publishing or rolling back a page whose section is `legal` (or an import touching one) needs a fresh
+  step-up (`step_up_required`, the admin UI shows the confirm dialog).
+- **Live:** a publish emits `content` on the public WebSocket channel with what changed (type and key, never draft
+  values); open pages refetch the bundle (ETag, usually 304) and re-render the current route. Strings read once at
+  module evaluation (`ts()`) are recorded; a change to one offers "Content was updated · Reload".
+- **Export / import:** `GET /v1/admin/cms/export` (all published values and drafts, JSON `{format: "parlance-cms"}`);
+  `POST /v1/admin/cms/import` validates every entry with the same rules as the editors, returns a diff
+  (add / update / reset / draft) and changes nothing on a dry run; applying needs `content.publish` and a reason and
+  runs in one transaction. Entries not in the file are left as they are.
+
+### 32.3 Text catalog
+
+- **Keys:** `<area>.<section>.<slug>` (area = SPA module, section = top-level function or constant). 4,000+ keys:
+  every view in `public/js/views/**` and `public/js/*.js`, the shell markup in `index.html` (`data-t` /
+  `data-t-attr`), the PWA strings (`pwa.*`), the currency wording (`currency.*`), API errors (`error.<code>`) and the
+  server modules (`server.currency.*`, `server.pwa.*`).
+- **Defaults** live only in the keyed content modules, one per area, inside a strict-JSON block the server reads
+  without an ESM loader. `scripts/cms-extract.js` moved the existing literals there and rewrote the views; it is
+  incremental (reuses keys, never overwrites) and is the tool for new strings.
+- **Client:** `t(key, vars)` plain text (escaped by the view like any string), `te()` HTML (template escaped, variables
+  as given; checked by `parlance/no-unescaped-html`, which now treats `t()` output as unescaped), `ts()` / `tes()` for
+  module-level tables, `tr()` rich text, `errorText(code, message, details)` for API errors.
+- **Server:** `server/content/catalog.js` `t(key, vars, default)`; overrides of `server.*` keys are installed on
+  publish.
+- **Variables** are declared by the default (`{amount}` placeholders); a template using any other name is refused on
+  save (`undeclared_variable`). Typed variables (`META.vars: {amount: "money"}`) are formatted through the currency
+  module on both sides.
+- **Plain vs rich:** plain text refuses markup-like sequences (`<tag`, `<!`, `</`), script URLs and control
+  characters and is always shown escaped; keys flagged `rich` in a module's META accept HTML reduced by the
+  allowlist sanitiser (§32.9) to bold, italic, lists, paragraphs, line breaks and links to `https:`, `mailto:` or site
+  paths (external links get `rel="noopener noreferrer"`).
+- **Locale-ready:** entries are keyed by locale (default `en-NG`); the bundle carries its locale; adding a locale is a
+  store and bundle parameter, not a schema change.
+- **Admin › Texts:** search (key, default or text), filter by page (area) and section and state (customised, draft,
+  scheduled), per-key editor with the default, declared variables, history with restore, and "Preview in context".
+
+### 32.4 Delivery
+
+- `/content-bundle.js` (classic script, before the app modules) and `/v1/content/bundle` (JSON) carry the published
+  client texts, media slots, brand values and footer. `Cache-Control: no-cache` with a strong ETag (304 when unchanged).
+- `/v1/content/theme.css` holds the brand colours as CSS custom properties (`--brand`, `--yes`, `--brand-x20`,
+  `--yes-x20`) for `:root[data-theme=light|dark]`; no inline styles (§21 CSP).
+- The page template is filled per response: `<title>`, description, both `theme-color` metas, Apple title, favicon and
+  apple-touch icon from the CMS; on page routes the page's SEO title and description.
+- `/manifest.webmanifest` is built from the brand values and the app-icon slot (generated 192, 512 and maskable 512).
+
+### 32.5 Notification and email templates
+
+- Every notification type in the system has a template (`notify.<type>`, plus `notify._default` for any other type)
+  with fields in-app title/body, push title/body, email subject, text and HTML. Defaults pass the wording composed by
+  the server through (`{{title}}`, `{{body}}`), so existing messages are unchanged until an admin edits them; declared
+  variables are `title`, `body`, `link`, `open_line`, `app_name`.
+- System messages: `email.verify_email`, `email.password_reset`, `email.security_alert`, `email.email_changed`,
+  `sms.phone_code`, `push.test`; their former inline wording is the default.
+- Shared email layout `email._layout`: header (the `email_header` image slot when set, else the header text), sanitised
+  footer HTML and legal text.
+- Logic-free: only `{{name}}`; `{{#…}}`, `{{> …}}`, `{{{…}}}`, dotted or filtered tags and undeclared names are refused.
+  Escaping per channel: HTML-escaped in email HTML (link variables must be safe URLs, else `#`), plain elsewhere.
+- Wired sends: in-app row and live toast (`features.notify`), email and push channels and their deferred deliveries
+  (`notify-prefs`, Web Push payloads), account emails (`auth`, `identity`), the phone code SMS and the push test. Email
+  goes out as text plus HTML (`multipart/alternative` over SMTP; `email_outbox.html` in the dev mailbox).
+- Preview with sample data (or given variables) and test send to the dev mailbox / dev SMS outbox / the admin's own
+  inbox (rate limited).
+
+### 32.6 Media library
+
+- Uploads (`POST /v1/admin/cms/media`, base64 JSON, 12 MB body, 8 MB image): PNG or JPEG recognised by magic bytes
+  only; SVG, GIF and everything else refused; 16–4096 px per side, at most 16 MP.
+- Polyglots are refused: data after the PNG `IEND` / JPEG `EOI`, or markup / script anywhere in the bytes.
+- **Re-encoded server-side:** PNG decoded here (chunk CRCs, inflate with an output cap, all colour types; interlaced
+  refused) and written as 8-bit RGBA; JPEG decoded and re-encoded with `jpeg-js` (pinned 0.4.4, resolution and memory
+  limits). Only pixels survive: EXIF, XMP, ICC, text chunks and comments are gone.
+- Square uploads also get icon sizes (192, 512, maskable 512 with safe-zone padding, apple-touch 180, badge 72,
+  favicon 48 and 32).
+- Served at `/media/<id>.<ext>`: content-hashed ids, `immutable`, `nosniff`, `Content-Security-Policy: default-src
+  'none'; sandbox`.
+- Slots: logo, wordmark, favicon, app icon, home and perps promo art, hub art, category icons, email header, empty
+  states. Assigning is a draft → publish like any entry, so swaps are live and every earlier assignment can be rolled
+  back; uploads are never deleted.
+
+### 32.7 Pages
+
+- Slugs `group/slug`; fields title, section (`legal`, `help`, `info`), SEO title and description, sanitised rich body;
+  scheduled publishing and rollback as above; legal pages need step-up.
+- Defaults migrated from the static content: terms (`legal/terms`), privacy (`trust/privacy`), responsible trading
+  (`support/responsible-trading`), help and FAQ (`support/help-center`), fee schedule (`support/fees`) and the
+  incentive terms (`incentives/terms`, shown on `/incentives/terms` once a body is published).
+- Routes stay stable: `/legal/:slug`, `/trust/:slug`, `/research/:slug`, `/support/:slug` show the page when it exists,
+  else the §25.7 placeholder. The SPA sets `document.title` and the description meta from the page; the server sets
+  both on a direct load.
+- Footer: tagline and link columns, links limited to site paths or `https:` URLs.
+
+### 32.8 Branding and values
+
+- Brand and YES colours per theme; each must reach 4.5:1 against that theme's surface (`#ffffff` light, `#0d0e11`
+  dark), otherwise `contrast_too_low` with the ratio. Applied through `/v1/content/theme.css` (CSS variables), so the
+  whole UI follows, live.
+- App name, short name and description drive the manifest, the page title and the Apple title; the light brand colour
+  is the manifest `theme_color`; both theme-color metas follow the theme colours.
+- The hub links the existing technical panels (fees, limits, features, payments, Currency & defaults).
+
+### 32.9 Security
+
+- All CMS output is escaped, or sanitised by allowlist (`server/cms/sanitize.js`: a tokenizer that re-escapes text and
+  re-emits only allowlisted elements, `href` only, script / style / iframe / svg contents dropped, `javascript:`,
+  `data:`, `vbscript:` and protocol-relative links removed). No raw HTML, no inline event handlers, no inline styles.
+- `parlance/no-unescaped-html` treats `t()` / `ts()` output as unescaped and checks every `te()` variable.
+- Templates are logic-free; uploads are validated and re-encoded; every admin route has a permission check, the admin
+  rate tier and per-user CMS limits (writes 120/min, uploads 30/min, test sends 10/min); bodies are validated with
+  `server/validate.js`; every new route is classified in `tests/authz.e2e.test.js`.
+- The preview can't leak drafts: drafts are only in staff-only, `no-store` responses; public pages and the WebSocket
+  message never carry them.
+
+### 32.10 Enforcement
+
+`eslint-rules/no-hardcoded-text.js` (in `npm run lint`, and run by `tests/cms.e2e.test.js` through
+`scripts/check-text.js`): text nodes and text attributes of HTML templates, strings shown with `toast()` / `alert()` /
+`confirm()` / `new Error()` / `.textContent` / `.title` / `.placeholder` / `document.title`, and any other sentence-like
+literal must come from the catalog. Symbols, class lists, paths, ids, codes, comparison operands and DOM / storage API
+arguments are not text; a short commented `ALLOW` list covers data values that look like text (category names, the
+iCalendar header).
+
+### 32.11 Design choices to confirm
+
+- Notification templates default to the server-composed wording (`{{title}}`, `{{body}}`) rather than per-type
+  sentences, so no existing message changes on day one.
+- An import changes only the entries in the file; it does not reset entries missing from it.
+- Plain-text keys refuse markup-like input instead of storing and escaping it (defence in depth on top of escaping).
+- JPEG uploads are re-encoded with `jpeg-js` (quality 88); PNG with the in-house encoder (Paeth filter, zlib level 9).
+- Module-level strings (`ts()`) take a reload to show a live change; the page offers one.
+- SMS exists only for the phone code; notification types have no SMS channel, so their templates have no SMS field.
+
+### 32.12 Residual risks
+
+- Server-side wording outside the keyed modules (most API error messages) is reachable only through `error.<code>`
+  overrides on the client; emails and notifications are covered by templates.
+- The rich-text defaults in code are trusted (not sanitised); only overrides pass the sanitiser.
+- One locale is configured; translations need a locale list in the store and a picker.
+- Media is stored in SQLite (fine for the sandbox; move to object storage with Phase 9).
+
+### 32.13 Verification
+
+`clone/tests/cms.e2e.test.js` (5 scenarios) and `clone/tests/cms-content.e2e.test.js` (5 scenarios), real server +
+SQLite + Chromium: live text edit surviving a restart; draft hidden / preview visible; editor vs publisher; scheduled
+publish (also across a restart); rollback (UI and API); undeclared variables; XSS in texts, rich text, templates,
+page bodies and links; export → import with a dry-run diff; the enforcement check; templates in the dev mailbox and
+in the in-app, push and SMS sends; media re-encode, polyglot / SVG refusal, live slot swap, manifest icons; pages with
+schedule, SEO, rollback and legal step-up; brand contrast refusal and live colours in both themes, manifest and
+theme-color; 390 px light and dark.
 
 ---
 

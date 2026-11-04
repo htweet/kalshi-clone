@@ -68,6 +68,52 @@ reaches the device's notification centre, even with Parlance closed; clicking on
 - **It is a display rule, not an exchange rate.** The API keeps its fields (`*_dollars`); `GET /v1/exchange/display_currency` tells you the rule (display = dollars × 100 under NGN).
 - **Admin › Settings › Currency & defaults** switches between NGN and USD, sets the locale and time zone (default Africa/Lagos) and the settings new accounts start with. Changes need a reason and a password check, are audited, and update open pages at once.
 
+## Managing content
+
+Everything people read on the site is edited in **Admin › Content & settings** (`/admin/cms`): texts, notification and
+email templates, images, pages and the footer, and the brand. Code keeps only the defaults.
+
+**Who can do what.** An **editor** saves drafts, previews them, sends test emails and uploads images. A **publisher**
+(or an admin) also publishes, schedules and rolls back. Give roles in Admin › Roles.
+
+**Change a text** (a button, heading, hint or error message):
+1. Admin › Content & settings › **Texts**. Search for the words you see on the page, or pick the page and section.
+2. Open the key, type the new text and **Save draft**. Words in braces, such as `{amount}`, are filled in by the app;
+   keep them (you can move them). A text that uses a name the key does not offer is refused.
+3. **Preview in context** opens the site in preview mode: you see your drafts, nobody else does. Leave it with
+   **Exit preview**.
+4. A publisher clicks **Publish…**, gives a reason, and optionally a date and time to publish later. Open pages update
+   at once; a few texts shown in menus ask the reader to reload.
+5. **History** lists every version; **Restore** puts an earlier one back (version 0 is the original wording).
+
+Plain texts cannot contain HTML. A few texts are marked *rich*: they accept bold, italic, lists and links (to `https:`
+addresses or site pages); everything else is removed.
+
+**Notification and email templates** (Templates): each kind of notification has its in-app, push and email texts; the
+account emails (confirm email, password reset, security alerts) and the phone-code SMS have their own. Use
+`{{variable}}` placeholders from the list shown; no other syntax is allowed. **Preview with sample data**, then **Send a
+test to me** (it arrives in the dev mailbox at `/dev/mailbox` in development). The shared email layout sets the header,
+footer and legal line of every email.
+
+**Images** (Media): upload PNG or JPEG files. The server re-saves every image, which removes hidden data such as the
+location a photo was taken; SVG and other formats are refused. Then pick an image for a slot (logo, favicon, app icon,
+promo art, category icons, email header, empty states) and publish it. A square app icon of at least 512 px gives the
+home-screen icons of the installed app.
+
+**Pages & footer**: edit the terms, privacy policy, responsible trading, help centre, fee schedule and incentive terms,
+or add a page (`support/contact` shows at `/support/contact`). Each page has an SEO title and description. Publishing a
+legal page asks for your password again. The footer has a tagline and link columns.
+
+**Branding**: the brand and YES colours for the light and dark themes (each must be readable: at least 4.5:1 contrast
+with the page background), and the app name and short name used by the browser tab and the installed app.
+
+**Backups** (Import / export): download all content as JSON; importing a file shows exactly what would change before
+you apply it.
+
+Fees, limits, features, payments and Currency & defaults stay in their own settings panels, linked from the overview.
+For developers: new strings go in through `node scripts/cms-extract.js <file>`; `npm run lint` fails on hard-coded
+user-facing text (`CLONE_SPEC.md` §32).
+
 ## Trading core (Phase 5A)
 
 - **Finer prices.** Some markets trade in 0.1¢ steps (`deci_cent`), or in finer steps near 0¢ and 100¢ (`tapered`). Combos use 0.1¢ steps, and 0.01¢ near the edges. The ticket's limit field steps by the market's tick and lists the bands.
