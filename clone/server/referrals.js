@@ -43,7 +43,7 @@ class ReferralError extends Error { constructor(code, status = 409) { super(code
 function createReferrals({ db, now = () => Date.now(), epoch = () => '' }) {
   db.exec(SCHEMA);
   const programs = new Map(); // key -> { defaults, payout, eligible, notify }
-  const register = (key, def) => programs.set(key, { defaults: { ...BASE_DEFAULTS, ...(def.defaults || {}) }, ...def });
+  const register = (key, def) => programs.set(key, { ...def, defaults: { ...BASE_DEFAULTS, ...(def.defaults || {}) } });
   const prog = (key) => { const p = programs.get(key); if (!p) throw new Error(`unknown referral program ${key}`); return p; };
   function settings(key) {
     const r = db.prepare('SELECT value FROM admin_settings WHERE key=?').get(`referrals:${key}`);
