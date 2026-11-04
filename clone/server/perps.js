@@ -835,6 +835,20 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     const willRest = tif === 'gtc' && rem > 0 && !stpHit;
     let reserve = 0;
     if (!sys) {
+      // Risk limits first, on the worst case: this order's fills and remainder plus the subaccount's other same-side
+      // resting orders (CLONE_SPEC.md §34.4). A reduce-only order, or one that does not add exposure, is never limited.
+      const filled = plan.reduce((x, f) => x + f.n, 0);
+      const restingSame = db.prepare("SELECT COALESCE(SUM(remaining_count),0) n FROM perp_orders WHERE user_id=? AND subaccount=? AND ticker=? AND status='resting' AND side=?").get(uid, sub, m.ticker, side).n;
+      const worst = pos.qty + s * (filled + (willRest ? rem : 0) + restingSame);
+      const adds = !reduceOnly && Math.abs(worst) > Math.abs(pos.qty);
+      if (adds) {
+        const tiers = tiersOf(m.ticker);
+        const N = notionalCc(worst, mark);
+        const cap = R.maxNotional(tiers);
+        if (N > cap) throw E.conflict('position_limit', PS('error.position_limit', { market: m.title }), PS('error.position_limit_details', { max: C.moneyCents(cap / 100), size: C.moneyCents(N / 100) }));
+        const maxLev = R.maxLeverageAt(tiers, N);
+        if (lev > maxLev + 1e-9) throw new ApiError(400, 'leverage_exceeds_tier', PS('error.leverage_tier'), PS('error.leverage_tier_details', { size: C.moneyCents(N / 100), max: Math.floor(maxLev * 100) / 100 }));
+      }
       // Dry run of the planned fills against the subaccount's free collateral (fees at the taker rate).
       const a0 = availOf(uid, sub);
       let st = { q: pos.qty, cost: pos.cost_ucc || 0, margin: pos.margin_cc || 0, avail: a0 };
@@ -844,28 +858,15 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
         const need = a0 - st.avail;
         throw E.conflict('insufficient_margin', 'insufficient perps collateral', CS.t('error.perps_margin', { need: C.moneyCents(Math.max(0, need) / 100), available: C.moneyCents(a0 / 100) }));
       }
-      // Risk limits on the worst case: this order's fills and remainder plus the subaccount's other same-side resting orders.
-      if (!reduceOnly) {
-        const restingSame = db.prepare("SELECT COALESCE(SUM(remaining_count),0) n FROM perp_orders WHERE user_id=? AND subaccount=? AND ticker=? AND status='resting' AND side=?").get(uid, sub, m.ticker, side).n;
-        const worst = st.q + s * ((willRest ? rem : 0) + restingSame);
-        if (Math.abs(worst) > Math.abs(pos.qty)) {
-          const tiers = tiersOf(m.ticker);
-          const N = notionalCc(worst, mark);
-          const cap = R.maxNotional(tiers);
-          if (N > cap) throw E.conflict('position_limit', PS('error.position_limit', { market: m.title }), PS('error.position_limit_details', { max: C.moneyCents(cap / 100), size: C.moneyCents(N / 100) }));
-          const maxLev = R.maxLeverageAt(tiers, N);
-          if (lev > maxLev + 1e-9) throw new ApiError(400, 'leverage_exceeds_tier', PS('error.leverage_tier'), PS('error.leverage_tier_details', { size: C.moneyCents(N / 100), max: Math.floor(maxLev * 100) / 100 }));
-          // Portfolio (cross) subaccounts: equity after the order must cover the initial margin of every position.
-          if (modeOf(uid, sub) === 'cross') {
-            // r.equity = free + reserved + the other positions' margin and PnL + this position's margin (skipped).
-            const r = subRisk(uid, sub, { skip: m.ticker });
-            const imOther = r.rows.filter((x) => !x.skipped).reduce((a, x) => a + x.im, 0);
-            const signedAfter = st.q > 0 ? st.cost : st.q < 0 ? -st.cost : 0;
-            const equityAfter = r.equity - a0 - (pos.margin_cc || 0) + st.avail + reserve + st.margin + (st.q * mark - signedAfter) / UNITS;
-            const imAfter = imOther + imOf(m, worst, mark);
-            if (equityAfter < imAfter) throw E.conflict('insufficient_margin', PS('error.portfolio_margin'), PS('error.portfolio_margin_details', { equity: C.moneyCents(Math.max(0, equityAfter) / 100), required: C.moneyCents(imAfter / 100) }));
-          }
-        }
+      // Portfolio (cross) subaccounts: equity after the order must cover the initial margin of every position.
+      if (adds && modeOf(uid, sub) === 'cross') {
+        // r.equity = free + reserved + the other positions' margin and PnL + this position's margin (skipped).
+        const r = subRisk(uid, sub, { skip: m.ticker });
+        const imOther = r.rows.filter((x) => !x.skipped).reduce((a, x) => a + x.im, 0);
+        const signedAfter = st.q > 0 ? st.cost : st.q < 0 ? -st.cost : 0;
+        const equityAfter = r.equity - a0 - (pos.margin_cc || 0) + st.avail + reserve + st.margin + (st.q * mark - signedAfter) / UNITS;
+        const imAfter = imOther + imOf(m, worst, mark);
+        if (equityAfter < imAfter) throw E.conflict('insufficient_margin', PS('error.portfolio_margin'), PS('error.portfolio_margin_details', { equity: C.moneyCents(Math.max(0, equityAfter) / 100), required: C.moneyCents(imAfter / 100) }));
       }
     }
 
