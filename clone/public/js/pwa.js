@@ -3,6 +3,8 @@
 // Storage cleared at sign-out, and the Web Push subscription of this browser (Settings › Notifications).
 import { session, logoutHooks } from './store.js';
 import { api } from './api.js';
+import { esc } from './lib.js';
+import { t } from './content/pwa-strings.js'; // every PWA string is keyed (CLONE_SPEC §31.12)
 
 const sw = typeof navigator !== 'undefined' && 'serviceWorker' in navigator ? navigator.serviceWorker : null;
 const PUSH_KEY = 'plx-webpush'; // {uid, id}: this browser's subscription row on the server
@@ -48,9 +50,10 @@ export function iosInstructions() {
   const d = document.createElement('dialog');
   d.className = 'ob-dialog';
   d.dataset.testid = 'ios-install';
-  d.innerHTML = `<h2>Install Parlance</h2><p class="muted">Add Parlance to your Home Screen to open it like an app.</p>
-    <ol class="pwa-steps"><li>Tap ${SHARE_ICON} <b>Share</b> in Safari's toolbar.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>.</li></ol>
-    <div class="ob-dialog-actions"><button type="button" class="btn btn-primary" data-close>Done</button></div>`;
+  d.innerHTML = `<h2>${esc(t('install.ios_title'))}</h2><p class="muted">${esc(t('install.ios_intro'))}</p>
+    <ol class="pwa-steps"><li>${esc(t('install.ios_step_share_before'))} ${SHARE_ICON} <b>${esc(t('install.ios_step_share_label'))}</b> ${esc(t('install.ios_step_share_after'))}</li>
+      <li>${esc(t('install.ios_step_add_before'))} <b>${esc(t('install.ios_step_add_label'))}</b>.</li><li>${esc(t('install.ios_step_confirm_before'))} <b>${esc(t('install.ios_step_confirm_label'))}</b>.</li></ol>
+    <div class="ob-dialog-actions"><button type="button" class="btn btn-primary" data-close>${esc(t('install.ios_done'))}</button></div>`;
   const close = () => { d.close(); d.remove(); };
   d.querySelector('[data-close]').onclick = close;
   d.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
@@ -68,7 +71,7 @@ function showUpdate(worker) {
   el.className = 'toast pwa-update';
   el.setAttribute('role', 'status');
   el.dataset.testid = 'pwa-update';
-  el.innerHTML = '<span>New version available</span><button type="button" class="btn" data-testid="pwa-reload">Reload</button>';
+  el.innerHTML = `<span>${esc(t('update.message'))}</span><button type="button" class="btn" data-testid="pwa-reload">${esc(t('update.reload'))}</button>`;
   el.querySelector('button').onclick = () => {
     reloading = true;
     el.querySelector('button').disabled = true;
@@ -111,7 +114,7 @@ const b64uToBytes = (s) => { const t = atob(s.replace(/-/g, '+').replace(/_/g, '
 const sameKey = (a, b) => { if (!a) return false; const x = new Uint8Array(a); return x.length === b.length && x.every((v, i) => v === b[i]); };
 async function swRegistration() {
   if (registration && registration.active) return registration;
-  return Promise.race([sw.ready, new Promise((_, rej) => setTimeout(() => rej(new Error('The service worker is not ready yet. Reload the page and try again.')), 10000))]);
+  return Promise.race([sw.ready, new Promise((_, rej) => setTimeout(() => rej(new Error(t('push.error_not_ready'))), 10000))]);
 }
 export async function currentSubscription() {
   if (!webPushSupported()) return null;
@@ -131,9 +134,9 @@ async function register(sub) {
   return r.subscription;
 }
 export async function enableWebPush() {
-  if (!webPushSupported()) throw new Error('This browser does not support push notifications.');
+  if (!webPushSupported()) throw new Error(t('push.error_unsupported'));
   const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-  if (perm !== 'granted') throw new Error('Notifications are blocked for this site. Allow them in your browser settings, then try again.');
+  if (perm !== 'granted') throw new Error(t('push.error_blocked'));
   const reg = await swRegistration();
   const key = b64uToBytes((await api.pushPublicKey()).public_key);
   let sub = await reg.pushManager.getSubscription();
@@ -176,4 +179,4 @@ export function initPwa() {
 }
 
 // "Install app" entry for the ☰ menus (views/account-menu.js); '' when installation is not possible.
-export const installMenuItem = () => (installMode() ? '<button type="button" data-install-app data-testid="menu-install">Install app</button>' : '');
+export const installMenuItem = () => (installMode() ? `<button type="button" data-install-app data-testid="menu-install">${esc(t('install.item'))}</button>` : '');

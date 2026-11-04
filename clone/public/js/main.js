@@ -21,8 +21,8 @@ import * as sports from './views/sports.js';
 import { startLivePatcher } from './views/scoreboard.js';
 import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
 import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (CLONE_SPEC.md §25)
-import { menuHtml, wireMenu, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
-import { initPwa, installMode, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
+import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
+import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
@@ -192,9 +192,9 @@ function renderAccount() {
   const el = document.getElementById('account-area');
   if (!session.loaded) { el.innerHTML = ''; return; }
   if (!session.user) {
-    el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>Log in</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>Sign up</a>${installMode() ? `<div class="menu-wrap"><button class="icon-btn hamburger-btn" id="guest-btn" data-menu-btn aria-label="Menu" aria-haspopup="true" data-testid="guest-menu">${ICON.menu}</button></div>` : ''}`;
-    const g = el.querySelector('#guest-btn');
-    if (g) g.onclick = (e) => { const m = toggleMenu(e.currentTarget, guestMenuHtml(), 'hamburger-menu'); if (m) wireGuestMenu(m, { close: closeMenus, toggleTheme: () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } }); };
+    el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>Log in</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>Sign up</a>${guestMenuButton()}`;
+    const g = el.querySelector('#guest-btn'); // signed-out ☰, only while the app can be installed (CLONE_SPEC §31.6)
+    if (g) g.onclick = (e) => { const m = toggleMenu(e.currentTarget, guestMenuHtml(), 'hamburger-menu'); if (m) wireGuestMenu(m, { close: closeMenus }); };
     return;
   }
   const nick = session.nickname || session.user.display_name;

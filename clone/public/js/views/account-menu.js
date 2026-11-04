@@ -2,10 +2,11 @@
 // two round icon buttons (Leaderboard, Rewards), the account destinations, collapsible Trust / Research / Support
 // groups, "Enter promo code" and "Log out". Destinations whose feature belongs to a later phase open a placeholder page
 // that says so (views/placeholder.js). Staff also get "Admin"; a quick light/dark switch stays for convenience.
-import { session } from '../store.js';
+import { session, applyTheme } from '../store.js';
 import { idApi } from '../identity-api.js';
 import { esc, toast, money, catSlug, catLabel, ICON } from '../lib.js';
-import { installMenuItem, installApp } from '../pwa.js'; // "Install app" (CLONE_SPEC.md §31)
+import { installMenuItem, installApp, installMode } from '../pwa.js'; // "Install app" (CLONE_SPEC.md §31)
+import { t } from '../content/pwa-strings.js';
 
 const ITEMS = [
   ['/account', 'Account & security', 'menu-account'], ['/account/activity', 'Your activity', 'menu-activity'], ['/perps', 'Invest', 'menu-invest'],
@@ -47,13 +48,19 @@ export function wireMenu(m, { close, logout }) {
 const wireInstall = (m, close) => { const b = m.querySelector('[data-install-app]'); if (b) b.onclick = () => { close(); installApp(); }; };
 
 // Signed-out ☰ menu: shown only while the app can be installed (CLONE_SPEC.md §31); Log in / Sign up stay in the header.
+export const guestMenuButton = () => (installMode() ? `<div class="menu-wrap"><button class="icon-btn hamburger-btn" id="guest-btn" data-menu-btn aria-label="${esc(t('install.menu_label'))}" aria-haspopup="true" data-testid="guest-menu">${ICON.menu}</button></div>` : '');
 export function guestMenuHtml() {
   const dark = document.documentElement.dataset.theme === 'dark';
-  return `${installMenuItem()}<a href="/sign-in" data-link>Log in</a><a href="/sign-up" data-link>Sign up</a><hr><button id="guest-theme" data-testid="guest-theme">${dark ? 'Light mode' : 'Dark mode'}</button>`;
+  return `${installMenuItem()}<a href="/sign-in" data-link>${esc(t('install.guest_log_in'))}</a><a href="/sign-up" data-link>${esc(t('install.guest_sign_up'))}</a><hr><button id="guest-theme" data-testid="guest-theme">${esc(t(dark ? 'install.guest_light' : 'install.guest_dark'))}</button>`;
 }
-export function wireGuestMenu(m, { close, toggleTheme }) {
+export function wireGuestMenu(m, { close }) {
   wireInstall(m, close);
-  m.querySelector('#guest-theme').onclick = () => { toggleTheme(); close(); };
+  m.querySelector('#guest-theme').onclick = () => {
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem('parlance-theme', next); } catch { /* storage unavailable */ }
+    close();
+  };
 }
 
 // "Enter promo code" (A12): server-validated, single use per account, credited to the balance as a ledger credit.

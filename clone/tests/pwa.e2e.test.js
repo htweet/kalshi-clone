@@ -19,6 +19,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { start } = require('../server/index.js');
 const { build, readManifest } = require('../scripts/build.js');
 const { Client } = require('./lib/client');
+const content = require('../server/content/pwa'); // manifest config and keyed strings (CLONE_SPEC §31.12)
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-pwa-'));
 const DB_FILE = path.join(TMP, 'pwa.db');
@@ -214,6 +215,14 @@ test('manifest: valid, served as application/manifest+json, icons load at their 
   assert.equal(m.start_url, '/'); assert.equal(m.scope, '/'); assert.equal(m.display, 'standalone');
   assert.equal(m.theme_color, '#008751', 'brand green'); assert.equal(m.background_color, '#0d0e11', 'dark surface');
   assert.deepEqual(m.shortcuts.map((s) => [s.name, s.url]), [['Markets', '/browse'], ['Portfolio', '/portfolio'], ['Deposit', '/funds/deposit']]);
+  assert.deepEqual(m, content.manifestOf(content.PWA_CONFIG), 'the manifest is built from the one config object');
+  // Every {{key}} of the offline template exists in the keyed strings, and the served page carries their text.
+  const strings = content.clientStrings();
+  const off = await (await fetch(`${BASE}/offline.html`)).text();
+  for (const k of ['offline.heading', 'offline.retry', 'offline.home']) assert.ok(off.includes(content.escHtml(strings[k])), k);
+  assert.ok(!/\{\{/.test(off), 'no unfilled placeholder');
+  const swText = await (await fetch(`${BASE}/sw.js`)).text();
+  assert.ok(swText.includes(JSON.stringify(strings['offline.fallback_text'])), 'service worker fallback text from the keyed strings');
   const want = [['/icons/icon-192.png', 192, 'any'], ['/icons/icon-512.png', 512, 'any'], ['/icons/icon-maskable-512.png', 512, 'maskable']];
   for (const [src, size, purpose] of want) {
     const icon = m.icons.find((i) => i.src === src);
@@ -334,7 +343,7 @@ test('update: a rebuilt version shows "New version available — Reload"; the cl
   assert.notEqual(m2.pwa.version, v1);
   await page.evaluate(() => navigator.serviceWorker.getRegistration('/').then((r) => r.update()));
   await page.waitForSelector('[data-testid=pwa-update]', { timeout: 15000 });
-  assert.match(await page.textContent('[data-testid=pwa-update]'), /New version available\s*Reload/);
+  assert.equal(await page.textContent('[data-testid=pwa-update]'), `${content.clientStrings()['update.message']}${content.clientStrings()['update.reload']}`);
   // The new worker waits: the old one still controls the page and its cache is intact until the user agrees.
   assert.equal(await page.evaluate(() => navigator.serviceWorker.getRegistration('/').then((r) => !!r.waiting)), true);
   await Promise.all([page.waitForNavigation(), page.click('[data-testid=pwa-reload]')]);
@@ -486,6 +495,9 @@ test('Web Push: subscribe in the browser, a fill is delivered to the fake push s
   fake.modes.set(`dev-${stamp}`, 410);
   await page.click('[data-testid=webpush-test]');
   await until(() => dbq('SELECT COUNT(*) n FROM push_subscriptions WHERE id=?', row.id)[0].n === 0, 10000, 'subscription deleted after 410');
+  assert.deepEqual((await c.call('GET', `/v1/users/${uid}/push_subscriptions`)).body.subscriptions, []);
+  // (A page load would re-subscribe a browser that still has permission and its opt-in; here the browser forgets it.)
+  await page.evaluate(() => localStorage.removeItem('plx-webpush'));
   await page.goto(BASE + '/notifications/settings');
   await page.waitForSelector('[data-testid=webpush-none]');
   await clean(page);

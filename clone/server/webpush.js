@@ -21,6 +21,7 @@ const net = require('node:net');
 const kc = require('./crypto');
 const { newId, nowIso, ApiError, E } = require('./util');
 const { bucket, limit } = require('./community-util');
+const content = require('./content/pwa'); // keyed user-facing text (CMS-ready, CLONE_SPEC §31.12)
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS push_vapid (id INTEGER PRIMARY KEY CHECK (id = 1), public_key TEXT NOT NULL, private_enc TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -157,7 +158,7 @@ function mountWebPush({ v1, db, engine, requireUser, keyDir, options = {} }) {
     if (u.port && u.port !== '443') throw bad('endpoint', 'must use the default https port');
     const h = u.hostname.toLowerCase().replace(/\.$/, '');
     if (net.isIP(h.replace(/^\[|\]$/g, '')) || h === 'localhost') throw bad('endpoint', 'must be a push service host name');
-    if (!allowedHosts.some((s) => h === s || h.endsWith(`.${s}`))) throw new ApiError(400, 'push_service_not_supported', 'this browser\'s push service is not supported', h);
+    if (!allowedHosts.some((s) => h === s || h.endsWith(`.${s}`))) throw new ApiError(400, 'push_service_not_supported', content.s('push.error_service_unsupported'), h);
     return u;
   }
   function checkKeys(keys) {
@@ -211,7 +212,7 @@ function mountWebPush({ v1, db, engine, requireUser, keyDir, options = {} }) {
         .run(uid, kc.encrypt(JSON.stringify(keys), `push_subscriptions.keys:${existing.id}`, encKey), label, exp, at, existing.id);
       return res.status(200).json({ subscription: subVo(db.prepare('SELECT * FROM push_subscriptions WHERE id=?').get(existing.id)) });
     }
-    if (db.prepare('SELECT COUNT(*) c FROM push_subscriptions WHERE user_id=?').get(uid).c >= MAX_PER_USER) throw E.conflict('too_many_devices', `at most ${MAX_PER_USER} devices can receive push notifications; remove one first`);
+    if (db.prepare('SELECT COUNT(*) c FROM push_subscriptions WHERE user_id=?').get(uid).c >= MAX_PER_USER) throw E.conflict('too_many_devices', content.s('push.error_too_many_devices', { max: MAX_PER_USER }));
     const id = newId('ps_');
     db.prepare('INSERT INTO push_subscriptions(id,user_id,endpoint_hash,endpoint_enc,keys_enc,service,label,expires_ts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
       .run(id, uid, h, kc.encrypt(endpoint, `push_subscriptions.endpoint:${id}`, encKey), kc.encrypt(JSON.stringify(keys), `push_subscriptions.keys:${id}`, encKey), serviceOf(u), label, exp, at, at);
@@ -240,14 +241,14 @@ function mountWebPush({ v1, db, engine, requireUser, keyDir, options = {} }) {
     const s = db.prepare('SELECT id FROM push_subscriptions WHERE id=? AND user_id=?').get(String(req.params.id), uid);
     if (!s) throw E.notFound();
     limit(res, [[tests, uid]]);
-    const id = enqueue(s.id, uid, null, { title: 'Test notification', body: 'Push notifications are working on this device.', link: '/notifications/settings' }, 'normal', 600);
+    const id = enqueue(s.id, uid, null, { title: content.s('push.test_title'), body: content.s('push.test_body'), link: content.s('push.test_link') }, 'normal', 600);
     pumpSoon();
     res.status(202).json({ queued: true, id });
   });
 
   // ---------------------------------------------------------------- outbox
   function payloadOf(msg, tag) {
-    const p = { title: String(msg.title || 'Parlance').slice(0, 120), body: String(msg.body || '').slice(0, 300), link: /^\/(?!\/)/.test(String(msg.link || '')) ? String(msg.link).slice(0, 300) : '/', tag, ts: Date.now() };
+    const p = { title: String(msg.title || content.PWA_CONFIG.short_name).slice(0, 120), body: String(msg.body || '').slice(0, 300), link: /^\/(?!\/)/.test(String(msg.link || '')) ? String(msg.link).slice(0, 300) : '/', tag, ts: Date.now() };
     while (Buffer.byteLength(JSON.stringify(p)) > MAX_PLAINTEXT && p.body) p.body = p.body.slice(0, Math.floor(p.body.length / 2));
     return JSON.stringify(p);
   }

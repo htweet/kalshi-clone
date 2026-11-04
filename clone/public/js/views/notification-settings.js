@@ -12,6 +12,7 @@ import { api } from '../api.js';
 import { session } from '../store.js';
 import { esc, toast, relTime } from '../lib.js';
 import { webPushSupported, enableWebPush, disableWebPush, thisDevice } from '../pwa.js';
+import { t } from '../content/pwa-strings.js'; // System notifications text is keyed (CLONE_SPEC §31.12)
 
 const CH_LABEL = { in_app: 'In-app', email: 'Email', push: 'Push' };
 const PUSH_KEY = 'plx-push-device';
@@ -63,7 +64,7 @@ export function mountNotificationSettings(el) {
       <div class="card ns-card" data-testid="push-browser"><h3>Push in this browser</h3>
         <p class="faint m-0">Push notifications go to the browsers you register here. ${p.push_devices ? `${esc(p.push_devices)} browser${p.push_devices === 1 ? '' : 's'} registered.` : 'No browser is registered, so push notifications are recorded but not shown.'}</p>
         <div class="d-flex gap-8 ai-center fw-wrap mt-8">${dev ? '<span data-testid="push-on">This browser receives push notifications.</span><button class="btn btn-sm" type="button" data-push-off data-testid="push-off">Stop in this browser</button>' : '<button class="btn btn-sm btn-primary" type="button" data-push-on data-testid="push-enable">Turn on in this browser</button>'}</div>
-        <div class="webpush" data-testid="webpush"><h4>System notifications</h4><p class="faint m-0">Web Push shows notifications in your device's notification centre, even when Parlance is closed. They contain only what the in-app notification shows.</p>
+        <div class="webpush" data-testid="webpush"><h4>${esc(t('push.section_title'))}</h4><p class="faint m-0">${esc(t('push.section_intro'))}</p>
           <div class="d-flex gap-8 ai-center fw-wrap mt-8" data-webpush-actions></div><ul class="webpush-list" data-webpush-list data-testid="webpush-devices"></ul></div></div>
       <div class="card ns-card"><h3>Recent email and push deliveries</h3><div data-deliveries class="faint">Loading…</div></div>`;
     loadDeliveries();
@@ -73,17 +74,17 @@ export function mountNotificationSettings(el) {
     const box = root.querySelector('[data-webpush-actions]'); const list = root.querySelector('[data-webpush-list]');
     if (!box) return;
     const mine = thisDevice();
-    box.innerHTML = !webPushSupported() ? '<span class="faint" data-testid="webpush-unsupported">This browser can\'t receive system notifications.</span>'
-      : mine ? '<span data-testid="webpush-on">This device receives system notifications.</span><button class="btn btn-sm" type="button" data-webpush-off data-testid="webpush-disable">Turn off on this device</button>'
-        : '<button class="btn btn-sm btn-primary" type="button" data-webpush-on data-testid="webpush-enable">Turn on for this device</button>';
+    box.innerHTML = !webPushSupported() ? `<span class="faint" data-testid="webpush-unsupported">${esc(t('push.unsupported'))}</span>`
+      : mine ? `<span data-testid="webpush-on">${esc(t('push.on'))}</span><button class="btn btn-sm" type="button" data-webpush-off data-testid="webpush-disable">${esc(t('push.turn_off'))}</button>`
+        : `<button class="btn btn-sm btn-primary" type="button" data-webpush-on data-testid="webpush-enable">${esc(t('push.turn_on'))}</button>`;
     try {
       const { subscriptions } = await api.pushSubscriptions(session.uid);
       if (gone || !list.isConnected) return;
-      const when = (t) => (t ? relTime(t) : 'never');
-      list.innerHTML = subscriptions.length ? subscriptions.map((s) => `<li class="webpush-item" data-testid="webpush-device" data-id="${esc(s.id)}"><span class="grow"><b>${esc(s.label)}</b>${s.id === mine ? ' <span class="faint">· This device</span>' : ''}<div class="faint">${esc(s.service)} · added ${relTime(s.created_time)} · last delivered ${when(s.last_success_time)}${s.failures ? ` · ${esc(s.failures)} failed` : ''}</div></span>
-        <button class="btn btn-sm" type="button" data-webpush-test="${esc(s.id)}" data-testid="webpush-test">Send test notification</button><button class="btn btn-sm btn-ghost" type="button" data-webpush-remove="${esc(s.id)}" data-testid="webpush-remove">Remove</button></li>`).join('')
-        : '<li class="faint" data-testid="webpush-none">No device receives system notifications yet.</li>';
-    } catch { if (list.isConnected) list.textContent = 'Devices are unavailable.'; }
+      const when = (x) => (x ? relTime(x) : t('push.never'));
+      list.innerHTML = subscriptions.length ? subscriptions.map((s) => `<li class="webpush-item" data-testid="webpush-device" data-id="${esc(s.id)}"><span class="grow"><b>${esc(s.label)}</b>${s.id === mine ? ` <span class="faint">· ${esc(t('push.this_device'))}</span>` : ''}<div class="faint">${esc(s.service)} · ${esc(t('push.added'))} ${relTime(s.created_time)} · ${esc(t('push.last_delivered'))} ${esc(when(s.last_success_time))}${s.failures ? ` · ${esc(s.failures)} ${esc(t('push.failed'))}` : ''}</div></span>
+        <button class="btn btn-sm" type="button" data-webpush-test="${esc(s.id)}" data-testid="webpush-test">${esc(t('push.send_test'))}</button><button class="btn btn-sm btn-ghost" type="button" data-webpush-remove="${esc(s.id)}" data-testid="webpush-remove">${esc(t('push.remove'))}</button></li>`).join('')
+        : `<li class="faint" data-testid="webpush-none">${esc(t('push.none'))}</li>`;
+    } catch { if (list.isConnected) list.textContent = t('push.list_unavailable'); }
   }
   async function webPushAction(fn, okMsg) {
     try { await fn(); if (okMsg) toast(okMsg); } catch (ex) { toast(ex.message, 'error'); }
@@ -123,12 +124,12 @@ export function mountNotificationSettings(el) {
     const wp = e.target.closest('[data-webpush-on],[data-webpush-off],[data-webpush-test],[data-webpush-remove]');
     if (wp) {
       wp.disabled = true;
-      if (wp.matches('[data-webpush-on]')) webPushAction(() => enableWebPush(), 'System notifications are on for this device');
-      else if (wp.matches('[data-webpush-off]')) webPushAction(() => disableWebPush(), 'System notifications are off for this device');
-      else if (wp.dataset.webpushTest) webPushAction(() => api.testPushSubscription(session.uid, wp.dataset.webpushTest), 'Test notification sent');
+      if (wp.matches('[data-webpush-on]')) webPushAction(() => enableWebPush(), t('push.toast_on'));
+      else if (wp.matches('[data-webpush-off]')) webPushAction(() => disableWebPush(), t('push.toast_off'));
+      else if (wp.dataset.webpushTest) webPushAction(() => api.testPushSubscription(session.uid, wp.dataset.webpushTest), t('push.toast_test'));
       else {
         const id = wp.dataset.webpushRemove;
-        webPushAction(async () => { const self = id === thisDevice(); await api.removePushSubscription(session.uid, id); if (self) await disableWebPush(); }, 'Device removed');
+        webPushAction(async () => { const self = id === thisDevice(); await api.removePushSubscription(session.uid, id); if (self) await disableWebPush(); }, t('push.toast_removed'));
       }
       return;
     }

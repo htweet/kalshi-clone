@@ -54,11 +54,17 @@ function isStale() {
 
 const STYLE_LINK = /^[ \t]*<link rel="stylesheet" href="\/([A-Za-z0-9_-]+\.css)"[^>]*>[ \t]*\r?\n/gm;
 
-// The service worker: version and precache list filled into public/sw.js.
-const PWA_STATIC = ['/offline.html', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/icons/apple-touch-icon.png', '/icons/badge-72.png'];
-function renderServiceWorker(src, version, precache) {
-  const out = src.replace(/'__PLX_SW_VERSION__'/, JSON.stringify(version)).replace(/\/\* __PLX_PRECACHE__ \*\/ \[[^\]]*\]/, JSON.stringify(precache));
-  if (out.includes('__PLX_SW_VERSION__') || out.includes('__PLX_PRECACHE__')) throw new Error('public/sw.js placeholders were not filled');
+// The service worker: version, precache list and its keyed fallback strings filled into public/sw.js. The offline page
+// is rendered from the keyed strings too (public/js/content/pwa-strings.js via server/content/pwa.js).
+const content = require('../server/content/pwa');
+const SW_STRING_KEYS = ['offline.fallback_text', 'push.default_title'];
+// The manifest is not precached: it is built per request from editable config (server/content/pwa.js).
+const PWA_STATIC = ['/offline.html', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/icons/apple-touch-icon.png', '/icons/badge-72.png'];
+function renderServiceWorker(src, version, precache, strings = content.clientStrings()) {
+  const picked = Object.fromEntries(SW_STRING_KEYS.map((k) => [k, strings[k]]));
+  const out = src.replace(/'__PLX_SW_VERSION__'/, JSON.stringify(version)).replace(/\/\* __PLX_PRECACHE__ \*\/ \[[^\]]*\]/, JSON.stringify(precache))
+    .replace(/\/\* __PLX_STRINGS__ \*\/ \{[^}]*\}/, JSON.stringify(picked).replace(/</g, '\\u003c'));
+  if (/__PLX_(SW_VERSION|PRECACHE|STRINGS)__/.test(out)) throw new Error('public/sw.js placeholders were not filled');
   return out;
 }
 
@@ -103,7 +109,7 @@ async function build({ quiet = false, salt = '' } = {}) {
     fs.writeFileSync(path.join(tmp, 'index.html'), page);
     // Offline fallback page: the same single hashed stylesheet in place of its per-file links.
     let firstOff = true;
-    const offline = fs.readFileSync(path.join(PUBLIC, 'offline.html'), 'utf8').replace(STYLE_LINK, (line) => {
+    const offline = content.renderOffline(fs.readFileSync(path.join(PUBLIC, 'offline.html'), 'utf8'), content.clientStrings()).replace(STYLE_LINK, (line) => {
       if (!firstOff) return '';
       firstOff = false;
       return line.replace(/href="\/[^"]+"/, `href="/assets/${appCss}"`);

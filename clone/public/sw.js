@@ -15,6 +15,8 @@
 
 const VERSION = '__PLX_SW_VERSION__';
 const PRECACHE = /* __PLX_PRECACHE__ */ ['/offline.html'];
+// Keyed text from public/js/content/pwa-strings.js, filled in by the build and the dev server (never served empty).
+const STRINGS = /* __PLX_STRINGS__ */ {};
 const PREFIX = 'plx-static-';
 const CACHE = PREFIX + VERSION;
 const OFFLINE = '/offline.html';
@@ -65,7 +67,7 @@ async function refill() {
 async function offlinePage() {
   const hit = (await caches.match(OFFLINE, { cacheName: CACHE })) || (await caches.match(OFFLINE));
   if (hit) return hit;
-  return new Response('You are offline. Reconnect and reload the page.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+  return new Response(STRINGS['offline.fallback_text'], { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
 async function navigate(event) {
@@ -103,7 +105,7 @@ const safeLink = (v) => (typeof v === 'string' && /^\/(?!\/)[^\s\\]{0,300}$/.tes
 self.addEventListener('push', (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { d = {}; }
-  const title = text(d.title, 120) || 'Parlance';
+  const title = text(d.title, 120) || STRINGS['push.default_title'];
   const options = { body: text(d.body, 300), icon: '/icons/icon-192.png', badge: '/icons/badge-72.png', data: { link: safeLink(d.link) }, lang: 'en' };
   if (text(d.tag, 64)) options.tag = text(d.tag, 64);
   if (Number.isFinite(d.ts)) options.timestamp = d.ts;
