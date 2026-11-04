@@ -403,7 +403,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §31 Progressive Web App: web app manifest + own icons, service worker (precache of the hashed bundle, network-only navigations, offline page, user-confirmed updates), install entry (prompt / iOS steps), real Web Push (VAPID RFC 8292, aes128gcm RFC 8291, encrypted outbox with retries) | yes | tests `pwa`; design choices (not observed on the live site) |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 225 Playwright scenarios across 27 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 226 Playwright scenarios across 27 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -3013,6 +3013,10 @@ absolute due time, so a restart resumes them; undelivered events are retried wit
   token, brand, last 4 and expiry. Bank accounts: mask + provider token only. The SPA clears the card fields at submit.
 - Proof: `payments.e2e.test.js` greps the database file and WAL bytes (Latin-1 and UTF-16), every server log line and
   every API response for each test number (with and without spaces): none.
+- The sandbox test-card hint list is served by `GET /v1/users/:uid/payments/sandbox/test_cards` (signed in; 404 when
+  the sandbox rails are off, i.e. in production) instead of being bundled in client code, so no Luhn-valid number ships in
+  public JavaScript or is reachable by an anonymous crawler (the ZAP baseline flagged one as PII once the service worker
+  exposed every bundle URL). A test scans `public/` and `dist/` for card-shaped numbers.
 
 ### 26.5 Money rules (design choices)
 

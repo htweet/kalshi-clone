@@ -220,7 +220,7 @@ const EXPECT = {
   // ---- Phase 4: payments, sandbox only (CLONE_SPEC.md §26). Webhooks are public by design (HMAC signature, timestamp
   // window and event-id dedupe protect them); the isolated card tokenizer needs a session (its own handler answers 401).
   'POST /v1/payments/webhooks/:provider': P, 'GET /v1/payments/supported_networks': P, 'POST /v1/payments/tokenize/card': U,
-  'GET /v1/users/:uid/payments/metadata': O, 'GET /v1/users/:uid/withdrawal_times': O, 'GET /v1/users/:uid/credit_history': O,
+  'GET /v1/users/:uid/payments/metadata': O, 'GET /v1/users/:uid/payments/sandbox/test_cards': O, 'GET /v1/users/:uid/withdrawal_times': O, 'GET /v1/users/:uid/credit_history': O,
   'GET /v1/users/:uid/deposits': O, 'GET /v1/users/:uid/withdrawals': O, 'GET /v1/users/:uid/withdrawal_addresses': O,
   'GET /v1/users/:uid/debit/cards': O, 'DELETE /v1/users/:uid/debit/cards/:id': O, 'POST /v1/users/:uid/debit/payment_session': O, 'POST /v1/users/:uid/debit/payment': O,
   'GET /v1/users/:uid/debit/payment_status_web': O, 'POST /v1/users/:uid/debit/payment/:id/challenge': O, 'POST /v1/users/:uid/debit/withdrawal': O,

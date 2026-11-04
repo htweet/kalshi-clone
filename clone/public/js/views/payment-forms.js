@@ -5,8 +5,9 @@ import { payApi } from '../payments-api.js';
 import { session } from '../store.js';
 import { esc } from '../lib.js';
 
-// Sandbox test cards (invented, Luhn-valid; clone/README.md). Shown as a hint in the sandbox only.
-export const TEST_CARD_HINTS = [['4000 9910 0000 0002', 'approves'], ['4000 9920 0000 0000', 'is declined'], ['4000 9930 0000 0008', 'has insufficient funds'], ['4000 9940 0000 0006', 'asks for a verification step']];
+// Sandbox test cards (invented, Luhn-valid; clone/README.md). The numbers come from the server, signed in and only while
+// the sandbox rails are on, so none ship in public JavaScript. What each behaviour means is keyed copy (CMS-ready).
+export const CARD_HINT_TEXT = { approve: 'approves', decline: 'is declined', insufficient_funds: 'has insufficient funds', challenge: 'asks for a verification step' };
 
 export const methodLabel = (m) => (m.type === 'card' ? `${m.brand === 'mastercard' ? 'Mastercard' : 'Visa'} •••• ${m.last4}` : m.type === 'bank' ? `${m.institution} •••• ${m.mask}` : `${m.label} · ${m.address_masked}`);
 export const methodSub = (m) => (m.type === 'card' ? `Expires ${String(m.exp_month).padStart(2, '0')}/${String(m.exp_year).slice(-2)}` : m.type === 'bank' ? `${m.label} · ${m.subtype}` : m.cooling ? `New address: withdrawals open ${new Date(m.cooling_until).toLocaleString()}` : 'Sandbox chain');
@@ -14,14 +15,19 @@ export const methodSub = (m) => (m.type === 'card' ? `Expires ${String(m.exp_mon
 // Card entry → {token, card}. onToken receives the token; the number never leaves this function except to the tokenizer.
 export function cardForm(host, { onToken, submitLabel = 'Use this card' }) {
   host.innerHTML = `<form class="pay-form" data-testid="card-form" autocomplete="on" novalidate>
-    <label class="field">Card number<input name="number" inputmode="numeric" autocomplete="cc-number" maxlength="23" placeholder="4000 9910 0000 0002" data-testid="card-number" required></label>
+    <label class="field">Card number<input name="number" inputmode="numeric" autocomplete="cc-number" maxlength="23" placeholder="0000 0000 0000 0000" data-testid="card-number" required></label>
     <div class="pay-row"><label class="field">Month<input name="exp_month" inputmode="numeric" autocomplete="cc-exp-month" maxlength="2" placeholder="MM" data-testid="card-exp-month" required></label>
       <label class="field">Year<input name="exp_year" inputmode="numeric" autocomplete="cc-exp-year" maxlength="4" placeholder="YY" data-testid="card-exp-year" required></label>
       <label class="field">Security code<input name="cvc" inputmode="numeric" autocomplete="cc-csc" maxlength="4" placeholder="123" data-testid="card-cvc" required></label></div>
-    <details class="pay-hint"><summary>Sandbox test cards</summary><ul>${TEST_CARD_HINTS.map(([n, what]) => `<li><span class="code">${esc(n)}</span> ${esc(what)}</li>`).join('')}</ul><p class="faint">Any future expiry date and any 3 digits. Other numbers are refused; never enter a real card.</p></details>
+    <details class="pay-hint" data-testid="test-card-hints" hidden><summary>Sandbox test cards</summary><ul></ul><p class="faint">Any future expiry date and any 3 digits. Other numbers are refused; never enter a real card.</p></details>
     <div class="form-error" role="alert" data-testid="card-error"></div>
     <button class="btn btn-primary" type="submit" data-testid="card-submit">${esc(submitLabel)}</button></form>`;
   const f = host.querySelector('form');
+  const hints = f.querySelector('[data-testid=test-card-hints]');
+  payApi.testCards(session.uid).then((r) => {
+    hints.querySelector('ul').innerHTML = r.test_cards.map((c) => `<li><span class="code">${esc(c.number)}</span> ${esc(CARD_HINT_TEXT[c.behavior] || c.behavior)}</li>`).join('');
+    hints.hidden = false;
+  }).catch(() => {}); // no sandbox (production): no hint
   f.onsubmit = async (e) => {
     e.preventDefault();
     const err = f.querySelector('[data-testid=card-error]');

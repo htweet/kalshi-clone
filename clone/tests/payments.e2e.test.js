@@ -74,7 +74,8 @@ async function user(k, { page = false, viewport } = {}) {
   if (page) {
     p = await H.newPage(browser, BASE, { viewport });
     p.apiBodies = [];
-    p.on('response', async (r) => { if (/\/v1\//.test(r.url())) { try { p.apiBodies.push(await r.text()); } catch { /* body gone */ } } });
+    // Every API body the browser sees, except the sandbox hint route, which by design lists the published test numbers.
+    p.on('response', async (r) => { if (/\/v1\//.test(r.url()) && !/\/payments\/sandbox\/test_cards$/.test(r.url())) { try { p.apiBodies.push(await r.text()); } catch { /* body gone */ } } });
     await H.signUpUi(p, BASE, { name: `Pay ${k}`, email: email(k) }, PW);
     await p.waitForSelector('[data-testid=account-menu]');
   }
@@ -553,6 +554,35 @@ test('persistence: a pending ACH settlement and a pending payout resume after a 
   assert.equal((await c2.api.call('GET', c2.u('/banks/all_accounts'))).body.accounts.length, 1);
   await admin.call('PUT', '/v1/admin/payments/settings', { settings: { sandbox: { ach_settle_seconds: 2, payout_seconds: 1 } }, reason: 'restore' });
   await ledgerOk();
+});
+
+test('sandbox test-card hints come from the server (signed in, sandbox only); no card-shaped number ships in public assets', async () => {
+  // Browser: the card form fills its hint list from the API.
+  const c = await user('hints', { page: true });
+  await c.page.goto(BASE + '/funds/deposit');
+  await c.page.waitForSelector('[data-testid=funds][data-mode=deposit] [data-method=new-card]');
+  await c.page.click('[data-method=new-card]');
+  await c.page.waitForSelector('[data-testid=test-card-hints]:not([hidden]) li', { state: 'attached' }); // inside a collapsed <details>
+  const hints = await c.page.locator('[data-testid=test-card-hints] li').allTextContents();
+  assert.ok(hints.some((h) => h.includes('4000 9910 0000 0002') && /approves/.test(h)), JSON.stringify(hints));
+  assert.equal(await c.page.getAttribute('[data-testid=card-number]', 'placeholder'), '0000 0000 0000 0000');
+  assert.deepEqual(c.page.errors || [], []);
+  await c.page.context().close();
+  // Anonymous callers (and crawlers) never get the list.
+  const anon = await fetch(`${BASE}/v1/users/${c.uid}/payments/sandbox/test_cards`);
+  assert.ok([401, 403].includes(anon.status), `anonymous status ${anon.status}`);
+  // Static scan: no Luhn-valid card-shaped number in anything served to browsers (source and built bundle).
+  const luhn = (d) => { let s = 0; for (let i = 0; i < d.length; i++) { let x = Number(d[d.length - 1 - i]); if (i % 2) { x *= 2; if (x > 9) x -= 9; } s += x; } return s % 10 === 0; };
+  const roots = [path.join(__dirname, '..', 'public'), path.join(__dirname, '..', 'dist')].filter((r) => fs.existsSync(r));
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const hits = [];
+  for (const f of roots.flatMap(walk).filter((x) => /\.(js|mjs|html|css|json|webmanifest|txt)$/.test(x))) {
+    for (const m of fs.readFileSync(f, 'utf8').matchAll(/(?<![\d.])(?:\d[ -]?){12,18}\d(?![\d.])/g)) {
+      const d = m[0].replace(/\D/g, '');
+      if (d.length >= 13 && d.length <= 19 && /^[2-6]/.test(d) && !/^(\d)\1+$/.test(d) && luhn(d)) hits.push(`${path.relative(path.join(__dirname, '..'), f)}: ${m[0]}`);
+    }
+  }
+  assert.deepEqual(hits, [], 'card-shaped numbers in public assets');
 });
 
 test('PCI scope: no card number in the database file, the WAL, the server logs or any API response', async () => {

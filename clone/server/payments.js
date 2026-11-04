@@ -615,6 +615,12 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
       institutions: INSTITUTIONS, bank_accounts: BANK_ACCOUNTS.map((a) => ({ name: a.name, mask: a.mask, hint: a.hint })),
     });
   });
+  // Full sandbox test card numbers for the card form's hint: signed-in only and only while the sandbox rails are on
+  // (404 in production), so no Luhn-valid number ships in public JavaScript or is reachable by an anonymous crawler.
+  v1.get(`${U}/payments/sandbox/test_cards`, requireUser, (req, res) => {
+    if (!sandboxOn) throw E.notFound();
+    res.json({ test_cards: TEST_CARDS.map((t) => ({ number: t.number.replace(/(\d{4})(?=\d)/g, '$1 '), brand: t.brand, behavior: t.behavior })) });
+  });
   v1.get('/payments/supported_networks', (req, res) => res.json({ networks: NETWORKS.map((n) => ({ ...n, available: railOn('crypto'), confirmations: settings().crypto.confirmations, withdrawal_fee_dollars: dollars(settings().fees.crypto_network_fee_cents) })) }));
   v1.get(`${U}/withdrawal_times`, requireUser, (req, res) => res.json({ withdrawal_times: withdrawalTimes() }));
   v1.get(`${U}/credit_history`, requireUser, (req, res) => {
