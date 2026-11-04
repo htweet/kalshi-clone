@@ -22,8 +22,9 @@ const { Client } = require('./lib/client');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-authz-'));
 const DB_FILE = path.join(TMP, 'authz.db');
-const PORT = 20000 + Math.floor(Math.random() * 40000); // random high port: test runs in parallel must not collide
-const BASE = `http://127.0.0.1:${PORT}`;
+// A port the OS reports free (a random pick could collide with another process on the CI machine).
+const freePort = () => new Promise((res, rej) => { const s = require('node:net').createServer(); s.unref(); s.on('error', rej); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => res(port)); }); });
+let PORT; let BASE;
 const PW = 'Quartz-Lantern-Meadow-7391';
 const stamp = Date.now();
 const HIGH = { burst: 1e6, per_second: 1e6 };
@@ -327,6 +328,7 @@ async function makeUser(name, roles = []) {
 }
 
 before(async () => {
+  PORT = await freePort(); BASE = `http://127.0.0.1:${PORT}`; OPTS.port = PORT;
   srv = await start(OPTS);
   anon = await new Client(BASE, 'anonymous').boot();
   A = await makeUser('alice');

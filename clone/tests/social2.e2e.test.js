@@ -20,8 +20,9 @@ const { Client } = require('./lib/client');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-social2-'));
 const DB_FILE = path.join(TMP, 'social2.db');
-const PORT = 20000 + Math.floor(Math.random() * 40000);
-const BASE = `http://127.0.0.1:${PORT}`;
+// A port the OS reports free (a random pick could collide with another process on the CI machine).
+const freePort = () => new Promise((res, rej) => { const s = require('node:net').createServer(); s.unref(); s.on('error', rej); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => res(port)); }); });
+let PORT; let BASE;
 const PW = 'Quartz-Lantern-Meadow-7391'; // secret-scan:allow (throwaway E2E account password)
 const stamp = Date.now();
 const HIGH = { burst: 1e6, per_second: 1e6 };
@@ -79,6 +80,7 @@ async function sweepCount(client, ticker, buySide) {
 const notifs = (uid, type) => dbq('SELECT * FROM notifications WHERE user_id=? AND type=? ORDER BY created_ts', uid, type);
 
 before(async () => {
+  PORT = await freePort(); BASE = `http://127.0.0.1:${PORT}`; OPTS.port = PORT;
   srv = await start(OPTS);
   browser = await chromium.launch();
   for (const k of ['a', 'b', 'c']) {

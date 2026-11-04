@@ -22,8 +22,9 @@ const { Client } = require('./lib/client');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-idem-'));
 const DB_FILE = path.join(TMP, 'idem.db');
-const PORT = 20000 + Math.floor(Math.random() * 40000); // random high port: test runs in parallel must not collide
-const BASE = `http://127.0.0.1:${PORT}`;
+// A port the OS reports free (a random pick could collide with another process on the CI machine).
+const freePort = () => new Promise((res, rej) => { const s = require('node:net').createServer(); s.unref(); s.on('error', rej); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => res(port)); }); });
+let PORT; let BASE;
 const PW = 'Copper-Harbor-Lantern-5182';
 const stamp = Date.now();
 const HIGH = { burst: 1e6, per_second: 1e6 };
@@ -47,7 +48,8 @@ async function user(name, depositDollars = 0) {
 const market = (offset = 0) => dbq(`SELECT m.ticker FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE m.status='active' AND m.fractional_trading_enabled=1 AND m.mve_collection_ticker IS NULL
   AND e.series_ticker NOT LIKE 'PLXFLASH%' AND EXISTS (SELECT 1 FROM orders o WHERE o.market_ticker=m.ticker AND o.status='resting' AND o.side='no') ORDER BY m.rowid LIMIT 1 OFFSET ?`, offset)[0].ticker;
 
-before(async () => { srv = await start(OPTS); browser = await chromium.launch(); });
+before(async () => {
+  PORT = await freePort(); BASE = `http://127.0.0.1:${PORT}`; OPTS.port = PORT; srv = await start(OPTS); browser = await chromium.launch(); });
 after(async () => { await browser?.close(); await srv?.close(); fs.rmSync(TMP, { recursive: true, force: true }); });
 
 test('orders: same Idempotency-Key + same body replays the first response; a different body is 409; keys are per user', async () => {
