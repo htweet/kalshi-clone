@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS ledger_audits (id TEXT PRIMARY KEY, ts INTEGER NOT NU
 const OPENED_KEY = 'journal_opened_v1';
 const ready = new WeakSet();
 // Default lifetime of a promotional credit (days); server/payments.js sets it from Admin › Payments settings.
-const hooks = { creditExpiryDays: () => 30 };
+const hooks = { creditExpiryDays: () => 30, auditChecks: [] }; // auditChecks: extra (db, got) => problems[] (server/play-mode.js)
 
 const cash = (uid) => `user:${uid}:cash`;
 const credits = (uid) => `user:${uid}:credits`;
@@ -241,6 +241,8 @@ function audit(db, { pendingPayouts = null } = {}) {
   }
   // A9: collateral returned early is an advance against guaranteed settlement payouts (collateral_returns).
   if (hasTable(db, 'collateral_returns')) cmp('collateral_advance', 'house:collateral_advance', -db.prepare('SELECT COALESCE(SUM(amount_cents),0) c FROM collateral_returns').get().c, 'collateral returned early vs outstanding advances');
+  // Phase 5D (CLONE_SPEC.md §33): money-mode isolation and the Central Bank vault (server/play-mode.js).
+  for (const fn of hooks.auditChecks || []) { try { problems.push(...fn(db, got)); } catch (e) { problems.push({ check: 'audit_hook', detail: e.message }); } }
   if (got('house:suspense') !== 0) problems.push({ check: 'suspense', account: 'house:suspense', expected_cents: 0, actual_cents: got('house:suspense'), detail: 'money posted to the suspense account (an unmapped ledger kind)' });
   const totals = {};
   for (const [a, s] of sums) {

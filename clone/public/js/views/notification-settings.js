@@ -14,6 +14,7 @@ import { api } from '../api.js';
 import { session } from '../store.js';
 import { esc, toast, relTime } from '../lib.js';
 import { webPushSupported, enableWebPush, disableWebPush, thisDevice } from '../pwa.js';
+import { flagOn } from '../flags.js'; // feature flags (CLONE_SPEC.md §33)
 import { t } from '../content/pwa-strings.js'; // System notifications text is keyed (CLONE_SPEC §31.12)
 
 const CH_LABEL = { in_app: 'In-app', email: 'Email', push: 'Push' };
@@ -63,7 +64,7 @@ export function mountNotificationSettings(el) {
           <label class="opt-row">${te('notification-settings.mount_notification_settings.from')} <input type="time" name="start" value="${esc(q.start)}" required data-testid="quiet-start"></label><label class="opt-row">${te('notification-settings.mount_notification_settings.to')} <input type="time" name="end" value="${esc(q.end)}" required data-testid="quiet-end"></label>
           <label class="opt-row">${te('notification-settings.mount_notification_settings.time_zone')} <input name="timezone" value="${esc(q.timezone)}" maxlength="64" data-testid="quiet-tz" list="tz-list"></label><datalist id="tz-list"><option value="${esc(TZ)}"><option value="UTC"></datalist>
           <button class="btn btn-sm" type="submit" data-testid="quiet-save">${te('notification-settings.mount_notification_settings.save_quiet_hours')}</button><span class="form-error" data-err role="alert"></span></form></div>
-      <div class="card ns-card" data-testid="push-browser"><h3>${te('notification-settings.mount_notification_settings.push_in_this_browser')}</h3>
+      <div class="card ns-card" data-testid="push-browser" data-flag="pwa.push"><h3>${te('notification-settings.mount_notification_settings.push_in_this_browser')}</h3>
         <p class="faint m-0">${te('notification-settings.mount_notification_settings.push_notifications_go_to_the', { value: p.push_devices ? te('notification-settings.mount_notification_settings.browser_registered', { push_devices: esc(p.push_devices), value: p.push_devices === 1 ? '' : 's' }) : te('notification-settings.mount_notification_settings.no_browser_is_registered_so') })}</p>
         <div class="d-flex gap-8 ai-center fw-wrap mt-8">${dev ? `<span data-testid="push-on">${te('notification-settings.mount_notification_settings.this_browser_receives_push_notifications')}</span><button class="btn btn-sm" type="button" data-push-off data-testid="push-off">${te('notification-settings.mount_notification_settings.stop_in_this_browser')}</button>` : `<button class="btn btn-sm btn-primary" type="button" data-push-on data-testid="push-enable">${te('notification-settings.mount_notification_settings.turn_on_in_this_browser')}</button>`}</div>
         <div class="webpush" data-testid="webpush"><h4>${esc(t('push.section_title'))}</h4><p class="faint m-0">${esc(t('push.section_intro'))}</p>
@@ -74,7 +75,7 @@ export function mountNotificationSettings(el) {
   }
   async function loadWebPush() {
     const box = root.querySelector('[data-webpush-actions]'); const list = root.querySelector('[data-webpush-list]');
-    if (!box) return;
+    if (!box || !flagOn('pwa.push')) return; // the pwa.push flag (CLONE_SPEC.md §33)
     const mine = thisDevice();
     box.innerHTML = !webPushSupported() ? `<span class="faint" data-testid="webpush-unsupported">${esc(t('push.unsupported'))}</span>`
       : mine ? `<span data-testid="webpush-on">${esc(t('push.on'))}</span><button class="btn btn-sm" type="button" data-webpush-off data-testid="webpush-disable">${esc(t('push.turn_off'))}</button>`

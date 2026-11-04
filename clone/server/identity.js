@@ -703,7 +703,8 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     const r = settings().retention;
     const closedAt = nowIso();
     tx(db, () => {
-      if (balance > 0) engine.credit(uid, -balance, 'closure_payout', null, 'account closed: remaining cash paid out (simulated)');
+      // Play mode (CLONE_SPEC.md §33): play money never leaves; it goes back to the mint instead of a payout.
+      if (balance > 0) { const playContra = engine.money?.closureContra?.(); engine.credit(uid, -balance, 'closure_payout', null, playContra ? 'account closed: play money returned' : 'account closed: remaining cash paid out (simulated)', { contra: playContra }); }
       // Crypto-shredding: the per-user data key is destroyed, then the ciphertexts are cleared as well.
       docv.eraseDocuments(uid, 'account_closed');
       db.prepare('DELETE FROM identity_keys WHERE user_id=?').run(uid);

@@ -1,5 +1,6 @@
 // Portfolio (spec §4.6, §17.6, §17.9): balance, funds; tabs Positions (incl. open combos) | Resting | RFQs | Quotes |
 // History (unified timeline + the trade / settlement / transaction tables as sub-views), CSV exports.
+import { flagOn, playOn, playLabel } from '../flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
 import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import { slotImg } from '../content-live.js';
 import '../content/portfolio-strings.js';
@@ -47,13 +48,13 @@ export async function render({ el, navigate, query }) {
       <div class="card stat"><div class="label">${te('portfolio.render.positions_value')}</div><div class="value" id="s-value" data-testid="positions-value">—</div></div>
       <div class="card stat"><div class="label">${te('portfolio.render.held_for_open_orders')}</div><div class="value" id="s-reserved" data-testid="reserved">—</div></div>
       <form class="card stat" id="funds" aria-label="${te('portfolio.render.move_funds')}">
-        <div class="label">${te('portfolio.render.demo_funds')} <a href="/funds" data-link data-testid="portfolio-transfers">${te('portfolio.render.deposit_or_withdraw')}</a></div>
+        <div class="label">${playOn() ? playLabel() : te('portfolio.render.demo_funds')} <a href="/funds" data-link data-testid="portfolio-transfers">${te('portfolio.render.deposit_or_withdraw')}</a></div>
         <div class="d-flex fw-wrap gap-6 mt-6"><input id="f-amount" class="amount-input" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" placeholder="${esc(T('input.amount_placeholder', { symbol: sym() }))}" aria-label="${esc(T('input.amount_aria', { mode: amountLabel().toLowerCase() }))}">
-          <button class="btn btn-primary" data-act="deposit" type="submit">${te('portfolio.render.deposit')}</button><button class="btn" data-act="withdraw" type="button">${te('portfolio.render.withdraw')}</button></div>
+          <button class="btn btn-primary" data-act="deposit" type="submit">${te('portfolio.render.deposit')}</button>${playOn() ? '' : `<button class="btn" data-act="withdraw" type="button">${te('portfolio.render.withdraw')}</button>`}</div>
         <div class="form-error" id="f-error" role="alert"></div>
       </form>
     </div>
-    <div class="tabs" role="tablist" id="pf-tabs">${TABS.map(([k, l]) => `<button data-tab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}
+    <div class="tabs" role="tablist" id="pf-tabs">${TABS.map(([k, l]) => `<button data-tab="${esc(k)}" class="${k === tab ? 'on' : ''}"${k === 'rfqs' || k === 'quotes' ? ' data-flag="combos.rfq"' : ''}>${esc(l)}</button>`).join('')}
       <a class="btn btn-ghost ml-auto" href="/portfolio?perpsTab=positions" data-link data-testid="perps-portfolio-link">${te('portfolio.render.perps')}</a><a class="btn btn-ghost" href="${esc(api.csvUrl(uid))}" download data-testid="csv-link">${te('portfolio.render.export_csv')}</a></div>
     <div class="card p-4-12" id="panel"></div>`;
 
@@ -82,7 +83,8 @@ export async function render({ el, navigate, query }) {
 
   // ---------- Positions (spec §17.11): summary, grouped holdings, sort/filter, Sell sheet ----------
   async function drawPositions(p) {
-    const [r, combos, coll] = await Promise.all([api.portfolioPositions(uid, { sort: posSort, filter: posFilter }), api.myCombos(uid), api.collateralReturns(uid).catch(() => null)]);
+    // Combos and collateral return are behind their feature flags (CLONE_SPEC.md §33).
+    const [r, combos, coll] = await Promise.all([api.portfolioPositions(uid, { sort: posSort, filter: posFilter }), flagOn('combos') ? api.myCombos(uid).catch(() => ({ combos: [] })) : { combos: [] }, flagOn('trading.collateral_return') ? api.collateralReturns(uid).catch(() => null) : null]);
     const S = r.summary;
     const stat = (label, v, id, sign) => `<div><span class="label">${esc(label)}</span><strong data-testid="${esc(id)}">${sign ? signed(v) || money(0) : money(v)}</strong></div>`;
     const state = (x) => (x.state === 'open' ? `<span class="faint">${te('portfolio.render.closes', { fmt_day: esc(fmtDay(x.close_time)) })}</span>` : x.state === 'settling' ? `<span class="status-chip accepted">${te('portfolio.render.settling', { to_upper_case: esc(String(x.result).toUpperCase()) })}</span>` : `<span class="status-chip">${esc(x.market_status)}</span>`);
@@ -428,7 +430,7 @@ export async function render({ el, navigate, query }) {
     } catch (e) { err.textContent = e.message; }
   };
   $('#funds').onsubmit = (e) => { e.preventDefault(); move('deposit'); };
-  el.querySelector('[data-act="withdraw"]').onclick = () => move('withdraw');
+  const wd = el.querySelector('[data-act="withdraw"]'); if (wd) wd.onclick = () => move('withdraw'); // none in play mode (§33)
 
   await refresh();
   let commsT = null;

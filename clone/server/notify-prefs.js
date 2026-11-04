@@ -97,6 +97,8 @@ function prefKeyOf(type) {
     case 'leaderboard': return 'leaderboard';
     case 'sports_major': return 'major_events';
     case 'market_reward': return 'market_rewards'; // liquidity incentive payouts (Phase 5B, server/incentives.js)
+    // Phase 5D money notices (CLONE_SPEC.md §33): the Transfers row (in-app, email and push on by default).
+    case 'bonus_credited': case 'heist_result': case 'money_controls': case 'production_reset': return 'transfers';
     case 'security': case 'account': return 'security';
     default: return type && type.startsWith('promo_') && PROMO_TOPICS.includes(type.slice(6)) ? type.slice(6) : null;
   }
@@ -265,6 +267,8 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
 
   function send(d) {
     const now = Date.now();
+    // Notification channel flags (CLONE_SPEC.md §33): while email / push is off the delivery stays queued (paused job).
+    if (engine.flags && !engine.flags.jobOn(`notify.${d.channel}`)) { if (d.status !== 'deferred') db.prepare("UPDATE notif_deliveries SET status='deferred', send_after_ts=? WHERE id=?").run(now + 60000, d.id); return; }
     if (d.channel === 'email') {
       const u = db.prepare('SELECT id, email FROM users WHERE id=?').get(d.user_id);
       if (!u) return;
@@ -291,6 +295,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
     }
   }
   function enqueue(uid, msg, pref, channel, quiet, q) {
+    if (engine.flags && !engine.flags.on(`notify.${channel}`, { uid })) return; // channel flag off for this user (§33)
     const now = Date.now();
     const hour = Math.floor(now / 3600000);
     const k = `${uid}:${channel}`;

@@ -76,7 +76,7 @@ export function mountChat({ el, ev }) {
   const timers = [];
 
   // ---------------- entry points: header pill (+ compact entry under a sports scoreboard)
-  const pill = h('button', { class: 'chat-pill', type: 'button', 'data-testid': 'chat-pill', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'chat-panel' },
+  const pill = h('button', { class: 'chat-pill', type: 'button', 'data-testid': 'chat-pill', 'data-flag': 'social.chat', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'chat-panel' },
     h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', { class: 'chat-pill-label' }, tx('chat.mount_chat.live_chat')), h('span', { class: 'chat-pill-badge', 'data-testid': 'chat-unread', hidden: true }));
   actions.prepend(pill);
   const sb = el.querySelector('#sports-board');

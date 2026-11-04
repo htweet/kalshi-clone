@@ -269,6 +269,18 @@ const EXPECT = {
   'POST /v1/admin/cms/templates/preview': perm('content.write'), 'POST /v1/admin/cms/templates/test_send': perm('content.write'),
   'GET /v1/admin/cms/export': perm('content.write'), 'POST /v1/admin/cms/import': perm('content.write'),
   'GET RE:^\\/media\\/([a-z0-9_]+)\\.(png|jpg)$': { who: 'public', probe: '/media/authz_nope.png' },
+  // ---- Phase 5D: feature flags, play mode, money controls, Central Bank and the Vault Heist (CLONE_SPEC.md §33). The
+  // evaluated flag bundle, the play-mode state and the Central Bank's public face are public reads (booleans and display
+  // names only); heists, play-money info and money controls are the owner's; flag, play-mode and bank administration is
+  // settings.write, funding and per-user money controls users.money, views users.read.
+  'GET /v1/feature_flags': P, 'GET /v1/play_mode': P, 'GET /v1/central_bank': P, 'GET /v1/central_bank/feed': P, 'GET /v1/central_bank/most_wanted': P,
+  'GET /v1/users/:uid/heists': O, 'POST /v1/users/:uid/heists': O, 'POST /v1/users/:uid/heists/:id/guesses': O, 'GET /v1/users/:uid/play_money': O, 'GET /v1/users/:uid/money_controls': O,
+  'GET /v1/admin/flags': perm('settings.write'), 'GET /v1/admin/flags/:key': perm('settings.write'), 'PUT /v1/admin/flags/:key': perm('settings.write'), 'POST /v1/admin/flags/:key/kill': perm('settings.write'),
+  'GET /v1/admin/play_mode': perm('settings.write'), 'GET /v1/admin/play_mode/preview': perm('settings.write'), 'PUT /v1/admin/play_mode': perm('settings.write'), 'PUT /v1/admin/play_mode/settings': perm('settings.write'),
+  'POST /v1/admin/play_mode/production_switch': perm('settings.write'), 'POST /v1/admin/play_mode/approvals/:id/approve': perm('settings.write'), 'POST /v1/admin/play_mode/approvals/:id/reject': perm('settings.write'),
+  'GET /v1/admin/users/:id/money_controls': perm('users.read'), 'PUT /v1/admin/users/:id/money_controls': perm('users.money'),
+  'GET /v1/admin/central_bank': perm('users.read'), 'POST /v1/admin/central_bank/fund': perm('users.money'), 'POST /v1/admin/central_bank/defund': perm('users.money'),
+  'PUT /v1/admin/central_bank/settings': perm('settings.write'), 'POST /v1/admin/central_bank/queue/process': perm('users.money'),
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };

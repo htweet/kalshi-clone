@@ -10,9 +10,10 @@ import { esc, toast, money, catSlug, catLabel, ICON } from '../lib.js';
 import { installMenuItem, installApp, installMode } from '../pwa.js'; // "Install app" (CLONE_SPEC.md §31)
 import { t } from '../content/pwa-strings.js';
 
+// [href, label, testid, feature flag (CLONE_SPEC.md §33)]
 const ITEMS = [
-  ['/account', ts('account-menu.items.account_security'), 'menu-account'], ['/account/activity', ts('account-menu.items.your_activity'), 'menu-activity'], ['/perps', ts('account-menu.items.invest'), 'menu-invest'],
-  ['/incentives', ts('account-menu.items.liquidity_rewards'), 'menu-incentives'], ['/account/taxes', ts('account-menu.items.documents'), 'menu-documents'], ['/docs', ts('account-menu.items.api_docs'), 'menu-api-docs'],
+  ['/account', ts('account-menu.items.account_security'), 'menu-account'], ['/account/activity', ts('account-menu.items.your_activity'), 'menu-activity'], ['/perps', ts('account-menu.items.invest'), 'menu-invest', 'perps'],
+  ['/incentives', ts('account-menu.items.liquidity_rewards'), 'menu-incentives', 'incentives'], ['/account/taxes', ts('account-menu.items.documents'), 'menu-documents'], ['/docs', ts('account-menu.items.api_docs'), 'menu-api-docs'],
   ['/account/settings', ts('account-menu.items.settings'), 'menu-settings'],
 ];
 export const GROUPS = [
@@ -26,8 +27,8 @@ export function menuHtml() {
   const staff = u.is_admin || (u.admin_roles || []).length;
   const dark = document.documentElement.dataset.theme === 'dark';
   return `<div class="menu-head"><strong>${esc(u.display_name)}</strong><div class="faint">${session.nickname ? '@' + esc(session.nickname) : esc(u.email)}</div></div>
-    <div class="menu-round"><a href="/social/leaderboard" data-link data-testid="menu-leaderboard"><span class="round-ic">${ICON.trophy}</span>${te('account-menu.menu_html.leaderboard')}</a><a href="/rewards" data-link data-testid="menu-rewards"><span class="round-ic">${ICON.gift}</span>${te('account-menu.menu_html.rewards')}</a></div>
-    ${ITEMS.map(([href, label, id]) => `<a href="${esc(href)}" data-link data-testid="${esc(id)}">${esc(label)}</a>`).join('')}
+    <div class="menu-round"><a href="/social/leaderboard" data-link data-testid="menu-leaderboard" data-flag="social"><span class="round-ic">${ICON.trophy}</span>${te('account-menu.menu_html.leaderboard')}</a><a href="/rewards" data-link data-testid="menu-rewards" data-flag="rewards"><span class="round-ic">${ICON.gift}</span>${te('account-menu.menu_html.rewards')}</a></div>
+    ${ITEMS.map(([href, label, id, flag]) => `<a href="${esc(href)}" data-link data-testid="${esc(id)}"${flag ? ` data-flag="${esc(flag)}"` : ''}>${esc(label)}</a>`).join('')}
     <a href="/portfolio" data-link>${te('account-menu.menu_html.portfolio')}</a>
     <a href="/funds" data-link data-testid="menu-transfers">${te('account-menu.menu_html.deposit_withdraw')}</a>
     ${staff ? `<a href="/admin" data-link data-testid="admin-link">${te('account-menu.menu_html.admin')}</a>` : ''}

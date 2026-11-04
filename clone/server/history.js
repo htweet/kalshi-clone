@@ -6,6 +6,7 @@ const CS = require('./content/currency-strings'); // keyed user-facing wording (
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { dollars, ufp, ustr, UNITS, E, encCursor, decCursor } = require('./util');
 const P = require('./pricing'); // `price` below is in centi-cents (CLONE_SPEC.md §28.1)
+const PM = require('./content/playmode'); // Phase 5D ledger kinds (CLONE_SPEC.md §33)
 
 // ISO-8601 text → unix ms inside SQLite.
 const ms = (col) => `CAST(ROUND((julianday(${col}) - 2440587.5) * 86400000) AS INTEGER)`;
@@ -14,7 +15,7 @@ const GROUPS = {
   orders: ['order', 'cancel'],
   settlements: ['settlement', 'settlement_correction'],
   combos: ['combo', 'rfq', 'quote', 'rfq_execution'],
-  cash: ['deposit', 'withdrawal', 'interest', 'perps_transfer', 'credit', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout', 'deposit_return', 'withdrawal_fee', 'withdrawal_reversal', 'credit_expired', 'incentive'],
+  cash: ['deposit', 'withdrawal', 'interest', 'perps_transfer', 'credit', 'withdrawal_hold', 'withdrawal_hold_reversal', 'closure_payout', 'deposit_return', 'withdrawal_fee', 'withdrawal_reversal', 'credit_expired', 'incentive', 'bonus', 'heist_fee', 'heist_loot', 'play_reset'],
 };
 // Account › Your activity chips (CLONE_SPEC §13.16: All · Deposit · Withdrawal · Order · Trade · Settlement · Credit).
 const ACTIVITY = {
@@ -23,12 +24,14 @@ const ACTIVITY = {
   order: ['order', 'cancel', 'rfq', 'quote', 'combo'],
   trade: ['fill', 'netting', 'rfq_execution', 'collateral_return'],
   settlement: ['settlement', 'settlement_correction'],
-  credit: ['credit', 'interest', 'credit_expired', 'incentive'],
+  credit: ['credit', 'interest', 'credit_expired', 'incentive', 'bonus', 'heist_fee', 'heist_loot', 'play_reset'],
 };
 const GROUP_OF = Object.fromEntries(Object.entries(GROUPS).flatMap(([g, ks]) => ks.map((k) => [k, g])));
 const TYPE_LABEL = { fill: 'Trade', netting: 'Pairs redeemed', collateral_return: 'Collateral return', settlement_correction: 'Settlement correction', order: 'Order', cancel: 'Canceled', settlement: 'Settlement', combo: 'Combo', rfq: 'RFQ', quote: 'Quote', rfq_execution: 'RFQ executed', deposit: 'Deposit', withdrawal: 'Withdrawal', interest: 'Interest', perps_transfer: 'Perps transfer',
   credit: 'Credit', withdrawal_hold: 'Withdrawal (under review)', withdrawal_hold_reversal: 'Withdrawal returned', closure_payout: 'Closing payout',
   deposit_return: 'Deposit returned', withdrawal_fee: 'Network fee', withdrawal_reversal: 'Withdrawal returned', credit_expired: 'Credit expired', incentive: 'Liquidity reward' }; // payment rails (CLONE_SPEC.md §26); liquidity rewards (§29)
+// Phase 5D (CLONE_SPEC.md §33): signup bonus, Vault Heist, the play-money reset; wording from the keyed module (CMS).
+for (const k of ['bonus', 'heist_fee', 'heist_loot', 'play_reset']) Object.defineProperty(TYPE_LABEL, k, { enumerable: true, get: () => PM.s(`history.${k}`) });
 
 // Every source projected onto: id, ts, prio (tie-break within the same ms), kind, market, side, action, otype,
 // price, qty, filled, amount, fee, status, role, extra (kind-specific number), memo.
@@ -48,7 +51,7 @@ const UNION = `
     FROM settlements s WHERE s.user_id=:uid
   UNION ALL
   SELECT 'ledger:'||l.id, ${ms('l.created_at')}, 2, l.kind, CASE WHEN l.kind IN ('netting','settlement_correction') THEN l.ref END, NULL, NULL, NULL, NULL, NULL, NULL, l.amount_cents, NULL, COALESCE((SELECT pt.status FROM payment_transactions pt WHERE pt.id=l.ref AND pt.rail<>'demo'), 'done'), NULL, NULL, l.memo
-    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting','collateral_return','settlement_correction','incentive','credit','withdrawal_hold','withdrawal_hold_reversal','closure_payout','deposit_return','withdrawal_fee','withdrawal_reversal','credit_expired')
+    FROM ledger l WHERE l.user_id=:uid AND l.kind IN ('deposit','withdrawal','interest','perps_transfer','netting','collateral_return','settlement_correction','incentive','credit','withdrawal_hold','withdrawal_hold_reversal','closure_payout','deposit_return','withdrawal_fee','withdrawal_reversal','credit_expired','bonus','heist_fee','heist_loot','play_reset')
   UNION ALL
   SELECT 'combo:'||c.combo_ticker, c.created_ts, 0, 'combo', c.combo_ticker, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'created', NULL, NULL, ''
     FROM combo_creations c WHERE c.user_id=:uid

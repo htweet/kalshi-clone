@@ -8,12 +8,13 @@
 import { t as tx, te } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../content/funds-strings.js';
 import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
-import { api } from '../api.js';
+import { api, request } from '../api.js';
 import { payApi } from '../payments-api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, money, toast, relTime, currency, moneyStep, moneyMin, toApiDollars, validMoneyInput, moneyInputHint, fmtDate } from '../lib.js';
 import { cardForm, bankLinkForm, walletForm, methodLabel, methodSub } from './payment-forms.js';
+import { flagOn, playOn, playLabel, flagState } from '../flags.js'; // feature flags, play mode, money controls (CLONE_SPEC.md §33)
 
 const STATUS_KIND = { succeeded: 'ok', settled: 'ok', paid: 'ok', pending: 'info', processing: 'info', confirming: 'info', requires_action: 'warn', held: 'warn', failed: 'bad', returned: 'bad', reversed: 'bad' };
 const badge = (t) => `<span class="pay-badge ${esc(STATUS_KIND[t.status] || '')}" data-testid="pay-status-badge">${esc(t.status_label)}</span>`;
@@ -62,7 +63,7 @@ async function overview(body, onPayment) {
   const draw = async () => {
     const [meta, rows, ch] = await Promise.all([payApi.metadata(session.uid), loadTransfers(), payApi.creditHistory(session.uid)]);
     body.innerHTML = `${balancesHtml(meta.balances, meta.nonwithdrawable_credits)}
-      <div class="d-flex gap-8 mt-12"><a class="btn btn-primary" href="/funds/deposit" data-link data-testid="go-deposit">${te('funds.overview.deposit')}</a><a class="btn" href="/funds/withdraw" data-link data-testid="go-withdraw">${te('funds.overview.withdraw')}</a><a class="btn btn-ghost" href="/account/payments" data-link>${te('funds.overview.payment_methods')}</a></div>
+      ${moneyNotice()}<div class="d-flex gap-8 mt-12">${playLabel()}<a class="btn btn-primary" href="/funds/deposit" data-link data-testid="go-deposit" data-flag="payments.deposits">${te('funds.overview.deposit')}</a>${playOn() ? '' : `<a class="btn" href="/funds/withdraw" data-link data-testid="go-withdraw" data-flag="payments.withdrawals">${te('funds.overview.withdraw')}</a>`}<a class="btn btn-ghost" href="/account/payments" data-link>${te('funds.overview.payment_methods')}</a></div>
       <section class="card panel mt-16"><h2>${te('funds.overview.recent_transfers')}</h2>${transfersTable(rows)}</section>
       <section class="card panel" data-testid="credits"><h2>${te('funds.overview.credits')}</h2>${ch.credits.length ? `<table class="table"><thead><tr><th>${te('funds.overview.from')}</th><th class="num">${te('funds.overview.granted')}</th><th class="num">${te('funds.overview.left')}</th><th>${te('funds.overview.expires')}</th><th>${te('funds.overview.status')}</th></tr></thead><tbody>${ch.credits.map((c) => `<tr data-testid="credit-row" data-status="${esc(c.status)}"><td>${esc(c.source)}</td><td class="num">${esc(money(c.granted_dollars))}</td><td class="num">${esc(money(c.remaining_dollars))}</td><td>${esc(fmtDate(c.expires_time))}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : `<p class="faint">${te('funds.overview.promotional_credits_you_receive_show')}</p>`}</section>`;
   };
@@ -165,12 +166,51 @@ function reviewStep(host, { title, lines, confirmLabel, onConfirm, onBack }) {
   };
 }
 
+// ------------------------------------------------------------------ play mode and money controls (CLONE_SPEC.md §33)
+// The server's message (CMS key server.playmode.money.*) and the admin's reason; the server refuses the request anyway.
+function moneyNotice() {
+  const m = flagState.money;
+  if (!m) return '';
+  const rows = [m.deposits, m.withdrawals].filter((x) => x && !x.allowed && x.code !== 'withdrawals_play_mode');
+  return rows.map((x) => `<div class="pay-notice" role="status" data-testid="money-notice" data-code="${esc(x.code)}"><strong>${esc(x.message)}</strong>${x.reason ? ` <span>${te('funds.blocked.reason', { reason: esc(x.reason) })}</span>` : ''}</div>`).join('');
+}
+function blocked(body, kind) {
+  const x = flagState.money && flagState.money[kind];
+  if (!x || x.allowed) return false;
+  body.innerHTML = `<section class="card panel pay-blocked" data-testid="money-blocked" data-code="${esc(x.code)}"><h2>${kind === 'deposits' ? te('funds.blocked.deposit_title') : te('funds.blocked.withdraw_title')}</h2>
+    <p data-testid="money-blocked-message">${esc(x.message)}</p>${x.reason ? `<p class="muted" data-testid="money-blocked-reason">${te('funds.blocked.reason', { reason: esc(x.reason) })}</p>` : ''}
+    <a class="btn" href="/funds" data-link>${te('funds.blocked.back')}</a></section>`;
+  return true;
+}
+async function playDepositFlow(body) {
+  const draw = async () => {
+    const { play_money: pm } = await request('GET', `/v1/users/${encodeURIComponent(session.uid)}/play_money`);
+    body.innerHTML = `<section class="card panel play-deposit" data-testid="play-deposit"><div class="d-flex ai-center gap-8">${playLabel()}<h2 class="m-0">${te('funds.play.title')}</h2></div>
+      <p class="muted">${te('funds.play.intro')}</p>
+      <p class="faint" data-testid="play-cap">${pm.daily_cap_dollars == null ? te('funds.play.no_cap') : te('funds.play.cap', { cap: esc(money(pm.daily_cap_dollars)), left: esc(money(pm.left_today_dollars)) })}</p>
+      <form class="pay-form" data-play novalidate><label class="field">${te('funds.play.amount')}<input name="amount" type="number" min="${esc(moneyMin())}" step="${esc(moneyStep())}" data-testid="play-amount" placeholder="${esc(T('input.amount_placeholder', { symbol: currency.symbol }))}"></label>
+        <button class="btn btn-primary" type="submit" data-testid="play-submit">${te('funds.play.submit_plain')}</button><div class="form-error" role="alert" data-testid="play-error"></div></form></section>`;
+    const f = body.querySelector('[data-play]');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const raw = f.amount.value; const err = f.querySelector('.form-error'); err.textContent = '';
+      if (!validMoneyInput(raw)) { err.textContent = tx('funds.play.invalid', { hint: moneyInputHint() }); return; }
+      const a = toApiDollars(raw);
+      try { await api.deposit(session.uid, a); toast(tx('funds.play.added', { money: money(a) })); await draw(); } catch (ex) { err.textContent = ex.message; }
+    };
+  };
+  await draw();
+}
+
 // ------------------------------------------------------------------ deposit
 async function depositFlow(body, onPayment) {
+  if (blocked(body, 'deposits')) return;
+  if (playOn()) { await playDepositFlow(body); return; } // play mode: free play money, no payment rail (§33)
   const meta = await payApi.metadata(session.uid);
   const M = Object.fromEntries(meta.methods.map((m) => [m.type, m]));
+  for (const [k, f] of [['card', 'payments.card'], ['bank', 'payments.bank'], ['crypto', 'payments.crypto']]) if (M[k] && !flagOn(f)) M[k] = { ...M[k], available: false }; // per-rail flags
   const pick = async () => {
-    const [{ cards }, { accounts }] = await Promise.all([payApi.cards(session.uid), payApi.banks(session.uid)]);
+    const [{ cards }, { accounts }] = await Promise.all([flagOn('payments.card') ? payApi.cards(session.uid) : { cards: [] }, flagOn('payments.bank') ? payApi.banks(session.uid) : { accounts: [] }]);
     body.innerHTML = `${stepper('method')}<section class="card panel"><h2>${te('funds.deposit_flow.how_do_you_want_to')}</h2><div class="pay-methods">
       ${M.card?.available ? cards.map((c) => choice(`card:${c.id}`, methodLabel(c), tx('funds.deposit_flow.debit_card', { eta: M.card.deposit.eta }))).join('') + choice('new-card', tx('funds.deposit_flow.add_a_debit_card'), (tx('funds.deposit_flow.instant_up_to') + ' ') + money(M.card.deposit.max_dollars)) : ''}
       ${M.bank?.available ? accounts.map((a) => choice(`bank:${a.id}`, methodLabel(a), tx('funds.deposit_flow.bank_transfer_usable_at_once'))).join('') + choice('new-bank', tx('funds.deposit_flow.link_a_bank_account'), tx('funds.deposit_flow.free_settles_in_1_3')) : ''}
@@ -231,11 +271,13 @@ async function cryptoDeposit(body, meta, onPayment) {
 
 // ------------------------------------------------------------------ withdraw
 async function withdrawFlow(body, onPayment) {
+  if (blocked(body, 'withdrawals')) return; // play mode, a per-user revocation or the site-wide switch (§33)
   const [meta, times] = await Promise.all([payApi.metadata(session.uid), payApi.withdrawalTimes(session.uid)]);
   const M = Object.fromEntries(meta.methods.map((m) => [m.type, m]));
+  for (const [k, f] of [['card', 'payments.card'], ['bank', 'payments.bank'], ['crypto', 'payments.crypto']]) if (M[k] && !flagOn(f)) M[k] = { ...M[k], available: false }; // per-rail flags
   const eta = (k) => times.withdrawal_times.find((t) => t.method === k)?.estimate || '';
   const pick = async () => {
-    const [{ cards }, { accounts }, { wallets }, fresh] = await Promise.all([payApi.cards(session.uid), payApi.banks(session.uid), payApi.wallets(session.uid), payApi.metadata(session.uid)]);
+    const [{ cards }, { accounts }, { wallets }, fresh] = await Promise.all([flagOn('payments.card') ? payApi.cards(session.uid) : { cards: [] }, flagOn('payments.bank') ? payApi.banks(session.uid) : { accounts: [] }, flagOn('payments.crypto') ? payApi.wallets(session.uid) : { wallets: [] }, payApi.metadata(session.uid)]);
     body.innerHTML = `${balancesHtml(fresh.balances, fresh.nonwithdrawable_credits)}${stepper('method')}<section class="card panel"><h2>${te('funds.withdraw_flow.where_should_we_send_it')}</h2><div class="pay-methods">
       ${M.bank?.available ? accounts.map((a) => choice(`bank:${a.id}`, methodLabel(a), tx('funds.withdraw_flow.bank', { eta: eta('bank') }))).join('') + choice('new-bank', tx('funds.withdraw_flow.link_a_bank_account'), tx('funds.withdraw_flow.needs_a_quick_identity_check')) : ''}
       ${M.card?.available ? cards.filter((c) => c.can_withdraw).map((c) => choice(`card:${c.id}`, methodLabel(c), tx('funds.withdraw_flow.debit_card', { eta: eta('card') }))).join('') : ''}

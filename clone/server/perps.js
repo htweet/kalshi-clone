@@ -799,7 +799,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
     }
     if (now - lastPrune > HOUR) { lastPrune = now; db.prepare('DELETE FROM perp_price_history WHERE ts<?').run(now - 30 * DAY); }
   }
-  engine.on('tick', () => { try { tick(); } catch (e) { console.error('perps tick', e); } });
+  engine.on('tick', () => { if (engine.flags && !engine.flags.jobOn('perps')) return; try { tick(); } catch (e) { console.error('perps tick', e); } }); // paused while the flag is off (§33)
   try { tick(); } catch (e) { console.error('perps boot tick', e); } // quote immediately on boot
 
   // Admin / test hook: set the simulated index (underlying units) and optionally freeze the simulation.

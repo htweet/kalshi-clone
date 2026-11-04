@@ -80,7 +80,7 @@ function mountRolling({ v1, db, engine, windowSec = 900 }) {
     settleClosed(now);
     openWindow(Math.floor(now / W) * W);
   }
-  engine.on('tick', () => { try { tick(); } catch (e) { console.error('rolling', e); } });
+  engine.on('tick', () => { if (engine.flags && !engine.flags.jobOn('trading.rolling')) return; try { tick(); } catch (e) { console.error('rolling', e); } }); // paused while the flag is off (§33)
   tick();
 
   const windowVo = (w) => {

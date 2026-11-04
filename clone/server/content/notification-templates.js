@@ -29,6 +29,9 @@ const TYPES = [
   ['social_post', 'Social', 'New post from someone you follow'], ['social_like', 'Social', 'Like'], ['social_comment', 'Social', 'Comment'], ['social_follow', 'Social', 'New follower'],
   ['trade_alert', 'Social', 'Trade alert'], ['circle_request', 'Social', 'Inner Circle request'], ['circle_accepted', 'Social', 'Inner Circle accepted'], ['group_chat', 'Social', 'Group chat message'],
   ['sports_major', 'Sports', 'Major game event'],
+  // Phase 5D (CLONE_SPEC.md §33): the server composes the wording from server/content/playmode.js; these wrap it.
+  ['bonus_credited', 'Money', 'Signup bonus credited'], ['heist_result', 'Money', 'Vault Heist result'], ['money_controls', 'Account', 'Deposits / withdrawals switched off or on'],
+  ['production_reset', 'Account', 'Play mode ended: balances reset'],
   ['announcement', 'Announcements', 'Announcement'], ['promo_breaking_events', 'Announcements', 'Promotion: breaking events'], ['promo_new_markets', 'Announcements', 'Promotion: new markets'],
   ['promo_politics', 'Announcements', 'Promotion: politics'], ['promo_crypto', 'Announcements', 'Promotion: crypto'], ['promo_commodities', 'Announcements', 'Promotion: commodities'],
 ];

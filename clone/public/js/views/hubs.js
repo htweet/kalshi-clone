@@ -4,6 +4,7 @@
 //   /hubs/economics  Fed funds outlook from the central-bank decision markets, implied-change forecast history
 //   /ballot          the ballot lookup on its own page
 // Widgets re-read their endpoints when a price they depend on changes (`ticker` channel, debounced).
+import { flagOn } from '../flags.js'; // feature flags (CLONE_SPEC.md §33)
 import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../content/hubs-strings.js';
 import { vars } from '../dynstyle.js';
@@ -87,7 +88,7 @@ function contestsHtml(r) {
   return `<div class="ballot-where" data-testid="ballot-jurisdiction" data-jurisdiction="${esc(r.jurisdiction.id)}">${chain}</div>${items || `<p class="faint">${te('hubs.contests_html.no_contests_with_markets_here')}</p>`}`;
 }
 function mountBallot(box) {
-  box.innerHTML = `<section class="card ballot-card" data-testid="ballot"><h2>${te('hubs.mount_ballot.what_s_on_your_ballot')}</h2>
+  box.innerHTML = `<section class="card ballot-card" data-testid="ballot" data-flag="ballot"><h2>${te('hubs.mount_ballot.what_s_on_your_ballot')}</h2>
     <form class="ballot-form" data-testid="ballot-form" autocomplete="off"><label class="sr-only" for="ballot-address">${te('hubs.mount_ballot.address_or_5_digit_code')}</label>
       <input id="ballot-address" name="address" maxlength="200" placeholder="${te('hubs.mount_ballot.street_address_or_5_digit')}" autocomplete="off" required><button class="btn btn-primary" type="submit">${te('hubs.mount_ballot.look_up')}</button></form>
     <p class="faint ballot-privacy" data-testid="ballot-privacy">${te('hubs.mount_ballot.we_don_t_store_your')}</p>
@@ -131,13 +132,14 @@ export async function render({ el, params }) {
   document.title = tx('hubs.render.parlance', { value: elections ? tx('hubs.render.harbor_2026_hub') : tx('hubs.render.rates_outlook') });
   el.innerHTML = `<div class="hub-page" data-testid="hub-page" data-hub="${esc(hub)}"><div class="overline">${elections ? te('hubs.render.elections') : te('hubs.render.economics')}</div><h1 class="page-title">${elections ? te('hubs.render.harbor_2026_hub') : te('hubs.render.rates_outlook')}</h1>
     <div class="hub-layout"><div class="minw-0">
-      <section class="card hub-card" data-testid="${elections ? 'senate-map' : 'fed-outlook'}"><div class="hub-card-head"><h2>${elections ? te('hubs.render.senate_map') : te('hubs.render.fed_funds_outlook')}</h2><span class="faint" data-updated></span></div><div data-widget><div class="skeleton minh-260"></div></div></section>
-      <section class="card hub-card"><div class="hub-card-head"><h2>${elections ? te('hubs.render.expected_blue_seats') : te('hubs.render.forecast_history')}</h2><span class="faint">${elections ? te('hubs.render.last_7_days') : te('hubs.render.next_meeting_implied_change')}</span></div><div data-history></div></section>
-      <section class="card hub-card"><div class="hub-card-head"><h2>${elections ? te('hubs.render.forecast_history_governor') : te('hubs.render.next_meeting_outcome_odds')}</h2><span class="faint">${te('hubs.render.last_7_days')}</span></div><div data-forecast></div></section>
+      <section class="card hub-card" data-flag="hubs.widgets" data-testid="${elections ? 'senate-map' : 'fed-outlook'}"><div class="hub-card-head"><h2>${elections ? te('hubs.render.senate_map') : te('hubs.render.fed_funds_outlook')}</h2><span class="faint" data-updated></span></div><div data-widget><div class="skeleton minh-260"></div></div></section>
+      <section class="card hub-card" data-flag="hubs.widgets"><div class="hub-card-head"><h2>${elections ? te('hubs.render.expected_blue_seats') : te('hubs.render.forecast_history')}</h2><span class="faint">${elections ? te('hubs.render.last_7_days') : te('hubs.render.next_meeting_implied_change')}</span></div><div data-history></div></section>
+      <section class="card hub-card" data-flag="hubs.widgets"><div class="hub-card-head"><h2>${elections ? te('hubs.render.forecast_history_governor') : te('hubs.render.next_meeting_outcome_odds')}</h2><span class="faint">${te('hubs.render.last_7_days')}</span></div><div data-forecast></div></section>
     </div><aside class="minw-0" data-rail></aside></div></div>`;
   const widget = el.querySelector('[data-widget]'); const history = el.querySelector('[data-history]'); const fc = el.querySelector('[data-forecast]');
   let tickers = new Set();
   async function draw() {
+    if (!flagOn('hubs.widgets')) return; // widget data is behind the hubs.widgets flag (CLONE_SPEC.md §33)
     try {
       if (elections) {
         const m = await get('/v1/hubs/senate_map');

@@ -111,7 +111,8 @@ function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) 
     const cur = crRow(uid, eventTicker);
     const have = cur ? cur.amount_cents : 0;
     const g = guaranteedCents(uid, eventTicker);
-    const target = userPref(uid, 'trade_collateral_return', true) === false ? Math.min(have, g) : g;
+    const flagOn = !engine.flags || engine.flags.on('trading.collateral_return', { uid }); // flag (CLONE_SPEC.md §33)
+    const target = !flagOn || userPref(uid, 'trade_collateral_return', true) === false ? Math.min(have, g) : g;
     if (!cur && target === 0) return;
     tx(db, () => {
       if (target !== have) engine.credit(uid, target - have, 'collateral_return', eventTicker, target > have ? `collateral returned early: ${ev.title}` : `collateral return repaid: ${ev.title}`);

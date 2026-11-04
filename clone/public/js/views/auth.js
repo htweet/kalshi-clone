@@ -36,9 +36,9 @@ export async function render({ el, params, query, navigate }) {
     ${signUp ? rules : ''}
     <div class="form-error" id="auth-error" role="alert"></div>
     ${submit(signUp ? t('auth.render.sign_up') : t('auth.render.log_in'))}
-    ${signUp ? '' : `<p class="auth-forgot"><a href="/forgot-password" data-link class="c-brand" data-testid="forgot-link">${te('auth.render.forgot_password')}</a></p>`}
+    ${signUp ? '' : `<p class="auth-forgot" data-flag="signin.password"><a href="/forgot-password" data-link class="c-brand" data-testid="forgot-link">${te('auth.render.forgot_password')}</a></p>`}
     <div class="auth-alt" data-auth-alt hidden></div>
-    <p class="faint ta-c mt-16">${signUp ? `${te('auth.render.already_have_an_account')} <a href="/sign-in" data-link class="c-brand">${te('auth.render.log_in')}</a>` : `${te('auth.render.new_here')} <a href="/sign-up" data-link class="c-brand">${te('auth.render.create_an_account')}</a>`}</p>
+    <p class="faint ta-c mt-16">${signUp ? `${te('auth.render.already_have_an_account')} <a href="/sign-in" data-link class="c-brand">${te('auth.render.log_in')}</a>` : `${te('auth.render.new_here')} <a href="/sign-up" data-link class="c-brand" data-flag="accounts.signup" data-testid="sign-up-link">${te('auth.render.create_an_account')}</a>`}</p>
   </form>`;
   const form = el.querySelector('#auth-form');
   // After sign-in or sign-up: identity onboarding first when verification gates trading (CLONE_SPEC §25).
@@ -88,8 +88,8 @@ export async function render({ el, params, query, navigate }) {
   const alt = form.querySelector('[data-auth-alt]');
   const cfg = await idApi.config().catch(() => null);
   const buttons = [];
-  if (!signUp && passkeysSupported() && cfg?.passkeys) buttons.push(`<button type="button" class="btn w-full h-48" data-passkey data-testid="passkey-login">${te('auth.render.log_in_with_a_passkey')}</button>`);
-  for (const p of cfg?.oauth_providers || []) buttons.push(`<button type="button" class="btn w-full h-48" data-oauth="${esc(p.id)}" data-testid="oauth-${esc(p.id)}">${te('auth.render.continue_with', { label: esc(p.label), value: p.mock ? ` <span class="faint">${te('auth.render.test')}</span>` : '' })}</button>`);
+  if (!signUp && passkeysSupported() && cfg?.passkeys) buttons.push(`<button type="button" class="btn w-full h-48" data-passkey data-testid="passkey-login" data-flag="signin.passkey">${te('auth.render.log_in_with_a_passkey')}</button>`);
+  for (const p of cfg?.oauth_providers || []) buttons.push(`<button type="button" class="btn w-full h-48" data-oauth="${esc(p.id)}" data-testid="oauth-${esc(p.id)}" data-flag="signin.oauth signin.${esc(p.id)}">${te('auth.render.continue_with', { label: esc(p.label), value: p.mock ? ` <span class="faint">${te('auth.render.test')}</span>` : '' })}</button>`);
   if (buttons.length) {
     alt.innerHTML = `<div class="auth-or"><span>${te('auth.render.or')}</span></div>${buttons.join('')}`;
     alt.hidden = false;

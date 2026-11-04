@@ -31,6 +31,7 @@
   <link rel="stylesheet" href="/markets5b.css" nonce="__CSP_NONCE__">
   <link rel="stylesheet" href="/trading.css" nonce="__CSP_NONCE__">
   <link rel="stylesheet" href="/pwa.css" nonce="__CSP_NONCE__">
+  <link rel="stylesheet" href="/playmode.css" nonce="__CSP_NONCE__">
   <link rel="stylesheet" href="/utilities.css" nonce="__CSP_NONCE__">
   <!-- CMS (CLONE_SPEC.md §32): the published content bundle (texts, media, footer) loads before the app modules so
        strings read while they evaluate already see the published values. Custom brand colours add a /content-theme.css
@@ -46,7 +47,7 @@
         </a>
         <nav class="primary-nav" aria-label="Primary" data-t-attr="aria-label:shell.html.nav_primary">
           <a href="/browse" data-link data-nav="markets" data-t="shell.html.nav_markets">Markets</a>
-          <a href="/perps" data-link data-nav="invest" data-t="shell.html.nav_invest">Invest</a>
+          <a href="/perps" data-link data-nav="invest" data-t="shell.html.nav_invest" data-flag="perps">Invest</a>
           <a href="/live" data-link data-nav="live"><span data-t="shell.html.nav_live">Live</span> <span class="live-badge" id="live-count" aria-label="live events" data-t-attr="aria-label:shell.html.live_events">·</span></a>
           <a href="/pro" data-link data-nav="pro" data-t="shell.html.nav_pro">Pro</a>
           <div class="nav-more"><button id="more-btn" data-menu-btn aria-haspopup="true" aria-label="More" data-t-attr="aria-label:shell.html.nav_more"><span data-t="shell.html.nav_more">More</span> <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div>

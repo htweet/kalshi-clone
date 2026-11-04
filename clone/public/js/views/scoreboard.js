@@ -7,6 +7,7 @@ import '../content/scoreboard-strings.js';
 import { vars } from '../dynstyle.js';
 import { esc, cents, eventHref, dayKey, fmtDt, fmtDay } from '../lib.js';
 import { socket } from '../ws.js';
+import { flagOn } from '../flags.js'; // feature flags (CLONE_SPEC.md §33)
 import { request } from '../api.js';
 
 export const SPORT_LABEL = { soccer: 'Soccer', basketball: 'Basketball', football: 'Football', tennis: 'Tennis', cricket: 'Cricket', esports: 'Esports', hockey: 'Hockey' };
@@ -56,6 +57,7 @@ export function clockSpan(gc, testid = 'game-clock') {
   return `<span class="sb-gclock" data-testid="${esc(testid)}" data-gclock data-gc-s="${esc(gc.seconds)}" data-gc-dir="${esc(gc.direction)}" data-gc-rate="${esc(gc.rate || 1)}" data-gc-fmt="${esc(gc.format)}" data-gc-cap="${esc(cap)}" data-gc-run="${gc.running ? '1' : '0'}" data-gc-at="${Date.now()}">${esc(clockText(gc.format, gc.seconds, gc.cap))}</span>`;
 }
 export function tickClocks(root = document) {
+  if (!flagOn('sports.live_clocks')) return; // clocks freeze at the last server value while the flag is off (§33)
   for (const n of root.querySelectorAll('[data-gclock][data-gc-run="1"]')) {
     const t = clockText(n.dataset.gcFmt, clockNow(n), Number(n.dataset.gcCap) || 0);
     if (n.textContent !== t) n.textContent = t;

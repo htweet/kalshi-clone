@@ -55,6 +55,8 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     // The gate decides per type × channel: store in-app, toast live, and queue email / push (server/notify-prefs.js).
     const gate = hooks.notifyGate ? hooks.notifyGate(userId, { type, title, body, link, actor, meta }) : null;
     if (gate && !gate.store) return null;
+    // In-app channel flag (CLONE_SPEC.md §33): off → no inbox row or toast, except account-protection notices.
+    if (engine.flags && !['security', 'account', 'money_controls', 'production_reset'].includes(type) && !engine.flags.on('notify.inapp', { uid: userId })) return null;
     const n = { id: newId('n_'), user_id: userId, type, title: (gate && gate.title) || title, body, link, read_at: null, created_ts: Date.now() };
     // In-app channel template (Admin › Content › Templates, CLONE_SPEC.md §32.5): the inbox row and the live toast.
     let tpl = null;
@@ -498,7 +500,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
       if (amt > 0) engine.emit('user_balance', u.id, engine.balance(u.id));
     }
   }
-  engine.on('tick', () => { try { accrueInterest(); } catch (e) { console.error('interest', e); } });
+  engine.on('tick', () => { if (engine.flags && !engine.flags.jobOn('interest')) return; try { accrueInterest(); } catch (e) { console.error('interest', e); } }); // paused while the flag is off (§33)
   v1.get('/users/:uid/interest', requireUser, (req, res) => {
     const rows = db.prepare('SELECT * FROM interest_accruals WHERE user_id=? ORDER BY day DESC LIMIT 30').all(req.auth.user.id);
     res.json({ apy: String(apyNow()), total_dollars: dollars(rows.reduce((a, r) => a + r.amount_cents, 0)), accruals: rows.map((r) => ({ day: r.day, base_dollars: dollars(r.base_cents), amount_dollars: dollars(r.amount_cents) })) });

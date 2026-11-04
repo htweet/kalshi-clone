@@ -355,7 +355,7 @@ function mountWebPush({ v1, db, engine, requireUser, keyDir, options = {}, templ
       try { writes.prune(); tests.prune(); db.prepare("DELETE FROM push_outbox WHERE status IN ('sent','failed','gone','expired') AND created_ts<?").run(now - 7 * 86400000); } catch { /* closing */ }
     }
   };
-  engine.on('tick', onTick);
+  engine.on('tick', () => { if (engine.flags && !(engine.flags.jobOn('notify.push') && engine.flags.jobOn('pwa.push'))) return; onTick(); }); // paused while a push flag is off (§33)
 
   return {
     enqueueUser, pump, publicKey: () => vapid.publicKey, subject: () => subject,

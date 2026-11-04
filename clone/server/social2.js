@@ -670,6 +670,7 @@ function mountSocial2({ v1, db, engine, requireUser, can, rolesOf, getFeat, circ
   const dirty = new Set();
   let lastLeaders = 0; let lastPrune = Date.now();
   engine.on('tick', () => {
+    if (engine.flags && !engine.flags.jobOn('social')) return; // paused while the flag is off (CLONE_SPEC.md §33)
     try {
       for (const uid of [...dirty].slice(0, 200)) { dirty.delete(uid); evaluate(uid); }
       const now = Date.now();

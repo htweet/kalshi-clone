@@ -22,7 +22,7 @@ export async function render({ el, section: sec, parts, perms, navigate }) {
 }
 
 async function renderUser(el, id, perms, navigate) {
-  const d = await get(`/users/${encodeURIComponent(id)}`);
+  const [d, mc] = await Promise.all([get(`/users/${encodeURIComponent(id)}`), get(`/users/${encodeURIComponent(id)}/money_controls`)]); // money controls (CLONE_SPEC.md §33)
   const u = d.user;
   const lim = (l, money) => (l ? `${money ? (l.limit_dollars == null ? 'none' : fmtMoney(l.limit_dollars)) : (l.limit_minutes == null ? 'none' : te('admin.users.render_user.min', { limit_minutes: esc(l.limit_minutes) }))} <span class="faint">${te('admin.users.render_user.used_today', { value: money ? fmtMoney(l.used_today_dollars) : te('admin.users.render_user.min_2', { round: Math.round(l.used_today_seconds / 60) }), value_2: l.pending ? (' ' + te('admin.users.render_user.change_pending')) : '' })}</span>` : '—');
   const can = (p) => perms.has(p);
@@ -44,6 +44,11 @@ async function renderUser(el, id, perms, navigate) {
     <div class="adm-two">
       <div class="card adm-card"><h3>${te('admin.users.render_user.limits')}</h3><dl class="adm-dl" data-testid="user-limits"><dt>${te('admin.users.render_user.deposit_day')}</dt><dd>${lim(d.limits.deposit, true)}</dd><dt>${te('admin.users.render_user.trading_day')}</dt><dd>${lim(d.limits.trading, true)}</dd><dt>${te('admin.users.render_user.session_day')}</dt><dd>${lim(d.limits.session, false)}</dd></dl>
         ${can('users.money') ? `<button class="btn btn-sm" data-act="limits">${te('admin.users.render_user.override_a_limit')}</button>` : ''}</div>
+      <div class="card adm-card" data-testid="user-money-controls"><h3>${te('admin.users.money.title')}</h3>
+        <p>${te('admin.users.money.deposits')} ${mc.money_controls.deposits_revoked ? badge(tx('admin.users.money.revoked'), 'bad') : badge(tx('admin.users.money.allowed'), 'ok')} · ${te('admin.users.money.withdrawals')} ${mc.money_controls.withdrawals_revoked ? badge(tx('admin.users.money.revoked'), 'bad') : badge(tx('admin.users.money.allowed'), 'ok')}</p>
+        ${mc.money_controls.reason && (mc.money_controls.deposits_revoked || mc.money_controls.withdrawals_revoked) ? `<p class="faint">${te('admin.users.money.reason', { reason: esc(mc.money_controls.reason) })}</p>` : ''}
+        ${mc.history.length ? `<ul class="adm-list" data-testid="money-controls-history">${mc.history.slice(0, 5).map((h) => `<li class="faint">${te('admin.users.money.history', { time: esc(fmtTime(h.time)), who: esc(h.actor_email || ''), dep: h.deposits_revoked ? te('admin.users.money.revoked') : te('admin.users.money.allowed'), wd: h.withdrawals_revoked ? te('admin.users.money.revoked') : te('admin.users.money.allowed'), reason: esc(h.reason) })}</li>`).join('')}</ul>` : ''}
+        ${can('users.money') ? `<button class="btn btn-sm" data-act="money_controls" data-testid="user-money-controls-btn">${te('admin.users.money.change')}</button>` : ''}</div>
       <div class="card adm-card"><h3>${te('admin.users.render_user.recent_admin_actions')}</h3>${d.audit.length ? `<ul class="adm-list">${d.audit.map((a) => `<li><b>${esc(a.action)}</b> <span class="faint">${esc(fmtTime(a.time))} · ${esc(a.actor_email || '')}</span><div class="muted">${esc(a.reason)}</div></li>`).join('')}</ul>` : `<p class="faint">${te('admin.users.render_user.none')}</p>`}</div>
     </div>
     <h3 class="adm-h3">${te('admin.users.render_user.positions')}</h3><div id="u-pos"></div>
@@ -71,6 +76,15 @@ async function renderUser(el, id, perms, navigate) {
         const dlg = dialog(`<h3>${te('admin.users.render_user.adjust_balance_2', { email: esc(u.email) })}</h3><p class="muted">${te('admin.users.render_user.creates_an')} <code>${te('admin.users.render_user.adjustment')}</code> ${te('admin.users.render_user.ledger_entry_and_updates_the')}</p>${formHtml(fields, { submit: tx('admin.users.render_user.apply_adjustment'), id: 'adj', extra: `<button class="btn" type="button" data-close>${te('admin.users.render_user.cancel')}</button>`, testid: 'adjust-form' })}`);
         dlg.querySelector('[data-close]').onclick = () => dlg.close();
         wireForm(dlg.querySelector('form'), fields, async (v) => { const r = await post(`/users/${encodeURIComponent(u.user_id)}/adjust`, { ...v, amount_dollars: toApiDollars(v.amount_dollars) }); dlg.close(); toast(tx('admin.users.render_user.new_balance', { fmt_money: fmtMoney(r.balance_dollars) })); await reload(); });
+        return;
+      }
+      if (act === 'money_controls') {
+        const c = mc.money_controls;
+        const fields = [{ name: 'deposits_revoked', label: tx('admin.users.money.revoke_deposits'), type: 'checkbox', value: c.deposits_revoked }, { name: 'withdrawals_revoked', label: tx('admin.users.money.revoke_withdrawals'), type: 'checkbox', value: c.withdrawals_revoked },
+          { name: 'reason', label: tx('admin.users.money.reason_field'), required: true, span: true }];
+        const dlg = dialog(`<h3>${te('admin.users.money.dialog_title', { email: esc(u.email) })}</h3><p class="muted">${te('admin.users.money.dialog_body')}</p>${formHtml(fields, { submit: tx('admin.users.money.save'), id: 'mc', extra: `<button class="btn" type="button" data-close>${te('admin.users.render_user.cancel')}</button>`, testid: 'money-controls-form' })}`);
+        dlg.querySelector('[data-close]').onclick = () => dlg.close();
+        wireForm(dlg.querySelector('form'), fields, async (v) => { await put(`/users/${encodeURIComponent(u.user_id)}/money_controls`, v); dlg.close(); toast(tx('admin.users.money.saved')); await reload(); });
         return;
       }
       if (act === 'limits') {

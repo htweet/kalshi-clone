@@ -26,6 +26,9 @@ const { mountPayments } = require('./payments'); // Phase 4: payments, sandbox o
 const journal = require('./journal'); // Phase 4: double-entry journal (CLONE_SPEC.md §26.6)
 const { mountMarketsContent } = require('./markets-content'); // Phase 5B: ballot, AI summaries, incentives, hubs (§29)
 const { mountCms } = require('./cms'); // Phase 5C: content management (CLONE_SPEC.md §32)
+const { createFlags, mountFlags } = require('./flags'); // Phase 5D: feature flags (CLONE_SPEC.md §33)
+const { mountPlayMode } = require('./play-mode'); // Phase 5D: play mode, money controls, production switch (§33)
+const { mountCentralBank } = require('./central-bank'); // Phase 5D: Central Bank, promotions treasury, Vault Heist (§33)
 const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
 const { createAuth } = require('./auth');
@@ -58,7 +61,7 @@ function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
   return n;
 }
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -99,9 +102,14 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Sessions, login CSRF, step-up, login hardening, two-factor, first-admin setup (server/auth.js, CLONE_SPEC §22).
   const auth = createAuth({ db, engine, options: authOptions, keyDir });
   app.locals.auth = auth;
+  // Feature flags (server/flags.js, CLONE_SPEC.md §33): evaluated per request; modules ask engine.flags.on()/jobOn().
+  const flags = createFlags({ db, engine, options: flagsOptions || {} });
+  app.locals.flags = flags; engine.flags = flags;
   app.use(auth.attach); // req.auth from the session cookie; session CSRF on writes, login CSRF on pre-session endpoints
   app.use('/v1', auth.guard); // step-up verification for sensitive actions; privilege-change session rotation
   app.use(['/v1', '/trade-api'], security.apiGuard); // tiered rate limits; signed client token on /v1 writes (server/bot.js)
+  // Feature flags + money controls: 403 feature_disabled / deposits_revoked / … before any route runs (CLONE_SPEC.md §33).
+  app.use('/v1', flags.gate);
   // Isolated card tokenizer (server/payments.js): its own raw-body parser, outside the /v1 router and its middleware.
   app.post('/v1/payments/tokenize/card', (req, res, next) => (app.locals.payments ? app.locals.payments.tokenizeRoute(req, res) : next(E.notFound())));
 
@@ -144,6 +152,10 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.marketsContent = mountMarketsContent({ v1, db, engine, auth, admin, identity: app.locals.identity, feat, security, requireUser, eventFull, getEvent, options: marketsContent || {} });
   app.locals.tradingCore = mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify: feat.notify });
   app.locals.cms = mountCms({ v1, app, db, engine, admin, auth, options: cmsOptions || {} }); // texts, templates, media, pages, branding (§32)
+  // Phase 5D (CLONE_SPEC.md §33): flag admin + bundle, play mode and money controls, Central Bank and the Vault Heist.
+  mountFlags({ v1, db, flags, admin, auth, identity: app.locals.identity });
+  app.locals.centralBank = mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, options: centralBankOptions || {} });
+  app.locals.playMode = mountPlayMode({ v1, app, db, engine, auth, admin, flags, feat, payments: app.locals.payments, centralBank: app.locals.centralBank, keyDir, options: playModeOptions || {} });
   // Every send goes through the templates (CLONE_SPEC.md §32.5): in-app (features.notify), email and push (notify-prefs),
   // account emails (auth, identity), the phone code SMS and the push test (identity, webpush).
   feat.hooks.notifyTemplate = (type, msg) => app.locals.cms.renderNotification(type, msg);
@@ -347,6 +359,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     const ticker = String(b.ticker || '');
     const mk = db.prepare('SELECT fractional_trading_enabled f, price_level_structure pls FROM markets WHERE ticker=?').get(ticker);
     if (!mk) throw E.notFound();
+    if (!flags.on('trading.fractional', { req })) mk.f = 0; // fractional trading flag off: whole contracts only (§33)
     let pcc = parsePrice(b);
     let units = type === 'dollars' ? null : parseCount(b);
     let allowFractional = false;
@@ -362,6 +375,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
         // A8 flip sell (Settings › Trade mechanics, CLONE_SPEC.md §28.5): selling more than held closes the position and
         // buys the other side for the remainder — the same single order, since the bought contracts net against the held
         // ones first. Without the setting the old rule stands.
+        if (!flags.on('trading.flip_sell', { req })) throw flags.disabledError('trading.flip_sell'); // flag (§33)
         if (!tradePref(uid, 'trade_flip_sell')) throw E.conflict('insufficient_position', 'you cannot sell more contracts than you hold', `you hold ${ustr(held)} ${b.side.toUpperCase()}; turn on Flip sell in Settings to sell more and buy the other side`);
         flipUnits = units - held;
         allowFractional = !!mk.f || flipUnits % UNITS === 0;

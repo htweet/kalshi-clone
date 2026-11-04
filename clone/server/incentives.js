@@ -162,6 +162,7 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
   }
   let lastSnap = 0;
   engine.on('tick', () => {
+    if (engine.flags && !engine.flags.jobOn('incentives')) return; // paused while the flag is off (CLONE_SPEC.md §33)
     const now = Date.now();
     if (now - lastSnap < SNAPSHOT_MS) return;
     lastSnap = now;
@@ -176,6 +177,16 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
         const due = Math.floor(a.micro_cents / MICRO) - a.paid_cents;
         if (due <= 0) continue;
         const label = `Liquidity incentive · ${p.title || p.event_ticker}`;
+        // Production use of the Central Bank (CLONE_SPEC.md §33): with it on, rewards come out of the promotions treasury;
+        // an empty budget queues the payout (paid when funded) or, per setting, leaves it due.
+        if (engine.treasury?.active()) {
+          const r = engine.treasury.pay({ uid: a.user_id, cents: due, mode: p.payout_mode === 'credits' ? 'credit' : 'cash', kind: 'incentive', purpose: 'incentive', ref: p.id, memo: label });
+          if (r.refused) continue;
+          db.prepare('UPDATE incentive_accruals SET paid_cents=paid_cents+? WHERE program_id=? AND user_id=?').run(due, p.id, a.user_id);
+          db.prepare('INSERT INTO incentive_rewards(id,program_id,user_id,amount_cents,mode,month,created_ts) VALUES(?,?,?,?,?,?,?)').run(newId('irw_'), p.id, a.user_id, due, p.payout_mode, monthKey(), Date.now());
+          paid.push({ user_id: a.user_id, cents: due, queued: !!r.queued });
+          continue;
+        }
         // Cash: user cash ← house:incentives. Credits: user credits ← house:promotions, with an expiring grant.
         if (p.payout_mode === 'credits') engine.credit(a.user_id, due, 'credit', p.id, label);
         else engine.credit(a.user_id, due, 'incentive', p.id, label, { contra: 'house:incentives' });
@@ -187,6 +198,7 @@ function mountIncentives({ v1, db, engine, auth, admin, identity, feat, requireU
       db.prepare(`UPDATE incentive_programs SET paid_cents=paid_cents+?, status=CASE WHEN status='ended' THEN 'paid' ELSE status END, updated_at=? WHERE id=?`).run(total, nowIso(), p.id);
     });
     for (const x of paid) {
+      if (x.queued) continue; // a queued treasury payout notifies when it is paid (server/central-bank.js)
       engine.emit('user_balance', x.user_id, engine.balance(x.user_id));
       try { feat.notify(x.user_id, { type: 'market_reward', title: CS.t('notify.market_reward.title', { amount: C.moneyCents(x.cents) }), body: p.title || p.event_ticker, link: '/incentives' }); } catch (e) { console.error('incentive notify', e.message); }
       engine.emit('incentive_reward', x.user_id, { type: 'paid', program_id: p.id, amount_dollars: dollars(x.cents) });

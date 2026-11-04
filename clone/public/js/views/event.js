@@ -16,6 +16,7 @@ import { mountGameBoard, mountLinesSection } from './sports.js'; // live scorebo
 import { evLabelInner } from './scoreboard.js'; // live header label with the running game clock (§29, PLAN G9)
 import { mountAiSummary } from './ai-summary.js'; // AI news summary + timeline (§29, PLAN P5.4)
 import { mountChat } from './chat.js'; // "● Live chat" pill + panel (CLONE_SPEC §20)
+import { flagOn } from '../flags.js'; // feature flags (CLONE_SPEC.md §33)
 import { mountEventExtras, renderPromos } from './social2.js'; // follow event, price-move alerts, targeted promos (CLONE_SPEC.md §24)
 
 const RANGES = { '1d': [86400, 1], '1w': [7 * 86400, 60], '1m': [30 * 86400, 60], all: [365 * 86400, 1440] };
@@ -70,7 +71,9 @@ export async function render({ el, params, query, navigate }) {
   };
   const isCombo = ev.series_ticker === COMBO_SERIES;
   const comboEligible = !isCombo && !ev.series_ticker.startsWith('PLXFLASH');
-  const modes = () => (session.props.rfq_enabled && !isCombo ? [...MODES, RFQ_MODE] : MODES);
+  // Order types follow their feature flags (trading.<type>_orders, combos.rfq; CLONE_SPEC.md §33).
+  const modes = () => (session.props.rfq_enabled && !isCombo && flagOn('combos.rfq') ? [...MODES, RFQ_MODE] : MODES).filter(([k]) => k === 'rfq' || flagOn(`trading.${k}_orders`));
+  const reviewOn = () => flagOn('trading.order_review') && !tp().trade_skip_review; // A7 review step (setting + flag)
   if (session.user) {
     try { state.watching = (await api.watchlist(session.uid)).events.some((e) => e.event_ticker === ev.event_ticker); } catch { /* ignore */ }
   }
@@ -94,11 +97,11 @@ export async function render({ el, params, query, navigate }) {
           <button class="icon-btn" id="chat-btn" title="${te('event.render.discussion')}" aria-label="${te('event.render.go_to_discussion')}">${SVG.chat}</button>
           <button class="icon-btn" id="share-btn" title="${te('event.render.copy_link')}" aria-label="${te('event.render.copy_link')}">${SVG.share}</button>
           <button class="icon-btn" id="csv-btn" data-testid="csv-btn" title="${te('event.render.download_price_history')}" aria-label="${te('event.render.download_price_history')}">${SVG.dl}</button>
-          <button class="btn btn-pill" id="watch-btn" data-testid="watch-btn" aria-pressed="${state.watching}"></button>
+          <button class="btn btn-pill" id="watch-btn" data-testid="watch-btn" data-flag="watchlist" aria-pressed="${state.watching}"></button>
         </div>
       </div>
       ${ev.live_data || ev.sports_lines ? '<div id="sports-board" class="sb-mount"></div>' : ''}
-      ${ev.lines_event_ticker ? `<section class="card sb-lines" id="sb-lines" data-testid="lines-section" aria-label="${te('event.render.spread_and_total')}"></section>` : ''}
+      ${ev.lines_event_ticker ? `<section class="card sb-lines" id="sb-lines" data-testid="lines-section" data-flag="sports.lines" aria-label="${te('event.render.spread_and_total')}"></section>` : ''}
       ${h2h ? `<div class="h2h" data-testid="h2h"></div>` : ''}
       ${isCombo ? `<section class="card combo-legs" id="combo-legs" data-testid="combo-legs" aria-label="${te('event.render.combo_legs')}"></section>` : ''}
       <section class="chart-box">
@@ -113,14 +116,14 @@ export async function render({ el, params, query, navigate }) {
       <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${esc(t)}" class="${t === state.bottomTab ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       <div id="bottom"></div>
       <div class="sec-head mt-48"><h2>${te('event.render.people_are_also_trading')}</h2></div><div id="also"></div>
-      ${ev.news_items ? '<div id="ai-summary" class="ai-mount"></div>' : ''}
+      ${ev.news_items ? '<div id="ai-summary" class="ai-mount" data-flag="ai_summaries"></div>' : ''}
       ${ev.news || ev.news_items ? `<div class="sec-head"><h2>${te('event.render.news')}</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${te('event.render.parlance_newsroom', { ev_icon: evIcon({ category: ev.category, title: 'P' }, 'sm'), fmt_day: fmtDay(Date.now() - 86400000) })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
     </div>
     <aside>
-      ${comboEligible ? `<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" aria-pressed="false">${te('event.render.combo')}</button><div id="combo-mini"></div>` : ''}
+      ${comboEligible ? `<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" data-flag="combos" aria-pressed="false">${te('event.render.combo')}</button><div id="combo-mini"></div>` : ''}
       <section class="card tkt ticket" id="ticket" aria-label="${te('event.render.trade_ticket')}"></section>
       <div id="position"></div>
-      <div id="alerts"></div>
+      <div id="alerts" data-flag="price_alerts"></div>
       <div id="admin"></div>
     </aside>
   </div>`;
@@ -289,8 +292,9 @@ export async function render({ el, params, query, navigate }) {
     }
     const selling = state.action === 'sell';
     const MODE_LIST = modes();
+    if (!flagOn('trading') || !MODE_LIST.length) { t.innerHTML = `<div class="tkt-body"><p class="muted" data-testid="ticket-unavailable">${te('event.render.trading_unavailable')}</p></div>`; return; }
     let mode = selling && (state.mode === 'dollars' || state.mode === 'rfq') ? 'market' : state.mode;
-    if (!MODE_LIST.some(([k]) => k === mode)) mode = 'dollars';
+    if (!MODE_LIST.some(([k]) => k === mode)) mode = MODE_LIST.some(([k]) => k === 'dollars') ? 'dollars' : MODE_LIST[0][0];
     const frac = !!m.fractional_trading_enabled; // fractional contracts (spec §16.5)
     const step = frac ? '0.01' : '1';
     const yesAsk = ccOf(m.yes_ask_dollars); const noAsk = ccOf(m.no_ask_dollars);
@@ -304,7 +308,7 @@ export async function render({ el, params, query, navigate }) {
         <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
         <div class="d-flex ai-center jc-between gap-12 fw-wrap">
           <div class="yn-toggle side-toggle"><button data-side="yes" class="${state.side === 'yes' ? 'on-yes' : ''}">${te('event.render.yes_3', { pxc: esc(pxc(selling ? ccOf(m.yes_bid_dollars) : yesAsk)) })}</button><button data-side="no" class="${state.side === 'no' ? 'on-no' : ''}">${te('event.render.no_3', { pxc: esc(pxc(selling ? ccOf(m.no_bid_dollars) : noAsk)) })}</button></div>
-          <button class="interest-link" id="interest-btn" type="button">${te('event.render.n3_5_interest')}</button>
+          <button class="interest-link" id="interest-btn" type="button" data-flag="interest">${te('event.render.n3_5_interest')}</button>
         </div>
         ${selling ? `<div class="tkt-row" data-testid="held"><span>${te('event.render.you_hold')}</span><strong>${qty(held)} ${state.side.toUpperCase()}</strong></div>` : ''}
         ${mode === 'dollars' ? `<label class="tkt-input">${esc(amountLabel())}<input id="t-amount" type="number" min="1" step="${esc(moneyStep())}" placeholder="${esc(sym())}0" inputmode="decimal" aria-label="${esc(amountLabel())}" data-testid="t-amount"></label>` : ''}
@@ -317,7 +321,7 @@ export async function render({ el, params, query, navigate }) {
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
         <div id="t-review"></div>
-        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? te('event.render.sign_up_to_trade') : mode === 'rfq' ? te('event.render.request_quote') : `${!tp().trade_skip_review ? (te('event.render.review') + ' ') : ''}${selling ? te('event.render.sell') : te('event.render.buy')} ${state.side === 'yes' ? te('event.render.yes_2') : te('event.render.no_2')}`}</button>
+        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? te('event.render.sign_up_to_trade') : mode === 'rfq' ? te('event.render.request_quote') : `${reviewOn() ? (te('event.render.review') + ' ') : ''}${selling ? te('event.render.sell') : te('event.render.buy')} ${state.side === 'yes' ? te('event.render.yes_2') : te('event.render.no_2')}`}</button>
         <div id="t-after"></div>
       </div>`;
     for (const b of t.querySelectorAll('[data-side]')) b.onclick = () => { state.side = b.dataset.side; drawRows(); drawTicket(defaultPrice()); };
@@ -474,7 +478,7 @@ export async function render({ el, params, query, navigate }) {
         return;
       }
       const body = buildBody();
-      if (!tp().trade_skip_review || (state.review && state.review.flip && mode !== 'dollars')) { showReview(body); return; }
+      if (reviewOn() || (state.review && state.review.flip && mode !== 'dollars')) { showReview(body); return; }
       await place(body);
     };
   }

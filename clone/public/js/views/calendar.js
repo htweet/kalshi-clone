@@ -6,6 +6,7 @@ import '../content/calendar-strings.js';
 import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { socket } from '../ws.js';
+import { flagOn } from '../flags.js'; // feature flags (CLONE_SPEC.md §33)
 import { esc, CATEGORIES, catLabel, eventHref, money, cents, currency, dayKey, fmtTime } from '../lib.js';
 import { eventCard, evIcon } from './components.js';
 import { applySportsFilter, drawSportsNav } from './sports.js'; // sports leagues sidebar + ?league= / ?sport= filter
@@ -69,7 +70,7 @@ export async function render({ el, params, query, navigate }) {
     </nav>
     <div class="minw-0">
       <h1 class="live-title" data-testid="live-title">${te('calendar.render.live_2', { value: liveSec ? liveSec.events.length : 0 })}</h1>
-      <div id="flash"></div>
+      <div id="flash" data-flag="trading.rolling"></div>
       ${liveSec ? `<section class="cal-section" data-testid="cal-section" data-date="${esc(liveSec.date)}" data-live="true"><div class="grid grid-1col">${cappedCards(liveSec, true)}</div></section>` : `<div class="card empty">${te('calendar.render.nothing_is_live_right_now')}</div>`}
       ${liveOnly ? '' : dated.map((s) => `<section class="cal-section" data-testid="cal-section" data-date="${esc(s.date)}" data-live="false">
           <h2 class="cal-date">${esc(fmtDate(s.date))}<span class="faint">${s.events.length}</span></h2>
@@ -93,7 +94,7 @@ export async function render({ el, params, query, navigate }) {
   const flashEvent = liveSec?.events.find((e) => e.series_ticker.startsWith('PLXFLASH'));
   async function drawFlash() {
     const box = el.querySelector('#flash');
-    if (!box || (category && category !== 'Crypto')) return;
+    if (!box || (category && category !== 'Crypto') || !flagOn('trading.rolling')) return; // rolling-markets flag (§33)
     try {
       const { window: w, prices } = await api.rollingCurrent();
       const ev = flashEvent && flashEvent.event_ticker === w.event_ticker ? flashEvent : (await api.event(w.event_ticker)).event;

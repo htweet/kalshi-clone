@@ -36,6 +36,10 @@ export const SECTIONS = [
   // Phase 5B (CLONE_SPEC.md §29): AI news summaries (hide / regenerate / budget) and the Liquidity Incentive Program.
   ['ai_summaries', ts('admin.sections.ai_summaries'), 'content.write', './admin/content5b.js'],
   ['incentives', ts('admin.sections.liquidity_incentives'), 'markets.ops', './admin/content5b.js'],
+  // Phase 5D (CLONE_SPEC.md §33): feature flags, play mode (switch to production) and the Central Bank / Vault Heist.
+  ['flags', ts('admin.sections.feature_flags'), 'settings.write', './admin/flags.js'],
+  ['play_mode', ts('admin.sections.play_mode'), 'settings.write', './admin/playmode.js'],
+  ['central_bank', ts('admin.sections.central_bank'), 'users.read', './admin/playmode.js'],
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -45,7 +49,7 @@ const LOADERS = {
   './admin/system.js': () => import('./admin/system.js'), './admin/security.js': () => import('./admin/security.js'),
   './admin/identity.js': () => import('./admin/identity.js'), './admin/compliance.js': () => import('./admin/compliance.js'),
   './admin/payments.js': () => import('./admin/payments.js'), './admin/content5b.js': () => import('./admin/content5b.js'),
-  './admin/cms.js': () => import('./admin/cms.js'),
+  './admin/cms.js': () => import('./admin/cms.js'), './admin/flags.js': () => import('./admin/flags.js'), './admin/playmode.js': () => import('./admin/playmode.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.

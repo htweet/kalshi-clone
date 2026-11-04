@@ -9,6 +9,7 @@ import { t as tx, te, ts, tes } from '../i18n.js'; // text catalog (CLONE_SPEC.m
 import '../content/onboarding-strings.js';
 import { session } from '../store.js';
 import { idApi } from '../identity-api.js';
+import { flagOn } from '../flags.js'; // feature flags (CLONE_SPEC.md §33)
 import { esc, toast } from '../lib.js';
 import { vars } from '../dynstyle.js';
 import { qrSvg } from '../qr.js';
@@ -510,6 +511,7 @@ export async function refreshIdentityBanner() {
       bannerEl.hidden = false;
       return;
     }
+    if (!flagOn('identity.kyc')) { bannerEl.hidden = true; return; } // identity verification flag off (CLONE_SPEC.md §33)
     const cfg = await idApi.config();
     if (!cfg.kyc_required) { bannerEl.hidden = true; return; }
     const s = await idApi.state(session.uid);

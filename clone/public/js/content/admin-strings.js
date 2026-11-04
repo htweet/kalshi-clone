@@ -50,7 +50,10 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.render.unknown_admin_section": "Unknown admin section.",
   "admin.render.admin_2": "{value} · Admin",
   "admin.render.admin_parlance": "{value} · Admin · Parlance",
-  "admin.sections.content_settings": "Content & settings"
+  "admin.sections.content_settings": "Content & settings",
+  "admin.sections.feature_flags": "Feature flags",
+  "admin.sections.play_mode": "Play mode",
+  "admin.sections.central_bank": "Central Bank"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

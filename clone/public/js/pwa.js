@@ -1,6 +1,7 @@
 // Progressive Web App client (CLONE_SPEC.md §31): service worker registration and the "New version available —
 // Reload" toast, the install prompt ("Install app" in the ☰ menus; Add-to-Home-Screen steps on iOS Safari), Cache
 // Storage cleared at sign-out, and the Web Push subscription of this browser (Settings › Notifications).
+import { flagOn } from './flags.js'; // feature flags (CLONE_SPEC.md §33)
 import { session, logoutHooks } from './store.js';
 import { api } from './api.js';
 import { esc } from './lib.js';
@@ -154,7 +155,7 @@ export async function disableWebPush() {
 // belongs to another account so its notifications can never reach this user (the push service then answers 410 and
 // the server deletes the old row).
 async function syncPush() {
-  if (!webPushSupported() || !session.uid) return;
+  if (!webPushSupported() || !session.uid || !flagOn('pwa.push')) return; // the pwa.push flag (CLONE_SPEC.md §33)
   const mine = local.get(PUSH_KEY);
   const sub = await currentSubscription();
   if (!mine) return;
@@ -179,4 +180,4 @@ export function initPwa() {
 }
 
 // "Install app" entry for the ☰ menus (views/account-menu.js); '' when installation is not possible.
-export const installMenuItem = () => (installMode() ? `<button type="button" data-install-app data-testid="menu-install">${esc(t('install.item'))}</button>` : '');
+export const installMenuItem = () => (installMode() ? `<button type="button" data-install-app data-testid="menu-install" data-flag="pwa.install">${esc(t('install.item'))}</button>` : '');

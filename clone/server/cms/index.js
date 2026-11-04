@@ -67,7 +67,8 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   db.exec(MEDIA_SCHEMA);
   catalog.setFormatters({ money: (c) => require('../currency').moneyCents(Number(c)), number: (n) => Number(n).toLocaleString('en-NG') }); // typed variables (§32.3)
   const can = admin.can;
-  const emit = (msg) => { bundleCache.clear(); try { engine.emit('content', msg); } catch (e) { console.error('cms emit', e); } };
+  // Live push to open pages unless the cms.live_updates flag is off (pages then see the change on their next load, §33).
+  const emit = (msg) => { bundleCache.clear(); if (engine.flags && !engine.flags.jobOn('cms.live_updates')) return; try { engine.emit('content', msg); } catch (e) { console.error('cms emit', e); } };
   const requireFresh = (req, action) => auth.assertFresh(req, action);
   const store = createStore({ db, emit: (m) => emit(m), requireFresh });
   const writes = createLimiter(db, 'cms_write', { limit: options.writesPerMinute ?? 120, windowMs: 60000 });

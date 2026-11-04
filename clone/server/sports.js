@@ -1225,7 +1225,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   }
 
   if (!db.prepare('SELECT 1 FROM sports_milestones LIMIT 1').get()) seedFixtures(Date.now());
-  engine.on('tick', () => { try { tick(); } catch (e) { console.error('sports', e); } });
+  engine.on('tick', () => { if (engine.flags && !engine.flags.jobOn('sports')) return; try { tick(); } catch (e) { console.error('sports', e); } }); // paused while the flag is off (§33)
 
   // ======================= API (shapes follow the observed /v1/live_data/* and /milestones calls) =======================
   const leagueOf = (q) => (q ? String(q).toUpperCase() : '');

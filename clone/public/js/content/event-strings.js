@@ -179,7 +179,8 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "event.render.market_order_best_available_now": "Market order (best available, {pxc} now)",
   "event.render.limit_line": "Limit {px}{expiry}",
   "event.render.limit_expires": " · expires {time}",
-  "event.render.limit_gtc": " · good til canceled"
+  "event.render.limit_gtc": " · good til canceled",
+  "event.render.trading_unavailable": "Trading is not available right now."
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

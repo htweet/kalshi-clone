@@ -127,7 +127,20 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "funds.withdraw_flow.you_receive": "You receive",
   "funds.withdraw_flow.arrives": "Arrives",
   "funds.withdraw_flow.withdrawal_of_is_under_review": "Withdrawal of {money} is under review",
-  "funds.withdraw_flow.withdrew": "Withdrew {money}"
+  "funds.withdraw_flow.withdrew": "Withdrew {money}",
+  "funds.play.title": "Add play money",
+  "funds.play.intro": "Play money is free and arrives at once. It can be traded and used in the Vault Heist, never withdrawn.",
+  "funds.play.amount": "Amount",
+  "funds.play.submit": "Add {money} of play money",
+  "funds.play.submit_plain": "Add play money",
+  "funds.play.cap": "Daily limit {cap} · {left} left today",
+  "funds.play.no_cap": "No daily limit",
+  "funds.play.added": "Added {money} of play money",
+  "funds.play.invalid": "Enter a positive amount ({hint})",
+  "funds.blocked.deposit_title": "Deposits are not available",
+  "funds.blocked.withdraw_title": "Withdrawals are not available",
+  "funds.blocked.reason": "Reason: {reason}",
+  "funds.blocked.back": "Back to transfers"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

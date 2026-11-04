@@ -254,7 +254,11 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
     return { predictions: { amount_cents: total, amount_dollars: dollars(total), expiry_days: list.length ? Math.min(...list.map((c) => c.expiry_days)) : null, credits: list }, perps: { amount_cents: 0, amount_dollars: dollars(0), credits: [] } };
   }
   // Phase 8 hook (referrals): grant a promotional credit, e.g. once the referee reaches the offer's threshold_cents.
-  const grantCredit = (uid, cents, source, ref) => { engine.credit(uid, cents, 'credit', ref ?? null, source); engine.emit('user_balance', uid, engine.balance(uid)); };
+  // With the Central Bank on, the credit comes out of the promotions treasury (queued when its budget is empty, §33).
+  const grantCredit = (uid, cents, source, ref) => {
+    if (engine.treasury?.active()) { const r = engine.treasury.pay({ uid, cents, mode: 'credit', purpose: 'referral', ref: ref ?? null, memo: source }); engine.emit('user_balance', uid, engine.balance(uid)); return r; }
+    engine.credit(uid, cents, 'credit', ref ?? null, source); engine.emit('user_balance', uid, engine.balance(uid)); return { paid: true };
+  };
   // Expiry job: what is left of an expired grant leaves the credits account (back to the promotions budget).
   function expireCredits() {
     for (const g of db.prepare("SELECT DISTINCT user_id FROM credit_grants WHERE status='active' AND expires_ts<=?").all(Date.now())) {
@@ -441,6 +445,7 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
     const L = settings().limits;
     if (m.type === 'crypto_address') throw new ApiError(400, 'crypto_deposit_address', 'crypto deposits are sent to your deposit address', 'see crypto/account for your address');
     const rail = m.type;
+    engine.money?.assert(uid, 'deposit', { rail }); // play mode / per-user revocation (server/play-mode.js, CLONE_SPEC.md §33)
     if (!railOn(rail)) throw new ApiError(403, 'rail_disabled', `${rail} deposits are not available right now`);
     if (cents < L.min_cents) throw new ApiError(400, 'amount_too_small', `the minimum deposit is ${usd(L.min_cents)}`);
     const max = rail === 'card' ? L.card_deposit_max_cents : L.bank_deposit_max_cents;
@@ -465,6 +470,7 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
     const cents = parseAmount(req.body);
     const S = settings(); const L = S.limits;
     const rail = RAIL_OF_TYPE[m.type];
+    engine.money?.assert(uid, 'withdrawal', { rail }); // play mode / per-user revocation (CLONE_SPEC.md §33)
     if (!railOn(rail)) throw new ApiError(403, 'rail_disabled', `${rail} withdrawals are not available right now`);
     if (rail === 'card' && !cardPaidIn(m.id)) throw new ApiError(409, 'card_payout_not_eligible', 'withdrawals go only to a card you have deposited with', 'deposit with this card first, or withdraw to a bank account');
     const fee = rail === 'crypto' ? S.fees.crypto_network_fee_cents : 0;
@@ -519,6 +525,7 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
   function demoDeposit(req) {
     if (!demoEnabled()) throw new ApiError(403, 'demo_funds_disabled', 'demo funds are not available', 'choose a payment method (method_id)');
     const uid = req.auth.user.id;
+    engine.money?.assert(uid, 'deposit', { rail: 'demo' });
     const cents = parseAmount(req.body);
     const hits = amlDeposit(uid, cents);
     tx(db, () => {
@@ -533,6 +540,7 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
   function demoWithdraw(req) {
     if (!demoEnabled()) throw new ApiError(403, 'demo_funds_disabled', 'demo funds are not available', 'choose a payout method (method_id)');
     const uid = req.auth.user.id;
+    engine.money?.assert(uid, 'withdrawal', { rail: 'demo' });
     const cents = parseAmount(req.body);
     if (engine.balance(uid) < cents) throw E.conflict('insufficient_balance', 'insufficient balance');
     withdrawalPrecheck(uid, cents);
@@ -636,7 +644,8 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
   v1.get(`${U}/withdrawals`, requireUser, (req, res) => res.json({ withdrawals: txList(req.auth.user.id, 'withdrawal', Math.min(200, Math.max(1, Number(req.query.limit) || 50))) }));
   // POST deposits / withdrawals are registered in server/app.js (their original place) and call these.
   const generic = {
-    deposit: (req, res) => send(res, req.body && req.body.method_id ? createDeposit(req, ownMethod(req.auth.user.id, req.body.method_id)) : demoDeposit(req)),
+    // Play mode (CLONE_SPEC.md §33): without a method the deposit is free play money; with one the guard refuses it.
+    deposit: (req, res) => send(res, req.body && req.body.method_id ? createDeposit(req, ownMethod(req.auth.user.id, req.body.method_id)) : engine.money?.playOn() ? engine.money.playDeposit(req) : demoDeposit(req)),
     withdraw: (req, res) => send(res, req.body && req.body.method_id ? createWithdrawal(req, ownMethod(req.auth.user.id, req.body.method_id)) : demoWithdraw(req)),
   };
   v1.get(`${U}/withdrawal_addresses`, requireUser, (req, res) => res.json({ withdrawal_addresses: list(req.auth.user.id, 'crypto_address') }));

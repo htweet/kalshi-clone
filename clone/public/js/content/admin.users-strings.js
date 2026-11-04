@@ -103,7 +103,22 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.users.render_roles.granted_to": "{value} granted to {email}",
   "admin.users.render_roles.remove_from": "Remove {revoke} from {email}?",
   "admin.users.render_roles.remove_role": "Remove role",
-  "admin.users.render_roles.role_removed": "Role removed"
+  "admin.users.render_roles.role_removed": "Role removed",
+  "admin.users.money.title": "Money controls",
+  "admin.users.money.deposits": "Deposits",
+  "admin.users.money.withdrawals": "Withdrawals",
+  "admin.users.money.allowed": "allowed",
+  "admin.users.money.revoked": "revoked",
+  "admin.users.money.reason": "Reason shown to the user: {reason}",
+  "admin.users.money.change": "Change money controls",
+  "admin.users.money.dialog_title": "Money controls for {email}",
+  "admin.users.money.dialog_body": "Revoked deposits or withdrawals are refused on every payment rail at once. The user sees the reason and gets a notice.",
+  "admin.users.money.revoke_deposits": "Revoke deposits",
+  "admin.users.money.revoke_withdrawals": "Revoke withdrawals",
+  "admin.users.money.reason_field": "Reason (shown to the user)",
+  "admin.users.money.save": "Save controls",
+  "admin.users.money.saved": "Money controls saved",
+  "admin.users.money.history": "{time} · {who}: deposits {dep}, withdrawals {wd} · {reason}"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

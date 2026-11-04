@@ -8,7 +8,7 @@ const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 const { ccToDollars } = require('./pricing');
 
-const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives', 'display_currency', 'content']);
+const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives', 'display_currency', 'content', 'feature_flags', 'central_bank']);
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments', 'incentive_rewards']);
 
 function attachWs(server, { engine, auth, security }) {
@@ -110,6 +110,11 @@ function attachWs(server, { engine, auth, security }) {
   engine.on('incentives', (t, msg) => publish('incentives', null, 'incentives', msg));
   engine.on('display_currency', (msg) => publish('display_currency', null, 'display_currency', msg)); // Admin › Currency & defaults (§30)
   engine.on('content', (msg) => publish('content', null, 'content', msg)); // CMS publishes (CLONE_SPEC.md §32.4): what changed, never draft values
+  // Phase 5D (CLONE_SPEC.md §33): flag / play-mode changes (a nudge: clients refetch their own evaluated bundle; the
+  // per-user form reaches only that user's sockets), the Central Bank vault and the heist feed (display names only).
+  engine.on('feature_flags', (msg) => publish('feature_flags', null, 'feature_flags', msg));
+  engine.on('feature_flags_user', (uid, msg) => publish('feature_flags', null, 'feature_flags', msg, uid));
+  engine.on('central_bank', (msg) => publish('central_bank', null, 'central_bank', msg));
   engine.on('incentive_reward', (uid, msg) => publish('incentive_rewards', null, 'incentive_reward', msg, uid));
   engine.on('user_balance', (uid, cents) => publish('user_balance', null, 'user_balance', { available_dollars: dollars(cents) }, uid));
   engine.on('user_order', (uid, o) => publish('user_orders', o.market_ticker, 'user_order', orderVo(o), uid));

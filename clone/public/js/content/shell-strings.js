@@ -32,6 +32,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "shell.common.harbor_2026_hub": "Harbor 2026 hub",
   "shell.common.rates_outlook": "Rates outlook",
   "shell.common.liquidity_rewards": "Liquidity rewards",
+  "shell.common.vault_heist": "Vault Heist",
   "shell.common.responsible_trading": "Responsible trading",
   "shell.common.toggle_light_dark": "Toggle light / dark",
   "shell.render.not_found_parlance": "Not found · Parlance",

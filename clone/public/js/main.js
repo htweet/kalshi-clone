@@ -28,6 +28,7 @@ import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
 import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (CLONE_SPEC.md §25)
 import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
+import { initFlags, loadFlags, routeFlagOff, unavailableHtml, renderPlayBanner, onFlags, flagOn, playOn } from './flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
@@ -45,6 +46,7 @@ const placeholderView = lazy(() => import('./views/placeholder.js'));
 const fundsView = lazy(() => import('./views/funds.js')); // Phase 4 deposits / withdrawals, sandbox rails (CLONE_SPEC.md §26)
 const hubsView = lazy(() => import('./views/hubs.js')); // Phase 5B hubs, Senate map, Fed outlook, ballot (CLONE_SPEC.md §29)
 const incentivesView = lazy(() => import('./views/incentives.js')); // Phase 5B Liquidity Incentive Program (§29)
+const heistView = lazy(() => import('./views/heist.js')); // Phase 5D Central Bank + Vault Heist (CLONE_SPEC.md §33)
 
 const routes = [
   [/^\/$/, home],
@@ -89,6 +91,7 @@ const routes = [
   [/^\/funds\/(deposit|withdraw)$/, fundsView, (m) => ({ mode: m[1] })],
   [/^\/funds\/challenge\/([A-Za-z0-9_-]+)$/, fundsView, (m) => ({ mode: 'challenge', id: m[1] })],
   [/^\/incentives$/, incentivesView],
+  [/^\/heist$/, heistView],
   [/^\/incentives\/terms$/, incentivesView, () => ({ page: 'terms' })],
   [/^\/hubs\/([a-z]+)$/, hubsView, (m) => ({ hub: m[1] })],
   [/^\/ballot$/, hubsView, () => ({ hub: 'ballot' })],
@@ -123,6 +126,8 @@ async function render() {
   markNav(url);
   const gated = match && featureGate(url.pathname); // admin feature switches (views/admin/site.js)
   if (gated) { view.innerHTML = gated; return; }
+  const flagOff = match && routeFlagOff(url.pathname); // feature flags (CLONE_SPEC.md §33): CMS-managed "not available" state
+  if (flagOff) { view.innerHTML = unavailableHtml(flagOff); return; }
   if (!match) {
     view.innerHTML = `<div class="empty center-60"><h1 class="typ-title-x10 m-0">${te('shell.render.page_not_found')}</h1><p class="muted m-0">${te('shell.render.that_page_doesn_t_exist')}</p><div><a class="btn" href="/" data-link>${te('shell.render.go_home')}</a></div></div>`;
     document.title = tx('shell.render.not_found_parlance');
@@ -203,10 +208,10 @@ function renderAccount() {
     return;
   }
   const nick = session.nickname || session.user.display_name;
-  el.innerHTML = `<a class="balance-chip" href="/portfolio" data-link title="${te('shell.render_account.cash_available')}"><span class="label">${te('shell.render_account.cash')}</span><span class="value" data-testid="header-balance">${money(session.balance)}</span></a>
+  el.innerHTML = `<a class="balance-chip${playOn() ? ' play' : ''}" href="/portfolio" data-link title="${te('shell.render_account.cash_available')}"><span class="label" data-testid="header-balance-label">${playOn() ? te('flags.play.cash') : te('shell.render_account.cash')}</span><span class="value" data-testid="header-balance">${money(session.balance)}</span></a>
     <div class="menu-wrap"><button class="icon-btn" id="bell-btn" data-menu-btn aria-label="${te('shell.render_account.notifications')}" data-testid="bell">${ICON.bell}</button></div>
-    <a class="icon-btn messages-btn" href="/messages" data-link aria-label="${te('shell.render_account.group_chats')}" title="${te('shell.render_account.group_chats')}" data-testid="messages-btn">${ICON.chat}</a>
-    <a class="icon-btn trophy-btn" href="/social/leaderboard" data-link aria-label="${te('shell.render_account.leaderboard')}" title="${te('shell.render_account.leaderboard')}" data-testid="trophy">${ICON.trophy}</a>
+    <a class="icon-btn messages-btn" href="/messages" data-link data-flag="social.group_chat" aria-label="${te('shell.render_account.group_chats')}" title="${te('shell.render_account.group_chats')}" data-testid="messages-btn">${ICON.chat}</a>
+    <a class="icon-btn trophy-btn" href="/social/leaderboard" data-link data-flag="social" aria-label="${te('shell.render_account.leaderboard')}" title="${te('shell.render_account.leaderboard')}" data-testid="trophy">${ICON.trophy}</a>
     <div class="menu-wrap"><button class="icon-btn hamburger-btn" id="me-btn" data-menu-btn aria-label="${te('shell.render_account.menu')}" aria-haspopup="true" data-testid="account-menu">${ICON.menu}<span class="sr-only">${esc(nick)}</span></button></div>
     <span class="faint" data-testid="header-user" hidden>${esc(session.user.display_name)}</span>`;
   drawBell();
@@ -240,8 +245,9 @@ function showBrowserPush(p) {
 
 // MORE menu (spec §15.1): secondary destinations.
 document.getElementById('more-btn').addEventListener('click', (e) => {
-  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>${te('shell.common.calendar')}</a><a href="/sports" data-link data-testid="more-sports">${te('shell.common.sports_scores')}</a><a href="/social" data-link>${te('shell.common.social')}</a><a href="/messages" data-link data-testid="more-messages">${te('shell.common.group_chats')}</a><a href="/social/circle" data-link>${te('shell.common.inner_circle')}</a><a href="/social/leaderboard" data-link>${te('shell.common.leaderboard')}</a>
-    <a href="/watchlist" data-link>${te('shell.common.watchlist')}</a><a href="/browse" data-link>${te('shell.common.browse_all_markets')}</a><a href="/hubs/elections" data-link data-testid="more-election-hub">${te('shell.common.harbor_2026_hub')}</a><a href="/hubs/economics" data-link data-testid="more-rates">${te('shell.common.rates_outlook')}</a><a href="/incentives" data-link>${te('shell.common.liquidity_rewards')}</a><hr><a href="/account/limits" data-link>${te('shell.common.responsible_trading')}</a><button id="more-theme">${te('shell.common.toggle_light_dark')}</button>`);
+  // [data-flag] entries hide while their feature flag is off (public/js/flags.js, CLONE_SPEC.md §33).
+  toggleMenu(e.currentTarget, `<a href="/calendar" data-link>${te('shell.common.calendar')}</a><a href="/sports" data-link data-testid="more-sports" data-flag="sports">${te('shell.common.sports_scores')}</a><a href="/social" data-link data-flag="social" data-testid="more-social">${te('shell.common.social')}</a><a href="/messages" data-link data-testid="more-messages" data-flag="social.group_chat">${te('shell.common.group_chats')}</a><a href="/social/circle" data-link data-flag="social">${te('shell.common.inner_circle')}</a><a href="/social/leaderboard" data-link data-flag="social">${te('shell.common.leaderboard')}</a>
+    <a href="/watchlist" data-link data-flag="watchlist" data-testid="more-watchlist">${te('shell.common.watchlist')}</a><a href="/browse" data-link>${te('shell.common.browse_all_markets')}</a><a href="/hubs/elections" data-link data-testid="more-election-hub" data-flag="hubs">${te('shell.common.harbor_2026_hub')}</a><a href="/hubs/economics" data-link data-testid="more-rates" data-flag="hubs">${te('shell.common.rates_outlook')}</a><a href="/incentives" data-link data-flag="incentives" data-testid="more-incentives">${te('shell.common.liquidity_rewards')}</a>${playOn() ? `<a href="/heist" data-link data-flag="heist" data-testid="more-heist">${te('shell.common.vault_heist')}</a>` : ''}<hr><a href="/account/limits" data-link>${te('shell.common.responsible_trading')}</a><button id="more-theme">${te('shell.common.toggle_light_dark')}</button>`);
   const t = document.getElementById('more-theme');
   if (t) t.onclick = () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; if (session.user) session.setProp('theme', next); else { applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } closeMenus(); };
 });
@@ -296,7 +302,7 @@ document.getElementById('category-strip').addEventListener('click', (e) => {
 session.subscribe(renderAccount);
 renderAccount();
 // Admin › Currency & defaults: a change reaches every open page live and re-renders it (CLONE_SPEC.md §30).
-socket.subscribe({ channels: ['display_currency'] }, (m) => { if (m.type === 'display_currency') setCurrency(m.msg); });
+socket.subscribe({ channels: ['display_currency'] }, (m) => { if (m.type === 'display_currency' && flagOn('currency_switch')) setCurrency(m.msg); });
 let booted = false;
 onCurrency(() => { renderAccount(); if (booted) render(); });
 // Shell markup in index.html carries catalog keys (data-t / data-t-attr="attr:key;…"): filled from the catalog at boot
@@ -315,5 +321,7 @@ applyShell();
 initContent({ socket, onChange: () => { applyShell(); renderAccount(); if (booted) render(); } });
 initPwa();
 window.addEventListener('parlance:install-state', () => { if (!session.user) renderAccount(); }); // signed-out ☰ with "Install app"
-Promise.all([session.load(), loadSite()]).then(() => { booted = true; socket.connect(); render(); });
+initFlags({ socket, session });
+onFlags(() => { renderPlayBanner(); renderAccount(); if (booted) render(); }); // a flag / play-mode / money-control change, live
+Promise.all([session.load(), loadSite(), loadFlags()]).then(() => { booted = true; renderPlayBanner(); renderAccount(); socket.connect(); render(); });
 window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

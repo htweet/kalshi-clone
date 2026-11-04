@@ -24,6 +24,7 @@ const AREA_ROUTES = {
   'account-activity': '/account/activity', 'account-documents': '/account/taxes', 'account-payments': '/account/payments', 'account-menu': '/', auth: '/sign-in', onboarding: '/sign-up/identity',
   'identity-pages': '/forgot-password', funds: '/funds', rewards: '/rewards', incentives: '/incentives', hubs: '/hubs/elections', placeholder: '/trust/about', currency: '/', pwa: '/',
   components: '/', lib: '/', errors: '/', stepup: '/account', 'payment-forms': '/funds/deposit', 'docv-phone': '/verify/m', 'ai-summary': '/browse', store: '/', security: '/', pages: '/',
+  flags: '/', heist: '/heist', // Phase 5D (CLONE_SPEC.md §33)
 };
 
 function block(src, b, e, file) {
@@ -39,6 +40,7 @@ function serverModules() {
   const pwa = require('../content/pwa');
   const out = [['currency', cs.STRINGS], ['pwa', pwa.SERVER_STRINGS]];
   try { out.push(['messages', require('../content/messages').STRINGS]); } catch { /* optional */ }
+  out.push(['playmode', require('../content/playmode').STRINGS]); // feature flags, play mode, Central Bank (CLONE_SPEC.md §33)
   return out;
 }
 

@@ -450,6 +450,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
   let lastTick = 0;
   let lastPrune = Date.now();
   engine.on('tick', () => {
+    if (engine.flags && !engine.flags.jobOn('social.chat')) return; // paused while the flag is off (CLONE_SPEC.md §33)
     const now = Date.now();
     if (now - lastTick < 2000) return;
     lastTick = now;

@@ -82,7 +82,7 @@ function mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, sa
         const ok = (AGREES[r.kind] && AGREES[r.kind][r.status]) || [];
         if (!ok.includes(t.status) && now - r.updated_ts > graceMs) add({ kind: 'status_mismatch', provider: r.provider, provider_ref: r.id, txn_id: t.id, user_id: t.user_id, detail: `provider ${r.status} vs ledger ${t.status}` });
       }
-      for (const t of db.prepare("SELECT * FROM payment_transactions WHERE rail<>'demo'").all()) {
+      for (const t of db.prepare("SELECT * FROM payment_transactions WHERE rail NOT IN ('demo','play')").all()) {
         checked += 1;
         if (t.status !== 'held' && t.status !== 'reversed' && !(t.provider_ref && sandbox.record(t.provider_ref)) && now - t.created_ts > graceMs) add({ kind: 'missing_at_provider', provider: t.provider || t.rail, provider_ref: t.provider_ref, txn_id: t.id, user_id: t.user_id, expected_cents: t.amount_cents });
         const exp = expectedNet(t); const act = ledgerNet(t);

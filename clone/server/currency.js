@@ -131,8 +131,12 @@ function applyAccountDefaults(db, uid, nowIso = new Date().toISOString()) {
     for (const t of hooks.channelTypes()) for (const c of off) if (t.offered.includes(c)) (types[t.key] ||= {})[c] = false;
     db.prepare("INSERT INTO notif_prefs(user_id,types,quiet,security,pm_held,updated_at) VALUES(?,?,'{}',1,0,?) ON CONFLICT(user_id) DO NOTHING").run(uid, JSON.stringify(types), nowIso);
   }
+  // Other new-account defaults (the play-mode / promotions signup bonus, server/play-mode.js, CLONE_SPEC.md §33).
+  for (const fn of hooks.accountCreated) { try { fn(uid, db); } catch (e) { console.error('account created hook', e); } }
 }
-const hooks = { channelTypes: null }; // set by server/notify-prefs.js: the matrix rows and the channels each offers
+// channelTypes: set by server/notify-prefs.js (the matrix rows and the channels each offers); accountCreated: callbacks
+// run once per new account (password and OAuth sign-up), after its settings are written.
+const hooks = { channelTypes: null, accountCreated: [] };
 
 module.exports = {
   CURRENCIES, CODES, LOCALES, THEMES, CHANNELS, DEFAULT_CONFIG, DEFAULT_ACCOUNT, validTz, normalizeConfig, normalizeAccount,
