@@ -5,9 +5,10 @@
 //   - Preview mode (?cms_preview=1, staff only): the drafts bundle from /v1/admin/cms/preview_bundle replaces the
 //     published one and a banner says so. The server answers that route only to content editors, so the mode cannot
 //     show drafts to anyone else (the flag is dropped when the server refuses).
-//   - Brand colours come from /v1/content/theme.css (a stylesheet: CSS custom properties, no inline styles).
+//   - Brand colours come from /content-theme.css (a stylesheet: CSS custom properties, no inline styles).
 import { setTexts, staticKeys, t, te, ts } from './i18n.js';
 import { esc } from './lib.js';
+import { refreshClientToken } from './security.js';
 
 const boot = (typeof self !== 'undefined' && self.__PLX_CONTENT__) || {};
 let current = { media: boot.media || {}, brand: boot.brand || null, footer: boot.footer || null };
@@ -25,13 +26,14 @@ export const footerContent = () => current.footer;
 // <img> markup for a media slot, or '' when the slot keeps its built-in artwork (escaped; the URL is a /media path).
 export const slotImg = (slot, cls = 'cms-slot-img') => { const m = media(slot); return m ? `<img src="${esc(m.url)}" alt="${esc(m.alt || '')}" class="${esc(cls)}" width="${esc(m.width)}" height="${esc(m.height)}" data-slot="${esc(slot)}" loading="lazy">` : ''; };
 
-function themeLink() {
-  return document.getElementById('cms-theme');
-}
+let theme = boot.theme || null; // version of the custom brand stylesheet, null = code defaults
+// The brand stylesheet link: present only while the brand differs from the defaults (or in preview). A same-origin
+// stylesheet is allowed by style-src 'self'; no inline styles are involved.
 function applyBrand() {
-  const l = themeLink();
-  if (!l) return;
-  const href = previewOn ? `/v1/admin/cms/preview_theme.css?ts=${Date.now()}` : `/v1/content/theme.css?v=${encodeURIComponent((etag || '').replace(/"/g, ''))}`;
+  let l = document.getElementById('cms-theme');
+  const href = previewOn ? `/v1/admin/cms/preview_theme.css?ts=${Date.now()}` : theme ? `/content-theme.css?v=${encodeURIComponent(theme)}` : null;
+  if (!href) { l?.remove(); return; }
+  if (!l) { l = document.createElement('link'); l.rel = 'stylesheet'; l.id = 'cms-theme'; document.head.appendChild(l); }
   if (l.getAttribute('href') !== href) l.setAttribute('href', href);
 }
 
@@ -57,12 +59,14 @@ function previewBanner() {
 
 async function fetchBundle() {
   if (previewOn) {
-    const r = await fetch('/v1/admin/cms/preview_bundle', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const ct = await refreshClientToken();
+    const r = await fetch('/v1/admin/cms/preview_bundle', { credentials: 'same-origin', headers: { Accept: 'application/json', ...(ct ? { 'X-Client-Token': ct } : {}) } });
     if (r.status === 401 || r.status === 403) { previewOn = false; writePreview(false); return fetchBundle(); }
     if (!r.ok) throw new Error(t('content-live.fetch_bundle.http', { status: r.status }));
     return r.json();
   }
-  const r = await fetch('/v1/content/bundle', { credentials: 'same-origin', headers: { Accept: 'application/json', ...(etag ? { 'If-None-Match': etag } : {}) } });
+  const ct = await refreshClientToken(); // every /v1 call carries the signed client token (PLAN P1.10)
+  const r = await fetch('/v1/content/bundle', { credentials: 'same-origin', headers: { Accept: 'application/json', ...(ct ? { 'X-Client-Token': ct } : {}), ...(etag ? { 'If-None-Match': etag } : {}) } });
   if (r.status === 304) return null;
   if (!r.ok) throw new Error(t('content-live.fetch_bundle.http', { status: r.status }));
   etag = r.headers.get('ETag');
@@ -71,6 +75,7 @@ async function fetchBundle() {
 function install(b) {
   setTexts(b.texts || {}, b.locale);
   current = { media: b.media || {}, brand: b.brand || null, footer: b.footer || null };
+  theme = b.theme || null;
   applyBrand();
   renderFooter();
 }

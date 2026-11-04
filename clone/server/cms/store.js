@@ -65,7 +65,7 @@ function createStore({ db, emit, requireFresh }) {
     const v = clean(type, key, value);
     ensure(type, key, l);
     db.prepare('UPDATE cms_entries SET draft_json=?, draft_by=?, draft_at=? WHERE type=? AND key=? AND locale=?').run(JSON.stringify(v), actorOf(req).email, nowIso(), type, key, l);
-    emit({ preview: true, changed: [{ type, key }] });
+    emit({ preview: true }); // drafts: only "something changed" on the public channel, never which entry or its value
     return get(type, key, l);
   }
   function discardDraft(req, type, key, locale) {

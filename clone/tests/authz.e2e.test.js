@@ -259,8 +259,8 @@ const EXPECT = {
   // ---- Phase 5C: content management (CLONE_SPEC.md §32). The published bundle, brand stylesheet and pages are public
   // reads (drafts never reach them: the preview bundle is staff-only); editors (content.write) save drafts, preview,
   // test-send, upload and export; publishing, scheduling and rollback need content.publish (legal pages also step-up).
-  'GET /v1/content/bundle': P, 'GET /v1/content/theme.css': P, 'GET /v1/pages': P, 'GET /v1/pages/:a': P, 'GET /v1/pages/:a/:b': P,
-  'GET /content-bundle.js': P,
+  'GET /v1/content/bundle': P, 'GET /v1/pages': P, 'GET /v1/pages/:a': P, 'GET /v1/pages/:a/:b': P,
+  'GET /content-bundle.js': P, 'GET /content-theme.css': P,
   'GET /v1/admin/cms/overview': perm('content.write'), 'GET /v1/admin/cms/texts': perm('content.write'), 'GET /v1/admin/cms/templates': perm('content.write'),
   'GET /v1/admin/cms/pages': perm('content.write'), 'GET /v1/admin/cms/media': perm('content.write'), 'POST /v1/admin/cms/media': perm('content.write'),
   'GET /v1/admin/cms/:type/entry': perm('content.write'), 'PUT /v1/admin/cms/:type/draft': perm('content.write'), 'DELETE /v1/admin/cms/:type/draft': perm('content.write'),

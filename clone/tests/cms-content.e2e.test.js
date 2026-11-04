@@ -313,7 +313,7 @@ test('branding: low contrast refused; a valid colour applies live in both themes
   await ap.click('[data-testid=cms-brand-publish]');
   await ap.fill('[data-testid=confirm-reason]', 'Brand refresh');
   await ap.click('[data-testid=confirm-ok]');
-  // Live on the open page, in both themes (CSS custom properties from /v1/content/theme.css, no inline styles).
+  // Live on the open page, in both themes (CSS custom properties from /content-theme.css, no inline styles).
   await H.until(async () => (await cssVar(visitor, '--brand', 'light')) === '#0a6b45');
   assert.equal(await cssVar(visitor, '--brand', 'dark'), '#3ddc97');
   const man = await (await fetch(`${BASE}/manifest.webmanifest`)).json();

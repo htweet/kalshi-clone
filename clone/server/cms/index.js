@@ -11,7 +11,7 @@
 //   brand     Admin › Content › Branding   brand / YES colours per theme (contrast-checked), app name and short name
 // Roles: content.write saves drafts and previews; content.publish publishes, schedules and rolls back (legal pages
 // also need a fresh step-up). Every publish is versioned and writes a hash-chained audit row with its reason.
-// Delivery: the public bundle (GET /v1/content/bundle, /content-bundle.js; ETag), /v1/content/theme.css, /media/*,
+// Delivery: the public bundle (GET /v1/content/bundle, /content-bundle.js; ETag), /content-theme.css, /media/*,
 // /manifest.webmanifest and the page template; live over the public `content` WebSocket channel.
 const crypto = require('node:crypto');
 const { createStore, CmsError, DEFAULT_LOCALE } = require('./store');
@@ -199,7 +199,8 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
       if (!e || e.scope !== 'client' || typeof v !== 'string') continue;
       t[key] = e.rich ? sanitize(v, 'rich') : v;
     }
-    const b = { locale: DEFAULT_LOCALE, preview: !!preview, texts: t, media: mediaMap(preview), brand: brand(preview), footer: footer(preview) };
+    const br = brand(preview);
+    const b = { locale: DEFAULT_LOCALE, preview: !!preview, texts: t, media: mediaMap(preview), brand: br, theme: brandIsDefault(br) ? null : themeVersion(br), footer: footer(preview) };
     const body = JSON.stringify(b);
     const out = { body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`, data: b };
     if (!preview) bundleCache.set(k, out);
@@ -247,7 +248,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     return cfg;
   }
   const PAGE_ROUTE = /^\/(legal|trust|research|support|incentives|help)\/([a-z0-9-]+)$/;
-  function pageTransform(html, req) {
+  function pageTransform(html, req, res) {
     const b = brand(); const m = mediaMap();
     let title = b.app_name; let desc = b.description;
     const pm = PAGE_ROUTE.exec(req.path);
@@ -265,14 +266,16 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     const apple = publishedOne('media', 'pwa_icon');
     const appleA = apple && variantOf(apple.asset_id, 'apple-touch-icon');
     if (appleA) out = out.replace(/<link rel="apple-touch-icon" href="[^"]*">/, `<link rel="apple-touch-icon" href="${esc(mediaUrl(appleA))}">`);
+    if (!brandIsDefault(b)) out = out.replace('</head>', `  <link rel="stylesheet" id="cms-theme" href="/content-theme.css?v=${esc(themeVersion(b))}" nonce="${esc(res.locals?.cspNonce || '')}">\n</head>`);
     void m;
     return out;
   }
+  const brandIsDefault = (b) => ['light', 'dark'].every((t) => b[t].brand === BRAND_DEFAULT[t].brand && b[t].yes === BRAND_DEFAULT[t].yes);
+  const themeVersion = (b) => crypto.createHash('sha256').update(JSON.stringify([b.light, b.dark])).digest('hex').slice(0, 12);
   function themeCss(preview = false) {
     const b = brand(preview);
     const decl = (t) => `--brand:${b[t].brand};--yes:${b[t].yes};--brand-x20:color-mix(in srgb,${b[t].brand} 16%,var(--surface-x10));--yes-x20:color-mix(in srgb,${b[t].yes} 16%,var(--surface-x10));`;
-    const isDefault = ['light', 'dark'].every((t) => b[t].brand === BRAND_DEFAULT[t].brand && b[t].yes === BRAND_DEFAULT[t].yes);
-    return isDefault ? '/* brand colours: code defaults (public/app.css) */\n' : `/* brand colours from Admin › Content › Branding (CLONE_SPEC.md §32.8) */\n:root,:root[data-theme="dark"]{${decl('dark')}}\n:root[data-theme="light"]{${decl('light')}}\n`;
+    return brandIsDefault(b) ? '/* brand colours: code defaults (public/app.css) */\n' : `/* brand colours from Admin › Content › Branding (CLONE_SPEC.md §32.8) */\n:root,:root[data-theme="dark"]{${decl('dark')}}\n:root[data-theme="light"]{${decl('light')}}\n`;
   }
   app.locals.pwaConfig = pwaConfig;
   // The incentive terms page (CLONE_SPEC.md §32.7): published body + version for server/incentives.js.
@@ -287,7 +290,6 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     res.type(type).send(body);
   };
   v1.get('/content/bundle', (req, res) => sendCached(req, res, 'application/json', bundle(false)));
-  v1.get('/content/theme.css', (req, res) => { const body = themeCss(false); sendCached(req, res, 'text/css', { body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"` }); });
   v1.get('/pages', (req, res) => res.json({ pages: pageList(false) }));
   const staffPreview = (req) => req.query.preview === '1' && req.auth && admin.rolesOf(req.auth.user).some((r) => ['admin', 'editor', 'publisher'].includes(r));
   const pageRoute = (req, res) => {
@@ -310,6 +312,8 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
       // JSON.stringify output is a JS expression; "<" is escaped so the text can never close a script element.
       sendCached(req, res, 'text/javascript; charset=utf-8', { body: `self.__PLX_CONTENT__=${b.body.replace(/</g, '\\u003c')};\n`, etag: b.etag });
     });
+    // Brand colours (a stylesheet: a <link> cannot send the /v1 client token, so it lives outside /v1).
+    target.get('/content-theme.css', (req, res) => { const body = themeCss(false); sendCached(req, res, 'text/css; charset=utf-8', { body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"` }); });
     target.get(/^\/media\/([a-z0-9_]+)\.(png|jpg)$/, (req, res, next) => {
       const m = /^\/media\/([a-z0-9_]+)\.(png|jpg)$/.exec(req.path);
       const r = db.prepare('SELECT mime, ext, data, sha256 FROM cms_media WHERE id=?').get(m[1]);

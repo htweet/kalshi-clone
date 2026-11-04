@@ -258,7 +258,7 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
     if (ch) return bot.challenge(req, res, nonce, ch.reasons);
     let html = page().replace(/__CSP_NONCE__/g, nonce).replace(/__PLX_BOOT__/g, bot.bootProof(req));
     // CMS (CLONE_SPEC.md §32.8): app name, description, theme-color, favicon and per-page SEO title / description.
-    if (app.locals.pageTransform) { try { html = app.locals.pageTransform(html, req); } catch (e) { console.error('page transform', e); } }
+    if (app.locals.pageTransform) { try { html = app.locals.pageTransform(html, req, res); } catch (e) { console.error('page transform', e); } }
     res.setHeader('Cache-Control', 'no-store');
     res.type('html');
     res.send(html);

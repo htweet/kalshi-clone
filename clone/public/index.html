@@ -32,9 +32,9 @@
   <link rel="stylesheet" href="/trading.css" nonce="__CSP_NONCE__">
   <link rel="stylesheet" href="/pwa.css" nonce="__CSP_NONCE__">
   <link rel="stylesheet" href="/utilities.css" nonce="__CSP_NONCE__">
-  <!-- CMS (CLONE_SPEC.md §32): brand colours as CSS custom properties, and the published content bundle (texts, media,
-       footer) loaded before the app modules so strings read while they evaluate already see the published values. -->
-  <link rel="stylesheet" id="cms-theme" href="/v1/content/theme.css" nonce="__CSP_NONCE__">
+  <!-- CMS (CLONE_SPEC.md §32): the published content bundle (texts, media, footer) loads before the app modules so
+       strings read while they evaluate already see the published values. Custom brand colours add a /content-theme.css
+       stylesheet (CSS custom properties), inserted by the server when the brand differs from the code defaults. -->
   <script nonce="__CSP_NONCE__" src="/content-bundle.js"></script>
 </head>
 <body>

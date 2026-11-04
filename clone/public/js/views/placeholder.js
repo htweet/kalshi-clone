@@ -7,6 +7,7 @@ import '../content/placeholder-strings.js';
 import { esc } from '../lib.js';
 import { GROUPS } from './account-menu.js';
 import { inPreview } from '../content-live.js';
+import { refreshClientToken } from '../security.js';
 
 const PAGES = {
   incentives: [ts('placeholder.pages_incentives.liquidity_rewards'), ts('placeholder.pages_incentives.the_liquidity_incentive_program_reward')],
@@ -21,7 +22,8 @@ export function setMeta(title, description) {
 }
 
 export async function fetchPage(slug) {
-  const r = await fetch(`/v1/pages/${slug.split('/').map(encodeURIComponent).join('/')}${inPreview() ? '?preview=1' : ''}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  const ct = await refreshClientToken();
+  const r = await fetch(`/v1/pages/${slug.split('/').map(encodeURIComponent).join('/')}${inPreview() ? '?preview=1' : ''}`, { credentials: 'same-origin', headers: { Accept: 'application/json', ...(ct ? { 'X-Client-Token': ct } : {}) } });
   return r.ok ? (await r.json()).page : null;
 }
 export function pageHtml(p) {

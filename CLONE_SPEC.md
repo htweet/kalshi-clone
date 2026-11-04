@@ -404,7 +404,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §32 content management (Phase 5C): every SPA string in a keyed text catalog (client and server `t()`, admin overrides, declared variables, plain or allowlist rich text, live updates, staff preview), notification / email / SMS templates on every send, media library with server-side re-encode and slots (logo, icons, manifest), CMS pages with SEO and legal step-up, footer, brand colours with a contrast check, drafts → schedule → publish → rollback with hash-chained audit, editor / publisher roles, JSON export / import with dry run, hard-coded-text enforcement | yes | tests `cms`, `cms-content` |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
-Verification: 233 Playwright scenarios across 28 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
+Verification: 243 Playwright scenarios across 30 files in `clone/tests/` (run `npm run test:e2e`), each against a real server, a real SQLite file and Chromium. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
 ---
 
@@ -4064,7 +4064,7 @@ the admin panel; only technical configuration stays in code (PLAN Phase 5C). Cod
 | Notification channels (in-app, push, email) per type, account emails, SMS, push test, email layout | Templates | `features.notify`, `notify-prefs`, `messaging`, `auth`, `identity`, `webpush` | `server/content/notification-templates.js` |
 | Images (logo, wordmark, favicon, app icon, promo / hero / hub art, category icons, email header, empty states) | Media | `/media/<id>.<png\|jpg>`, bundle `media` | built-in artwork |
 | Pages (legal, help, info) and the footer | Pages & footer | `/v1/pages/…`, page template SEO tags, bundle `footer` | `server/content/pages.js` |
-| Brand and YES colours per theme, app name, short name, description | Branding | `/v1/content/theme.css`, page template, `/manifest.webmanifest` | `public/app.css`, `server/content/pwa.js` |
+| Brand and YES colours per theme, app name, short name, description | Branding | `/content-theme.css`, page template, `/manifest.webmanifest` | `public/app.css`, `server/content/pwa.js` |
 | Fees, limits, features, payments, Currency & defaults | links from the hub to the existing panels (§18.6, §26, §30) | unchanged | unchanged |
 
 Home hero, hubs, promos, banners, navigation, info cards, news and help articles keep their §18.5 collections (linked
@@ -4128,7 +4128,7 @@ from the hub); help articles are also served as CMS pages under `help/<slug>`.
 
 - `/content-bundle.js` (classic script, before the app modules) and `/v1/content/bundle` (JSON) carry the published
   client texts, media slots, brand values and footer. `Cache-Control: no-cache` with a strong ETag (304 when unchanged).
-- `/v1/content/theme.css` holds the brand colours as CSS custom properties (`--brand`, `--yes`, `--brand-x20`,
+- `/content-theme.css` (outside `/v1`, linked only while the brand differs from the defaults) holds the brand colours as CSS custom properties (`--brand`, `--yes`, `--brand-x20`,
   `--yes-x20`) for `:root[data-theme=light|dark]`; no inline styles (§21 CSP).
 - The page template is filled per response: `<title>`, description, both `theme-color` metas, Apple title, favicon and
   apple-touch icon from the CMS; on page routes the page's SEO title and description.
@@ -4183,7 +4183,7 @@ from the hub); help articles are also served as CMS pages under `help/<slug>`.
 ### 32.8 Branding and values
 
 - Brand and YES colours per theme; each must reach 4.5:1 against that theme's surface (`#ffffff` light, `#0d0e11`
-  dark), otherwise `contrast_too_low` with the ratio. Applied through `/v1/content/theme.css` (CSS variables), so the
+  dark), otherwise `contrast_too_low` with the ratio. Applied through `/content-theme.css` (CSS variables), so the
   whole UI follows, live.
 - App name, short name and description drive the manifest, the page title and the Apple title; the light brand colour
   is the manifest `theme_color`; both theme-color metas follow the theme colours.
