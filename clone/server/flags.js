@@ -89,6 +89,15 @@ const REGISTRY = [
   ['play.free_deposits', 'play', null, 'both'],
   ['central_bank', 'play', null, 'both', false],
   ['heist', 'play', 'central_bank', 'both'],
+  // Phase 7 (CLONE_SPEC.md §35): the public trading API. api.keys switches key management and signed authentication;
+  // its children switch order entry, the public WebSocket and the FIX gateway (off by default: a TCP listener).
+  ['api.keys', 'api', null, 'both'],
+  ['api.trading', 'api', 'api.keys', 'server'],
+  ['api.ws', 'api', 'api.keys', 'server'],
+  ['api.fix', 'api', 'api.keys', 'server', false],
+  ['api.demo', 'api', null, 'both'],
+  ['developer_portal', 'api', null, 'both'],
+  ['status_page', 'api', null, 'both'],
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -153,6 +162,11 @@ const ROUTE_RULES = {
   'play.free_deposits': [R('GET', /^\/users\/[^/]+\/play_money$/)],
   central_bank: [R('GET', /^\/central_bank(\/|$)/)],
   heist: [R('*', /^\/users\/[^/]+\/heists(\/|$)/), R('GET', /^\/central_bank\/(feed|most_wanted)$/)],
+  // Phase 7 (CLONE_SPEC.md §35). /trade-api is gated by server/trade-api.js (api.keys / api.trading per key owner).
+  'api.keys': [R('*', /^\/users\/[^/]+\/api_keys(\/|$)/, { user: true })],
+  'api.demo': [R('*', /^\/developer\/demo_credentials$/, { user: true })],
+  developer_portal: [R('GET', /^\/developer\/(portal|reference)$/)],
+  status_page: [R('GET', /^\/status$/)],
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
 // cancelling orders (always possible), responsible-trading limits, notifications inbox, content, admin. Used by the
@@ -169,9 +183,11 @@ const MODULE_FLAGS = {
   mountFeatures: 'core', mountRolling: 'trading.rolling', mountPerps: 'perps', mountPerpsOps: 'perps', mountCombos: 'combos', mountHistory: 'core', mountOrders: 'core', mountPositions: 'core',
   mountTradingCore: 'trading', mountSports: 'sports', mountAdmin: 'core', mountChat: 'social.chat', mountCommunity: 'social', mountWebPush: 'pwa.push', mountIdentity: 'identity.kyc',
   mountAccountArea: 'core', mountPayments: 'payments.deposits', mountMarketsContent: 'incentives', mountCms: 'core', mountFlags: 'core', mountPlayMode: 'play.free_deposits', mountCentralBank: 'central_bank',
+  mountApiKeys: 'api.keys', mountTradeApi: 'core', mountDeveloperPortal: 'developer_portal', // Phase 7 (CLONE_SPEC.md §35); /trade-api/v2 public data is core
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
-const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank'];
+const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',
+  'api.keys', 'api.ws', 'api.fix']; // Phase 7: key expiry sweep, public WebSocket sessions, the FIX acceptor
 
 const PERCENT = (n) => Number.isInteger(n) && n >= 0 && n <= 100;
 const SCHEMA = `

@@ -123,7 +123,7 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
     // Authenticated and user-scoped responses are never cached (S5). req.auth is attached later, so decide at write time.
     const writeHead = res.writeHead;
     res.writeHead = function patched(...args) {
-      if (req.auth || /^\/v1\/users(\/|$)/.test(req.path)) this.setHeader('Cache-Control', 'no-store');
+      if (req.auth || req.apiPrincipal || /^\/v1\/users(\/|$)/.test(req.path)) this.setHeader('Cache-Control', 'no-store');
       return writeHead.apply(this, args);
     };
     next();

@@ -307,7 +307,9 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   function attach(req, res, next) {
     const idle = req.headers['x-plx-idle'];
     req.auth = fromCookieHeader(req.headers.cookie, idle != null ? { idleSec: Number(idle) } : {});
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    // The public Trade API (/trade-api, CLONE_SPEC.md §35) never takes a session cookie as a credential — only signed
+    // API-key requests (server/api-keys.js) — so a cookie there carries no authority and needs no CSRF token.
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !/^\/trade-api(\/|$)/.test(req.path)) {
       if (isPreSession(req)) {
         if (!checkLoginCsrf(req)) return next(E.forbidden('missing or invalid login csrf token'));
       } else if (req.auth && !kc.safeEqual(req.get('x-csrf-token') || '', req.auth.session.csrf_token)) {

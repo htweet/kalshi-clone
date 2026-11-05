@@ -35,6 +35,8 @@ const TYPES = [
   // Phase 5D (CLONE_SPEC.md §33): the server composes the wording from server/content/playmode.js; these wrap it.
   ['bonus_credited', 'Money', 'Signup bonus credited'], ['heist_result', 'Money', 'Vault Heist result'], ['money_controls', 'Account', 'Deposits / withdrawals switched off or on'],
   ['production_reset', 'Account', 'Play mode ended: balances reset'],
+  // Phase 7 (CLONE_SPEC.md §35): the server composes the wording from server/content/api.js; these wrap it.
+  ['api_key_created', 'Account', 'API key created or rotated'], ['api_key_revoked', 'Account', 'API key revoked'], ['api_key_expiring', 'Account', 'API key expiring soon'],
   ['announcement', 'Announcements', 'Announcement'], ['promo_breaking_events', 'Announcements', 'Promotion: breaking events'], ['promo_new_markets', 'Announcements', 'Promotion: new markets'],
   ['promo_politics', 'Announcements', 'Promotion: politics'], ['promo_crypto', 'Announcements', 'Promotion: crypto'], ['promo_commodities', 'Announcements', 'Promotion: commodities'],
 ];
@@ -99,6 +101,34 @@ Object.assign(TEMPLATES, {
       email_subject: 'Your Perps access is unlocked',
       email_text: 'Hi {{name}},\n\nYour Perps access on {{app_name}} is unlocked: you can now move funds to Perps and trade perpetual futures.\n\n{{link}}',
       email_html: '<p>Hi {{name}},</p><p>Your Perps access on {{app_name}} is unlocked: you can now move funds to Perps and trade perpetual futures.</p><p><a href="{{link}}">Start trading Perps</a></p>',
+    },
+  },
+  // Phase 7 (CLONE_SPEC.md §35): API key security emails, sent directly (account security notices outside the matrix).
+  'email.api_key_created': {
+    kind: 'email', group: 'API email', label: 'API key created', fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'label', 'key_id', 'scopes', 'fingerprint', 'link', 'app_name'],
+    sample: { name: 'Ada', label: 'Market maker', key_id: 'plxk_00000000-0000-4000-8000-000000000000', scopes: 'read, trade', fingerprint: 'SHA256:abc', link: 'https://parlance.example/account/api-keys', app_name: 'Parlance' },
+    defaults: {
+      email_subject: 'A new API key was added to your account',
+      email_text: 'Hi {{name}},\n\nThe API key "{{label}}" ({{key_id}}, scopes {{scopes}}, fingerprint {{fingerprint}}) was added to your {{app_name}} account. If this was not you, revoke it and change your password now.\n\n{{link}}',
+      email_html: '<p>Hi {{name}},</p><p>The API key <strong>{{label}}</strong> ({{key_id}}, scopes {{scopes}}, fingerprint {{fingerprint}}) was added to your {{app_name}} account. If this was not you, revoke it and change your password now.</p><p><a href="{{link}}">Review your API keys</a></p>',
+    },
+  },
+  'email.api_key_revoked': {
+    kind: 'email', group: 'API email', label: 'API key revoked', fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'label', 'key_id', 'by', 'link', 'app_name'],
+    sample: { name: 'Ada', label: 'Market maker', key_id: 'plxk_00000000-0000-4000-8000-000000000000', by: 'by you', link: 'https://parlance.example/account/api-keys', app_name: 'Parlance' },
+    defaults: {
+      email_subject: 'An API key was revoked',
+      email_text: 'Hi {{name}},\n\nThe API key "{{label}}" ({{key_id}}) was revoked {{by}}. Programs using it are signed out.\n\n{{link}}',
+      email_html: '<p>Hi {{name}},</p><p>The API key <strong>{{label}}</strong> ({{key_id}}) was revoked {{by}}. Programs using it are signed out.</p><p><a href="{{link}}">Review your API keys</a></p>',
+    },
+  },
+  'email.api_key_expiring': {
+    kind: 'email', group: 'API email', label: 'API key expiring soon', fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'label', 'key_id', 'expires', 'link', 'app_name'],
+    sample: { name: 'Ada', label: 'Market maker', key_id: 'plxk_00000000-0000-4000-8000-000000000000', expires: '2026-12-01 09:00 UTC', link: 'https://parlance.example/account/api-keys', app_name: 'Parlance' },
+    defaults: {
+      email_subject: 'Your API key expires soon',
+      email_text: 'Hi {{name}},\n\nThe API key "{{label}}" ({{key_id}}) expires on {{expires}}. Create or rotate a key before then to keep your programs running.\n\n{{link}}',
+      email_html: '<p>Hi {{name}},</p><p>The API key <strong>{{label}}</strong> ({{key_id}}) expires on {{expires}}. Create or rotate a key before then to keep your programs running.</p><p><a href="{{link}}">Manage your API keys</a></p>',
     },
   },
   'sms.phone_code': {

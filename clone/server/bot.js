@@ -275,6 +275,8 @@ CREATE TABLE IF NOT EXISTS rate_buckets (key TEXT PRIMARY KEY, tokens REAL NOT N
   // Mounted on /v1 and /trade-api after the session is attached (req.auth). One tier bucket per request, plus the
   // stricter auth bucket on credential endpoints and the write bucket on mutations.
   function limiter(req, res, next) {
+    // A verified API-key request (server/api-keys.js) is charged to the key's own rate tier by server/trade-api.js.
+    if (req.apiPrincipal) return next();
     const ip = clientIp(req);
     const u = req.auth && req.auth.user;
     const tier = !u ? 'anonymous' : isStaff(u) ? 'admin' : 'user';

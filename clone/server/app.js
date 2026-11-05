@@ -4,7 +4,7 @@ const C = require('./currency'); // display currency formatting (CLONE_SPEC.md �
 const express = require('express');
 const { tx } = require('./db');
 const { nowIso, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, encCursor, decCursor } = require('./util');
-const { marketVo, eventVo, seriesVo, orderVo, fillVo } = require('./serialize');
+const { marketVo, eventVo, orderVo, fillVo } = require('./serialize');
 const { mountFeatures, CATEGORIES } = require('./features');
 const { perContractFeeCapCc } = require('./engine');
 const P = require('./pricing'); // Phase 5A price grids and centi-cent prices (CLONE_SPEC.md §28)
@@ -34,10 +34,12 @@ const { jsonBody, validateRoutes } = require('./validate');
 const { idempotency } = require('./idempotency');
 const { createAuth } = require('./auth');
 const { createSecurity } = require('./security');
+const { createApiKeys, mountApiKeys } = require('./api-keys'); // Phase 7: API keys and signed requests (CLONE_SPEC.md §35)
+const { mountTradeApi, ParamError, intParam, STATUS_FILTER } = require('./trade-api'); // Phase 7: public Trade API v2 (§35)
+const { createRegistry } = require('./api-registry'); // Phase 7: one route registry → routes, OpenAPI, AsyncAPI, contract tests
 
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
 const SESSION_COOKIE = 'plx_session';
-const STATUS_FILTER = { unopened: ['initialized'], open: ['active'], paused: ['inactive'], closed: ['closed', 'determined'], settled: ['finalized'] };
 const SETTING_KEYS = new Set(['theme', 'orderbook_settings', 'event_market_tab', 'event_bottom_tab', 'browse_order_by', 'browse_layout', 'portfolio_view', 'chart_range', 'social_feed', 'ticket_mode', 'orderbook_hide_fractional_shares', 'rfq_enabled', 'history_filters', 'positions_sort', 'positions_filter', 'activity_filter']);
 
 function parseCookies(header) {
@@ -51,18 +53,9 @@ function parseCookies(header) {
 
 // Rate limits (spec §5.4: 429 too_many_requests) are tiered and persisted: server/bot.js, wired by server/security.js.
 
-// Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope.
-class ParamError extends Error { constructor(msg) { super(msg); this.status = 400; } }
-function intParam(q, name, { def, min, max, op = 'GetMarkets' } = {}) {
-  if (q[name] === undefined || q[name] === '') return def;
-  const s = String(q[name]);
-  if (!/^-?\d+$/.test(s)) throw new ParamError(`Invalid format for parameter ${name}: error binding string parameter: parsing "${s}": invalid syntax`);
-  const n = Number(s);
-  if ((min != null && n < min) || (max != null && n > max)) throw new ParamError(`Parameter validation failed for ${op}: Key: '${op}Params.${name[0].toUpperCase()}${name.slice(1)}' Error:Field validation for '${name}' failed on the '${n < min ? 'gte' : 'lte'}' tag`);
-  return n;
-}
+// Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope (ParamError / intParam, server/trade-api.js).
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, env = 'main' }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -108,6 +101,12 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.flags = flags; engine.flags = flags;
   app.use(auth.attach); // req.auth from the session cookie; session CSRF on writes, login CSRF on pre-session endpoints
   app.use('/v1', auth.guard); // step-up verification for sensitive actions; privilege-change session rotation
+  // Public Trade API (CLONE_SPEC.md §35): a signed request is verified first (req.apiPrincipal), so the perimeter limiter
+  // below charges the key's own rate tier instead of the per-IP budget. The gate exists once server/trade-api.js is mounted.
+  const apiKeys = createApiKeys({ db, env, options: apiOptions, security, flags });
+  app.locals.apiKeys = apiKeys;
+  let tradeApi = null;
+  app.use('/trade-api', (req, res, next) => (tradeApi ? tradeApi.authGate(req, res, next) : next()));
   app.use(['/v1', '/trade-api'], security.apiGuard); // tiered rate limits; signed client token on /v1 writes (server/bot.js)
   // Feature flags + money controls: 403 feature_disabled / deposits_revoked / … before any route runs (CLONE_SPEC.md §33).
   app.use('/v1', flags.gate);
@@ -167,119 +166,17 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
+  // Phase 7 (CLONE_SPEC.md §35): Account › API keys, Admin › API keys (tiers, revoke, usage), key notifications.
+  mountApiKeys({ v1, db, engine, auth, admin, flags, feat, cms: app.locals.cms, apiKeys, security });
   community.attachChat(mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify })); // event live chat (CLONE_SPEC.md §20) + reactions / edits (§24)
 
-  // ======================= Trade API v2 (public market data) =======================
-  v2.get('/exchange/status', (req, res) => res.json({ exchange_active: true, trading_active: engine.tradingActive }));
-
-  v2.get('/markets', (req, res) => {
-    const limit = intParam(req.query, 'limit', { def: 100, min: 1, max: 1000 });
-    const cur = decCursor(req.query.cursor);
-    const where = [];
-    const args = [];
-    if (req.query.status) {
-      const st = STATUS_FILTER[req.query.status];
-      if (!st) throw E.badRequest('invalid status filter');
-      where.push(`status IN (${st.map(() => '?').join(',')})`);
-      args.push(...st);
-    }
-    if (req.query.event_ticker) { where.push('event_ticker=?'); args.push(req.query.event_ticker); }
-    if (req.query.series_ticker) { where.push('event_ticker IN (SELECT ticker FROM events WHERE series_ticker=?)'); args.push(req.query.series_ticker); }
-    const offset = cur ? cur.o : 0;
-    const rows = db.prepare(`SELECT * FROM markets ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY rowid LIMIT ? OFFSET ?`).all(...args, limit + 1, offset);
-    const more = rows.length > limit;
-    res.json({ cursor: more ? encCursor({ o: offset + limit }) : '', markets: rows.slice(0, limit).map((m) => marketVo(m, q(m.ticker))) });
-  });
-
-  v2.get('/markets/trades', (req, res) => {
-    const limit = intParam(req.query, 'limit', { def: 100, min: 1, max: 1000, op: 'GetTrades' });
-    const args = [];
-    let where = '';
-    if (req.query.ticker) { where = 'WHERE market_ticker=?'; args.push(req.query.ticker); }
-    const rows = db.prepare(`SELECT * FROM trades ${where} ORDER BY created_ts DESC LIMIT ?`).all(...args, limit);
-    res.json({ cursor: '', trades: rows.map((t) => ({ trade_id: t.id, ticker: t.market_ticker, yes_price_dollars: P.ccToDollars(t.yes_price_cc), no_price_dollars: P.ccToDollars(P.CC - t.yes_price_cc), count_fp: ufp(t.count), taker_side: t.taker_side, created_time: new Date(t.created_ts).toISOString() })) });
-  });
-
-  v2.get('/markets/:ticker', (req, res) => {
-    const m = db.prepare('SELECT * FROM markets WHERE ticker=?').get(req.params.ticker);
-    if (!m) throw E.notFound();
-    res.json({ market: marketVo(m, q(m.ticker)) });
-  });
-
-  v2.get('/markets/:ticker/orderbook', (req, res) => {
-    if (!db.prepare('SELECT 1 FROM markets WHERE ticker=?').get(req.params.ticker)) throw E.notFound();
-    const depth = intParam(req.query, 'depth', { def: 0, min: 0, max: 100, op: 'GetMarketOrderbook' });
-    const b = engine.book(req.params.ticker);
-    const lv = (map) => {
-      let a = [...map.entries()].sort((x, y) => x[0] - y[0]);
-      if (depth) a = a.slice(-depth);
-      return a.map(([p, c]) => [P.ccToDollars(p), ufp(c)]);
-    };
-    const m = db.prepare('SELECT price_level_structure s FROM markets WHERE ticker=?').get(req.params.ticker);
-    res.json({ orderbook_fp: { yes_dollars: lv(b.yes), no_dollars: lv(b.no) }, price_level_structure: m.s, price_ranges: P.priceRanges(m.s), tick_size_dollars: P.ccToDollars(P.minTick(m.s)) });
-  });
-
-  v2.get('/events', (req, res) => {
-    const limit = intParam(req.query, 'limit', { def: 100, min: 1, max: 200, op: 'GetEvents' });
-    const cur = decCursor(req.query.cursor);
-    const offset = cur ? cur.o : 0;
-    const args = [];
-    const where = [];
-    if (req.query.series_ticker) { where.push('series_ticker=?'); args.push(req.query.series_ticker); }
-    if (req.query.status) {
-      const st = STATUS_FILTER[req.query.status];
-      if (!st) throw E.badRequest('invalid status filter');
-      where.push(`ticker IN (SELECT event_ticker FROM markets WHERE status IN (${st.map(() => '?').join(',')}))`);
-      args.push(...st);
-    }
-    const rows = db.prepare(`SELECT * FROM events ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY rowid LIMIT ? OFFSET ?`).all(...args, limit + 1, offset);
-    const nested = req.query.with_nested_markets === 'true';
-    res.json({ cursor: rows.length > limit ? encCursor({ o: offset + limit }) : '', events: rows.slice(0, limit).map((e) => (nested ? eventFull(e) : eventVo(e))) });
-  });
-
-  v2.get('/events/:ticker', (req, res) => {
-    const e = getEvent(req.params.ticker);
-    if (!e) throw E.notFound();
-    res.json({ event: eventFull(e) });
-  });
-
-  v2.get('/series/:ticker', (req, res) => {
-    const s = getSeries(req.params.ticker);
-    if (!s) throw E.notFound();
-    res.json({ series: seriesVo(s) });
-  });
-
-  // Candlesticks built from persisted trades (spec §4.3 / HAR1#13 shape).
-  v2.get('/series/:s/markets/:ticker/candlesticks', (req, res) => {
-    const m = db.prepare('SELECT * FROM markets WHERE ticker=?').get(req.params.ticker);
-    if (!m) throw E.notFound();
-    const period = intParam(req.query, 'period_interval', { def: 60, op: 'GetMarketCandlesticks' });
-    if (![1, 60, 1440].includes(period)) throw E.badRequest('period_interval must be one of 1, 60, 1440');
-    const now = Math.floor(Date.now() / 1000);
-    const end = intParam(req.query, 'end_ts', { def: now, op: 'GetMarketCandlesticks' });
-    const start = intParam(req.query, 'start_ts', { def: end - 7 * 86400, op: 'GetMarketCandlesticks' });
-    if (start >= end) throw E.badRequest('start_ts must be before end_ts');
-    const step = period * 60;
-    if ((end - start) / step > 5000) throw E.badRequest('too many candlesticks requested');
-    const trades = db.prepare('SELECT yes_price_cc p, count c, created_ts ts FROM trades WHERE market_ticker=? AND created_ts>=? AND created_ts<? ORDER BY created_ts').all(m.ticker, start * 1000, end * 1000);
-    const prevRow = db.prepare('SELECT yes_price_cc p FROM trades WHERE market_ticker=? AND created_ts<? ORDER BY created_ts DESC LIMIT 1').get(m.ticker, start * 1000);
-    const dollars = P.ccToDollars; // candle prices are cc (sub-cent grids, CLONE_SPEC.md §28.1)
-    let prev = prevRow ? prevRow.p : null;
-    const out = [];
-    let i = 0;
-    for (let t = start - (start % step) + step; t <= end - (end % step) + step; t += step) {
-      const bucket = [];
-      while (i < trades.length && trades[i].ts < t * 1000) bucket.push(trades[i++]);
-      if (!bucket.length && prev == null) continue;
-      const ps = bucket.map((b) => b.p);
-      const vol = bucket.reduce((a, b) => a + b.c, 0);
-      const o = ps.length ? ps[0] : prev;
-      const c = ps.length ? ps[ps.length - 1] : prev;
-      out.push({ end_period_ts: t, price: { open_dollars: dollars(o), high_dollars: dollars(ps.length ? Math.max(...ps) : prev), low_dollars: dollars(ps.length ? Math.min(...ps) : prev), close_dollars: dollars(c), mean_dollars: dollars(ps.length ? Math.round(ps.reduce((a, b) => a + b, 0) / ps.length) : prev), previous_dollars: dollars(prev) }, volume_fp: ufp(vol) });
-      prev = c;
-    }
-    res.json({ ticker: m.ticker, candlesticks: out });
-  });
+  // Trade API v2 (CLONE_SPEC.md §35): market data, portfolio, orders (batch, amend, decrease), order groups, history,
+  // RFQ, multivariate collections and Perps under /margin — one registry for routes, OpenAPI and contract tests.
+  const registry = createRegistry();
+  app.locals.apiRegistry = registry;
+  tradeApi = mountTradeApi({ app, v2, v1, db, engine, auth, flags, feat, admin, security, apiKeys, ordersApi, eventFull, registry, env });
+  app.locals.tradeApi = tradeApi;
+  engine.apiOps = { resetForProduction: () => tradeApi.resetForProduction(), afterReset: () => apiKeys.events.emit('production_reset') };
 
   // ======================= Web client API v1 =======================
   // /session, /users (sign-up), /log_in, /log_in_mfa, /log_out, two-factor, sessions, step-up (server/auth.js).
@@ -412,7 +309,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       maxCost = amt;
     }
     if (Number.isInteger(pcc) && units > 0) feat.checkTrading(uid, Math.ceil((units * pcc) / P.CC));
-    const order = engine.placeOrder(uid, { ticker, side, price_cc: pcc, count: units, time_in_force: tif, client_order_id: b.client_order_id, max_cost_cents: maxCost, allow_fractional: allowFractional, action, order_type: type, expiration_ts: expiration ?? null, flip_units: flipUnits });
+    const order = engine.placeOrder(uid, { ticker, side, price_cc: pcc, count: units, time_in_force: tif, client_order_id: b.client_order_id, max_cost_cents: maxCost, allow_fractional: allowFractional, action, order_type: type, expiration_ts: expiration ?? null, flip_units: flipUnits,
+      post_only: b.post_only === true, source: req.apiChannel || 'user' }); // apiChannel: the public API / FIX dispatch (server/trade-api.js), never a client value
     const fa = db.prepare('SELECT COALESCE(SUM(count),0) n, COALESCE(SUM(count*price_cc),0) v FROM fills WHERE order_id=? AND user_id=?').get(order.id, uid);
     res.status(201).json({ order: orderVo(order), status: order.status, fill_avg_price_dollars: fa.n ? P.ccToDollars(Math.round(fa.v / fa.n)) : null, ...(flipUnits ? { flip: { closed_fp: ufp(units - flipUnits), opened_side: side, opened_fp: ufp(flipUnits) } } : {}) });
   });
@@ -579,6 +477,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     res.json({ trading_active: engine.tradingActive });
   });
 
+  // Internal dispatch for the public API and FIX (server/trade-api.js): the same gates as a web request, then the router.
+  tradeApi.setChain([auth.guard, flags.gate, feat.sessionMiddleware, v1]);
   app.locals.routers = [['/trade-api/v2', v2], ['/v1', v1]]; // mount table for route enumeration (tests/authz.e2e.test.js)
   app.use('/trade-api/v2', v2);
   app.use('/v1', v1);

@@ -838,10 +838,10 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
   const PERMISSION_DENIED = { code: 'permission_denied', message: 'You do not have permission to perform this action', details: 'Please make sure you are logged in with the correct account. Contact support if you believe this is an error.', support_action: 'support_chat' };
   const permissionDenied = () => { const e = new ApiError(403, PERMISSION_DENIED.code, PERMISSION_DENIED.message, PERMISSION_DENIED.details); e.toJSON = () => ({ error: { ...PERMISSION_DENIED } }); return e; };
   const LOCKED_A2 = [
-    ['GET', /^\/users\/([^/]+)\/(passkeys|sign_in_methods|api_keys)$/],
+    ['GET', /^\/users\/([^/]+)\/(passkeys|sign_in_methods|api_keys|api_keys\/usage)$/],
     ['POST', /^\/users\/([^/]+)\/passkeys\/registration(\/options)?$/],
     ['POST', /^\/users\/([^/]+)\/oauth\/[^/]+\/link$/],
-    ['POST', /^\/users\/([^/]+)\/api_keys$/],
+    ['POST', /^\/users\/([^/]+)\/api_keys(\/[^/]+\/rotate)?$/], // Phase 7 (CLONE_SPEC.md §35): create and rotate; revoking stays open
   ];
   v1.use((req, res, next) => {
     if (!req.auth) return next();
@@ -861,8 +861,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
       providers: has('oauth_links') ? db.prepare('SELECT provider, created_at FROM oauth_links WHERE user_id=? ORDER BY created_at').all(uid).map((l) => ({ provider: l.provider, linked_time: l.created_at })) : [],
     });
   });
-  // API keys are Phase 7 (PLAN P7.1); the endpoint exists now so the lock above is real and testable.
-  v1.get('/users/:uid/api_keys', requireUser, (req, res) => res.json({ api_keys: [], available: false, note: 'API keys arrive with the public trading API (Phase 7).' }));
+  // API keys (Phase 7, CLONE_SPEC.md §35): the routes live in server/api-keys.js; the lock above applies to them.
 
   // ------------------------------------------------------------------ OAuth + passkeys
   const oauth = mountOAuth({ ...ctx, v1, app });
