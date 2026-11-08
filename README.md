@@ -9,7 +9,7 @@
 
 ```bash
 npm install && npm start      # from the repository root or from clone/; prints the URL (3000, or next free port)
-npm run test:e2e              # 376 end-to-end browser tests
+npm run test:e2e              # 378 end-to-end browser tests
 ```
 
 ## Running on Windows (Git Bash or PowerShell)

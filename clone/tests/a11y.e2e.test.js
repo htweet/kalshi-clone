@@ -195,6 +195,33 @@ test('keyboard: skip link; a demo deposit, a trade through the ticket and review
   await page.context().close();
 });
 
+// Regression (lead review; CI and a local full run): "Skip to content" is a #view link, and the router redrew the page on
+// every history step, fragment-only ones included. A keyboard user who had started a deposit (or set a History filter)
+// before the redraw landed lost it: the method picker came back. The skip link must move focus and keep the page as is.
+test('skip to content keeps the page as it is: a half-filled deposit and its amount survive, focus lands in the main area', async () => {
+  const page = await newPage({ width: 1280, theme: 'light' });
+  await uiLogIn(page, member);
+  await page.goto(BASE + '/funds/deposit');
+  await settled(page);
+  await page.click('[data-method=demo]');
+  await page.fill('[data-testid=fund-amount]', '700');
+  await page.evaluate(() => { window.__drawn = document.querySelector('[data-testid=fund-amount-form]'); });
+  await page.focus('.skip-link');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'view');
+  assert.ok(page.url().endsWith('/funds/deposit#view'));
+  await sleep(1500); // a redraw, when it happened, landed well within this
+  assert.equal(await page.evaluate(() => window.__drawn === document.querySelector('[data-testid=fund-amount-form]') && window.__drawn.isConnected), true, 'the amount step was not redrawn');
+  assert.equal(await page.inputValue('[data-testid=fund-amount]'), '700');
+  // Back and forward across real pages still re-render: the fragment step back is a no-op, the next one leaves.
+  await page.goto(BASE + '/portfolio');
+  await page.waitForSelector('[data-testid=portfolio], #panel');
+  await page.goBack();
+  await page.waitForSelector('[data-testid=funds][data-mode=deposit]');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
 test('text alternatives: charts, the elections map (named tiles, Enter pins), gauges, the seat bar; the ratings strip is a focusable region', async () => {
   const page = await newPage({ width: 1280, theme: 'dark' });
   await page.goto(BASE + EV);

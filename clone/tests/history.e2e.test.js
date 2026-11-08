@@ -218,6 +218,41 @@ test('a slow answer for an earlier filter never overwrites a newer one (chip, th
   assert.deepEqual(ph.errors, []);
 });
 
+// Regression (lead review; CI showed the search box empty and the list unfiltered right after typing): the whole route can
+// be redrawn under a member who is typing (a flag, content or currency change, a back / forward step). The replaced view
+// kept painting into the new one, and the new one started from the last *saved* filters, so what had been typed but not
+// yet saved (the 350 ms debounce) was lost. Here the redraw comes in the same moment as the typing and the unfiltered
+// answer is held, so the old code always ends unfiltered with an empty box.
+test('a whole-view redraw while typing a History search keeps the search (no stale painting, nothing lost)', async () => {
+  let held = 0;
+  await ph.route(/\/v1\/users\/[^/]+\/history(\?|$)/, async (route) => {
+    if (!new URL(route.request().url()).searchParams.get('market')) { held += 1; await new Promise((r) => setTimeout(r, 1500)); }
+    await route.continue();
+  });
+  await ph.waitForSelector('#h-market');
+  assert.equal(await ph.inputValue('#h-market'), '');
+  await ph.evaluate(() => {
+    window.__panel = document.querySelector('#panel');
+    const i = document.querySelector('#h-market');
+    i.value = 'Cut';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    // A route redraw right away (before the debounce): a history step to the same page with another query.
+    history.replaceState({}, '', '/portfolio?tab=history&from_test=1');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await ph.waitForFunction(() => document.querySelector('#panel') && document.querySelector('#panel') !== window.__panel);
+  await ph.waitForTimeout(2500); // any held answer arrives
+  assert.equal(await ph.inputValue('#h-market'), 'Cut', 'the search survives the redraw');
+  const ui = await rows(ph);
+  assert.ok(ui.length && ui.every((x) => x.text.includes('Cut')), `the list stays filtered (${ui.length} rows, held ${held})`);
+  const saved = await (async () => { for (let i = 0; i < 30; i++) { const v = JSON.parse(dbq("SELECT value FROM user_settings WHERE user_id=? AND key='history_filters'", uid())[0].value); if (v.market === 'Cut') return v; await ph.waitForTimeout(100); } return null; })();
+  assert.ok(saved, 'the typed search is saved');
+  await ph.unroute(/\/v1\/users\/[^/]+\/history(\?|$)/);
+  await ph.fill('#h-market', '');
+  await ph.waitForTimeout(800);
+  assert.deepEqual(ph.errors, []);
+});
+
 test('History survives a restart; 390px has no horizontal overflow', async () => {
   const first = (await allHistory(ph)).slice(0, 5).map((x) => x.id);
   await ph.context().close();

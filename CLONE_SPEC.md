@@ -5855,13 +5855,16 @@ uses the light-theme brand colours; crawler exemption by user agent (public page
   the polling fallback, SMS, footer and help centre, admin text with `$&` / `$'` / `` $` `` / `$$` kept exactly as
   written in the served head and body (both the CMS head and the server rendering insert it with function replacers,
   never as a String.replace pattern), persistence.
-- `tests/a11y.e2e.test.js` (7): §38.6, including the watch-star target size with a narrow star glyph. `tests/perf.e2e.test.js` (3): §38.7.
+- `tests/a11y.e2e.test.js` (8): §38.6, including the watch-star target size with a narrow star glyph and "Skip to
+  content" keeping the page as it is (a fragment-only history step no longer redraws the route, so a half-filled
+  deposit survives). `tests/history.e2e.test.js` gains a whole-view redraw while a History search is being typed: the
+  replaced Portfolio view stops painting, and the typed search is kept and saved. `tests/perf.e2e.test.js` (3): §38.7.
 - `tests/authz.e2e.test.js`: every new route classified, growth IDOR probes; `tests/flags.e2e.test.js`: the new flags.
 - Existing tests changed for the removed hub: `markets-content` (the ballot card is tested on `/ballot`; the hub test
   asserts the 301 and the 404 of the senate API and a live Fed outlook refresh), `flags` (the hub flags are checked on
   `/hubs/economics`), `cms-content` (a new-page scenario uses `support/press`, as `support/contact` is now a default
   page), `account-area` (the observed Settings sections keep their order; "Data and messages" is appended after them).
-- Full suite: 376 scenarios across 48 files.
+- Full suite: 378 scenarios across 48 files.
 
 ---
 

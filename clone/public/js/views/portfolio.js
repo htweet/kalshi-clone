@@ -58,8 +58,13 @@ export async function render({ el, navigate, query }) {
     <div class="card p-4-12" id="panel"></div>`;
 
   const $ = (s) => el.querySelector(s);
+  let marketT = null; // the History search debounce (shared by every draw of the panel)
+  // Once the route is redrawn (a flag, content or currency change re-renders the whole view), this instance is replaced:
+  // its in-flight draws and timers must not paint into the new instance's panel (cleanup below sets `dead`).
+  let dead = false;
   async function drawStats() {
     const b = await api.balance(uid);
+    if (dead) return; // a redrawn view shows its own numbers
     $('#s-cash').textContent = money(b.balance_dollars);
     $('#s-value').textContent = money(b.portfolio_value_dollars);
     $('#s-reserved').textContent = money(b.reserved_dollars);
@@ -68,6 +73,7 @@ export async function render({ el, navigate, query }) {
   // Only the latest draw renders: a slower answer for an earlier filter or tab must not overwrite a newer one.
   let panelSeq = 0;
   async function drawPanel() {
+    if (dead) return;
     const p = $('#panel');
     const my = ++panelSeq;
     if (tab === 'positions') {
@@ -190,8 +196,14 @@ export async function render({ el, navigate, query }) {
         ${r.cursor ? `<button class="btn mx-auto-12 d-block" id="h-more" data-testid="history-more">${te('portfolio.render.load_more')}</button>` : ''}`;
       const save = () => session.setProp('history_filters', { type: hist.type, market: hist.market, from: hist.from, to: hist.to }).catch(() => {});
       for (const b of p.querySelectorAll('[data-htype]')) b.onclick = () => { hist.type = b.dataset.htype; save(); drawPanel(); };
-      let mt = null;
-      p.querySelector('#h-market').oninput = (e) => { clearTimeout(mt); mt = setTimeout(() => { hist.market = e.target.value.trim(); save(); drawPanel().then(() => { const i = $('#h-market'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 350); };
+      // What is typed is kept at once (here and in the session's copy of the setting), so a redraw of the whole view
+      // before the debounce fires starts from it; the server save and the filtered draw follow after 350 ms.
+      p.querySelector('#h-market').oninput = (e) => {
+        hist.market = e.target.value.trim();
+        session.props = { ...session.props, history_filters: { type: hist.type, market: hist.market, from: hist.from, to: hist.to } };
+        clearTimeout(marketT);
+        marketT = setTimeout(() => { marketT = null; save(); drawPanel().then(() => { const i = $('#h-market'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 350);
+      };
       p.querySelector('#h-from').onchange = (e) => { hist.from = e.target.value; save(); drawPanel(); };
       p.querySelector('#h-to').onchange = (e) => { hist.to = e.target.value; save(); drawPanel(); };
       const more = p.querySelector('#h-more');
@@ -217,9 +229,11 @@ export async function render({ el, navigate, query }) {
   }
   // Live: new activity is prepended to the first page without losing loaded pages or filters.
   async function liveHistory() {
+    if (dead) return undefined;
     const rows = $('#h-rows');
     if (!rows) return drawPanel();
     const r = await api.history(uid, { ...Object.fromEntries(new URLSearchParams(histQs())), limit: 25 });
+    if (dead || !rows.isConnected) return undefined; // replaced or redrawn meanwhile: the new draw has the latest rows
     const fresh = r.history.filter((x) => !hist.ids.has(x.id));
     fresh.forEach((x) => hist.ids.add(x.id));
     if (fresh.length) rows.insertAdjacentHTML('afterbegin', fresh.map(histRow).join(''));
@@ -463,5 +477,10 @@ export async function render({ el, navigate, query }) {
     for (const c of el.querySelectorAll('[data-countdown]')) { const n = secsLeft(c.dataset.countdown); c.textContent = `${c.dataset.prefix || ''}${fmtLeft(n)}`; if (n === 0) due = true; }
     if (due) { clearTimeout(commsT); commsT = setTimeout(() => drawPanel().catch(() => {}), 900); }
   }, 1000);
-  return () => { unsubs.forEach((u) => u()); clearInterval(iv); clearTimeout(commsT); clearTimeout(tickT); };
+  return () => {
+    dead = true; panelSeq += 1; // in-flight draws of this instance stop at their sequence check
+    // A History search still in its debounce is saved now (the redrawn view already starts from it, see oninput).
+    if (marketT) { clearTimeout(marketT); marketT = null; session.setProp('history_filters', { type: hist.type, market: hist.market, from: hist.from, to: hist.to }).catch(() => {}); }
+    unsubs.forEach((u) => u()); clearInterval(iv); clearTimeout(commsT); clearTimeout(tickT);
+  };
 }

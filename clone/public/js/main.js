@@ -126,7 +126,10 @@ export function navigate(href, { replace = false } = {}) {
   window.scrollTo(0, 0);
 }
 
+// The page (path + query) the view was last drawn for: a fragment-only history step does not redraw it (below).
+let drawnFor = null;
 async function render() {
+  drawnFor = location.pathname + location.search;
   if (cleanup) { try { cleanup(); } catch { /* ignore */ } cleanup = null; }
   closeMenus();
   const url = new URL(location.href);
@@ -285,7 +288,10 @@ document.addEventListener('click', (e) => {
   closeMenus();
   navigate(a.getAttribute('href'));
 });
-window.addEventListener('popstate', render);
+// Back / forward re-renders the route. A step that changes only the #fragment (the "Skip to content" link, an in-page
+// anchor) is the same page: the browser moves focus and scroll itself, and redrawing would wipe what the visitor has
+// typed or opened (a half-filled deposit or a History filter would be lost; regression test in tests/a11y.e2e.test.js).
+window.addEventListener('popstate', () => { if (location.pathname + location.search === drawnFor) return; render(); });
 
 document.getElementById('search-form').addEventListener('submit', (e) => {
   e.preventDefault();
