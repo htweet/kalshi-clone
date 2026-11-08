@@ -427,7 +427,8 @@ form.stat .btn { height: var(--control-sm); padding: 0 var(--space-3); font-size
 .up-card .when { margin-top: var(--space-4); font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-caps); text-transform: uppercase; color: var(--text-x20); }
 .up-card .t { min-height: 48px; font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-semibold); }
 .up-card .tag { margin-top: auto; height: var(--control-md); padding: 0 var(--space-3); display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--rounded-pill); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.star-btn { padding: var(--space-1); border: 0; background: none; color: var(--text-x30); font-size: var(--fs-lg); line-height: 1; }
+/* The 24 px minimum target (WCAG 2.2 SC 2.5.8) holds whatever font draws the star: the glyph's width varies by system font. */
+.star-btn { display: inline-flex; align-items: center; justify-content: center; min-width: var(--space-6); min-height: var(--space-6); padding: var(--space-1); border: 0; background: none; color: var(--text-x30); font-size: var(--fs-lg); line-height: 1; }
 .star-btn.on { color: var(--warn); }
 .cards2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 @media (max-width: 900px) { .cards2 { grid-template-columns: minmax(0, 1fr); } }

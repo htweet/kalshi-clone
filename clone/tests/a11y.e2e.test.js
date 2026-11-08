@@ -294,6 +294,26 @@ test('admin-chosen party colours: text on a pale, a mid-tone and a dark colour s
   }
 });
 
+// Regression (CI, lead review): the watch star on the home cards took its width from the star glyph, which differs by
+// system font; on the CI runner it drew 22.3 px wide, under the 24 px minimum target of WCAG 2.2 (2.5.8). A narrow glyph
+// is simulated here by drawing the star small; the button must still be at least 24 × 24 px.
+test('watch stars on the home cards keep a 24 px target whatever font draws the star (narrow glyph simulated)', async () => {
+  for (const width of [1280, 390]) {
+    const page = await newPage({ width, theme: 'light' });
+    await page.goto(BASE + '/');
+    await page.waitForSelector('button[data-star]');
+    await settled(page);
+    const n = await page.$$eval('button.star-btn', (els) => { for (const el of els) el.style.setProperty('font-size', '10px'); return els.length; });
+    assert.ok(n > 0, 'stars on the home page');
+    const small = await page.$$eval('button.star-btn', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [e.dataset.star, Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }).filter(([, w, h]) => w < 24 || h < 24));
+    assert.deepEqual(small, [], `${width}: every star at least 24 × 24 px`);
+    const r = await axe(page, ['target-size']);
+    assert.deepEqual(r.violations, [], `${width}: ${JSON.stringify(r.violations)}`);
+    assert.deepEqual(page.errors, []);
+    await page.context().close();
+  }
+});
+
 test('the accessibility statement is a CMS page linked from the footer', async () => {
   const page = await newPage({ width: 390, theme: 'light' });
   await page.goto(BASE + '/');
