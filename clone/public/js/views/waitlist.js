@@ -188,8 +188,30 @@ async function renderUnsubscribe({ el, query }) {
   };
 }
 
+// ---------------------------------------------------------------- /waitlist/manage?token=… (a guest's place and survey)
+// The "your place and survey" link of the welcome emails: it only reads until the member chooses to leave or delete.
+async function renderManage({ el, query }) {
+  const my = ++seq;
+  document.title = t('waitlist.page.doc_title');
+  const token = query.get('token') || '';
+  let m;
+  try { m = await request('POST', '/v1/waitlists/manage', { token }); } catch (ex) {
+    if (my !== seq) return;
+    el.innerHTML = `<div class="card empty center-40" data-testid="waitlist-manage-error" data-code="${esc(ex.code || '')}"><p>${esc(ex.message)}</p></div>`;
+    return;
+  }
+  if (my !== seq) return;
+  const st = m.me.entry_status;
+  const date = esc(fmtDate(st === 'unsubscribed' ? m.me.unsubscribed_time : m.me.confirmed_time || m.me.joined_time));
+  el.innerHTML = `<div class="wl-page wl-narrow"><section class="card panel" data-testid="waitlist-manage" data-status="${esc(st)}"><h1 class="page-title">${te('waitlist.manage.title')}</h1>
+    <p>${te(`waitlist.manage.status_${st === 'confirmed' || st === 'unsubscribed' ? st : 'pending'}`, { email: esc(m.email_masked || ''), date })}</p>
+    <div class="d-flex gap-8 fw-wrap">${st === 'unsubscribed' ? '' : `<a class="btn" href="/waitlist/unsubscribe?token=${encodeURIComponent(token)}" data-link data-testid="waitlist-manage-unsubscribe">${te('waitlist.manage.unsubscribe')}</a>`}</div></section>${st === 'confirmed' ? surveyHtml(m.survey) : ''}</div>`;
+  if (st === 'confirmed') wireSurvey(el, m.survey, { token });
+}
+
 export async function render(ctx) {
   if (ctx.params.page === 'confirm') return renderConfirm(ctx);
   if (ctx.params.page === 'unsubscribe') return renderUnsubscribe(ctx);
+  if (ctx.params.page === 'manage') return renderManage(ctx);
   return renderMain(ctx);
 }

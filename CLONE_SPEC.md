@@ -2,6 +2,13 @@
 
 Status: clean-room specification. Written only from observed behavior: captured network traffic, public documentation, and string-level facts from shipped JavaScript bundles. It contains no copied source code, styles, images, fonts or text assets. Implementers should build from this document only.
 
+> **Revision 12 (2026-11-08):** §36 waitlists (PLAN Phase 7A): the Perps waitlist on by default with a one-time audited
+> migration; a reusable waitlist module; the real-money launch waitlist (one-click join, guest double opt-in with hashed
+> single-use links, NDPA consent records, encrypted guest emails with a keyed hash, one-click unsubscribe and RFC 8058
+> headers, deletion, export and closure), the opinion survey as CMS entries (naira bands, Nigerian payment methods,
+> moderated free text), Admin › Waitlists (target and one-time alert, progress bar, consent CSV, throttled resumable
+> newsletter outbox) and the launch email offered after the two-person production switch.
+>
 > **Revision 11 (2026-11-04):** §34 Perps completion (PLAN Phase 6): order amend and decrease, order groups, subaccounts and transfers, server-side trailing stops, size-tiered margin with portfolio (cross) maintenance margin and liquidation, fractional perps, a double-entry perps journal, APY on collateral, Perps referrals, waitlist access; property-based liquidation and funding invariants. §14 updated where behaviour changed.
 >
 > **Revision 10 (2026-11-04):** §33 feature flags (PLAN Phase 5D): a DB-backed flag per feature and module with rollout, targeting, schedule and kill switch, enforced on the server; play mode on play money with the Central Bank and the Vault Heist; the switch to production with a two-person reset; per-user and site-wide deposit / withdrawal controls; the Central Bank as the promotions treasury.
@@ -409,6 +416,7 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §32 content management (Phase 5C): every SPA string in a keyed text catalog (client and server `t()`, admin overrides, declared variables, plain or allowlist rich text, live updates, staff preview), notification / email / SMS templates on every send, media library with server-side re-encode and slots (logo, icons, manifest), CMS pages with SEO and legal step-up, footer, brand colours with a contrast check, drafts → schedule → publish → rollback with hash-chained audit, editor / publisher roles, JSON export / import with dry run, hard-coded-text enforcement | yes | tests `cms`, `cms-content` |
 | §33 feature flags, play mode, Central Bank and money controls (Phase 5D): a flag for every feature and module (on/off, kill switch, rollout, allow/deny by user, role and region, schedule) enforced by a server gate with jobs paused and the UI hidden live, Admin › Feature flags with reason, step-up, history and audit; play mode with signup bonus, free deposits and no withdrawals; Vault Heist against the Central Bank vault; two-person switch to production with backup, archives and reset; per-user deposit / withdrawal revocation; the promotions treasury | yes | tests `flags`, `playmode`; design choices (not observed) |
 | §35 public trading API: signed API keys (RSA-PSS / Ed25519), rate tiers, `/trade-api/v2` (orders, batch, groups, history, RFQ, Perps), public WebSocket, FIX 4.4 gateway (simulated), developer portal with demo Try it, status page | yes | tests `api-keys`, `trade-api`, `fix`, `dev-portal`, `api-contract`; parity in `API_PARITY.md` |
+| §36 waitlists (Phase 7A): Perps waitlist on by default (audited migration), real-money launch waitlist with one-click and double opt-in joins, consent records, encrypted guest emails, unsubscribe / delete / export, CMS survey with naira bands, Admin › Waitlists (target alert, progress bar, consent CSV, throttled newsletter outbox), launch email offered after the production switch | yes | tests `waitlists`, `authz`, `perps-growth`, `flags` |
 | Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
 Verification: 284 end-to-end scenarios across 36 files in `clone/tests/` (run `npm run test:e2e`), each against a real server and a real SQLite file, in Chromium (Playwright) wherever there is UI; the Phase 6 security gate (`perps-invariants`) drives the live engine with property-based sequences. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
@@ -4738,7 +4746,8 @@ security gate); `perps.e2e.test.js` (12) still passes on the rewritten engine.
 
 ### 34.9 Waitlist access (P6.3)
 
-- Flag `perps.waitlist` (off by default; on = access by invitation). `GET /perps/waitlist` returns the observed shape
+- Flag `perps.waitlist` (on = access by invitation; off by default in Phase 6, **on by default since Phase 7A**, with a
+  one-time audited migration for existing databases, §36.1). `GET /perps/waitlist` returns the observed shape
   (`has_joined, beta_unlocked, can_start_onboarding, …`) plus `status`, `position` and `waiting_count`;
   `POST /perps/waitlist` joins (idempotent).
 - Enforced in the flag gate before any route: while on, Perps writes that add money or risk (orders except reduce-only,
@@ -5119,6 +5128,211 @@ Try-it keeps a demo key in the browser profile until "Forget this demo key".
 - `dev-portal` (5): navigation, search, theme, the generated documents, Try it on the demo without cookies, environment
   isolation, CMS live edits, the JavaScript and Python samples, the status page with an incident, the flags.
 - `api-contract` (3): §35.12 and the rendered reference listing exactly the documented operations. `authz`: §35.13.
+
+## 36. Waitlists, launch survey and newsletter (Phase 7A)
+
+Owner decisions 2026-11-08 (PLAN.md Phase 7A): the Perps waitlist is **on**, and a **real-money launch waitlist** gauges
+demand while the exchange runs on play money (§33). Nigeria first (§30.0): naira bands, Nigerian payment methods,
+`en-NG` number formatting, dates in the configured zone (WAT by default), the Nigeria Data Protection Act 2023 for
+consent. Nothing in this section switches the exchange to real money: that stays the two-person, RESET-confirmed
+production switch of §33.
+
+### 36.1 Perps waitlist on (P7A.1)
+
+- `perps.waitlist` is **enabled by default** for a new database (`server/flags.js` REGISTRY).
+- **Migration** (`MIGRATIONS` in `server/flags.js`, run by `mountFlags` once the audit chain exists): on a database that
+  already had flags (it predates this build), `perps_waitlist_on_2026_11_08` switches the flag on with the reason
+  **"owner decision 2026-11-08"**: a `feature_flag_history` row (`action: migration`, no actor), a hash-chained
+  `admin_audit` row (`flags.migration`) and a live nudge. A `meta` marker (`flag_migration:<id>`, with `result`
+  `applied` / `already_set` / `new_database`) makes it run **once**: a later admin "off" is never switched back on. A
+  pre-existing database without the row gets the old state (off) first, so the switch is always audited.
+- **Opting out (tests and sandboxes):** the start option `flags: { defaults: { 'perps.waitlist': false } }` sets the
+  state a *new* row starts with (admins can still change it; unlike `overrides`, which force a value). Suites that trade
+  Perps as new users use it (see the PLAN 7A row); the in-process demo environment (§35.11) uses it too, so the API
+  sandbox keeps open Perps. Behaviour of the gate itself is unchanged (§34.9).
+- The Phase 6 table `perp_waitlist` moves into `waitlist_entries` (list `perps`); a read-only view `perp_waitlist`
+  keeps the old shape for reports. Positions, grandfathering, staff exemption, approve / revoke / invite in Admin › Perps
+  ops, CMS notifications and emails are unchanged (`tests/perps-growth.e2e.test.js` passes as before).
+
+### 36.2 The waitlist module (P7A.2)
+
+`server/waitlists.js`: `createWaitlists` (storage, shared by the Perps list) and `mountWaitlists` (routes, jobs). A list is
+a key: `perps` (signed-in only; `waiting → approved / revoked`) and `real_money_launch` (signed-in and guests;
+`pending → confirmed → unsubscribed`).
+
+- **Signed in, one click:** `POST /waitlists/real_money_launch/join` with `consent: true` and the `consent_version`
+  the page showed. The entry is confirmed at once (the account is authenticated); a welcome email and an in-app notice
+  (`waitlist_joined`) follow. A guest entry with the account's email that is not linked yet is taken over.
+- **Guests, double opt-in:** `POST /waitlists/real_money_launch/guest_join` (`email`, consent, attribution, a hidden
+  honeypot field `website`). It is a **pre-session endpoint** (login CSRF, §22.2) and, like every `/v1` write, needs the
+  signed client token (the bot challenge, §21). The answer is always `202 {status: "check_email"}`:
+  - new email → a pending entry and a confirmation email;
+  - pending → a new link (the previous one is deleted: one live link per entry);
+  - unsubscribed → pending again with a fresh consent record;
+  - confirmed → an "already on the list" email to the owner (the requester learns nothing);
+  - over the per-email limit (3 an hour) or a filled honeypot → nothing sent, the same answer.
+- **The confirmation link** `/waitlist/confirm?token=…`: 32 random bytes (base64url), stored only as SHA-256 in
+  `waitlist_tokens`, expiring after 48 hours (start option `waitlists.confirmTtlMs`), single use (marked used in the
+  confirming transaction; a second use answers `410 waitlist_link_used`, an expired one `410 waitlist_link_expired`,
+  anything else `400 waitlist_link_invalid`). The landing page confirms on a button click (mail scanners that prefetch
+  links do not confirm anyone). Pending guest entries whose links expired over a week ago are deleted (hourly job).
+- **Manage / unsubscribe token:** `<entry id>.<HMAC-SHA256>` derived from a dedicated key (`waitlist-token:v1`), never
+  stored; it dies with the entry and survives restarts. It authorises `POST /waitlists/manage` (status, masked email,
+  survey), `PUT /waitlists/real_money_launch/survey` with `token`, `POST /waitlists/unsubscribe` and
+  `POST /waitlists/delete`. Emails carry it in two links: `/waitlist/manage?token=…` ("your place and survey"; it only
+  reads; members with an account get `/waitlist` instead) and `/waitlist/unsubscribe?token=…` (unsubscribes on load).
+- **Consent record** (NDPA 2023) on every join: `consent_ts`, `consent_version` (`cms<published version>-<12 hex of the
+  wording's SHA-256>`), `consent_text_sha256`, `consent_source` (`signed_in` / `guest_form`) and `consent_ip_hash`
+  (HMAC-SHA256 with `waitlist-ip:v1`, 32 hex; the IP itself is not kept). The wording is the CMS text
+  `server.waitlists.consent.text`; the page shows it and echoes its version, and a mismatch answers
+  `409 consent_changed` (the member always agreed to the wording on screen). Unsubscribing keeps the record and adds
+  `unsubscribed_ts`; deletion removes everything.
+- **Email at rest:** a guest's address is AES-256-GCM encrypted (`waitlist-email:v1`, bound to the row id) with a keyed
+  HMAC (`waitlist-email-hash:v1`) as the dedupe and lookup key (unique per list). A member account stores no copy: the
+  account email is the contact.
+- **Linking:** when a guest later signs up with the same email (the account-created hook) or confirms while an account
+  with that email exists, the entry is linked to the account and its encrypted copy is dropped.
+- **Unsubscribe in every email:** each waitlist email carries `{{unsubscribe_link}}` (appended by the sender when an
+  admin's override leaves it out) to `/waitlist/unsubscribe?token=…`, which unsubscribes on load and offers **Delete my
+  data**; and the header pair `List-Unsubscribe: <…/v1/waitlists/one_click_unsubscribe?token=…>` +
+  `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). That POST runs before the session, CSRF and
+  client-token middleware (mail providers send no cookies), authenticated by the token alone, rate limited per IP. The
+  messaging provider gained an allowlisted `headers` field (SMTP and the dev outbox).
+- **Privacy rights:** members leave (`POST …/unsubscribe`) or delete (`DELETE …/me`, or `POST /waitlists/delete` by
+  token) at any time; the account data export lists every entry with its consent record and survey answers; account
+  closure deletes them.
+- **Sources:** `source` from the call to action (`banner`, `funds`, `home`, `direct`, …), `utm_source`, `utm_medium`,
+  `utm_campaign` (lowercased, `[a-z0-9._-]`, 64 chars) and a referral code `ref` (upper-cased, 4–16 alphanumerics).
+- **Abuse controls on the guest form:** the auth rate tier (§21), a persisted per-IP limit (10 an hour; start option
+  `waitlists.guestJoinsPerIp`), a per-email limit (3 an hour, silent), the honeypot (logged as `waitlist_honeypot`),
+  the client token and login CSRF; token routes have their own per-IP limit (60 per 10 minutes).
+
+### 36.3 Opinion survey (P7A.3)
+
+- Questions are CMS entries of the new type **`survey`** (key `<list>.<id>`): draft, publish with a reason, versions,
+  rollback, hash-chained audit (§32.2). Value: `kind` (`single`, `multi`, `naira_band`, `text`), `prompt` (plain text,
+  ≤ 200), `options` (2–12 `{id, label}`) or `bands` (2–10 ascending `{id, min_cents, max_cents}`, the last open-ended),
+  `max_len` (text, 10–2000), `sort`, `required`, `active`. Defaults in `server/content/waitlists.js` until published.
+- **Seeded:** would you trade with real money (single); expected first deposit in naira bands (₦0–5,000,
+  ₦5,000–20,000, ₦20,000–100,000, ₦100,000–500,000, ₦500,000 or more); preferred payment method (bank transfer, debit
+  card, USSD, mobile wallet); markets of interest (multi: elections and politics, football and other sports, the
+  economy and the naira, crypto, music / film / entertainment, weather); a free-text comment (500 characters).
+- **Answers** (`waitlist_survey_answers`): confirmed members only, editable until the launch — the production switch
+  locks them (`survey_locked_ts`; `409 survey_closed`). Free text is stripped of markup and control characters, capped,
+  set to `pending` moderation and flagged (`contains a link`, a blocklisted phrase, repeated characters).
+- **Admins** see aggregates only (per option counts of confirmed and unsubscribed members) and the free text in a
+  moderated list without identities (approve / hide, audited).
+
+### 36.4 Public side (P7A.4)
+
+- **Call to action** "Join the real-money waitlist" in the play-mode banner, on Funds (overview) and at the top of Home,
+  only while play mode is on, each `[data-flag="waitlist.launch"]` and tagged with its source.
+- **`/waitlist`:** the CMS pitch (rich text), the optional progress bar "N of TARGET joined" (confirmed members; "N
+  people joined" without a target), one-click join or the guest form with the consent wording, the member's status
+  (leave, delete my data) and the survey. `/waitlist/confirm` and `/waitlist/unsubscribe` are the landing pages. Every
+  string is a catalog key (`public/js/content/waitlist-strings.js`); amounts are formatted in the display currency
+  (₦ by default) and dates in the configured zone; the layout works at 390 px (no horizontal scroll, tested).
+
+### 36.5 Admin › Waitlists (P7A.5)
+
+- **Per list:** totals, confirmed / pending / unsubscribed, a 30-day daily growth chart (confirmed per day), sources
+  (where they joined, UTM source and campaign, referral codes), the target, the public-count toggle (the
+  `waitlist.launch.public_count` flag, with reason and step-up as on the flags page), survey results, the moderated
+  comments and the question editor. The Perps list shows its counts and gate and links to Admin › Perps ops, where
+  approve / revoke / invite work as before.
+- **Target N:** `PUT /admin/waitlists/real_money_launch/target` (`settings.write`, reason, audited). When confirmed
+  members reach it, every admin with `settings.write` gets **one** in-app alert (`waitlist_target`) and one email
+  (`email.waitlist_target_admin`); the alert is stored with its target value, so it repeats only for a new target.
+  Admin › Play mode shows "launch target reached". Nothing switches automatically.
+- **Export:** `GET /admin/waitlists/real_money_launch/export.csv` (`users.support`, step-up, audited): consent fields
+  only — entry id, list, status, email, joined / confirmed / unsubscribed times, consent time, version, wording hash,
+  source and IP hash, UTM fields, referral code; no survey answers. Cells that start with `= + - @` are quoted with a
+  leading apostrophe (CSV injection).
+- **Newsletter** (`announce`; flag `newsletter`): the CMS template `email.waitlist_newsletter` (edit in Content ›
+  Templates; preview and "send me a test" on the page), sent now or scheduled. A send snapshots the published template
+  and becomes rows in `waitlist_newsletter_outbox` (every member of the list); the job sends at most N a minute
+  (`waitlists.newsletterPerMinute` or `NEWSLETTER_PER_MINUTE`, default 120), re-checks each member's status at send
+  time and records `sent`, `skipped_unconfirmed`, `skipped_unsubscribed`, `skipped_deleted` or `failed`; state is in the
+  database, so a restart resumes where it stopped and a scheduled send fires after a restart. Cancel stops the queue.
+  Per-send stats on the page. Delivery is at least once (a crash between sending and marking can repeat one email).
+- **Launch email:** after the production switch (a `pm_reset_batches` row exists) Admin › Play mode and Admin ›
+  Waitlists offer "Send the 'We're live with real money' email" (`email.waitlist_launch`) to confirmed members, with a
+  reason and step-up, once. It is **never sent automatically**; staff with `announce` get an in-app reminder
+  (`waitlist_launch_offer`).
+
+### 36.6 The production switch
+
+The switch keeps `waitlist_entries`, consent records and survey answers (they are not money). The preview counts them
+(`kept_waitlist_members`, `kept_waitlist_consents`, `kept_survey_answers`, shown as "Also kept"); after the switch the
+survey is locked and the launch email is offered (the approval response carries `launch_email`).
+
+### 36.7 Flags, routes, tables
+
+- **Flags** (group `growth`): `waitlist.launch` (on; routes, CTAs, `/waitlist`), `waitlist.launch.public_count`
+  (off; the progress route and bar), `waitlist.launch.survey` (on; answering), `newsletter` (on; admin newsletter and
+  launch-email routes, the outbox job). Off → `403 feature_disabled`, the job pauses, `[data-flag]` hides the UI live.
+  Leaving is core: unsubscribe, delete and manage by token, and the signed-in unsubscribe / delete, work with every
+  flag off.
+- **Public `/v1`:** `GET /waitlists/real_money_launch`, `GET …/progress`, `POST …/guest_join`, `POST /waitlists/confirm`,
+  `POST /waitlists/manage`, `POST /waitlists/unsubscribe`, `POST /waitlists/delete`, `PUT …/survey` (token or session),
+  `POST /waitlists/one_click_unsubscribe` (app level, before the session middleware). **Signed in:** `POST …/join`,
+  `POST …/unsubscribe`, `DELETE …/me`.
+- **Admin:** `GET /admin/waitlists`, `GET /admin/waitlists/:list` (`users.read`), `PUT …/target` (`settings.write`),
+  `GET …/export.csv` (`users.support`), `GET …/survey/comments` (`users.read`), `POST …/survey/comments/:id/:action`
+  (`users.support`), `GET|POST …/newsletters`, `POST …/newsletters/preview`, `POST …/newsletters/test`,
+  `POST …/newsletters/:id/cancel`, `POST …/launch_email` (`announce`). Survey questions use the CMS routes
+  (`/admin/cms/survey/*`). All classified in `tests/authz.e2e.test.js`, with object-level probes (another user, forged
+  and cross-entry tokens, moderation without the permission).
+- **Tables:** `waitlist_entries`, `waitlist_tokens`, `waitlist_survey_answers`, `waitlist_newsletters`,
+  `waitlist_newsletter_outbox`; view `perp_waitlist`; settings `waitlist:<list>` (target, alert, survey lock); `meta`
+  markers `flag_migration:*`; `email_outbox.headers`. CMS: type `survey`; templates `email.waitlist_confirm`,
+  `email.waitlist_welcome`, `email.waitlist_already`, `email.waitlist_newsletter`, `email.waitlist_launch`,
+  `email.waitlist_target_admin`, `notify.waitlist_joined`, `notify.waitlist_target`, `notify.waitlist_launch_offer`;
+  server texts `server.waitlists.*`.
+
+### 36.8 Design choices to confirm
+
+- Confirmation links expire after **48 hours**; unconfirmed requests are deleted a week after their last link expired.
+- **No default target N** (the admin sets it); the alert fires once per target value.
+- The public progress bar is **off** until an admin shows it.
+- Signed-in members are confirmed on one click (no second email round trip); guests confirm by email.
+- The guest form needs a ticked consent box; signed-in members agree by clicking the join button under the wording.
+- The seeded survey questions and bands of §36.3; free text moderated before anyone reads it (nothing is public).
+- Newsletter throttle **120 emails a minute**; newsletters go to the launch list only (Perps waitlist members never
+  agreed to marketing email).
+- The CSV export includes the email address with the consent fields (so consent can be proven per person) but no
+  survey answers, and needs `users.support` + step-up.
+- The production switch offers the launch email to confirmed members, once, from Admin › Play mode or Admin ›
+  Waitlists; it locks the survey.
+- Call-to-action cards only in play mode (after the switch the launch list has done its job).
+
+### 36.9 Residual risks
+
+- Sign-up does not prove email ownership: someone signing up with a guest's address links that guest's entry (status
+  and survey answers) to their account. Mitigation: the guest confirmed their address; answers are opinions, not money;
+  P8 can require a verified email before linking.
+- Per-process limits and the outbox job assume one instance (RS1); at-least-once newsletter delivery.
+- The keyed hashes and encryption depend on the master key; no key rotation yet (RS4).
+- HTML email links are `#` on plain-http development origins (the CMS link check accepts https only); the text part
+  always carries the full links.
+- Rate limits are per IP: shared NAT (common on Nigerian mobile networks) can hit the guest limit sooner; the per-IP
+  limit is a start option and the auth tier is admin-editable.
+
+### 36.10 Verification
+
+- `tests/waitlists.e2e.test.js` (14 scenarios): the Perps waitlist default, the migration (once, audited, never again
+  after an admin "off") and the Phase 6 table moved onto the module; a one-click join from the banner with consent
+  fields, the welcome email with unsubscribe link and RFC 8058 headers, the survey (all four kinds, ₦ bands, edits); a
+  guest double opt-in at 390 px (outbox link, hash-only token, encryption at rest, single use, expiry); unsubscribe by
+  link and one-click POST, delete my data, linking on sign-up, export and closure; the CTAs on banner / Funds / Home at
+  390 px and the flags (live hiding, `feature_disabled`, unsubscribe still working, survey flag); the target with its
+  one-time alert and the Play mode note; the public progress bar toggle; the survey editor (CMS versions, validation);
+  the consent CSV behind step-up; the newsletter (template preview, test send, throttled send resumed across a restart,
+  skips, stats, a scheduled send fired after a restart, the flag); the production switch keeping the lists, locking
+  the survey and offering the launch email; the guest form's limits, honeypot, client token, login CSRF and identical
+  answers; persistence across a restart.
+- `tests/authz.e2e.test.js`: every new route classified, plus the waitlist IDOR test. `tests/perps-growth.e2e.test.js`:
+  the Perps waitlist unchanged. `tests/flags.e2e.test.js`: the new flags, rules and module.
 
 ---
 

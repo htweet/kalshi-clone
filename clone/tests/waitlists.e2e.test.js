@@ -262,6 +262,15 @@ test('guest double opt-in at 390 px: the confirmation link from the outbox, sing
   assert.equal(q1("SELECT flag_reason f FROM waitlist_survey_answers WHERE entry_id=? AND question_key='real_money_launch.comment'", e.id).f, 'contains a link');
   const welcome = await eventually(() => { const m = lastMail(email('g1'), "You're on the%"); assert.ok(m); return m; });
   g1Token = tokenOf(linkIn(welcome.body, '/waitlist/unsubscribe?token='));
+  // The welcome email's "take the survey" link opens the member's page; it reads, it never unsubscribes.
+  const manage = linkIn(welcome.body, '/waitlist/manage?token=');
+  assert.equal(tokenOf(manage), g1Token);
+  await page.goto(manage.replace(/^https?:\/\/[^/]+/, BASE));
+  await page.waitForSelector('[data-testid=waitlist-manage][data-status=confirmed]');
+  await page.waitForSelector('[data-testid=survey-q][data-key="real_money_launch.first_deposit"] input[value=b5]:checked');
+  assert.match(await page.textContent('[data-testid=waitlist-manage]'), /g\*\*\*@example\.test is on the real-money waitlist/);
+  assert.equal(q1('SELECT status FROM waitlist_entries WHERE id=?', e.id).status, 'confirmed', 'opening the survey link does not unsubscribe');
+  assert.ok(await noHorizontalScroll(page));
   // The same link again: single use.
   await page.goto(link.replace(/^https?:\/\/[^/]+/, BASE));
   await page.click('[data-testid=waitlist-confirm-btn]');

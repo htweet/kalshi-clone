@@ -103,7 +103,7 @@ const routes = [
   [/^\/docs\/([a-z-]+)$/, docsView, (m) => ({ page: m[1] })],
   [/^\/status$/, statusView],
   [/^\/waitlist$/, waitlistView, () => ({ page: 'main' })],
-  [/^\/waitlist\/(confirm|unsubscribe)$/, waitlistView, (m) => ({ page: m[1] })],
+  [/^\/waitlist\/(confirm|unsubscribe|manage)$/, waitlistView, (m) => ({ page: m[1] })],
   [/^\/(trust|research|support|legal)\/([a-z0-9-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })], // CMS pages (CLONE_SPEC.md §32.7)
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],

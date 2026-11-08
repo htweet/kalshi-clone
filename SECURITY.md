@@ -326,6 +326,26 @@ same-origin proxy, the status page and its admin-posted incidents.
 | T | **Portal / incident content injection** | Prose is CMS pages sanitised by the 'page' allowlist (now with `pre`/`code`, no attributes); incidents are plain text; the portal runs under the site's strict CSP (no inline script; Try-it is a module) | ✅ (`dev-portal` CSP check) |
 | T | **Play money crossing into production through API state** | The production switch cancels API orders like all orders, closes order groups and logs FIX sessions out; keys survive (credentials, not money) | ✅ (`fix`) |
 
+### 19. Waitlists, launch survey and newsletter (Phase 7A, `CLONE_SPEC.md` §36)
+
+New attack surface: a public guest form that takes an email address, confirmation / manage / unsubscribe links, an
+RFC 8058 one-click endpoint that runs before the session middleware, survey answers with free text, a consent CSV of
+personal data, a bulk mailer, and the Perps waitlist flag switched on by a migration.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| S | **Subscribing someone else** (a third party enters a victim's address) | Double opt-in: nothing is sent to a guest entry except the confirmation; the link is 32 random bytes stored only as SHA-256, single use (marked in the confirming transaction), 48 h; unconfirmed requests deleted a week after expiry; the landing page confirms on a click, not on load (mail scanners) | ✅ (`waitlists`) |
+| I | **Account / membership enumeration** through the guest form | The same `202 {status: "check_email"}` for new, pending, confirmed, unsubscribed and account emails, over the limit and for the honeypot; only the inbox owner learns the state ("already on the list" email) | ✅ (`waitlists`) |
+| D | **Form spam, mail bombing** | Signed client token (bot challenge) and login CSRF on the form; auth rate tier + persisted per-IP limit (10/h) + per-email limit (3/h, silent); honeypot field logged as a security event; token routes limited per IP; the newsletter is throttled (120/min) | ✅ (`waitlists`) / residual: per-process limits (RS1), shared NAT |
+| S / T | **Forged or cross-entry tokens** (unsubscribe, delete, survey edits of another member) | Manage tokens are `entry id + HMAC-SHA256` with a dedicated key, compared in constant time; a signature is bound to its entry id; signed-in routes act only on the caller's own entry; no entry id is accepted in a body | ✅ (`authz` waitlist IDOR test) |
+| S | **One-click unsubscribe abused as CSRF** | Without cookies or CSRF by design (RFC 8058); it can only unsubscribe the entry the HMAC token names, is idempotent and rate limited; no other action is reachable without the token | ✅ |
+| I | **Personal data at rest** | Guest emails AES-256-GCM (row-bound AAD) + keyed HMAC for lookups; members store no copy; IPs only as keyed hashes; the admin page shows aggregates only (asserted); export is consent fields only, `users.support` + step-up + audit; CSV formula injection neutralised | ✅ (`waitlists`, `authz`) |
+| T | **Stored XSS through free-text answers or survey content** | Answers stripped of markup and control characters, capped, rendered with `esc()`; question prompts and labels refused when they contain markup (CMS validator); never shown publicly; moderation queue | ✅ (`waitlists`) |
+| R | **Unprovable consent** (NDPA 2023) | Time, wording version and SHA-256, source and IP hash per join; withdrawal kept as `unsubscribed_ts`; the consent wording is a versioned CMS text and a stale version is refused (`consent_changed`) | ✅ |
+| E | **Unauthorised newsletter or launch email** | `announce` + reason + step-up + audit; the launch email only after a production switch, once; the `newsletter` flag stops routes and the job; nothing is sent automatically | ✅ (`waitlists`) |
+| T | **Account takeover of a guest entry** | A guest entry links to an account with the same email on sign-up or confirmation; the account then sees that entry's status and answers | ⚠️ residual: sign-up does not prove email ownership (§36.9) |
+| T | **Silent re-opening of Perps** | The waitlist flag migration runs once per database (meta marker), audited with the owner's reason; an admin "off" is never overridden | ✅ (`waitlists`) |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).

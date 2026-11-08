@@ -222,7 +222,7 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
     const tok = W.manageToken(e.id);
     const unsub = `${origin}/waitlist/unsubscribe?token=${tok}`;
     const name = e.user_id ? db.prepare('SELECT display_name FROM users WHERE id=?').get(e.user_id)?.display_name : null;
-    const em = cms.renderSystem(key, { name: name || WS('greeting.guest'), list_name: WS(`list.${e.list_key}`), manage_link: `${origin}/waitlist/unsubscribe?token=${tok}`, ...vars, unsubscribe_link: unsub }, { origin, ...(override !== undefined ? { override } : {}) });
+    const em = cms.renderSystem(key, { name: name || WS('greeting.guest'), list_name: WS(`list.${e.list_key}`), manage_link: e.user_id ? `${origin}/waitlist` : `${origin}/waitlist/manage?token=${tok}`, ...vars, unsubscribe_link: unsub }, { origin, ...(override !== undefined ? { override } : {}) });
     // The unsubscribe link is mandatory: appended when an override's text or HTML leaves the placeholder out.
     const f = templates.fields(key, override !== undefined ? override : cms.templateOverride(key));
     let text = em.text; let html = em.html;

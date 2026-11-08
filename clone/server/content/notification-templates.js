@@ -156,7 +156,7 @@ Object.assign(TEMPLATES, {
   },
   'email.waitlist_already': {
     kind: 'email', group: 'Waitlist email', label: 'Already on the list (guest form)', fields: ['email_subject', 'email_text', 'email_html'], vars: ['list_name', 'manage_link', 'unsubscribe_link', 'app_name'],
-    sample: { list_name: 'Real-money launch waitlist', manage_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', unsubscribe_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', app_name: 'Parlance' },
+    sample: { list_name: 'Real-money launch waitlist', manage_link: 'https://parlance.example/waitlist/manage?token=SAMPLE', unsubscribe_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', app_name: 'Parlance' },
     defaults: {
       email_subject: "You're already on the {{app_name}} real-money waitlist",
       email_text: 'Hello,\n\nSomeone asked to join the {{list_name}} with this email address, but you are already on it. There is nothing more to do.\n\nYour place and survey answers: {{manage_link}}\nUnsubscribe with one click: {{unsubscribe_link}}',

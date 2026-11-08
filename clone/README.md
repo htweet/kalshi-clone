@@ -206,7 +206,55 @@ limits, APY and referral rewards also a password check.
 - **Perps journal**: shows whether the perps ledger balances, the insurance fund, the backstop and the fees collected.
 
 Flags (Admin › Feature flags): `perps.subaccounts`, `perps.portfolio_margin`, `perps.order_groups`, `perps.amend`,
-`perps.trailing_stops`, `perps.fractional`, `perps.apy`, `perps.referrals`, `perps.waitlist` (off on a new database).
+`perps.trailing_stops`, `perps.fractional`, `perps.apy`, `perps.referrals`, `perps.waitlist` (on since Phase 7A: an
+existing database is switched on once, audited, with the reason "owner decision 2026-11-08"; switching it off later
+sticks). Test servers that need open Perps start with `flags: { defaults: { 'perps.waitlist': false } }`.
+
+## Waitlists, launch survey and newsletter (Phase 7A)
+
+Owner and admin guide for `../CLONE_SPEC.md` §36. While Parlance runs on play money, the **real-money launch
+waitlist** measures demand; once enough people have joined, you decide to go live with the two-person production
+switch (Admin › Play mode). Nothing switches automatically.
+
+**Announce it.** Share the page `/waitlist` (for example "Join the waitlist for the newsletter on the real-money
+launch"). Tag links so Admin › Waitlists shows where people came from: `/waitlist?utm_source=whatsapp&utm_campaign=launch`
+or a referral code `/waitlist?ref=ADA2026`. The site itself shows "Join the real-money waitlist" in the play-money
+banner, on Funds and at the top of Home (play mode only). Signed-in users join with one click; guests enter their email
+and confirm it from a link (valid 48 hours, single use). Everyone sees the consent wording before joining; edit it in
+Admin › Content › Texts › `server.waitlists.consent.text` (a new wording gets a new version in every consent record).
+The page pitch is `waitlist.page.pitch`; all other wording and every email is in Content › Texts and Templates
+(Waitlist email).
+
+**Admin › Waitlists** (`users.read`; target `settings.write`; export and moderation `users.support`; newsletter
+`announce`):
+- **Set the target:** Launch target › the number of confirmed members you want before going live, with a reason. When
+  it is reached every admin gets one alert (in-app and email) and Admin › Play mode shows "launch target reached".
+- **Progress bar:** "Show the progress bar" puts "N of TARGET joined" on `/waitlist` (the `waitlist.launch.public_count`
+  flag; off until you show it).
+- **Read the numbers:** totals, confirmed vs pending, unsubscribed, daily growth, sources, survey totals. Free-text
+  survey answers wait in a moderated list (Approve / Hide); nobody outside staff sees them, and no names are shown.
+- **Edit the survey:** Edit or Add a question (single choice, multiple choice, naira band, free text), with a reason;
+  it is published as a content version. Members can change their answers until the launch.
+- **Send the newsletter:** edit the template in Content › Templates › Waitlist email › "Waitlist newsletter" (variables
+  `{{name}}`, `{{count}}`, `{{target}}`, `{{link}}`, `{{unsubscribe_link}}`) and publish it; on Admin › Waitlists press
+  **Preview**, then **Send me a test**; then **Send or schedule** (leave the time empty to send now), with a reason and
+  your password. Only confirmed members get it, at most 120 a minute (`NEWSLETTER_PER_MINUTE`); unconfirmed and
+  unsubscribed members are skipped and counted, a scheduled send waits for its time and both survive a restart.
+  **Cancel** stops a queued send. Every email has a one-click unsubscribe link and header.
+- **Export:** "Download consent CSV" (password check, audited): email, status and the consent record per member, for
+  data-protection requests; no survey answers.
+- **Perps access** tab: the Perps waitlist counts; approve, revoke and invite stay in Admin › Perps ops.
+
+**Going live.** In Admin › Play mode request the switch to production (typed RESET, a second admin approves). The
+preview lists the waitlist members, consent records and survey answers as kept. After the switch the survey closes and
+Admin › Play mode (and Admin › Waitlists) offers **Send the launch email** ("We're live with real money") to confirmed
+members; it is never sent unless an admin sends it.
+
+**Members' rights.** Anyone can leave or delete their data from `/waitlist` (signed in) or the unsubscribe link in any
+email; the account data export includes waitlist entries, and closing an account deletes them.
+
+Flags (Admin › Feature flags, group "Waitlists and newsletter"): `waitlist.launch`, `waitlist.launch.public_count`
+(off on a new database), `waitlist.launch.survey`, `newsletter`. Leaving a list works with every flag off.
 
 ## Public trading API (Phase 7)
 
