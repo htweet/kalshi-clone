@@ -43,6 +43,8 @@ export const SECTIONS = [
   // Phase 7 (CLONE_SPEC.md §35): API keys (tiers, revoke, usage), FIX sessions, rate settings; status-page incidents.
   ['api_keys', ts('admin.sections.api_keys'), 'users.read', './admin/api-keys.js'],
   ['status', ts('admin.sections.status'), 'content.write', './admin/api-keys.js'],
+  // Phase 7A (CLONE_SPEC.md §36): the real-money launch waitlist (target, survey, export, newsletter) and the Perps list.
+  ['waitlists', ts('admin.sections.waitlists'), 'users.read', './admin/waitlists.js'],
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -53,7 +55,7 @@ const LOADERS = {
   './admin/identity.js': () => import('./admin/identity.js'), './admin/compliance.js': () => import('./admin/compliance.js'),
   './admin/payments.js': () => import('./admin/payments.js'), './admin/content5b.js': () => import('./admin/content5b.js'),
   './admin/cms.js': () => import('./admin/cms.js'), './admin/flags.js': () => import('./admin/flags.js'), './admin/playmode.js': () => import('./admin/playmode.js'),
-  './admin/api-keys.js': () => import('./admin/api-keys.js'),
+  './admin/api-keys.js': () => import('./admin/api-keys.js'), './admin/waitlists.js': () => import('./admin/waitlists.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.

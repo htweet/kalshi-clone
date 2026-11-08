@@ -34,7 +34,8 @@ const ADMIN = { email: `root.${stamp}@example.test`, password: PW };
 const ADMIN2 = { email: `second.${stamp}@example.test`, password: PW, name: 'Second Admin' };
 const HIGH = { burst: 1e6, per_second: 1e6 };
 // Test-only RNG (start option): every draw takes the first remaining digit, so a 4-digit code is 0123, 5 digits 01234.
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, centralBank: { rng: () => 0 } };
+// Perps open: the waitlist gate is on by default since Phase 7A (CLONE_SPEC.md §36.1); the switch test moves play money to Perps.
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, centralBank: { rng: () => 0 }, flags: { defaults: { 'perps.waitlist': false } } };
 const SNOW = 'PLXSNOW-26DEC';
 const codeOf = (digits) => '0123456789'.slice(0, digits);
 

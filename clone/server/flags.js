@@ -41,7 +41,8 @@ const REGISTRY = [
   ['combos', 'markets', null, 'both'],
   ['combos.rfq', 'markets', 'combos', 'both'],
   ['perps', 'markets', null, 'both'],
-  // Phase 6 (CLONE_SPEC.md §34). perps.waitlist on = the waitlist gate is active (access by invitation), so it starts off.
+  // Phase 6 (CLONE_SPEC.md §34). perps.waitlist on = the waitlist gate is active (access by invitation). On by default since
+  // the owner decision of 2026-11-08 (CLONE_SPEC.md §36.1); an existing database is switched on once by an audited migration.
   ['perps.subaccounts', 'markets', 'perps', 'both'],
   ['perps.portfolio_margin', 'markets', 'perps', 'both'],
   ['perps.order_groups', 'markets', 'perps', 'both'],
@@ -50,7 +51,7 @@ const REGISTRY = [
   ['perps.fractional', 'markets', 'perps', 'both'],
   ['perps.apy', 'markets', 'perps', 'both'],
   ['perps.referrals', 'markets', 'perps', 'both'],
-  ['perps.waitlist', 'markets', 'perps', 'both', false],
+  ['perps.waitlist', 'markets', 'perps', 'both'],
   ['sports', 'sports', null, 'both'],
   ['sports.lines', 'sports', 'sports', 'both'],
   ['sports.live_clocks', 'sports', 'sports', 'client'],
@@ -98,6 +99,12 @@ const REGISTRY = [
   ['api.demo', 'api', null, 'both'],
   ['developer_portal', 'api', null, 'both'],
   ['status_page', 'api', null, 'both'],
+  // Phase 7A (CLONE_SPEC.md §36): the real-money launch waitlist, its public progress bar (off until an admin shows it),
+  // its opinion survey, and the waitlist newsletter (routes and the outbox job).
+  ['waitlist.launch', 'growth', null, 'both'],
+  ['waitlist.launch.public_count', 'growth', 'waitlist.launch', 'both', false],
+  ['waitlist.launch.survey', 'growth', 'waitlist.launch', 'both'],
+  ['newsletter', 'growth', null, 'both'],
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -167,6 +174,11 @@ const ROUTE_RULES = {
   'api.demo': [R('*', /^\/developer\/demo_credentials$/, { user: true })],
   developer_portal: [R('GET', /^\/developer\/portal$/)],
   status_page: [R('GET', /^\/status$/)],
+  // Phase 7A (CLONE_SPEC.md §36). Leaving (unsubscribe, delete, manage by token) is core: it works with every flag off.
+  'waitlist.launch': [R('*', /^\/waitlists\/real_money_launch(\/(join|guest_join))?$/, { public: true }), R('POST', /^\/waitlists\/confirm$/, { public: true })],
+  'waitlist.launch.public_count': [R('GET', /^\/waitlists\/real_money_launch\/progress$/, { public: true })],
+  'waitlist.launch.survey': [R('PUT', /^\/waitlists\/real_money_launch\/survey$/, { public: true })],
+  newsletter: [R('*', /^\/admin\/waitlists\/[^/]+\/(newsletters|launch_email)(\/|$)/, { admin: true })],
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
 // cancelling orders (always possible), responsible-trading limits, notifications inbox, content, admin. Used by the
@@ -178,6 +190,7 @@ const CORE_ROUTES = [
   /^\/v1\/admin\//, /^\/v1\/perps\/admin\//, /^\/v1\/push\//, /^\/v1\/oauth\/link$/,
   /^\/mock-oidc\//, /^\/(manifest\.webmanifest|sw\.js|offline\.html|content-bundle\.js|content-theme\.css)$/, /^RE:/,
   /^\/docs\/(openapi|asyncapi|fix)\.json$/, // Phase 7: generated API documents (flag developer_portal, checked in server/dev-portal.js)
+  /^\/v1\/waitlists\/(manage|unsubscribe|delete|one_click_unsubscribe)$/, /^\/v1\/waitlists\/real_money_launch\/(unsubscribe|me)$/, // Phase 7A: leaving a list always works (§36)
 ];
 // Every mount* module wired in server/app.js → the flag that switches it (or 'core'). Checked by the enforcement test.
 const MODULE_FLAGS = {
@@ -185,11 +198,19 @@ const MODULE_FLAGS = {
   mountTradingCore: 'trading', mountSports: 'sports', mountAdmin: 'core', mountChat: 'social.chat', mountCommunity: 'social', mountWebPush: 'pwa.push', mountIdentity: 'identity.kyc',
   mountAccountArea: 'core', mountPayments: 'payments.deposits', mountMarketsContent: 'incentives', mountCms: 'core', mountFlags: 'core', mountPlayMode: 'play.free_deposits', mountCentralBank: 'central_bank',
   mountApiKeys: 'api.keys', mountTradeApi: 'core', mountDeveloperPortal: 'developer_portal', mountFixAdmin: 'api.fix', // Phase 7 (CLONE_SPEC.md §35); /trade-api/v2 public data is core
+  mountWaitlists: 'waitlist.launch', // Phase 7A (CLONE_SPEC.md §36); the Perps list is switched by perps.waitlist
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
 const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',
-  'api.keys', 'api.ws', 'api.fix']; // Phase 7: key expiry sweep, public WebSocket sessions, the FIX acceptor
+  'api.keys', 'api.ws', 'api.fix', // Phase 7: key expiry sweep, public WebSocket sessions, the FIX acceptor
+  'newsletter']; // Phase 7A: the waitlist newsletter outbox
 
+// One-time, audited flag migrations for databases that existed before a default changed. Each runs once per database
+// (a meta marker), so a later admin "off" is never switched back on; a new database starts with the new default (or the
+// `defaults` start option) and only records the marker.
+const MIGRATIONS = [
+  { id: 'perps_waitlist_on_2026_11_08', key: 'perps.waitlist', enabled: true, reason: 'owner decision 2026-11-08' }, // CLONE_SPEC.md §36.1
+];
 const PERCENT = (n) => Number.isInteger(n) && n >= 0 && n <= 100;
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS feature_flags (key TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, kill INTEGER NOT NULL DEFAULT 0, rollout_pct INTEGER NOT NULL DEFAULT 100,
@@ -217,8 +238,19 @@ function parseEnvOverrides(s) {
 function createFlags({ db, engine, options = {} }) {
   db.exec(SCHEMA);
   engine.setMaxListeners(Math.max(engine.getMaxListeners(), 64)); // one tick listener per module and job
+  // A database that already had flags predates this build: one-time migrations below apply to it (MIGRATIONS).
+  const existing = db.prepare('SELECT COUNT(*) c FROM feature_flags').get().c > 0;
+  const hadRow = new Set(db.prepare('SELECT key FROM feature_flags').all().map((r) => r.key));
+  // `defaults` (start option): the state a NEW row starts with, for test servers that need e.g. open Perps
+  // (`flags: { defaults: { 'perps.waitlist': false } }`); unlike `overrides` an admin can still change it afterwards.
+  const defaults = options.defaults || {};
   const ins = db.prepare('INSERT INTO feature_flags(key,enabled,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING');
-  for (const f of FLAGS.values()) ins.run(f.key, f.default ? 1 : 0, nowIso());
+  for (const f of FLAGS.values()) {
+    let on = Object.prototype.hasOwnProperty.call(defaults, f.key) ? !!defaults[f.key] : f.default;
+    // An existing database without the row gets the state it had before (off): its migration switches it on, audited.
+    if (existing && !hadRow.has(f.key) && MIGRATIONS.some((m) => m.key === f.key)) on = false;
+    ins.run(f.key, on ? 1 : 0, nowIso());
+  }
   const overrides = { ...parseEnvOverrides(process.env.FEATURE_FLAGS), ...(options.overrides || {}) };
   const rowVo = (r) => ({ key: r.key, enabled: !!r.enabled, kill: !!r.kill, rollout_pct: r.rollout_pct, ...Object.fromEntries(LISTS.map((k) => [k, JSON.parse(r[k] || '[]')])), starts_at: r.starts_at, ends_at: r.ends_at, version: r.version, updated_at: r.updated_at, updated_by: r.updated_by });
   const state = new Map();
@@ -361,10 +393,29 @@ function createFlags({ db, engine, options = {} }) {
   }
 
   return {
-    REGISTRY, FLAGS, GROUPS, ROUTE_RULES, CORE_ROUTES, MODULE_FLAGS, JOB_FLAGS, LISTS, EXTRA_ROLES,
+    REGISTRY, FLAGS, GROUPS, ROUTE_RULES, CORE_ROUTES, MODULE_FLAGS, JOB_FLAGS, LISTS, EXTRA_ROLES, existingDb: existing, defaultsOption: defaults,
     on, jobOn, evaluate, globalState, bundle, bundleExtras, gate, gates, disabledError, save, reload, state, ctx, listeners, overrides, bucket, changed: emitChange,
     get version() { return version; },
   };
+}
+
+// Runs each pending migration once: on an existing database it sets the flag (history row with the reason, hash-chained
+// admin audit row, live nudge); on a new one it only records the marker. Idempotent across restarts.
+function runMigrations({ db, flags, admin }) {
+  const marker = (id) => `flag_migration:${id}`;
+  for (const m of MIGRATIONS) {
+    if (db.prepare('SELECT 1 FROM meta WHERE key=?').get(marker(m.id))) continue;
+    const before = flags.state.get(m.key);
+    let result = 'new_database';
+    if (flags.existingDb && !Object.prototype.hasOwnProperty.call(flags.defaultsOption, m.key)) {
+      if (before && before.enabled !== m.enabled) {
+        const r = flags.save(m.key, { enabled: m.enabled }, { action: 'migration', reason: m.reason, actor: null });
+        admin.audit({}, 'flags.migration', 'feature_flag', m.key, r.before, r.after, m.reason);
+        result = 'applied';
+      } else result = 'already_set';
+    }
+    db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING').run(marker(m.id), JSON.stringify({ result, time: nowIso() }));
+  }
 }
 
 // ------------------------------------------------------------------------------------------------ routes
@@ -372,6 +423,7 @@ function mountFlags({ v1, db, flags, admin, auth, identity }) {
   flags.ctx.rolesOf = (u) => admin.rolesOf(u);
   flags.ctx.regionOf = (req) => { try { return identity.compliance.geoDecision(req).country; } catch { return null; } };
   flags.ctx.legacy = () => { try { return admin.setting('features') || {}; } catch { return {}; } }; // a timer may outlive the database
+  runMigrations({ db, flags, admin });
   const can = admin.can;
   const reasonOf = (b) => { const r = String((b && b.reason) || '').trim(); if (r.length < 3 || r.length > 500) throw new ApiError(400, 'validation_failed', 'validation failed', 'reason: a reason of 3-500 characters is required'); return r; };
   const emailOf = (id) => db.prepare('SELECT email FROM users WHERE id=?').get(id)?.email || id;
@@ -456,4 +508,4 @@ function mountFlags({ v1, db, flags, admin, auth, identity }) {
   });
 }
 
-module.exports = { createFlags, mountFlags, REGISTRY, ROUTE_RULES, CORE_ROUTES, MODULE_FLAGS, JOB_FLAGS, bucket, parseEnvOverrides };
+module.exports = { createFlags, mountFlags, REGISTRY, ROUTE_RULES, CORE_ROUTES, MODULE_FLAGS, JOB_FLAGS, MIGRATIONS, bucket, parseEnvOverrides };

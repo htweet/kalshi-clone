@@ -25,6 +25,7 @@ const ROUTE_FLAGS = [
   [/^\/incentives(\/|$)/, 'incentives'], [/^\/rewards$/, 'rewards'], [/^\/sign-up$/, 'accounts.signup'], [/^\/sign-up\/identity$/, 'identity.kyc'], [/^\/verify\/m$/, 'identity.kyc'],
   [/^\/funds\/deposit$/, 'payments.deposits'], [/^\/funds\/withdraw$/, 'payments.withdrawals'], [/^\/heist$/, 'heist'],
   [/^\/docs(\/|$)/, 'developer_portal'], [/^\/status$/, 'status_page'], [/^\/account\/api-keys$/, 'api.keys'], // Phase 7 (CLONE_SPEC.md §35)
+  [/^\/waitlist(\/confirm)?$/, 'waitlist.launch'], // Phase 7A (CLONE_SPEC.md §36); /waitlist/unsubscribe always works
 ];
 export function routeFlagOff(pathname) {
   const hit = ROUTE_FLAGS.find(([re, k]) => re.test(pathname) && !flagOn(k));
@@ -79,6 +80,9 @@ export function renderPlayBanner() {
   document.querySelectorAll('.play-banner').forEach((b) => b.remove());
   if (!playOn()) return;
   const heist = flagOn('heist') ? ` <a href="/heist" data-link data-testid="play-banner-heist">${te('flags.play.banner_link')}</a>` : '';
-  document.querySelector('header.topbar')?.insertAdjacentHTML('afterend', `<div class="play-banner" role="status" data-testid="play-banner"><div class="container"><span class="play-chip">${te('flags.play.label')}</span> <span>${te('flags.play.banner')}</span>${heist}</div></div>`);
+  const wl = ` <a href="/waitlist?src=banner" data-link data-flag="waitlist.launch" data-testid="waitlist-cta-banner">${te('flags.waitlist.banner_cta')}</a>`; // Phase 7A (§36)
+  document.querySelector('header.topbar')?.insertAdjacentHTML('afterend', `<div class="play-banner" role="status" data-testid="play-banner"><div class="container"><span class="play-chip">${te('flags.play.label')}</span> <span>${te('flags.play.banner')}</span>${heist}${wl}</div></div>`);
 }
+// "Join the real-money waitlist" card on Funds and Home (CLONE_SPEC.md §36): play mode only, hidden by its flag.
+export const waitlistCta = (where) => (playOn() ? `<a class="card wl-cta" href="/waitlist?src=${where === 'home' ? 'home' : 'funds'}" data-link data-flag="waitlist.launch" data-testid="waitlist-cta-${where === 'home' ? 'home' : 'funds'}"><span class="overline">${te('flags.waitlist.cta_overline')}</span><b>${te('flags.waitlist.cta_title')}</b><span class="faint">${te('flags.waitlist.cta_body')}</span></a>` : '');
 export const playLabel = () => (playOn() ? `<span class="play-chip" data-testid="play-label">${te('flags.play.label')}</span>` : '');

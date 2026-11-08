@@ -14,7 +14,7 @@ import { session } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, money, toast, relTime, currency, moneyStep, moneyMin, toApiDollars, validMoneyInput, moneyInputHint, fmtDate } from '../lib.js';
 import { cardForm, bankLinkForm, walletForm, methodLabel, methodSub } from './payment-forms.js';
-import { flagOn, playOn, playLabel, flagState } from '../flags.js'; // feature flags, play mode, money controls (CLONE_SPEC.md §33)
+import { flagOn, playOn, playLabel, flagState, waitlistCta } from '../flags.js'; // feature flags, play mode, money controls (CLONE_SPEC.md §33)
 
 const STATUS_KIND = { succeeded: 'ok', settled: 'ok', paid: 'ok', pending: 'info', processing: 'info', confirming: 'info', requires_action: 'warn', held: 'warn', failed: 'bad', returned: 'bad', reversed: 'bad' };
 const badge = (t) => `<span class="pay-badge ${esc(STATUS_KIND[t.status] || '')}" data-testid="pay-status-badge">${esc(t.status_label)}</span>`;
@@ -63,7 +63,7 @@ async function overview(body, onPayment) {
   const draw = async () => {
     const [meta, rows, ch] = await Promise.all([payApi.metadata(session.uid), loadTransfers(), payApi.creditHistory(session.uid)]);
     body.innerHTML = `${balancesHtml(meta.balances, meta.nonwithdrawable_credits)}
-      ${moneyNotice()}<div class="d-flex gap-8 mt-12">${playLabel()}<a class="btn btn-primary" href="/funds/deposit" data-link data-testid="go-deposit" data-flag="payments.deposits">${te('funds.overview.deposit')}</a>${playOn() ? '' : `<a class="btn" href="/funds/withdraw" data-link data-testid="go-withdraw" data-flag="payments.withdrawals">${te('funds.overview.withdraw')}</a>`}<a class="btn btn-ghost" href="/account/payments" data-link>${te('funds.overview.payment_methods')}</a></div>
+      ${moneyNotice()}${waitlistCta('funds')}<div class="d-flex gap-8 mt-12">${playLabel()}<a class="btn btn-primary" href="/funds/deposit" data-link data-testid="go-deposit" data-flag="payments.deposits">${te('funds.overview.deposit')}</a>${playOn() ? '' : `<a class="btn" href="/funds/withdraw" data-link data-testid="go-withdraw" data-flag="payments.withdrawals">${te('funds.overview.withdraw')}</a>`}<a class="btn btn-ghost" href="/account/payments" data-link>${te('funds.overview.payment_methods')}</a></div>
       <section class="card panel mt-16"><h2>${te('funds.overview.recent_transfers')}</h2>${transfersTable(rows)}</section>
       <section class="card panel" data-testid="credits"><h2>${te('funds.overview.credits')}</h2>${ch.credits.length ? `<table class="table"><thead><tr><th>${te('funds.overview.from')}</th><th class="num">${te('funds.overview.granted')}</th><th class="num">${te('funds.overview.left')}</th><th>${te('funds.overview.expires')}</th><th>${te('funds.overview.status')}</th></tr></thead><tbody>${ch.credits.map((c) => `<tr data-testid="credit-row" data-status="${esc(c.status)}"><td>${esc(c.source)}</td><td class="num">${esc(money(c.granted_dollars))}</td><td class="num">${esc(money(c.remaining_dollars))}</td><td>${esc(fmtDate(c.expires_time))}</td><td>${esc(c.status)}</td></tr>`).join('')}</tbody></table>` : `<p class="faint">${te('funds.overview.promotional_credits_you_receive_show')}</p>`}</section>`;
   };

@@ -21,7 +21,22 @@ function previewHtml(p) {
   const row = (k, v, kind) => `<dt>${esc(tx(`admin.playmode.${kind}.${k}`))}</dt><dd data-preview="${esc(kind)}:${esc(k)}">${esc(v)}</dd>`;
   return `<div class="adm-two" data-testid="reset-preview"><div><h4>${te('admin.playmode.preview.counts')}</h4><dl class="adm-dl">${Object.entries(c).filter(([k]) => !k.startsWith('kept_')).map(([k, v]) => row(k, v, 'count')).join('')}</dl></div>
     <div><h4>${te('admin.playmode.preview.totals')}</h4><dl class="adm-dl">${Object.entries(t).map(([k, v]) => row(k, k === 'perps_dollars' ? money(v) : money(v), 'total')).join('')}</dl>
-    <p class="faint">${te('admin.playmode.preview.kept', { accounts: esc(c.kept_accounts), markets: esc(c.kept_markets) })}</p></div></div>`;
+    <p class="faint">${te('admin.playmode.preview.kept', { accounts: esc(c.kept_accounts), markets: esc(c.kept_markets) })}</p>
+    ${c.kept_waitlist_members != null ? `<p class="faint" data-testid="preview-kept-waitlists">${te('admin.playmode.preview.kept_waitlists', { members: esc(c.kept_waitlist_members), consents: esc(c.kept_waitlist_consents), answers: esc(c.kept_survey_answers) })}</p>` : ''}</div></div>`;
+}
+// Phase 7A (CLONE_SPEC.md §36): the launch waitlist next to the switch — "launch target reached" (nothing switches by
+// itself) and, once production is live, the offer to send the "We're live with real money" email.
+function launchNote(l) {
+  if (!l) return '';
+  const le = l.launch_email || {};
+  const fmt = (x) => Number(x || 0).toLocaleString('en-NG');
+  if (le.offered) {
+    return `<div class="adm-wl-note" data-testid="launch-email-offer" data-available="${le.available ? '1' : '0'}">${le.newsletter ? te('admin.playmode.launch.sent', { status: esc(le.newsletter.status) })
+      : `${te('admin.playmode.launch.offer', { count: esc(fmt(le.recipients)) })} <button class="btn btn-sm btn-primary" type="button" data-testid="launch-email-send">${te('admin.playmode.launch.send')}</button>`}</div>`;
+  }
+  if (l.reached) return `<div class="adm-wl-note" data-testid="launch-target-reached">${te('admin.playmode.launch.reached', { count: esc(fmt(l.confirmed)), target: esc(fmt(l.target)) })}</div>`;
+  if (l.target) return `<p class="faint" data-testid="launch-target-progress">${te('admin.playmode.launch.progress', { count: esc(fmt(l.confirmed)), target: esc(fmt(l.target)) })}</p>`;
+  return '';
 }
 async function renderPlay({ el, me }) {
   const s = await get('/play_mode');
@@ -38,7 +53,7 @@ async function renderPlay({ el, me }) {
     { name: 'reason', label: tx('admin.playmode.switch.reason'), required: true, span: true },
     { name: 'confirm', label: tx('admin.playmode.switch.type_reset'), required: true, placeholder: 'RESET' },
   ];
-  el.innerHTML = section(tx('admin.playmode.page.title'), te('admin.playmode.page.intro', { zero: esc(moneyCents(0)) })) +
+  el.innerHTML = section(tx('admin.playmode.page.title'), te('admin.playmode.page.intro', { zero: esc(moneyCents(0)) })) + launchNote(s.launch_waitlist) +
     `<div class="adm-two"><div class="card adm-card" data-testid="play-status" data-on="${pm.on ? '1' : '0'}"><h3>${te('admin.playmode.status.title')}</h3>
       <p>${pm.on ? badge(tx('admin.playmode.status.on'), 'warn') : badge(tx('admin.playmode.status.off'), 'ok')}</p><p class="faint">${te('admin.playmode.status.epoch', { epoch: esc(pm.epoch) })}</p>
       ${pm.on ? '' : `<p class="faint" data-testid="real-money">${te('admin.playmode.status.real_money', { balances: esc(rm.balances), positions: esc(rm.positions), orders: esc(rm.orders), perps: esc(rm.perps), pending: esc(rm.pending), holds: esc(rm.holds) })}</p>`}
@@ -51,6 +66,8 @@ async function renderPlay({ el, me }) {
     <div class="adm-two"><div class="card adm-card"><h3>${te('admin.playmode.batches.title')}</h3><ul class="adm-hist" data-testid="reset-batches">${s.batches.map((b) => `<li data-testid="reset-batch" data-batch="${esc(b.id)}">${te('admin.playmode.batches.row', { batch: esc(b.id), time: esc(fmtTime(b.time)), who: esc(b.approved_by || '—'), file: esc(b.backup_file) })}<div class="faint">${esc(b.reason)}</div></li>`).join('')}</ul></div>
       <div class="card adm-card"><h3>${te('admin.playmode.events.title')}</h3><ul class="adm-hist">${s.events.map((e) => `<li><b>${esc(e.action)}</b> · ${esc(fmtTime(e.time))} · ${esc(e.actor_email || '—')}<div class="faint">${esc(e.reason)}</div></li>`).join('')}</ul></div></div>`;
   const again = () => renderPlay({ el, me });
+  const ls = el.querySelector('[data-testid=launch-email-send]');
+  if (ls) ls.onclick = async () => { try { const { sendLaunchEmail } = await import('./waitlists.js'); if (await sendLaunchEmail()) await again(); } catch (ex) { toast(ex.message, 'error'); } };
   const on = el.querySelector('[data-on]');
   if (on) on.onclick = async () => {
     const r = await confirmAction({ title: tx('admin.playmode.on.title'), body: te('admin.playmode.on.body'), confirm: tx('admin.playmode.on.confirm'), reason: true });

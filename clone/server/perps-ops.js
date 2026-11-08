@@ -8,10 +8,11 @@
 //   production           the promotions treasury (the Central Bank vault, §33): paid while the vault covers it, else
 //                        queued (paid FIFO when funded) or refused, per the treasury setting;
 //   production, no bank  refused (no budget, no payout), as for the signup bonus.
-// Waitlist (flag `perps.waitlist`, off by default): while on, Perps writes that add risk or money (orders, amends,
+// Waitlist (flag `perps.waitlist`, on by default since the owner decision of 2026-11-08, CLONE_SPEC.md §36): while on, Perps writes that add risk or money (orders, amends,
 // transfers in, subaccounts, order groups) need an approved waitlist entry; reads, cancels, closes, reduce-only orders,
 // exit triggers and transfers back to Predictions always work, so nobody's money is trapped. Staff and users who already
 // had Perps activity are approved automatically ("grandfathered"). Enforced in the flag gate, before any route runs.
+// The rows live in the reusable waitlist module (server/waitlists.js, list key `perps`, Phase 7A); behaviour unchanged.
 const { tx } = require('./db');
 const { newId, nowIso, dollars, ApiError, E } = require('./util');
 const C = require('./currency');
@@ -28,8 +29,6 @@ const APY_DEFAULTS = { enabled: false, rate_bps: 700, payout_interval_ms: DAY };
 const APY_SPEC = { enabled: { type: 'boolean' }, rate_bps: { type: 'integer', min: 0, max: 5000 }, payout_interval_ms: { type: 'integer', min: 60000, max: 31 * DAY } };
 const PERPS_REFERRAL_DEFAULTS = { reward_referrer_cents: 1000, reward_referee_cents: 500, threshold_cents: 10000 };
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS perp_waitlist (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, status TEXT NOT NULL, joined_ts INTEGER NOT NULL, decided_ts INTEGER, decided_by TEXT, note TEXT);
-CREATE INDEX IF NOT EXISTS idx_perp_waitlist ON perp_waitlist(status, joined_ts);
 CREATE TABLE IF NOT EXISTS perp_apy_accruals (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, subaccount INTEGER NOT NULL, accrued_cc REAL NOT NULL DEFAULT 0, base_cc INTEGER NOT NULL DEFAULT 0,
   updated_ts INTEGER NOT NULL, PRIMARY KEY (user_id, subaccount));
 CREATE TABLE IF NOT EXISTS perp_apy_payouts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subaccount INTEGER NOT NULL, rate_bps INTEGER NOT NULL, amount_cents INTEGER NOT NULL, status TEXT NOT NULL,
@@ -39,10 +38,11 @@ CREATE TABLE IF NOT EXISTS pm_archive_perps_balances (batch_id TEXT NOT NULL, us
   PRIMARY KEY (batch_id, user_id, subaccount));
 `;
 
-function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, cms = null, security = null, options = {} }) {
+function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, cms = null, security = null, waitlists, options = {} }) {
   const P = engine.perps;
   if (!P) return null;
   db.exec(SCHEMA);
+  const WL = waitlists.perps; // the `perps` list of server/waitlists.js (Phase 7A)
   const production = process.env.NODE_ENV === 'production';
   const apyOpts = options.apy || {};
   if (apyOpts.now && production) console.warn('perps.apy.now is ignored in production');
@@ -165,20 +165,16 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
   v1.get('/perps/apy', requireUser, (req, res) => res.json({ apy: apyVo(req.auth.user.id) }));
 
   // ---------------------------------------------------------------- waitlist
-  const wlRow = (uid) => db.prepare('SELECT * FROM perp_waitlist WHERE user_id=?').get(uid);
-  const waitingCount = () => db.prepare("SELECT COUNT(*) c FROM perp_waitlist WHERE status='waiting'").get().c;
-  function positionOf(uid) {
-    const r = wlRow(uid);
-    if (!r || r.status !== 'waiting') return null;
-    return db.prepare("SELECT COUNT(*) c FROM perp_waitlist WHERE status='waiting' AND (joined_ts<? OR (joined_ts=? AND user_id<=?))").get(r.joined_ts, r.joined_ts, uid).c;
-  }
+  const wlRow = (uid) => WL.row(uid);
+  const waitingCount = () => WL.count('waiting');
+  const positionOf = (uid) => WL.position(uid);
   function approved(user) {
     const r = wlRow(user.id);
     if (r) return r.status === 'approved';
     if (admin.rolesOf(user).length) return true; // staff
     // Grandfathered: Perps activity from before the waitlist (a transfer in or an open position).
     if (db.prepare("SELECT 1 FROM perp_transfers WHERE user_id=? AND source='event_contract' LIMIT 1").get(user.id) || db.prepare('SELECT 1 FROM perp_positions WHERE user_id=? AND qty<>0 LIMIT 1').get(user.id)) {
-      db.prepare("INSERT INTO perp_waitlist(user_id,status,joined_ts,decided_ts,note) VALUES(?, 'approved', ?, ?, 'grandfathered') ON CONFLICT(user_id) DO NOTHING").run(user.id, Date.now(), Date.now());
+      WL.insertIfAbsent(user.id, { status: 'approved', joinedTs: Date.now(), decidedTs: Date.now(), note: 'grandfathered' });
       return true;
     }
     return false;
@@ -211,7 +207,7 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
   v1.post('/perps/waitlist', requireUser, (req, res) => {
     const u = req.auth.user;
     const fresh = !wlRow(u.id) && !approved(u);
-    if (fresh) db.prepare("INSERT INTO perp_waitlist(user_id,status,joined_ts) VALUES(?, 'waiting', ?) ON CONFLICT(user_id) DO NOTHING").run(u.id, Date.now());
+    if (fresh) WL.insertIfAbsent(u.id, { status: 'waiting', joinedTs: Date.now() });
     const vo = waitlistVo(u, req);
     if (fresh) {
       notify(u.id, { type: 'perps_waitlist_joined', title: PS('notify.waitlist_joined.title'), body: PS('notify.waitlist_joined.body', { position: vo.position }), link: '/perps' });
@@ -226,8 +222,7 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
       for (const id of ids) {
         const cur = wlRow(id);
         if (cur && cur.status === status) continue;
-        db.prepare('INSERT INTO perp_waitlist(user_id,status,joined_ts,decided_ts,decided_by,note) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET status=excluded.status, decided_ts=excluded.decided_ts, decided_by=excluded.decided_by, note=excluded.note')
-          .run(id, status, cur ? cur.joined_ts : now, now, actor.id, note);
+        WL.decide(id, { status, joinedTs: cur ? cur.joined_ts : now, decidedTs: now, decidedBy: actor.id, note });
         changed.push(id);
       }
     });
@@ -352,10 +347,9 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
     res.json({ payouts: n, ...apyAdminVo() });
   });
   const waitlistAdminVo = (status) => {
-    const where = status ? 'WHERE w.status=?' : '';
-    const rows = db.prepare(`SELECT w.*, u.email, u.display_name FROM perp_waitlist w JOIN users u ON u.id=w.user_id ${where} ORDER BY CASE w.status WHEN 'waiting' THEN 0 ELSE 1 END, w.joined_ts, w.user_id LIMIT 500`).all(...(status ? [status] : []));
+    const rows = WL.adminRows(status);
     let pos = 0;
-    return { gate_active: flags.jobOn('perps.waitlist'), counts: Object.fromEntries(db.prepare('SELECT status, COUNT(*) n FROM perp_waitlist GROUP BY status').all().map((r) => [r.status, r.n])),
+    return { gate_active: flags.jobOn('perps.waitlist'), counts: WL.counts(),
       entries: rows.map((r) => ({ user_id: r.user_id, email: r.email, display_name: r.display_name, status: r.status, position: r.status === 'waiting' ? ++pos : null, joined_time: iso(r.joined_ts), decided_time: iso(r.decided_ts), decided_by: emailOf(r.decided_by), note: r.note })) };
   };
   v1.get(`${A}/waitlist`, can('perps.ops'), (req, res) => res.json(waitlistAdminVo(req.query.status ? String(req.query.status) : null)));
@@ -382,7 +376,7 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
     const n = Number(b.count);
     if (!Number.isInteger(n) || n < 1 || n > 1000) throw fieldErr({ count: 'a whole number from 1 to 1000' });
     const reason = reasonOf(b);
-    const ids = db.prepare("SELECT user_id FROM perp_waitlist WHERE status='waiting' ORDER BY joined_ts, user_id LIMIT ?").all(n).map((r) => r.user_id);
+    const ids = WL.nextWaiting(n);
     const changed = decide(ids, 'approved', req.auth.user, reason, req);
     admin.audit(req, 'perps.waitlist.invite', 'perps_waitlist', `${changed.length} users`, null, { users: changed.map(emailOf) }, reason);
     res.json({ changed: changed.length, ...waitlistAdminVo() });

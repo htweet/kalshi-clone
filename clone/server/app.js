@@ -39,6 +39,7 @@ const { mountTradeApi, ParamError, intParam, STATUS_FILTER } = require('./trade-
 const { mountFixAdmin } = require('./fix'); // Phase 7: Admin › API keys › FIX sessions
 const { mountDeveloperPortal } = require('./dev-portal'); // Phase 7: /docs, /status, demo environment (CLONE_SPEC.md §35.9-§35.11)
 const { createRegistry } = require('./api-registry'); // Phase 7: one route registry → routes, OpenAPI, AsyncAPI, contract tests
+const { createWaitlists, mountWaitlists } = require('./waitlists'); // Phase 7A: waitlists, survey, newsletter (CLONE_SPEC.md §36)
 
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
 const SESSION_COOKIE = 'plx_session';
@@ -57,7 +58,7 @@ function parseCookies(header) {
 
 // Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope (ParamError / intParam, server/trade-api.js).
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, env = 'main' }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, env = 'main' }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -73,6 +74,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Payment provider webhooks (server/payments.js): server-to-server, authenticated by their HMAC signature over the raw
   // body, so they run before the session, CSRF and client-token middleware.
   app.post('/v1/payments/webhooks/:provider', (req, res, next) => (app.locals.payments ? app.locals.payments.webhookRoute(req, res, next) : next(E.notFound())));
+  // RFC 8058 one-click unsubscribe (server/waitlists.js, CLONE_SPEC.md §36): mail providers POST it with no cookie, CSRF or
+  // client token; the HMAC token in the URL is the only credential, so it runs before that middleware.
+  app.post('/v1/waitlists/one_click_unsubscribe', (req, res, next) => (app.locals.waitlistOneClick ? app.locals.waitlistOneClick(req, res) : next(E.notFound())));
 
   // ---------- helpers ----------
   const q = engine.quote.bind(engine);
@@ -103,6 +107,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Feature flags (server/flags.js, CLONE_SPEC.md §33): evaluated per request; modules ask engine.flags.on()/jobOn().
   const flags = createFlags({ db, engine, options: flagsOptions || {} });
   app.locals.flags = flags; engine.flags = flags;
+  // Waitlist storage (server/waitlists.js, CLONE_SPEC.md §36): the Perps list and the real-money launch list share it.
+  const waitlists = createWaitlists({ db, keyDir });
+  app.locals.waitlists = waitlists;
   app.use(auth.attach); // req.auth from the session cookie; session CSRF on writes, login CSRF on pre-session endpoints
   app.use('/v1', auth.guard); // step-up verification for sensitive actions; privilege-change session rotation
   // Public Trade API (CLONE_SPEC.md §35): a signed request is verified first (req.apiPrincipal), so the perimeter limiter
@@ -163,7 +170,11 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.playMode = mountPlayMode({ v1, app, db, engine, auth, admin, flags, feat, payments: app.locals.payments, centralBank: app.locals.centralBank, keyDir, options: playModeOptions || {} });
   // Phase 6 (CLONE_SPEC.md §34): margin tiers / risk limits / APY / waitlist / referral settings, the user side of the
   // waitlist, APY and referrals. After the Central Bank (the treasury pays APY and rewards in production) and play mode.
-  app.locals.perpsOps = mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank: app.locals.centralBank, cms: app.locals.cms, security, options: perps || {} });
+  app.locals.perpsOps = mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank: app.locals.centralBank, cms: app.locals.cms, security, waitlists, options: perps || {} });
+  // Phase 7A (CLONE_SPEC.md §36): the real-money launch waitlist (join, double opt-in, consent, survey, unsubscribe),
+  // Admin › Waitlists (target, export, newsletter outbox), its data in the account export and closure.
+  app.locals.waitlistsApi = mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms: app.locals.cms, security, waitlists, options: waitlistOptions || {} });
+  app.locals.identity.setWaitlists(waitlists);
   // Every send goes through the templates (CLONE_SPEC.md §32.5): in-app (features.notify), email and push (notify-prefs),
   // account emails (auth, identity), the phone code SMS and the push test (identity, webpush).
   feat.hooks.notifyTemplate = (type, msg) => app.locals.cms.renderNotification(type, msg);

@@ -49,6 +49,7 @@ const incentivesView = lazy(() => import('./views/incentives.js')); // Phase 5B 
 const heistView = lazy(() => import('./views/heist.js')); // Phase 5D Central Bank + Vault Heist (CLONE_SPEC.md §33)
 const docsView = lazy(() => import('./views/docs.js')); // Phase 7 developer portal (CLONE_SPEC.md §35.9)
 const statusView = lazy(() => import('./views/status.js')); // Phase 7 status page (CLONE_SPEC.md §35.10)
+const waitlistView = lazy(() => import('./views/waitlist.js')); // Phase 7A real-money launch waitlist (CLONE_SPEC.md §36)
 
 const routes = [
   [/^\/$/, home],
@@ -101,6 +102,8 @@ const routes = [
   [/^\/docs\/reference\/([a-z0-9_]+)$/, docsView, (m) => ({ op: m[1] })],
   [/^\/docs\/([a-z-]+)$/, docsView, (m) => ({ page: m[1] })],
   [/^\/status$/, statusView],
+  [/^\/waitlist$/, waitlistView, () => ({ page: 'main' })],
+  [/^\/waitlist\/(confirm|unsubscribe)$/, waitlistView, (m) => ({ page: m[1] })],
   [/^\/(trust|research|support|legal)\/([a-z0-9-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })], // CMS pages (CLONE_SPEC.md §32.7)
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],

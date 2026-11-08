@@ -9,6 +9,7 @@ import { queries, session } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, eventHref, cents, multiplier, prob, previewPct, catSlug, catLabel, toast, dayKey, fmtTime, fmtDay } from '../lib.js';
 import { eventCard, rankList, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
+import { waitlistCta } from '../flags.js'; // Phase 7A: "Join the real-money waitlist" while in play mode (CLONE_SPEC.md §36)
 
 const INFO = [
   [ts('home.info.market_integrity'), ts('home.info.how_we_keep_markets_fair'), '/account/limits', '<path d="M8 1.5l5.5 2v4c0 3.5-2.4 6-5.5 7-3.1-1-5.5-3.5-5.5-7v-4z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 8l2 2 3-3.5" fill="none" stroke="currentColor" stroke-width="1.5"/>'],
@@ -35,6 +36,7 @@ export async function render({ el, navigate }) {
 
   el.innerHTML = `<div class="home">
     <div class="minw-0">
+      ${waitlistCta('home')}
       <section class="card hero" id="hero" aria-roledescription="${te('home.render.carousel')}"></section>
       <div class="info-cards">${infoCards(home).map(([t, s, href, icon]) => `<a class="card info-card" href="${esc(href)}" data-link><span class="ic"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">${icon /* eslint-disable-line parlance/no-unescaped-html -- icon is an INFO_ICON constant (static SVG paths), selected by key */}</svg></span><span><b>${esc(t)}</b><span>${esc(s)}</span></span></a>`).join('')}</div>
       <div class="sec-head"><h2>${te('home.render.upcoming')}</h2><span class="spacer"></span><button class="icon-btn" id="up-prev" aria-label="${te('home.render.scroll_left')}">‹</button><button class="icon-btn" id="up-next" aria-label="${te('home.render.scroll_right')}">›</button></div>

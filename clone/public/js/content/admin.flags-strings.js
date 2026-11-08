@@ -70,6 +70,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.group.platform": "Platform",
   "admin.flags.group.play": "Play mode and Central Bank",
   "admin.flags.group.api": "Public API and developer portal",
+  "admin.flags.group.growth": "Waitlists and newsletter",
   "admin.flags.label.trading": "Prediction trading",
   "admin.flags.label.trading.limit_orders": "Limit orders",
   "admin.flags.label.trading.market_orders": "Market orders",
@@ -136,7 +137,11 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.label.perps.fractional": "Fractional Perps contracts",
   "admin.flags.label.perps.apy": "APY on Perps collateral",
   "admin.flags.label.perps.referrals": "Perps referrals and rewards",
-  "admin.flags.label.perps.waitlist": "Perps waitlist (access by invitation)"
+  "admin.flags.label.perps.waitlist": "Perps waitlist (access by invitation)",
+  "admin.flags.label.waitlist.launch": "Real-money launch waitlist (/waitlist, CTAs)",
+  "admin.flags.label.waitlist.launch.public_count": "Public progress bar on /waitlist",
+  "admin.flags.label.waitlist.launch.survey": "Waitlist opinion survey",
+  "admin.flags.label.newsletter": "Waitlist newsletter (sends and the outbox job)"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

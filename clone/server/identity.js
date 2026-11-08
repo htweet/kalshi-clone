@@ -676,6 +676,8 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
       withdrawal_holds: compliance.holdsOf(uid),
       identity_documents: docv.documentsMeta(uid).map((d) => ({ kind: d.kind, uploaded_time: d.uploaded_time, note: 'Photos are not included in the export; they are erased after the verification decision.' })),
       account_area: ctx.accountArea ? ctx.accountArea.exportFor(uid) : null,
+      // Phase 7A (CLONE_SPEC.md §36): waitlist entries with their consent record and survey answers.
+      waitlists: ctx.waitlists ? ctx.waitlists.exportFor(uid) : [],
     };
     logEvent(uid, 'data_export', req, {});
     res.setHeader('Content-Disposition', `attachment; filename="parlance-data-${uid.slice(-8)}.json"`);
@@ -722,6 +724,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
       if (has('oauth_links')) db.prepare('DELETE FROM oauth_links WHERE user_id=?').run(uid);
       if (has('push_subscriptions')) { db.prepare('DELETE FROM push_outbox WHERE user_id=?').run(uid); db.prepare('DELETE FROM push_subscriptions WHERE user_id=?').run(uid); } // Web Push (§31)
       compliance.forgetUser(uid);
+      ctx.waitlists?.forgetUser(uid); // waitlist entries, consents, survey answers and newsletter rows (CLONE_SPEC.md §36)
       // The account row stays (ledger, fills and audit keep their references) without personal data.
       db.prepare('UPDATE users SET email=?, display_name=?, password_hash=? WHERE id=?').run(`closed+${uid.slice(-12)}@closed.invalid`, 'Closed account', pw.UNUSABLE('account-closed'), uid);
       audit(req, 'privacy.account_closed', uid, null, { orders_canceled: canceled, payout_cents: Math.max(0, balance), retain_until: new Date(Date.now() + r.kyc_days * DAY).toISOString() }, 'closed by the account holder', { selfService: true });
@@ -894,7 +897,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
   kyc.start();
 
   return {
-    gate, settings, enforced, stateFor, kyc, compliance, oauth, webauthn, messaging, docv, statusOf, setAccountArea: (a) => { ctx.accountArea = a; },
+    gate, settings, enforced, stateFor, kyc, compliance, oauth, webauthn, messaging, docv, statusOf, setAccountArea: (a) => { ctx.accountArea = a; }, setWaitlists: (w) => { ctx.waitlists = w; },
     close: () => { for (const t of timers) clearInterval(t); kyc.stop(); webauthn.close?.(); oauth.close?.(); },
   };
 }

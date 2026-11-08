@@ -42,7 +42,7 @@ let PORT; let BASE; let srv; let browser; let admin;
 const D = H.db(DB_FILE);
 const opts = (port) => ({
   port, dbFile: DB_FILE, tickMs: 300, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH },
-  auth: { stepUpMs: 60000 }, identity: { kycRequired: false },
+  auth: { stepUpMs: 60000 }, identity: { kycRequired: false }, flags: { defaults: { 'perps.waitlist': false } }, // Perps open (waitlist on by default, §36.1): the credits test probes a Perps transfer
   payments: { pollMs: 100, reconGraceMs: 0, auditIntervalMs: 0, reconIntervalMs: 0, creditPollMs: 200,
     settings: { sandbox: { ach_settle_seconds: 2, payout_seconds: 1, block_seconds: 0 }, crypto: { confirmations: 3, address_cooling_hours: 24 } } },
 });

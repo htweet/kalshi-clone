@@ -18,6 +18,7 @@ const BODY_LIMITS = [
   [/^\/v1\/perps\/(transfers|subaccounts\/transfers)$/, '1kb'],
   [/^\/v1\/perps\/(subaccounts(\/[^/]+)?|order_groups(\/[^/]+(\/reset)?)?|orders\/[^/]+\/(amend|decrease)|referrals\/apply|waitlist)$/, '4kb'], // Phase 6 (CLONE_SPEC.md §34)
   [/^\/v1\/(log_in|log_in_mfa|log_out|client_token)$/, '4kb'],
+  [/^\/v1\/waitlists\//, '8kb'], // Phase 7A: join, confirm, survey answers (CLONE_SPEC.md §36)
   [/^\/v1\/users$/, '4kb'],
   [/^\/v1\/users\/[^/]+\/orders(\/[^/]+\/(amend|decrease))?$/, '4kb'],
   [/^\/v1\/perps\/(orders|positions\/[^/]+\/(close|exit_trigger))$/, '4kb'],

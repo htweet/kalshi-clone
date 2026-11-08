@@ -24,7 +24,7 @@ const clean = (s, n = 998) => String(s ?? '').replace(/[\r\n]+/g, ' ').slice(0, 
 const maskEmail = (e) => { const [l, d] = String(e).split('@'); return d ? `${(l || '?')[0]}***@${d}` : '***'; };
 
 // ------------------------------------------------------------------------------------------------ minimal SMTP client
-function smtpSend({ url, from, to, subject, text, html = null, timeoutMs = 15000 }) {
+function smtpSend({ url, from, to, subject, text, html = null, headers = {}, timeoutMs = 15000 }) {
   const u = new URL(url);
   const implicitTls = u.protocol === 'smtps:';
   const port = Number(u.port) || (implicitTls ? 465 : 587);
@@ -78,7 +78,7 @@ function smtpSend({ url, from, to, subject, text, html = null, timeoutMs = 15000
       await cmd(`RCPT TO:<${clean(to, 254)}>`, [250, 251]);
       await cmd('DATA', [354]);
       const dot = (s) => String(s).replace(/\r?\n/g, '\r\n').replace(/^\./gm, '..');
-      const head = [`From: Parlance <${clean(from, 254)}>`, `To: <${clean(to, 254)}>`, `Subject: ${clean(subject)}`, `Date: ${new Date().toUTCString()}`, `Message-ID: <${newId('m')}@parlance.local>`, 'MIME-Version: 1.0'];
+      const head = [`From: Parlance <${clean(from, 254)}>`, `To: <${clean(to, 254)}>`, `Subject: ${clean(subject)}`, `Date: ${new Date().toUTCString()}`, `Message-ID: <${newId('m')}@parlance.local>`, ...Object.entries(headers || {}).map(([k, v]) => `${k}: ${clean(v, 900)}`), 'MIME-Version: 1.0'];
       let msg;
       if (html) { // multipart/alternative: plain text first, HTML last (the preferred part)
         const b = `=_plx_${newId('b')}`;
@@ -107,13 +107,18 @@ function createMessaging({ db, keyDir, options = {} }) {
 
   // HTML alternative (CMS email templates, CLONE_SPEC.md §32.5): an additive column; the dev mailbox shows it as source.
   if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'html')) db.exec('ALTER TABLE email_outbox ADD COLUMN html TEXT');
+  // Extra headers (List-Unsubscribe / List-Unsubscribe-Post on waitlist mail, CLONE_SPEC.md §36): stored for the dev outbox.
+  if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'headers')) db.exec('ALTER TABLE email_outbox ADD COLUMN headers TEXT');
+  const HEADER_OK = new Set(['List-Unsubscribe', 'List-Unsubscribe-Post']);
+  const cleanHeaders = (h) => Object.fromEntries(Object.entries(h || {}).filter(([k]) => HEADER_OK.has(k)).map(([k, v]) => [k, clean(v, 900)]));
   // Email. Never throws for delivery problems (a failed alert must not fail the request); returns {ok, transport}.
-  async function sendEmail({ userId = null, to, subject, text, html = null }) {
-    const row = (body, h = null) => db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,html,created_at) VALUES(?,?,?,?,?,?,?)').run(newId('em_'), userId, emailTransport === 'dev' ? clean(to, 254) : maskEmail(to), clean(subject), body, h, nowIso());
+  async function sendEmail({ userId = null, to, subject, text, html = null, headers = null }) {
+    const hdrs = cleanHeaders(headers);
+    const row = (body, h = null) => db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,html,headers,created_at) VALUES(?,?,?,?,?,?,?,?)').run(newId('em_'), userId, emailTransport === 'dev' ? clean(to, 254) : maskEmail(to), clean(subject), body, h, Object.keys(hdrs).length ? JSON.stringify(hdrs) : null, nowIso());
     if (emailTransport === 'dev') { row(String(text), html ? String(html) : null); return { ok: true, transport: 'dev' }; }
     if (emailTransport === 'none') { console.error('email: no SMTP_URL configured; message not sent'); return { ok: false, transport: 'none' }; }
     try {
-      await smtpSend({ url: smtpUrl, from: mailFrom, to, subject, text, html });
+      await smtpSend({ url: smtpUrl, from: mailFrom, to, subject, text, html, headers: hdrs });
       row('(sent via SMTP; body not stored)');
       return { ok: true, transport: 'smtp' };
     } catch (e) {
@@ -156,7 +161,7 @@ function createMessaging({ db, keyDir, options = {} }) {
       const rows = to ? db.prepare('SELECT * FROM email_outbox WHERE lower(to_email)=? ORDER BY created_at DESC, rowid DESC LIMIT 100').all(to)
         : db.prepare('SELECT * FROM email_outbox ORDER BY created_at DESC, rowid DESC LIMIT 100').all();
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ transport: emailTransport, messages: rows.map((m) => ({ id: m.id, to: m.to_email, subject: m.subject, body: m.body, html: m.html || null, links: (m.body.match(linkRe) || []), time: m.created_at })) });
+      res.json({ transport: emailTransport, messages: rows.map((m) => ({ id: m.id, to: m.to_email, subject: m.subject, body: m.body, html: m.html || null, headers: m.headers ? JSON.parse(m.headers) : null, links: (m.body.match(linkRe) || []), time: m.created_at })) });
     });
     v1.get('/dev/sms', (req, res) => {
       res.setHeader('Cache-Control', 'no-store');

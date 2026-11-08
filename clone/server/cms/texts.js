@@ -26,6 +26,7 @@ const AREA_ROUTES = {
   components: '/', lib: '/', errors: '/', stepup: '/account', 'payment-forms': '/funds/deposit', 'docv-phone': '/verify/m', 'ai-summary': '/browse', store: '/', security: '/', pages: '/',
   flags: '/', heist: '/heist', // Phase 5D (CLONE_SPEC.md §33)
   'api-keys': '/account/api-keys', docs: '/docs', status: '/status', // Phase 7 (CLONE_SPEC.md §35)
+  waitlist: '/waitlist', // Phase 7A (CLONE_SPEC.md §36)
 };
 
 function block(src, b, e, file) {
@@ -44,6 +45,7 @@ function serverModules() {
   out.push(['playmode', require('../content/playmode').STRINGS]); // feature flags, play mode, Central Bank (CLONE_SPEC.md §33)
   out.push(['perps', require('../content/perps').STRINGS]); // Perps completion (CLONE_SPEC.md §34)
   out.push(['api', require('../content/api').STRINGS]); // public trading API (CLONE_SPEC.md §35)
+  out.push(['waitlists', require('../content/waitlists').STRINGS]); // waitlists, survey, newsletter (CLONE_SPEC.md §36)
   return out;
 }
 

@@ -35,6 +35,7 @@ const OPTS = {
   security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH },
   admin: { email: `root.${stamp}@example.test`, password: PW },
   demo: {}, // Phase 7: the demo environment, so /v1/developer/demo_credentials is reachable
+  flags: { defaults: { 'perps.waitlist': false } }, // Perps open: A's perps fixtures (the waitlist gate, on by default since §36.1, is covered by the perps-growth and waitlists suites)
 };
 
 let srv;
@@ -330,6 +331,18 @@ const EXPECT = {
   'GET /v1/admin/fix/sessions': perm('users.read'), 'POST /v1/admin/fix/sessions/:id/disconnect': perm('users.support'),
   'GET /v1/status': P, 'GET /v1/developer/portal': P, 'GET /v1/developer/demo_credentials': U, 'POST /v1/developer/demo_credentials': U,
   'GET /docs/openapi.json': P, 'GET /docs/asyncapi.json': P, 'GET /docs/fix.json': P,
+  // ---- Phase 7A (CLONE_SPEC.md §36): waitlists. The guest form and every token link (confirm, manage, survey by token,
+  // unsubscribe, delete, RFC 8058 one-click) are public by design: the HMAC / hashed token is the credential (object-level
+  // probes in the waitlist IDOR test below). Joining with one click and leaving are the signed-in user's own entry.
+  'GET /v1/waitlists/real_money_launch': P, 'GET /v1/waitlists/real_money_launch/progress': P, 'POST /v1/waitlists/real_money_launch/guest_join': P,
+  'POST /v1/waitlists/confirm': P, 'POST /v1/waitlists/manage': P, 'POST /v1/waitlists/unsubscribe': P, 'POST /v1/waitlists/delete': P,
+  'PUT /v1/waitlists/real_money_launch/survey': P, 'POST /v1/waitlists/one_click_unsubscribe': P,
+  'POST /v1/waitlists/real_money_launch/join': U, 'POST /v1/waitlists/real_money_launch/unsubscribe': U, 'DELETE /v1/waitlists/real_money_launch/me': U,
+  'GET /v1/admin/waitlists': perm('users.read'), 'GET /v1/admin/waitlists/:list': perm('users.read'), 'PUT /v1/admin/waitlists/:list/target': perm('settings.write'),
+  'GET /v1/admin/waitlists/:list/export.csv': perm('users.support'), 'GET /v1/admin/waitlists/:list/survey/comments': perm('users.read'),
+  'POST /v1/admin/waitlists/:list/survey/comments/:id/:action': perm('users.support'),
+  'GET /v1/admin/waitlists/:list/newsletters': perm('announce'), 'POST /v1/admin/waitlists/:list/newsletters/preview': perm('announce'), 'POST /v1/admin/waitlists/:list/newsletters/test': perm('announce'),
+  'POST /v1/admin/waitlists/:list/newsletters': perm('announce'), 'POST /v1/admin/waitlists/:list/newsletters/:id/cancel': perm('announce'), 'POST /v1/admin/waitlists/:list/launch_email': perm('announce'),
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };
@@ -615,6 +628,45 @@ test('WebSocket channel authorization: private channels need a session; another 
     assert.ok(!s.includes(A.uid) && !s.includes(A.user.email), `B's socket saw A's identity: ${s.slice(0, 200)}`);
   }
   sa.close(); sb.close();
+});
+
+test('waitlist IDOR (Phase 7A): user B and a guest token cannot read, change or delete A\'s entry or survey answers', async () => {
+  const W = '/v1/waitlists/real_money_launch';
+  const ver = (await A.call('GET', W)).body.consent.version;
+  let r = await A.call('POST', `${W}/join`, { consent: true, consent_version: ver });
+  assert.equal(r.status, 201, ctxCode(r));
+  const answers = { 'real_money_launch.would_trade': 'yes', 'real_money_launch.comment': 'A private thought' };
+  assert.equal((await A.call('PUT', `${W}/survey`, { answers })).status, 200);
+  const aEntry = dbq("SELECT id FROM waitlist_entries WHERE list_key='real_money_launch' AND user_id=?", A.uid)[0].id;
+  const aAnswer = dbq("SELECT id FROM waitlist_survey_answers WHERE entry_id=? AND question_key='real_money_launch.comment'", aEntry)[0].id;
+  // B sees only its own (empty) state; B's writes never reach A's entry.
+  r = await B.call('GET', W);
+  assert.equal(r.status, 200); assert.equal(r.body.me, null); assert.deepEqual(r.body.survey.answers, {});
+  assert.equal((await B.call('PUT', `${W}/survey`, { answers: { 'real_money_launch.would_trade': 'no' } })).status, 404);
+  assert.equal((await B.call('PUT', `${W}/survey`, { answers: { 'real_money_launch.would_trade': 'no' }, entry_id: aEntry })).status, 400, 'no entry id field is accepted');
+  assert.equal((await B.call('POST', `${W}/unsubscribe`, {})).status, 404);
+  assert.equal((await B.call('DELETE', `${W}/me`)).status, 404);
+  // Forged and cross-entry tokens: A's entry id with a made-up signature, and a guest's genuine token used on A's id.
+  const forged = `${aEntry}.${'A'.repeat(32)}`;
+  for (const [m, p, body] of [['POST', '/v1/waitlists/manage', { token: forged }], ['POST', '/v1/waitlists/unsubscribe', { token: forged }], ['POST', '/v1/waitlists/delete', { token: forged }],
+    ['PUT', `${W}/survey`, { token: forged, answers: { 'real_money_launch.would_trade': 'no' } }]]) {
+    const x = await B.call(m, p, body);
+    assert.equal(x.status, 404, `B ${m} ${p} with a forged token: ${ctxCode(x)}`);
+  }
+  const oc = await fetch(`${BASE}/v1/waitlists/one_click_unsubscribe?token=${encodeURIComponent(forged)}`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' });
+  assert.equal(oc.status, 404);
+  const guestTok = srv.app.locals.waitlists.manageToken('wl_guest-not-a-row');
+  assert.equal((await B.call('POST', '/v1/waitlists/manage', { token: guestTok.replace('wl_guest-not-a-row', aEntry) })).status, 404, 'a signature is bound to its entry id');
+  // B (no staff role) cannot moderate A's free-text answer; support can.
+  assertForbidden(await B.call('POST', `/v1/admin/waitlists/real_money_launch/survey/comments/${aAnswer}/hide`, {}), 'B moderates');
+  // A's entry and answers are untouched.
+  assert.equal(dbq('SELECT status FROM waitlist_entries WHERE id=?', aEntry)[0].status, 'confirmed');
+  assert.deepEqual((await A.call('GET', W)).body.survey.answers, answers);
+  assert.equal(dbq('SELECT moderation FROM waitlist_survey_answers WHERE id=?', aAnswer)[0].moderation, 'pending');
+  // The admin list shows aggregates only: no emails and no free text in the per-list view.
+  const adminView = await principals.support.call('GET', '/v1/admin/waitlists/real_money_launch');
+  assert.equal(adminView.status, 200);
+  assert.ok(!adminView.text.includes(newEmail('alice')) && !adminView.text.includes('A private thought'), 'aggregates only');
 });
 
 test('authorization matrix: anonymous, user, other user (IDOR) and every admin role, for every route', async () => {

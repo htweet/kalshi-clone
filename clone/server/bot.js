@@ -93,7 +93,7 @@ const CHALLENGE_TTL_MS = 2 * 60 * 1000;      // a served challenge must be solve
 const REFRESH_GRACE_MS = 12 * 3600 * 1000;   // an expired client token may still be traded for a fresh one for 12 h
 // Credential endpoints (CLONE_SPEC §22.11): sign-up, sign-in, MFA sign-in, step-up, every /v1/auth/* route (login
 // CSRF, first-admin setup, forced password change) and password changes. They share the stricter per-IP auth bucket.
-const AUTH_PATHS = /^\/v1\/(auth\/[^?]+|step_up|log_in[a-z_]*|users|users\/[^/]+\/password|password[a-z_/]*)$/;
+const AUTH_PATHS = /^\/v1\/(auth\/[^?]+|step_up|log_in[a-z_]*|users|users\/[^/]+\/password|password[a-z_/]*|waitlists\/[a-z_]+\/guest_join|waitlists\/(confirm|manage|unsubscribe|delete))$/; // + the waitlist guest form and token links (§36)
 
 function createBot({ db, dataDir, rate = {}, options = {}, clientIp, isSecure }) {
   const secret = keychain.deriveKey('bot-management:v1', { dir: dataDir });

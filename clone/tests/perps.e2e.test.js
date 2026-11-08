@@ -85,7 +85,9 @@ const liqCc = (p, mmRate) => {
   return p.qty > 0 ? (q * p.entry_cc - p.margin_cc) / (q * (1 - mmRate)) : (p.margin_cc + q * p.entry_cc) / (q * (1 + mmRate));
 };
 
-before(async () => { srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 250 }); browser = await chromium.launch(); });
+// Perps open: the waitlist gate is on by default since Phase 7A (CLONE_SPEC.md §36.1); this suite trades Perps as new users.
+const OPEN_PERPS = { flags: { defaults: { 'perps.waitlist': false } } };
+before(async () => { srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 250, ...OPEN_PERPS }); browser = await chromium.launch(); });
 after(async () => { await browser?.close(); await srv?.close(); fs.rmSync(TMP, { recursive: true, force: true }); });
 
 test('perps list: seeded markets, asset-class chips filter, live ticker updates', async () => {
@@ -335,7 +337,7 @@ test('funding is paid on schedule: longs pay and shorts receive at a positive ra
 
   // Restart with a short funding interval (start({ perps: { fundingIntervalMs } })).
   await srv.close();
-  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 250, perps: { fundingIntervalMs: 1500 } });
+  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 250, perps: { fundingIntervalMs: 1500 }, ...OPEN_PERPS });
   const a = uid(alice.email); const b = uid(bob.email);
   await eventually(() => {
     const n = dbq('SELECT user_id, COUNT(*) c FROM perp_funding_payments WHERE ticker=? AND user_id IN (?,?) GROUP BY user_id', ETH, a, b);
@@ -372,7 +374,7 @@ test('funding is paid on schedule: longs pay and shorts receive at a positive ra
 test('everything persists across a restart; Perps portfolio tabs', async () => {
   const a = uid(alice.email);
   await srv.close();
-  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 250 });
+  srv = await start({ port: PORT, dbFile: DB_FILE, tickMs: 250, ...OPEN_PERPS });
   const page = await newPage();
   await logIn(page, alice.email);
   await page.goto(BASE + '/portfolio');

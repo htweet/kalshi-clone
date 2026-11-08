@@ -28,7 +28,8 @@ let PORT; let BASE;
 const PW = 'Copper-Harbor-Lantern-5182';
 const stamp = Date.now();
 const HIGH = { burst: 1e6, per_second: 1e6 };
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, admin: { email: `root.${stamp}@example.test`, password: PW } };
+// Perps open: the waitlist gate is on by default since Phase 7A (CLONE_SPEC.md §36.1); this suite trades Perps as new users.
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, flags: { defaults: { 'perps.waitlist': false } }, admin: { email: `root.${stamp}@example.test`, password: PW } };
 
 let srv; let browser;
 const dbq = (sql, ...a) => { const d = new DatabaseSync(DB_FILE); try { return d.prepare(sql).all(...a); } finally { d.close(); } };

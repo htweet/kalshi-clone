@@ -117,3 +117,33 @@
   .hz-digit { width: 40px; height: 48px; }
   .hz-main { padding: var(--space-3); }
 }
+
+/* ---------------------------------------------------------------- Phase 7A (CLONE_SPEC.md §36): real-money waitlist */
+.wl-cta { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4); margin: 0 0 var(--space-4); border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); color: var(--text-x10); text-decoration: none; }
+.wl-cta b { font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-semibold); color: var(--brand); }
+.wl-cta .faint { font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.pay-balances + .wl-cta, .pay-notice + .wl-cta { margin-top: var(--space-4); }
+.wl-page { display: flex; flex-direction: column; gap: var(--space-4); max-width: 1080px; margin: 0 auto; min-width: 0; }
+.wl-narrow { max-width: 560px; }
+.wl-head .page-title { margin: var(--space-1) 0 0; }
+.wl-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+@media (max-width: 860px) { .wl-grid { grid-template-columns: minmax(0, 1fr); } }
+.wl-main, .wl-side { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.wl-pitch ul { padding-left: var(--space-5); }
+.wl-progress { margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+.wl-progress-label { font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); }
+.wl-bar { height: 8px; border-radius: var(--rounded-pill); background: var(--fill-x30); overflow: hidden; }
+.wl-bar > span { display: block; height: 100%; width: 0; background: var(--brand); }
+.wl-consent { margin: var(--space-3) 0; overflow-wrap: anywhere; }
+.wl-opt { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--space-2) 0; font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.wl-opt input { margin-top: var(--space-half); flex: none; }
+.wl-q { border: 0; padding: 0; margin: 0 0 var(--space-4); min-width: 0; }
+.wl-q legend { margin-bottom: var(--space-1); font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); }
+.wl-hp { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+.wl-signin { margin-top: var(--space-3); }
+.wl-signin a { color: var(--brand); }
+.wl-join .btn-lg, .wl-narrow .btn-lg { width: 100%; }
+.adm-wl-note { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line)); border-radius: var(--rounded-x20); background: color-mix(in srgb, var(--brand) 8%, var(--surface-x20)); }
+.adm-wl-bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.adm-wl-bars li { display: grid; grid-template-columns: minmax(0, 1fr) 48px; gap: var(--space-1) var(--space-2); align-items: center; }
+.adm-wl-bars .wl-bar { grid-column: 1 / 3; }

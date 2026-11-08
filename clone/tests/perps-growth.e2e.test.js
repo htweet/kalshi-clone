@@ -26,7 +26,8 @@ const ADMIN = { email: `root.${stamp}@example.test`, password: PW };
 const HIGH = { burst: 1e6, per_second: 1e6 };
 const DAY = 86400000;
 let clock = Date.now(); // the APY accrual clock (start option `perps.apy.now`, ignored in production)
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, perps: { apy: { now: () => clock } } };
+// Perps open: the waitlist gate is on by default since Phase 7A (CLONE_SPEC.md §36.1); the waitlist test below turns it on.
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, perps: { apy: { now: () => clock } }, flags: { defaults: { 'perps.waitlist': false } } };
 const BTC = 'PLXBTCPERP';
 const email = (n) => `${n}.p63.${stamp}@example.test`;
 

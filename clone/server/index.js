@@ -54,8 +54,12 @@ function listen(server, port, fallback) {
 // subject, allowedHosts, insecureEndpointHosts (tests only), retryBaseMs, maxAttempts, timeoutMs.
 // Phase 5D (CLONE_SPEC §33): `flags: { overrides: { key: bool } }` (technical overrides, like FEATURE_FLAGS), `playMode`,
 // `centralBank: { rng, now }` (deterministic heist codes / clock for tests; ignored when NODE_ENV=production).
+// `flags: { defaults: { key: bool } }` sets the state a NEW flag row starts with (admins can still change it); test servers
+// that need open Perps pass `flags: { defaults: { 'perps.waitlist': false } }` (the waitlist is on by default, §36.1).
+// Phase 7A (CLONE_SPEC §36): `waitlists: { confirmTtlMs, guestJoinsPerIp, guestWindowMs, tokenAttemptsPerIp,
+// newsletterPerMinute, now }` (`now`: the newsletter job clock for tests; ignored when NODE_ENV=production).
 async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports,
-  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
+  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, waitlists, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -70,7 +74,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const keyDir = dbFile === ':memory:' ? undefined : path.dirname(path.resolve(dbFile)); // secret.key lives next to the database
   let app; let boot;
   try {
-    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
+    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, waitlists, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
     const envAdmin = process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD ? { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD } : null;
     boot = app.locals.auth.bootstrap({ admin: admin || envAdmin, demoPassword });
   } catch (e) { try { app?.locals.cms?.close(); app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
@@ -100,7 +104,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
     try {
       const demoDb = demo.dbFile || process.env.DEMO_DB_FILE || (dbFile === ':memory:' ? ':memory:' : dbFile.replace(/(\.db)?$/, '.demo.db'));
       demoSrv = await start({ port: demo.port ?? (process.env.DEMO_PORT ? Number(process.env.DEMO_PORT) : 0), dbFile: demoDb, env: 'demo', quiet: true, tickMs, rate, perps, combos, sports: false, marketsContent: {}, assets: 'src',
-        security: { ...(security || {}), challengeMode: 'off' }, api: demo.api || api, flags: { overrides: { 'api.fix': false, ...(demo.flagOverrides || {}) } } });
+        security: { ...(security || {}), challengeMode: 'off' }, api: demo.api || api, flags: { overrides: { 'api.fix': false, ...(demo.flagOverrides || {}) }, defaults: { 'perps.waitlist': false } } });
       app.locals.demo = { port: demoSrv.port, app: demoSrv.app, close: () => demoSrv.close() };
       if (!quiet) console.log(`Demo environment (play money) on http://localhost:${demoSrv.port}, proxied at /demo-api/trade-api/v2`);
     } catch (e) { console.error(`Demo environment did not start: ${e.message}`); }

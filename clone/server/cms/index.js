@@ -61,7 +61,7 @@ function luminance(hex) {
 }
 const contrast = (a, b) => { const x = luminance(a); const y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 const PAGE_SLUG = /^[a-z0-9][a-z0-9-]{0,59}(\/[a-z0-9][a-z0-9-]{0,59})?$/;
-const TYPES = ['text', 'template', 'media', 'page', 'footer', 'brand', 'incident']; // incident: status-page incidents (server/dev-portal.js, CLONE_SPEC.md §35.10)
+const TYPES = ['text', 'template', 'media', 'page', 'footer', 'brand', 'incident', 'survey']; // incident: status-page incidents (server/dev-portal.js, CLONE_SPEC.md §35.10); survey: waitlist survey questions (server/waitlists.js, §36)
 
 function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   db.exec(MEDIA_SCHEMA);
@@ -225,11 +225,13 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     const vars = { title: msg.title || '', body: msg.body || '', link: msg.link || '', open_line: msg.link ? `\n\nOpen: ${msg.link}` : '', app_name: appName() };
     return templates.renderEmail(key, vars, tplOverride(key), tplOverride('email._layout'), { headerImage: mediaMap().email_header?.url || null });
   }
-  function renderSystem(key, vars, { origin = '' } = {}) {
+  // `override` (optional): render with this snapshot of the template's fields instead of the published override (the
+  // newsletter outbox renders every recipient with the version that was current when the send was created, §36).
+  function renderSystem(key, vars, { origin = '', override } = {}) {
     const v = { app_name: appName(), ...vars };
     const d = templates.definition(key);
     if (!d) throw new Error(`unknown template ${key}`);
-    if (d.kind === 'email') return templates.renderEmail(key, v, tplOverride(key), tplOverride('email._layout'), { headerImage: mediaMap().email_header?.url || null, origin });
+    if (d.kind === 'email') return templates.renderEmail(key, v, override !== undefined ? override : tplOverride(key), tplOverride('email._layout'), { headerImage: mediaMap().email_header?.url || null, origin });
     const out = {};
     for (const f of d.fields) out[f] = templates.renderField(key, f, v, tplOverride(key));
     return out;
@@ -512,7 +514,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   const timer = setInterval(tick, options.tickMs ?? 1000);
   timer.unref?.();
 
-  return { store, bundle, renderNotification, renderNotificationEmail, renderSystem, mountStatic, pwaConfig, pageTransform, pageOf, brand, mediaMap, close: () => clearInterval(timer), SLOTS, contrast };
+  return { store, bundle, renderNotification, renderNotificationEmail, renderSystem, templateOverride: (key) => tplOverride(key), mountStatic, pwaConfig, pageTransform, pageOf, brand, mediaMap, close: () => clearInterval(timer), SLOTS, contrast };
 }
 
 module.exports = { mountCms, SLOTS, contrast, BRAND_DEFAULT };

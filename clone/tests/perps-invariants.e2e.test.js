@@ -140,7 +140,7 @@ test('engine: random trading, gaps, funding, liquidations, transfers and trigger
   const stats = await runProperty('perps engine invariants', { runs: 5, base: 0xbeef }, async (g, log) => {
     n += 1;
     const dbFile = path.join(TMP, `inv-${n}.db`);
-    const srv = await start({ port: 0, dbFile, tickMs: 3600000, quiet: true, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH } });
+    const srv = await start({ port: 0, dbFile, tickMs: 3600000, quiet: true, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, flags: { defaults: { 'perps.waitlist': false } } }); // Perps open (waitlist on by default, §36.1)
     try {
       const base = `http://127.0.0.1:${srv.port}`;
       const P = srv.engine.perps;
@@ -237,7 +237,7 @@ test('engine: random trading, gaps, funding, liquidations, transfers and trigger
 
 test('engine: targeted gaps: an isolated shortfall never touches other collateral; a portfolio subaccount liquidates on its MM', async () => {
   // A targeted case next to the random runs: an isolated position gapped far through its bankruptcy price.
-  const srv = await start({ port: 0, dbFile: path.join(TMP, 'gap.db'), tickMs: 3600000, quiet: true, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH } });
+  const srv = await start({ port: 0, dbFile: path.join(TMP, 'gap.db'), tickMs: 3600000, quiet: true, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, flags: { defaults: { 'perps.waitlist': false } } }); // Perps open (waitlist on by default, §36.1)
   try {
     const base = `http://127.0.0.1:${srv.port}`;
     const P = srv.engine.perps;

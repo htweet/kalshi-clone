@@ -1,0 +1,64 @@
+// Text catalog defaults for public/js/views/waitlist.js: the real-money launch waitlist page, its double opt-in,
+// survey and unsubscribe landing pages (CLONE_SPEC.md §36, §32.3). Admin overrides live in the database (Admin › Content ›
+// Texts); this object is only the default. Keys: <area>.<section>.<slug>; {name} placeholders are the declared variables.
+// The object between the markers must stay strict JSON: the server reads it to build the catalog (server/cms/texts.js).
+import { register } from '../i18n.js';
+
+export const STRINGS = /* CONTENT_JSON_BEGIN */ {
+  "waitlist.page.doc_title": "Real-money waitlist · Parlance",
+  "waitlist.page.overline": "Coming soon",
+  "waitlist.page.title": "Join the real-money waitlist",
+  "waitlist.page.pitch": "<p>Parlance runs on free play money today. We are getting ready to switch to real money in naira, and we want to hear from you first.</p><ul><li>Be the first to know the launch date.</li><li>Get the waitlist newsletter: new markets, payment methods and the road to launch.</li><li>Tell us how you would deposit and what you want to trade.</li></ul>",
+  "waitlist.progress.label": "{count} of {target} joined",
+  "waitlist.progress.count_only": "{count} people joined",
+  "waitlist.join.title": "Save your place",
+  "waitlist.join.one_click": "Join with one click",
+  "waitlist.join.signed_in_as": "Signed in as {email}",
+  "waitlist.join.email": "Email address",
+  "waitlist.join.email_placeholder": "you@example.com",
+  "waitlist.join.agree": "I agree to the wording above.",
+  "waitlist.join.honeypot": "Leave this field empty",
+  "waitlist.join.submit": "Join the waitlist",
+  "waitlist.join.or_sign_in": "Have an account? <a href=\"/sign-in?next=/waitlist\" data-link>Log in</a> to join with one click.",
+  "waitlist.join.check_email_title": "Check your email",
+  "waitlist.join.check_email": "If this address can join, we have sent it a confirmation link. Open it within {hours} hours to take your place.",
+  "waitlist.join.need_consent": "Tick the box to agree before joining.",
+  "waitlist.join.joined_toast": "You're on the real-money waitlist",
+  "waitlist.status.title": "You're on the list",
+  "waitlist.status.since": "Joined on {date}",
+  "waitlist.status.unsubscribed": "You left the waitlist on {date}. Join again any time.",
+  "waitlist.status.leave": "Leave the waitlist",
+  "waitlist.status.delete": "Delete my waitlist data",
+  "waitlist.status.delete_confirm": "Delete your place on the waitlist and your survey answers? This cannot be undone.",
+  "waitlist.status.left_toast": "You left the waitlist",
+  "waitlist.status.deleted_toast": "Your waitlist data is deleted",
+  "waitlist.survey.title": "Help us plan the launch",
+  "waitlist.survey.intro": "Optional and short. You can change your answers until the launch. We only ever show totals.",
+  "waitlist.survey.locked": "The survey is closed: Parlance has launched with real money.",
+  "waitlist.survey.save": "Save my answers",
+  "waitlist.survey.saved": "Answers saved",
+  "waitlist.survey.chars_left": "Up to {max} characters",
+  "waitlist.survey.clear": "No answer",
+  "waitlist.confirm.title": "Confirm your place",
+  "waitlist.confirm.body": "One click and you are on the real-money waitlist.",
+  "waitlist.confirm.button": "Confirm my place",
+  "waitlist.confirm.done_title": "You're on the list",
+  "waitlist.confirm.done": "Thank you for confirming. We will email you before the switch to real money.",
+  "waitlist.confirm.missing": "This link is incomplete. Open the link from your email again.",
+  "waitlist.unsub.title": "Unsubscribe",
+  "waitlist.unsub.working": "Unsubscribing…",
+  "waitlist.unsub.done_title": "You're unsubscribed",
+  "waitlist.unsub.done": "You will get no more waitlist emails at {email}.",
+  "waitlist.unsub.delete_hint": "You can also delete everything we keep about your place on the waitlist (your email address, consent record and survey answers).",
+  "waitlist.unsub.delete": "Delete my data",
+  "waitlist.unsub.deleted_title": "Your data is deleted",
+  "waitlist.unsub.deleted": "We have deleted your place on the waitlist, your consent record and your survey answers.",
+  "waitlist.unsub.rejoin": "Changed your mind? <a href=\"/waitlist\" data-link>Join the waitlist again</a>.",
+  "waitlist.error.generic": "Something went wrong. Please try again."
+} /* CONTENT_JSON_END */;
+export const META = /* CONTENT_META_BEGIN */ {
+  "waitlist.page.pitch": { "rich": true },
+  "waitlist.join.or_sign_in": { "rich": true },
+  "waitlist.unsub.rejoin": { "rich": true }
+} /* CONTENT_META_END */;
+register(STRINGS, META);

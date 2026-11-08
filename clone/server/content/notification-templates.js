@@ -37,6 +37,9 @@ const TYPES = [
   ['production_reset', 'Account', 'Play mode ended: balances reset'],
   // Phase 7 (CLONE_SPEC.md §35): the server composes the wording from server/content/api.js; these wrap it.
   ['api_key_created', 'Account', 'API key created or rotated'], ['api_key_revoked', 'Account', 'API key revoked'], ['api_key_expiring', 'Account', 'API key expiring soon'],
+  // Phase 7A (CLONE_SPEC.md §36): the server composes the wording from server/content/waitlists.js; these wrap it.
+  ['waitlist_joined', 'Waitlists', 'Real-money waitlist joined'], ['waitlist_target', 'Waitlists', 'Launch waitlist target reached (staff)'],
+  ['waitlist_launch_offer', 'Waitlists', 'Launch email offered after the production switch (staff)'],
   ['announcement', 'Announcements', 'Announcement'], ['promo_breaking_events', 'Announcements', 'Promotion: breaking events'], ['promo_new_markets', 'Announcements', 'Promotion: new markets'],
   ['promo_politics', 'Announcements', 'Promotion: politics'], ['promo_crypto', 'Announcements', 'Promotion: crypto'], ['promo_commodities', 'Announcements', 'Promotion: commodities'],
 ];
@@ -129,6 +132,62 @@ Object.assign(TEMPLATES, {
       email_subject: 'Your API key expires soon',
       email_text: 'Hi {{name}},\n\nThe API key "{{label}}" ({{key_id}}) expires on {{expires}}. Create or rotate a key before then to keep your programs running.\n\n{{link}}',
       email_html: '<p>Hi {{name}},</p><p>The API key <strong>{{label}}</strong> ({{key_id}}) expires on {{expires}}. Create or rotate a key before then to keep your programs running.</p><p><a href="{{link}}">Manage your API keys</a></p>',
+    },
+  },
+  // Phase 7A (CLONE_SPEC.md §36): real-money launch waitlist emails. Every one carries {{unsubscribe_link}} (one click, no
+  // sign-in); the sender appends it when an override leaves it out, and adds a List-Unsubscribe header.
+  'email.waitlist_confirm': {
+    kind: 'email', group: 'Waitlist email', label: 'Confirm your place (guest double opt-in)', fields: ['email_subject', 'email_text', 'email_html'], vars: ['link', 'hours', 'list_name', 'unsubscribe_link', 'app_name'],
+    sample: { link: 'https://parlance.example/waitlist/confirm?token=SAMPLE', hours: '48', list_name: 'Real-money launch waitlist', unsubscribe_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', app_name: 'Parlance' },
+    defaults: {
+      email_subject: 'Confirm your place on the {{app_name}} real-money waitlist',
+      email_text: 'Hello,\n\nSomeone (hopefully you) asked to join the {{list_name}}. Confirm your email address to take your place:\n{{link}}\n\nThe link works once and expires in {{hours}} hours. If this was not you, ignore this email: an unconfirmed request is deleted automatically.\n\nUnsubscribe: {{unsubscribe_link}}',
+      email_html: '<p>Hello,</p><p>Someone (hopefully you) asked to join the {{list_name}}. Confirm your email address to take your place.</p><p><a href="{{link}}">Confirm my place</a></p><p>The link works once and expires in {{hours}} hours. If this was not you, ignore this email: an unconfirmed request is deleted automatically.</p><p><a href="{{unsubscribe_link}}">Unsubscribe</a></p>',
+    },
+  },
+  'email.waitlist_welcome': {
+    kind: 'email', group: 'Waitlist email', label: 'You are on the list', fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'list_name', 'manage_link', 'unsubscribe_link', 'app_name'],
+    sample: { name: 'Ada', list_name: 'Real-money launch waitlist', manage_link: 'https://parlance.example/waitlist', unsubscribe_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', app_name: 'Parlance' },
+    defaults: {
+      email_subject: "You're on the {{app_name}} real-money waitlist",
+      email_text: 'Hi {{name}},\n\nThank you for joining the {{list_name}}. We will email you before {{app_name}} switches to real money. Tell us what you would like to trade in a short survey:\n{{manage_link}}\n\nUnsubscribe with one click: {{unsubscribe_link}}',
+      email_html: '<p>Hi {{name}},</p><p>Thank you for joining the {{list_name}}. We will email you before {{app_name}} switches to real money.</p><p><a href="{{manage_link}}">Take the short survey</a></p><p><a href="{{unsubscribe_link}}">Unsubscribe with one click</a></p>',
+    },
+  },
+  'email.waitlist_already': {
+    kind: 'email', group: 'Waitlist email', label: 'Already on the list (guest form)', fields: ['email_subject', 'email_text', 'email_html'], vars: ['list_name', 'manage_link', 'unsubscribe_link', 'app_name'],
+    sample: { list_name: 'Real-money launch waitlist', manage_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', unsubscribe_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', app_name: 'Parlance' },
+    defaults: {
+      email_subject: "You're already on the {{app_name}} real-money waitlist",
+      email_text: 'Hello,\n\nSomeone asked to join the {{list_name}} with this email address, but you are already on it. There is nothing more to do.\n\nYour place and survey answers: {{manage_link}}\nUnsubscribe with one click: {{unsubscribe_link}}',
+      email_html: '<p>Hello,</p><p>Someone asked to join the {{list_name}} with this email address, but you are already on it. There is nothing more to do.</p><p><a href="{{manage_link}}">Your place and survey answers</a></p><p><a href="{{unsubscribe_link}}">Unsubscribe with one click</a></p>',
+    },
+  },
+  'email.waitlist_newsletter': {
+    kind: 'email', group: 'Waitlist email', label: 'Waitlist newsletter (Admin › Waitlists › Newsletter)', fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'count', 'target', 'link', 'unsubscribe_link', 'app_name'],
+    sample: { name: 'Ada', count: '1,250', target: '5,000', link: 'https://parlance.example/waitlist', unsubscribe_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', app_name: 'Parlance' },
+    defaults: {
+      email_subject: 'News from the {{app_name}} real-money waitlist',
+      email_text: 'Hi {{name}},\n\n{{count}} people have joined the real-money waitlist so far. Thank you for being one of them. We will tell you the launch date as soon as it is set.\n\n{{link}}\n\nUnsubscribe with one click: {{unsubscribe_link}}',
+      email_html: '<p>Hi {{name}},</p><p>{{count}} people have joined the real-money waitlist so far. Thank you for being one of them. We will tell you the launch date as soon as it is set.</p><p><a href="{{link}}">See the waitlist</a></p><p><a href="{{unsubscribe_link}}">Unsubscribe with one click</a></p>',
+    },
+  },
+  'email.waitlist_launch': {
+    kind: 'email', group: 'Waitlist email', label: "We're live with real money (offered after the production switch)", fields: ['email_subject', 'email_text', 'email_html'], vars: ['name', 'link', 'unsubscribe_link', 'app_name'],
+    sample: { name: 'Ada', link: 'https://parlance.example/funds', unsubscribe_link: 'https://parlance.example/waitlist/unsubscribe?token=SAMPLE', app_name: 'Parlance' },
+    defaults: {
+      email_subject: "We're live with real money on {{app_name}}",
+      email_text: 'Hi {{name}},\n\nYou asked us to tell you first: {{app_name}} now runs on real money. Play balances were reset when we switched. Deposit and start trading:\n{{link}}\n\nUnsubscribe with one click: {{unsubscribe_link}}',
+      email_html: '<p>Hi {{name}},</p><p>You asked us to tell you first: {{app_name}} now runs on real money. Play balances were reset when we switched.</p><p><a href="{{link}}">Deposit and start trading</a></p><p><a href="{{unsubscribe_link}}">Unsubscribe with one click</a></p>',
+    },
+  },
+  'email.waitlist_target_admin': {
+    kind: 'email', group: 'Waitlist email', label: 'Launch target reached (staff alert)', fields: ['email_subject', 'email_text', 'email_html'], vars: ['count', 'target', 'link', 'app_name'],
+    sample: { count: '5,000', target: '5,000', link: 'https://parlance.example/admin/waitlists', app_name: 'Parlance' },
+    defaults: {
+      email_subject: '{{app_name}}: the launch waitlist reached its target',
+      email_text: '{{count}} confirmed members have joined the real-money launch waitlist (target {{target}}).\n\nNothing switches automatically: the switch to production stays the two-person, RESET-confirmed flow in Admin › Play mode.\n\n{{link}}',
+      email_html: '<p>{{count}} confirmed members have joined the real-money launch waitlist (target {{target}}).</p><p>Nothing switches automatically: the switch to production stays the two-person, RESET-confirmed flow in Admin › Play mode.</p><p><a href="{{link}}">Open Admin › Waitlists</a></p>',
     },
   },
   'sms.phone_code': {

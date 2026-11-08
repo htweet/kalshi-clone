@@ -242,9 +242,11 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     const heists = q("SELECT COUNT(*) n FROM cb_heists WHERE status='active'").n;
     // Phase 6 (CLONE_SPEC.md §34): Perps subaccounts, APY accruals, pending referrals and queued rewards.
     const px = engine.perpsOps ? engine.perpsOps.previewCounts() : { counts: {}, totals: { perps_subaccounts_cc: 0, perps_apy_accrued_cc: 0, referral_rewards_queued_dollars: dollars(0) } };
+    // Phase 7A (CLONE_SPEC.md §36): waitlist members, consents and survey answers are not money: the switch keeps them.
+    const wl = engine.waitlistOps ? engine.waitlistOps.previewCounts() : {};
     return {
       counts: { accounts_with_balance: users.n, open_orders: orders.n, positions: pos.n, position_holders: pos.u, markets_with_escrow: escrow.n, perps_accounts: perps.accounts.n, perps_positions: perps.positions, perps_orders: perps.orders,
-        open_rfqs: rfqs, open_quotes: quotes, active_credit_grants: grants, active_heists: heists, ...px.counts, kept_accounts: db.prepare('SELECT COUNT(*) c FROM users WHERE is_system=0').get().c, kept_markets: db.prepare('SELECT COUNT(*) c FROM markets').get().c },
+        open_rfqs: rfqs, open_quotes: quotes, active_credit_grants: grants, active_heists: heists, ...px.counts, kept_accounts: db.prepare('SELECT COUNT(*) c FROM users WHERE is_system=0').get().c, kept_markets: db.prepare('SELECT COUNT(*) c FROM markets').get().c, ...wl },
       totals: { balances_dollars: dollars(users.c), cash_dollars: dollars(cash), credits_dollars: dollars(credits), held_dollars: dollars(held), reserved_dollars: dollars(orders.c), position_cost_dollars: dollars(pos.c),
         escrow_dollars: dollars(escrow.c), perps_dollars: ((perps.accounts.c + px.totals.perps_subaccounts_cc) / 10000).toFixed(4), perps_apy_accrued_dollars: (px.totals.perps_apy_accrued_cc / 10000).toFixed(4),
         referral_rewards_queued_dollars: px.totals.referral_rewards_queued_dollars, collateral_advances_dollars: dollars(collateral), vault_dollars: dollars(centralBank ? centralBank.balance() : 0) },
@@ -383,6 +385,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     changed(['play_mode', 'heist']);
     engine.emit('central_bank', { type: 'settings' });
     try { engine.apiOps?.afterReset(); } catch (e) { console.error('reset api', e.message); } // FIX sessions are logged out
+    try { engine.waitlistOps?.afterProductionSwitch(batch); } catch (e) { console.error('reset waitlists', e.message); } // survey locked; launch email offered (§36)
     return { batch_id: batch, backup_file: path.basename(file), counts, totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k.replace(/_cents$/, '_dollars').replace(/_cc$/, '_cc'), k.endsWith('_cc') ? v : dollars(v)])) };
   }
 
@@ -397,7 +400,8 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     return { play_mode: { on: isOn(), mode: mode(), epoch: epoch(), bonus: { enabled: st.bonus.enabled, amount_dollars: dollars(st.bonus.amount_cents), source: st.bonus.source }, deposits: { daily_cap_dollars: st.deposits.daily_cap_cents == null ? null : dollars(st.deposits.daily_cap_cents) } },
       real_money: realMoney(), approvals: db.prepare('SELECT * FROM pm_approvals ORDER BY requested_ts DESC LIMIT 20').all().map(approvalVo),
       batches: db.prepare('SELECT * FROM pm_reset_batches ORDER BY created_ts DESC LIMIT 20').all().map(batchVo),
-      events: db.prepare('SELECT * FROM pm_events ORDER BY ts DESC LIMIT 30').all().map((e) => ({ action: e.action, epoch: e.epoch, reason: e.reason, actor_email: e.actor_email, time: new Date(e.ts).toISOString() })) };
+      events: db.prepare('SELECT * FROM pm_events ORDER BY ts DESC LIMIT 30').all().map((e) => ({ action: e.action, epoch: e.epoch, reason: e.reason, actor_email: e.actor_email, time: new Date(e.ts).toISOString() })),
+      launch_waitlist: engine.waitlistOps ? engine.waitlistOps.launchSummary() : null }; // Phase 7A: target reached, launch email offer (§36)
   };
   // Public: is the site on play money (the banner and labels).
   v1.get('/play_mode', (req, res) => res.json({ play_mode: { on: isOn() } }));
@@ -486,7 +490,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     auth.assertFresh(req, 'production_switch');
     const out = executeReset(a, req.auth.user);
     admin.audit(req, 'play_mode.production_switch', 'settings', 'play_mode', { on: true, epoch: JSON.parse(a.preview_json).epoch, approval_id: a.id, requested_by: emailOf(a.requested_by) }, { on: false, ...out }, a.reason);
-    res.json({ result: out, ...stateVo() });
+    res.json({ result: { ...out, launch_email: engine.waitlistOps ? engine.waitlistOps.launchSummary().launch_email : null }, ...stateVo() });
   });
   v1.post('/admin/play_mode/approvals/:id/reject', can('settings.write'), (req, res) => {
     const a = pendingApproval(req.params.id);

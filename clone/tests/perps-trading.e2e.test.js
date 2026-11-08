@@ -23,7 +23,8 @@ const PW = 'Ember-Quarry-Lattice-5182';
 const stamp = Date.now();
 const ADMIN = { email: `root.${stamp}@example.test`, password: PW };
 const HIGH = { burst: 1e6, per_second: 1e6 };
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH } };
+// Perps open: the waitlist gate is on by default since Phase 7A (CLONE_SPEC.md §36.1); this suite trades Perps as new users.
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, flags: { defaults: { 'perps.waitlist': false } } };
 const BTC = 'PLXBTCPERP';
 const alice = { email: `alice.p61.${stamp}@example.test`, name: 'Alice Subaccounts' };
 

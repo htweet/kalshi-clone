@@ -27,7 +27,9 @@ function harness(name) {
     TMP, DB_FILE, stamp, PW, srv: null, BASE: null, PORT: null,
     ADMIN: { email: `root.${name}.${stamp}@example.test`, password: PW },
     email: (n) => `${n}.${name}.${stamp}@example.test`,
-    opts: (extra = {}) => ({ port: h.PORT, dbFile: DB_FILE, tickMs: 200, quiet: true, admin: h.ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, ...extra }),
+    // Perps open: the Phase 7 suites trade Perps through /margin as new users; the waitlist gate is on by default since
+    // Phase 7A (CLONE_SPEC.md §36.1), so these servers opt out explicitly (an `extra.flags` replaces it).
+    opts: (extra = {}) => ({ port: h.PORT, dbFile: DB_FILE, tickMs: 200, quiet: true, admin: h.ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, flags: { defaults: { 'perps.waitlist': false } }, ...extra }),
     async start(extra = {}) {
       if (!h.PORT) { h.PORT = await freePort(); h.BASE = `http://127.0.0.1:${h.PORT}`; }
       h.srv = await start(h.opts(extra));
