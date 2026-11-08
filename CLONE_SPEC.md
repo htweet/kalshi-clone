@@ -3735,6 +3735,9 @@ adds a daily temperature family of five invented cities so the cap is visible (�
 
 ### 29.8 Hub data widgets (A15)
 
+Superseded as the elections entry point by the elections hub v2 (§37, Phase 7B); the page and endpoints below are
+unchanged.
+
 - **Senate map** (`GET /v1/hubs/senate_map`): the 12 invented states with grid positions, seats not up (`seated`), and for
   each state with a race the Blue / Red probabilities (last trade, normalised), lean (≥ 0.8 safe, ≥ 0.6 lean, else
   toss-up) and leader; chamber 24, majority 13; expected seats = held + Σ P(Blue), projected = held + races led; and the
@@ -5358,6 +5361,230 @@ survey is locked and the launch email is offered (the approval response carries 
   answers; persistence across a restart.
 - `tests/authz.e2e.test.js`: every new route classified, plus the waitlist IDOR test. `tests/perps-growth.e2e.test.js`:
   the Perps waitlist unchanged. `tests/flags.e2e.test.js`: the new flags, rules and module.
+
+## 37. Elections hub v2, Nigeria first (Phase 7B)
+
+Owner request 2026-11-08 (PLAN.md Phase 7B, backlog A19): a results-night elections hub with the structure observed in
+§13.20, adapted to Nigeria and built on a country model (§30.0). It replaces the Phase 5B tile-map hub (§29.8) as the
+elections entry point: the MORE menu links to `/category/elections/nigeria-2027`; the Phase 5B page `/hubs/elections`
+and its API stay at their URLs (unchanged, tested) until the owner confirms their removal. Its invented 12 states are
+the second country here ("Harbor", code `XH`, from the ISO 3166 user-assigned range). Clean room: real public
+geography of Nigeria; invented parties, candidates, names, colours and results; no real people, marks or photos.
+
+### 37.1 Country model (P7B.1) — data, never code
+
+`server/elections.js` (`mountElections`) owns the tables; `server/elections-data.js` is seed data only, loaded once
+(`meta` marker `elections_seed_v1`, start option `elections: { seed: true }`, on for `npm start`) and never read at
+runtime. From then on everything is edited in **Admin › Elections**, every change with a reason and a hash-chained
+audit row (`elections.<kind>.create|update`).
+
+- **Countries** (`el_countries`): code, name, currency, time zone, locale and a configuration: division levels, the
+  map level (`state`), the counting level (`lga`), the My Ballot levels (`state → lga → ward`) and the map grid size.
+- **Divisions** (`el_divisions`, ids like `NG-LA-03-02`): Nigeria's 6 geopolitical zones, the 36 states and the FCT
+  (ISO 3166-2:NG codes; the FCT flagged `territory`), the real number of LGAs per state (774), three senatorial
+  districts per state plus one for the FCT (109), the real number of federal constituencies per state (360), and
+  invented ward and polling-unit counts (8–14 wards per LGA, 15–25 polling units per ward; 8,542 wards in the seed).
+  LGA and ward names are placeholders ("LGA 03", "Ward 02") that admins can rename. Each state has a hexagon-grid
+  position for the map and a `small` flag (listed beside the map).
+- **Offices and chambers** (`el_offices`): President (1, two-person calls), Senate (109, chamber), House of
+  Representatives (360, chamber), Governor (36), State Houses of Assembly (990, chamber; configured, no races
+  seeded). **Win rules are configuration** (`rule_json`, validated):
+  - `plurality`: most votes (first past the post: Senate, House, Assembly, Harbor);
+  - `spread`: most votes **and** at least `share` of the vote in at least `fraction` of the race's `unit` divisions;
+    territories are left out of that count and, with `territory_required`, must reach the share too; `on_fail:
+    runoff`. President: `{share 0.25, fraction [2,3], unit state, territory_required true}` → 25 % in 24 of the 36
+    states and in the FCT. Governor: `{share 0.25, fraction [2,3], unit lga}` → 25 % in two-thirds of the state's LGAs.
+- **Parties** (`el_parties`): name, short name, colour (validated `#rrggbb`), logo (a CMS media-library image id,
+  §32.6 re-encoding), coalition, active. Seeded: five invented parties (two in the "Renewal Accord" coalition);
+  Harbor: Blue, Red, Gold. **Candidates** (`el_candidates`): party, name (or none: a party-level contestant shows "LUP
+  candidate"), photo (media id) or an initials avatar in the party colour, running mate.
+- **Elections** (`el_elections`, slug = hub): `nigeria-2027` (general: presidency, 28 governorships, 109 Senate and
+  360 House seats; governor holdovers for the 8 off-cycle states), `nigeria-offcycle` (Anambra, Bayelsa, Edo, Ekiti,
+  Imo, Kogi, Ondo, Osun; per-race dates), `harbor-2026` (8 Senate seats + 16 holdover seats, the Harbor State
+  governorship). Dates are demo values.
+- **Races** (`el_races`): office, division, seat, name, area (division ids it covers: a Senate district is a group of
+  whole LGAs, a federal constituency a group of wards), prior (per race, and per map unit for the presidency),
+  featured, status `open | called | runoff`, winner. **Markets** (`el_race_markets`, `el_office_markets`) created
+  through the engine with price history and liquidity (journaled): a winner event per candidate race (one market per
+  candidate), "Nigeria President: runoff?", and "which party wins the most seats?" for each chamber (N party markets).
+  Legislative seats link to the chamber-control markets. 129 markets in the seed.
+
+### 37.2 Simulated results feed (P7B.2)
+
+- **Counting units** (`el_reporting`): the LGAs for the presidency (774) and each governorship, the area for a
+  legislative seat. Each unit has polling units in total and reported, and registered voters. Tallies per unit and
+  candidate (`el_tallies`). Collation: polling units → ward (counts) → LGA (stored) → state → national (sums on read),
+  so the state view, the 25 % tracker and the national total always agree with the stored rows.
+- **Simulator** (design choice, like sports §19): a pure function of the election's seed and its simulated clock.
+  Each unit starts reporting 30–330 simulated minutes after polls close and finishes 90–690 minutes later, linearly;
+  votes = reported units × voters per unit × turnout (28–48 %) × vote shares drawn around the race prior (per state
+  for the presidency) with seeded noise. Integer, monotonic, restart-safe (the clock is persisted in `sim_json`; the
+  first tick after boot moves zero minutes). It runs on the engine tick only while the flag `elections.simulator` is on
+  (**off by default**; `npm start` outside production turns it on with the `defaults` start option; the production
+  switch turns it off) and the election's simulator is started. Admin › Elections: start, pause, advance N minutes,
+  speed (simulated minutes per real minute, default 60), reset (refused once a race is called) — `markets.ops`, reason,
+  audited. **No client can write the feed:** there is no write route; results are written by the server only.
+- **Forecast** per race (design choice): called → certain; otherwise the market (winner markets normalised, or the
+  race prior without markets) blended with a count model (normal approximation on the lead with σ = 0.18·√(share not
+  reported)) by √(% reported). Chamber control: a seeded 300-draw simulation over the seat forecasts plus holdovers,
+  blended with the control markets the same way. Map entries: `called` (solid, ✓: race called, or a state's
+  presidential collation complete), `projected` (hatched, leader ≥ 90 %), `leading` (hatched), `pending`, `none`.
+- **Results desk** (Admin › Elections › Results desk; `resolution.write`; a reason; **step-up**):
+  - **Call** a winner: refused unless the candidate leads and meets the office's win rule on the reported results
+    (`409 rule_not_met` with the detail). **Runoff**: only when every polling unit has reported and nobody meets the
+    rule (`runoff_not_due`). **Uncall**: refused once a market has been resolved from the call (`settlement_executed`;
+    reverse it on the resolution desk first); otherwise the pending proposals are withdrawn.
+  - **Two-person** offices (the presidency): the call or uncall is a request (`202 pending_approval`, `el_calls`) that
+    a different results-desk member approves (step-up) or rejects (note) within 24 h; the requester cannot approve it.
+  - A call **proposes settlements** through the resolution desk (§28.7): `res_approvals` rows (`kind resolve`, YES for
+    the winner's market, NO for the others; "runoff?" YES or NO), which a second resolver approves there; nothing
+    resolves before that. Once every race of a chamber is called, its control markets are proposed for the party
+    with the most seats (holdovers included). Resolvers are notified. Every step is audited (`elections.call`,
+    `.uncall`, `.call.requested`, `.call.rejected`).
+- **Snapshots** (`el_snapshots`): the compact hub state (per race: state, leader, ‰ reported, winner, ‰ chance,
+  runner-up; per state for national races; chamber-control chances; the Power Index) at the start, every 30 simulated
+  minutes (start option `snapshotEveryMin`), on every advance and on every call / uncall (markers). At most 400 per
+  election; the oldest periodic ones are pruned first. The live page and the replay draw from the same compact state.
+- **Live**: the public WebSocket channel `elections` (filter `hubs: [slug]`) nudges open pages on results (≤ 1/s),
+  calls, price moves of linked markets and admin edits; pages refetch what is on screen (debounced, sequence-guarded).
+
+### 37.3 Hub page (P7B.3) — `/category/elections/<hub>`
+
+An unknown slug falls back to the category tag page. Everything about the country comes from the API.
+
+- **Sidebar:** All markets · Elections · the country's hubs · Presidential · Senate · House of Reps · Governorship ·
+  Off-cycle · international hubs (Harbor) · Referendums (chips at 390 px). **Tabs:** Overview, one per office with
+  races (labels `elections.tab.<office key>`, else the office name), States, My Ballot; "Search states and candidates".
+- **Control gauges:** one per chamber (the leading party's chance of most seats) and per single-race office (the
+  leading candidate); dial from the leader's colour to the runner-up's, % and rating word (Safe ≥ 90, Likely ≥ 75, Lean
+  ≥ 60, Toss-up), "Called" / "Runoff".
+- **Office switch and seat bar:** forecast and current (called + holdover) seats per party, majority mark for
+  chambers, "● LIVE PARLANCE FORECAST", other parties listed under the bar.
+- **Results map:** hexagon tiles drawn in SVG from the grid positions (no imported map assets); solid = called,
+  hatched = projected / leading in the party colour, ✓ or "% reported" labels, grey = no results, dashed = no race;
+  "Small states and territories" listed beside it; legend; watermark. **Tooltip** on hover (mouse), on tap (touch;
+  a tap elsewhere hides it) and on keyboard focus: state badge, "<race> winner?", "% of vote counted", one row per
+  candidate (initials avatar, name, party, share, votes, Yes / No once called), seats per district for chambers,
+  volume. Built with text nodes only.
+- **Ratings swingometer:** Settled · Safe · Likely · Lean · Toss-up · Lean · Likely · Safe · Settled for the two
+  parties leading most items, with bubbles; items led by any other party in "Other parties" (multi-party). Items are
+  states for a national race, races otherwise.
+- **Timeline:** play / scrub (range) / LIVE with call markers; scrubbing draws the snapshot's gauges, seat bar, map
+  and ratings and says "Replaying <time> <label>".
+- **Featured race cards** (admin `featured`): "<race> winner?", "% votes counted · LUP +3.2" (margin underlined, with
+  a tooltip), the two leading candidates with chance and votes, a two-colour vote bar, Trade and Results.
+- **Power Index:** headline ("Leaning <side> +x" / "Tied"), "x last 24H" / "Flat last 24H", the CMS blurb and "Learn
+  more" (rich CMS text `elections.power.learn_more_body`), and the 30-day hourly history chart with the §15.4 hover
+  readout. The formula is admin data (§37.5).
+- **More markets:** every event linked to the hub ("N events"), leader and volume in ₦.
+- **Hub chat:** a floating pill (bottom right) with "<hub> chat" and the online count, opening the §20 chat panel
+  for room `HUB-<SLUG>` (rate limits, slow mode, moderation, reports, Admin › Chat). Rooms that are not events come
+  from a `room` hook in `server/chat.js`; only rooms of existing hubs answer.
+- **My Ballot:** pick state → LGA → ward (the country's `ballot_levels`); the contests whose area contains the ward
+  (presidency, governorship, the Senate district, the federal constituency) with leader and market links. **No address
+  is ever asked for.** Signed in, "Save this area" stores the division id only (`el_ballot_saved`), Forget deletes it.
+- **Races and results:** per office a race list; a race panel with candidates (votes, share, chance, Yes / No),
+  "N of M polling units reported", the **25 % tracker** (per candidate: states with ≥ 25 % out of 24 needed, the FCT
+  check, "Meets the rule") and "a runoff is due" when every unit has reported and nobody meets it; results by state or
+  LGA.
+- NGN amounts, WAT times (the configured zone), 390 px layouts; all copy in the CMS (`public/js/content/
+  elections-strings.js`, `admin.elections-strings.js`, server `server.elections.*`).
+
+### 37.4 Routes, tables, flags, WebSocket
+
+- **Public `/v1`:** `GET /elections/hubs`, `/elections/hubs/:slug`, `/elections/hubs/:slug/view?office=&at=`
+  (gauges, seats, map, ratings; `at` = snapshot id), `/elections/hubs/:slug/timeline`, `/elections/hubs/:slug/races
+  ?office=&division=`, `/elections/hubs/:slug/search?q=`, `/elections/races/:id`, `/elections/power_index/:country`,
+  `/elections/countries/:code/divisions?parent=`, `/elections/ballot/:division`. **Owner:** `GET|PUT|DELETE
+  /users/:uid/election_ballot` (`{division_id}` only).
+- **Admin:** `GET /admin/elections` and `/admin/elections/elections/:id/desk`, `GET /admin/elections/calls`,
+  `GET /admin/elections/:kind`, `GET /admin/elections/power_index/:country` (`catalog.read`); `POST
+  /admin/elections/:kind`, `PUT /admin/elections/:kind/:id` (`catalog.write`; kinds countries, divisions, offices,
+  parties, candidates, elections, races); `PUT /admin/elections/elections/:id/simulator` (`markets.ops`); `PUT
+  /admin/elections/power_index/:country` (`settings.write`); `POST /admin/elections/races/:id/call|uncall`, `POST
+  /admin/elections/calls/:id/approve|reject` (`resolution.write`). All classified in `tests/authz.e2e.test.js`
+  (plus an elections IDOR test). Bodies are strict schemas (unknown fields rejected).
+- **Tables:** `el_countries`, `el_divisions`, `el_offices`, `el_parties`, `el_candidates`, `el_elections`, `el_races`,
+  `el_race_markets`, `el_office_markets`, `el_reporting`, `el_tallies`, `el_calls`, `el_snapshots`, `el_ballot_saved`;
+  settings `elections_power_index:<country>`; `meta` `elections_seed_v1`. Existing tables used: `res_approvals`
+  (proposals), `chat_*` (hub rooms), `admin_audit`.
+- **Flags** (group `elections`): `elections.hub` (routes, page; module), `elections.results_map`, `elections.results`
+  (race routes, cards, votes in tooltips), `elections.timeline` (timeline route, `at=` views), `elections.power_index`,
+  `elections.chat` (chat routes of `HUB-*` rooms; `social.chat` too), `elections.simulator` (server job, **off by
+  default**). Each hides its widget live (`data-flag`) and refuses its API (`403 feature_disabled`); the map's data is
+  left out of the view answer. The map flag is not `elections.map`: a key ending in `.map` made
+  `/v1/admin/flags/<key>` a source-map probe for the perimeter honeypot (§21), so it could never be edited; a test now
+  checks every flag key against the honeypot.
+- **WebSocket:** public channel `elections`, message `{hub, kind: results|call|prices|config, ts}`.
+- **Production switch:** election data is not money: every `el_*` row is kept (the preview counts
+  `kept_election_countries`, `_races`, `_results`, `_snapshots`); the simulator flag is switched off with the batch as
+  reason and running simulators are paused. Play-money positions in election markets are reset like any other.
+
+### 37.5 Power Index
+
+An admin formula per country (Admin › Elections › Power Index, `settings.write`, reason, audited): value = offset + Σ
+weight × price (0–100) over listed markets; labels for the positive and negative side; chart scale. Seeded for Nigeria:
+`−50 + 0.5·P(LUP president) + 0.25·P(LUP most Senate seats) + 0.25·P(LUP most House seats)` ("LUP (ruling party)" vs
+"Opposition"; LUP is the invented ruling party). History and the 24 h change are recomputed hourly from persisted trades
+(so they survive restarts and match the database).
+
+### 37.6 Design choices to confirm
+
+- The hub replaces `/hubs/elections` in navigation; the old page and `GET /hubs/senate_map` stay until confirmed.
+- Calls use the existing resolver role (`resolution.write`); country data `catalog.write`; the simulator `markets.ops`;
+  the Power Index `settings.write`. No new role.
+- Every call's settlement needs a second resolver on the resolution desk (the proposer cannot approve), even for
+  one-person offices; pending calls and proposals lapse after 24 h.
+- A winner call is refused unless the candidate meets the win rule on the results reported so far (a call before 100 %
+  is a projection the desk takes responsibility for); a runoff only at 100 %.
+- The win rule's FCT clause: 25 % in 24 states **and** in the FCT (`territory_required: true`), per the owner's brief;
+  editable per office.
+- Forecast blend (market or prior → count model by √% reported), the "projected" threshold (90 %), rating bands
+  (90 / 75 / 60) and the seeded strengths, counts, turnout and timing are demo values.
+- Legislative seats have party-level contestants and no per-seat markets (chamber-control markets instead); State
+  Houses of Assembly are configured without races.
+- Counting stops at the LGA (wards and polling units are counts, not rows of results); LGA and ward names are
+  placeholders.
+- Snapshots every 30 simulated minutes, at most 400 per election; WebSocket nudges at most one a second per hub.
+- The hub chat room is open while the hub is active; there is no "after the election" read-only switch yet.
+- The map flag is `elections.results_map` (see §37.4).
+
+### 37.7 Residual risks
+
+- The simulator and the WebSocket throttle are per process (RS1); snapshots are full copies of the compact state
+  (≈ 15–40 KB each).
+- Call checks use the reported results at the moment of the call; a later correction of tallies (a real feed) would
+  need an uncall and a new call.
+- The results desk trusts the feed: with a real source (an owner decision: licensed feed or manual entry), entries
+  need their own two-person and audit controls before calls.
+- Admin-entered names are plain text and always escaped; a stored name from an import that bypasses the API is still
+  rendered inert (tested), but other admin views must keep escaping it.
+- Hub chat online counts are per WebSocket connection (approximate, as in §20).
+- Legal and regulatory review of election markets in Nigeria is an owner decision before production (PLAN.md).
+
+### 37.8 Verification
+
+- `tests/elections.e2e.test.js` (13 scenarios, real server + SQLite + Chromium): the country model as data (zone /
+  state / LGA counts, offices, seats and rules, the off-cycle states, multi-party parties and coalitions, engine
+  markets and liquidity, Harbor), validation and audit of admin edits, Admin › Elections overview, data editor and
+  Power Index form in the browser, every flag key editable; every hub widget on desktop and at 390 px without overflow
+  (sidebar, tabs, search, three gauges, seat bar with 109 seats and majority 55, 37 tiles and the side list, ratings,
+  timeline, featured cards, Power Index, More markets, chat pill); the feed advanced from Admin, live over WebSocket
+  without a reload, API totals equal to `el_tallies` and `el_reporting`, counting by LGA, no client write path; the
+  map tooltip on hover and on tap (inside the screen), a hostile stored name rendered as text; a governorship called
+  in the UI with step-up and a reason, audited, its three proposals approved by a second resolver (the caller cannot),
+  uncall refused once settled and allowed (proposals withdrawn) before; the presidency's 25 % tracker equal to a count
+  over the stored tallies, the two-person call approved in the UI by the second person, Yes / No proposals including
+  "runoff?" NO, a stricter rule refusing the winner call, the runoff call and state on the page; the timeline scrub to
+  the start and to a call, LIVE and play; the Power Index value and 24 h change equal to a recomputation from trades,
+  a formula change and CMS edits (blurb, rich Learn more) live; hub chat between two visitors with the online count,
+  Admin › Chat and slow mode; My Ballot at 390 px (state → LGA → ward, the four contests, the house constituency from
+  the stored area, only the division id saved, forget, guests); Harbor through the same code (map, holdovers, feed,
+  call, ballot levels) and a new country created as data; each flag hiding its widget and refusing its API, the hub
+  flag's "not available" page, the simulator flag pausing the feed; restart persistence and the production switch
+  keeping election data and turning the simulator off.
+- `tests/authz.e2e.test.js`: every route classified and the elections IDOR test. `tests/flags.e2e.test.js`: the new
+  flags, rules, module and labels. `tests/chat.e2e.test.js`: event chat unchanged by the room hook.
 
 ---
 

@@ -135,6 +135,30 @@ test('country model as data: Nigerian geography, offices and win rules, multi-pa
   const audit = q1("SELECT * FROM admin_audit WHERE action='elections.parties.update' ORDER BY rowid DESC LIMIT 1");
   assert.equal(audit.reason, 'brand refresh'); assert.match(audit.after_json, /#f08c01/);
   assert.equal((await resolver.call('PUT', '/v1/admin/elections/parties/NG-SRP', { color: '#000000', reason: 'x y z' })).status, 403, 'resolver role cannot edit the country model');
+  // Admin › Elections in the browser: the overview lists the elections and countries; a party edited in the data editor
+  // (colour and coalition, with a reason) is saved and audited; the Power Index form shows the formula.
+  const ap = await newPage();
+  await uiLogIn(ap, ADMIN);
+  await ap.goto(BASE + '/admin/elections');
+  await ap.waitForSelector('[data-testid=adm-el-election][data-id=NG27]');
+  assert.equal(await ap.locator('[data-testid=adm-el-country]').count(), 2);
+  await ap.goto(BASE + '/admin/elections/data?kind=parties&country=NG');
+  await ap.waitForSelector('[data-testid=adm-el-row][data-id=NG-HWA]');
+  await ap.click('[data-testid=adm-el-row][data-id=NG-HWA] [data-testid=adm-el-edit]');
+  await ap.fill('[data-testid=adm-el-form] input[name=coalition]', 'Wave & Torch "Pact"');
+  await ap.fill('[data-testid=adm-el-form] input[name=color]', '#1971c2');
+  await ap.fill('[data-testid=adm-el-form] [name=reason]', 'coalition agreed');
+  await ap.click('[data-testid=adm-el-form] button[type=submit]');
+  await eventually(() => q1("SELECT color, coalition FROM el_parties WHERE id='NG-HWA'").color === '#1971c2');
+  assert.equal(q1("SELECT coalition FROM el_parties WHERE id='NG-HWA'").coalition, 'Wave & Torch "Pact"');
+  assert.ok(q1("SELECT 1 x FROM admin_audit WHERE action='elections.parties.update' AND target_id='NG-HWA' AND reason='coalition agreed'"));
+  await ap.waitForSelector('[data-testid=adm-el-row][data-id=NG-HWA]');
+  assert.match(await ap.textContent('[data-testid=adm-el-row][data-id=NG-HWA]'), /Wave & Torch "Pact"/);
+  await ap.goto(BASE + '/admin/elections/power?country=NG');
+  await ap.waitForSelector('[data-testid=adm-el-pi-form]');
+  assert.match(await ap.inputValue('[data-testid=adm-el-pi-form] [name=terms]'), /PLXNG27-PRES-LUP 0\.5/);
+  assert.deepEqual(ap.errors, []);
+  await ap.context().close();
   // Every flag can be edited at /v1/admin/flags/<key>: no key may look like a file the perimeter honeypot refuses (a key
   // ending in ".map" did: the map flag is elections.results_map).
   const { REGISTRY } = require('../server/flags');

@@ -256,6 +256,60 @@ email; the account data export includes waitlist entries, and closing an account
 Flags (Admin › Feature flags, group "Waitlists and newsletter"): `waitlist.launch`, `waitlist.launch.public_count`
 (off on a new database), `waitlist.launch.survey`, `newsletter`. Leaving a list works with every flag off.
 
+## Elections hub (Phase 7B)
+
+Owner and admin guide for `../CLONE_SPEC.md` §37. The hub for Nigeria's 2027 general election is
+`/category/elections/nigeria-2027` (MORE › Elections hub); the off-cycle governorships are `/category/elections/
+nigeria-offcycle` and the demo second country `/category/elections/harbor-2026`. Parties, candidates and results in
+the demo data are invented.
+
+**Admin › Elections** (read: `catalog.read`; edit data: `catalog.write`; simulator: `markets.ops`; Power Index:
+`settings.write`; results desk: `resolution.write`). Every change asks for a reason and is audited.
+
+- **Overview:** each election with its race count, calls, simulator state and snapshots; the countries and their
+  division counts. **Simulator** (demo and test only; needs the `elections.simulator` flag, which `npm start` turns on
+  outside production and the production switch turns off): Start, Pause, Advance (N simulated minutes), Speed
+  (simulated minutes per real minute) and Reset (only while no race is called).
+- **Results desk:** pick the election (and optionally an office). Each race shows % reported, the leader and whether
+  the leader meets the win rule.
+  - **Call** picks the winner (refused unless that candidate meets the rule on the results so far); **Runoff** (offices
+    with a runoff rule, once every polling unit has reported and nobody meets it); **Uncall**. You give a reason and
+    confirm with your password.
+  - The **presidency needs two people**: your call shows under "Waiting for a second person"; a different results-desk
+    member approves or rejects it there.
+  - A call never settles anything by itself: it **proposes** settlements on Admin › Resolution desk (YES for the
+    winner's market, NO for the others, and the runoff market). A second resolver approves them there. Once a market
+    has been resolved from a call, reverse it on the resolution desk before uncalling.
+  - When every seat of a chamber is called, its "which party wins the most seats?" markets are proposed too.
+- **Country data:** Countries, Divisions, Offices, Parties, Candidates, Elections and Races, each with a filter, Edit
+  and New.
+  - Party logos and candidate photos: upload the image in Content › Media, then paste its id. Without a photo the
+    page shows initials in the party colour.
+  - Office win rules are JSON, e.g. `{"type":"spread","share":0.25,"fraction":[2,3],"unit":"state",
+    "territory_required":true,"on_fail":"runoff"}` or `{"type":"plurality"}`.
+  - Tick **Featured** on a race to show its card on the hub.
+- **Power Index:** the formula per country: one market per line (`TICKER weight`), offset, labels for each side and the
+  chart scale. The "Learn more" text and the blurb are CMS texts (`elections.power.learn_more_body`,
+  `elections.power.blurb`).
+
+**Adding a country** is data, not code:
+1. Countries › New: code (two letters), name, currency, time zone, locale. The configuration names the division
+   levels, the map level, the counting level and the My Ballot levels, e.g. `{"levels":[{"key":"state"},
+   {"key":"district"}],"map_level":"state","count_level":"district","ballot_levels":["state","district"],
+   "map_cols":6,"map_rows":5}`.
+2. Divisions › New for each level: states with `{"row":…,"col":…}` for their tile and `"small":true` to list them
+   beside the map, then lower levels with their parent and `{"pu_count":…}` (polling units); a division of level
+   `country` if a race covers the whole country.
+3. Offices (seats, chamber, two-person, win rule), Parties (colour, logo), Elections (hub slug, date, optional
+   `{"holdovers":{"<office id>":{"<party id>":n}}}` for seats not up), then Races (office, division, area,
+   `markets` linking existing market tickers) and Candidates.
+4. Tab labels for an office key come from Content › Texts (`elections.tab.<key>`); otherwise the office name is shown.
+
+All hub copy (rating words, labels, tooltips, Learn more) is in Content › Texts under `elections.`; server wording
+under `server.elections.`. Flags (group "Elections hub"): `elections.hub`, `elections.results_map`,
+`elections.results`, `elections.timeline`, `elections.power_index`, `elections.chat`, `elections.simulator`.
+Start options: `start({ elections: { seed, speed, snapshotEveryMin, retainSnapshots } })`.
+
 ## Public trading API (Phase 7)
 
 Developer and admin guide for `../CLONE_SPEC.md` §35 (parity checklist: `../API_PARITY.md`).

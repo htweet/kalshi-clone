@@ -346,6 +346,25 @@ personal data, a bulk mailer, and the Perps waitlist flag switched on by a migra
 | S / T | **Unverified account confirming someone else's inbox, or taking over their guest entry** (sign up with a victim's address, one-click join) | One click only for a verified account email; otherwise the join is the guest double opt-in (link to the inbox, `pending`, not counted, no newsletter, the same non-enumerating reply); a guest entry links to an account only after that account verifies the email; a link records the account that requested it | ✅ (`waitlists` unverified-join test; found in review) / residual: an inbox owner who confirms a link an impostor requested links the entry to that account (§36.9) |
 | T | **Silent re-opening of Perps** | The waitlist flag migration runs once per database (meta marker), audited with the owner's reason; an admin "off" is never overridden | ✅ (`waitlists`) |
 
+### 20. Elections hub v2 (Phase 7B, `CLONE_SPEC.md` §37)
+
+New attack surface: admin-entered names and colours rendered on a public page and inside SVG, a results desk whose
+calls propose market settlements, a simulated results feed, snapshots replayed to visitors, a public hub chat room,
+a My Ballot picker, and new public read routes.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| T | **Forged results** (a client writing votes or reporting) | No write route exists for results, tallies or snapshots; the simulator runs server-side only, behind `elections.simulator` (off by default, switched off by the production switch) and `markets.ops` + reason + audit for its controls | ✅ (`elections`, `authz`) |
+| E / T | **A wrong or unilateral race call moving money** | Calls and uncalls need `resolution.write`, a reason and step-up; a winner must meet the configured win rule on the reported results; the presidency (any office marked two-person) needs a second, different person; a call only **proposes** settlements on the resolution desk, where a second resolver approves (the proposer cannot); uncall refused once a market was resolved from the call; everything hash-chain audited | ✅ (`elections`) |
+| S | **Self-approval** of a two-person call or of its settlement | Approval refused for the requester (`same_person`, `same_admin`); pending requests expire after 24 h | ✅ (`elections`) |
+| T | **Stored XSS through party / candidate / division names or colours** (SVG map, tooltip, cards, admin tables) | Names are plain text (markup and control characters refused at the API), escaped with `esc()` in every template, the tooltip built with text nodes; colours must be `#rrggbb` and reach CSS only as custom properties (no inline styles under the CSP); a hostile name stored by bypassing the API renders inert (tested) | ✅ (`elections`) |
+| T | **Malicious media** (party logos, candidate photos) | Only ids of images in the CMS media library, which re-encodes uploads and refuses SVG and polyglots (§32.6) | ✅ |
+| I | **Location privacy** (My Ballot) | No address is ever asked for: visitors pick divisions; a signed-in user may store a division id only (strict schema refuses any other field); owner-only routes with IDOR probes | ✅ (`elections`, `authz`) |
+| D | **Hub chat abuse** | The §20 chat stack unchanged: per-user and per-IP limits, slow mode, mutes, bans, reports, moderation in Admin › Chat; only rooms of existing hubs; `elections.chat` + `social.chat` flags | ✅ (`elections`, `chat`) |
+| D | **Expensive public reads** (hub views over ~500 races and 7,000 tallies) | One cached model per election (400 ms), bounded queries, search capped (60 characters, 20 results), snapshot reads by id, global rate tiers | ✅ / residual: per-process cache (RS1) |
+| R | **Unaccountable data changes** | Every country-model edit, simulator action, call, approval, rejection and Power Index change is audited with a reason (before / after) | ✅ (`elections`) |
+| T | **A flag that cannot be turned off** (a key ending in `.map` was swallowed by the perimeter honeypot) | The map flag is `elections.results_map`; a test checks every registered flag key against the honeypot patterns | ✅ (`elections`) |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
