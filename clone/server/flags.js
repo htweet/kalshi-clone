@@ -183,7 +183,7 @@ const MODULE_FLAGS = {
   mountFeatures: 'core', mountRolling: 'trading.rolling', mountPerps: 'perps', mountPerpsOps: 'perps', mountCombos: 'combos', mountHistory: 'core', mountOrders: 'core', mountPositions: 'core',
   mountTradingCore: 'trading', mountSports: 'sports', mountAdmin: 'core', mountChat: 'social.chat', mountCommunity: 'social', mountWebPush: 'pwa.push', mountIdentity: 'identity.kyc',
   mountAccountArea: 'core', mountPayments: 'payments.deposits', mountMarketsContent: 'incentives', mountCms: 'core', mountFlags: 'core', mountPlayMode: 'play.free_deposits', mountCentralBank: 'central_bank',
-  mountApiKeys: 'api.keys', mountTradeApi: 'core', mountDeveloperPortal: 'developer_portal', // Phase 7 (CLONE_SPEC.md §35); /trade-api/v2 public data is core
+  mountApiKeys: 'api.keys', mountTradeApi: 'core', mountDeveloperPortal: 'developer_portal', mountFixAdmin: 'api.fix', // Phase 7 (CLONE_SPEC.md §35); /trade-api/v2 public data is core
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
 const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',

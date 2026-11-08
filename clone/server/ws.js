@@ -11,13 +11,17 @@ const { ccToDollars } = require('./pricing');
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives', 'display_currency', 'content', 'feature_flags', 'central_bank']);
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments', 'incentive_rewards']);
 
-function attachWs(server, { engine, auth, security }) {
+function attachWs(server, { engine, auth, security, upgrade = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 }); // inbound frame cap (clients only send small commands)
   const clients = new Set();
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://x');
-    if (url.pathname !== '/v1/ws') { socket.destroy(); return; }
+    if (url.pathname !== '/v1/ws') {
+      // Other WebSocket endpoints (the public /trade-api/ws/v2 API and the demo proxy, CLONE_SPEC.md §35) claim their paths.
+      if (upgrade && upgrade(req, socket, head, url)) return;
+      socket.destroy(); return;
+    }
     // Perimeter (server/security.js, S2 AwsWafTokenForWebSocket): allowed Origin and a valid signed client token (`ct`).
     const gate = security ? security.checkUpgrade(req) : { ok: true };
     if (!gate.ok) { socket.end(`HTTP/1.1 ${gate.status} Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); return; }

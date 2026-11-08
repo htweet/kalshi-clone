@@ -356,6 +356,8 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
       }
       // Phase 6 (CLONE_SPEC.md §34): subaccounts, APY accruals, referrals, order groups; every perps journal account closed.
       if (engine.perpsOps) Object.assign(counts, engine.perpsOps.resetForProduction(batch));
+      // Phase 7 (CLONE_SPEC.md §35.11): API keys survive; prediction order groups close (their orders were canceled above).
+      if (engine.apiOps) Object.assign(counts, engine.apiOps.resetForProduction(batch));
       counts.grants = db.prepare("UPDATE credit_grants SET status='reset' WHERE status='active'").run().changes;
       if (hasTable(db, 'withdrawal_holds')) counts.holds = db.prepare("UPDATE withdrawal_holds SET status='reset' WHERE status='held'").run().changes;
       counts.heists = db.prepare("SELECT COUNT(*) c FROM cb_heists WHERE status='active'").get().c;
@@ -380,6 +382,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     }
     changed(['play_mode', 'heist']);
     engine.emit('central_bank', { type: 'settings' });
+    try { engine.apiOps?.afterReset(); } catch (e) { console.error('reset api', e.message); } // FIX sessions are logged out
     return { batch_id: batch, backup_file: path.basename(file), counts, totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k.replace(/_cents$/, '_dollars').replace(/_cc$/, '_cc'), k.endsWith('_cc') ? v : dollars(v)])) };
   }
 

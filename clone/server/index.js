@@ -14,6 +14,8 @@ const { seed } = require('./seed');
 const { Engine } = require('./engine');
 const { createApp } = require('./app');
 const { attachWs } = require('./ws');
+const { attachTradeWs } = require('./trade-ws'); // Phase 7: public WebSocket API (CLONE_SPEC.md §35)
+const { createFixGateway } = require('./fix'); // Phase 7: FIX 4.4 gateway, off by default (CLONE_SPEC.md §35.8)
 
 const DEFAULT_PORT = 3000;
 const FALLBACK_ATTEMPTS = 20;
@@ -53,7 +55,7 @@ function listen(server, port, fallback) {
 // Phase 5D (CLONE_SPEC §33): `flags: { overrides: { key: bool } }` (technical overrides, like FEATURE_FLAGS), `playMode`,
 // `centralBank: { rng, now }` (deterministic heist codes / clock for tests; ignored when NODE_ENV=production).
 async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports,
-  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
+  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -68,19 +70,23 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const keyDir = dbFile === ':memory:' ? undefined : path.dirname(path.resolve(dbFile)); // secret.key lives next to the database
   let app; let boot;
   try {
-    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
+    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
     const envAdmin = process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD ? { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD } : null;
     boot = app.locals.auth.bootstrap({ admin: admin || envAdmin, demoPassword });
   } catch (e) { try { app?.locals.cms?.close(); app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
   const server = http.createServer(app);
-  const hub = attachWs(server, { db, engine, auth: app.locals.auth, security: app.locals.security });
+  const tradeWs = attachTradeWs({ db, engine, apiKeys: app.locals.apiKeys, flags: app.locals.flags, tradeApi: app.locals.tradeApi, registry: app.locals.apiRegistry, env: app.locals.env || 'main' });
+  app.locals.tradeWs = tradeWs;
+  const fixGw = createFixGateway({ db, engine, apiKeys: app.locals.apiKeys, tradeApi: app.locals.tradeApi, flags: app.locals.flags, security: app.locals.security, env, options: fix || {} });
+  app.locals.fix = fixGw;
+  const hub = attachWs(server, { db, engine, auth: app.locals.auth, security: app.locals.security, upgrade: (req, socket, head, url) => tradeWs.handleUpgrade(req, socket, head, url.pathname) });
   app.locals.wsHub = hub; // admin health page (server/admin.js)
   const ticker = setInterval(() => { try { engine.tick(); } catch (e) { console.error('tick', e); } }, tickMs);
   let bound;
   try {
     bound = await listen(server, port, !explicit);
   } catch (e) {
-    clearInterval(ticker); hub.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); db.close();
+    clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); db.close();
     throw e;
   }
   // Sandbox payment providers deliver their webhooks to this server over loopback HTTP (server/payment-providers.js).
@@ -90,8 +96,8 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const setupUrl = boot.setupPath ? `http://localhost:${bound}${boot.setupPath}` : null;
   if (setupUrl && !quiet) console.log(`No admin account can sign in yet. Create the first admin within 60 minutes (single use):\n  ${setupUrl}\nor set ADMIN_EMAIL and ADMIN_PASSWORD, or run: npm run create-admin`);
   return {
-    port: bound, db, engine, server, setupUrl, setupPath: boot.setupPath,
-    close: () => new Promise((r) => { clearInterval(ticker); hub.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { db.close(); r(); }); server.closeAllConnections?.(); }),
+    port: bound, db, engine, server, app, fix: fixGw, setupUrl, setupPath: boot.setupPath,
+    close: () => new Promise((r) => { clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { db.close(); r(); }); server.closeAllConnections?.(); }),
   };
 }
 

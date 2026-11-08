@@ -36,6 +36,7 @@ const { createAuth } = require('./auth');
 const { createSecurity } = require('./security');
 const { createApiKeys, mountApiKeys } = require('./api-keys'); // Phase 7: API keys and signed requests (CLONE_SPEC.md §35)
 const { mountTradeApi, ParamError, intParam, STATUS_FILTER } = require('./trade-api'); // Phase 7: public Trade API v2 (§35)
+const { mountFixAdmin } = require('./fix'); // Phase 7: Admin › API keys › FIX sessions
 const { createRegistry } = require('./api-registry'); // Phase 7: one route registry → routes, OpenAPI, AsyncAPI, contract tests
 
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
@@ -105,6 +106,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // below charges the key's own rate tier instead of the per-IP budget. The gate exists once server/trade-api.js is mounted.
   const apiKeys = createApiKeys({ db, env, options: apiOptions, security, flags });
   app.locals.apiKeys = apiKeys;
+  app.locals.env = env;
   let tradeApi = null;
   app.use('/trade-api', (req, res, next) => (tradeApi ? tradeApi.authGate(req, res, next) : next()));
   app.use(['/v1', '/trade-api'], security.apiGuard); // tiered rate limits; signed client token on /v1 writes (server/bot.js)
@@ -168,6 +170,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   if (sportsOpts) sportsApi = mountSports({ v1, db, engine, eventFull, getEvent, options: sportsOpts });
   // Phase 7 (CLONE_SPEC.md §35): Account › API keys, Admin › API keys (tiers, revoke, usage), key notifications.
   mountApiKeys({ v1, db, engine, auth, admin, flags, feat, cms: app.locals.cms, apiKeys, security });
+  mountFixAdmin({ v1, admin, getGateway: () => app.locals.fix }); // the gateway itself starts in server/index.js
   community.attachChat(mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify })); // event live chat (CLONE_SPEC.md §20) + reactions / edits (§24)
 
   // Trade API v2 (CLONE_SPEC.md §35): market data, portfolio, orders (batch, amend, decrease), order groups, history,
