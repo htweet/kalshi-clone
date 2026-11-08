@@ -50,6 +50,7 @@ const fmtWhen = (d, t) => (d.T1 - d.T0 <= 36 * 3600000 ? fmtDt(t, { hour: 'numer
 
 let active = null; // { svg, host, ov, x }
 let lastPointer = null; // { x, y } in client px while a pointer is over a chart
+let lastDown = null; // { svg, t } of the last pointerdown (a click or tap also focuses the chart)
 // A live redraw replaces the chart's svg (and the overlay) under a still pointer: show the readout again on the new one.
 const watched = new WeakSet();
 function watchHost(host) {
@@ -126,7 +127,7 @@ function showAt(svg, xv, { announce = false } = {}) {
   leg.style.setProperty('top', `${Math.max(top, Math.min(want, bottom - lh))}px`);
   leg.classList.toggle('left', !right);
   if (announce) ov.querySelector('[aria-live]').textContent = tx('components.chart_hover.announce', { time: when, values: rows.map((r) => `${r.s.n} ${r.p[3]}`).join(', ') });
-  active = { svg, host, ov, x };
+  active = { svg, host, ov, x, kbd: !!announce };
 }
 const svgOf = (target) => (target && target.closest ? target.closest('svg[data-hover]') : null);
 const viewX = (svg, clientX, clientY) => { const m = svg.getScreenCTM(); return m ? new DOMPoint(clientX, clientY).matrixTransform(m.inverse()).x : 0; };
@@ -141,6 +142,7 @@ export function installChartHover() {
   }, { passive: true });
   document.addEventListener('pointerdown', (e) => {
     const svg = svgOf(e.target);
+    lastDown = { svg, t: Date.now() };
     if (svg) { showAt(svg, viewX(svg, e.clientX, e.clientY)); lastPointer = { x: e.clientX, y: e.clientY }; } else hide();
   }, { passive: true });
   // Leaving the chart (mouse out of the svg, or out of the window) hides it.
@@ -170,6 +172,13 @@ export function installChartHover() {
     e.preventDefault();
     showAt(svg, next, { announce: true });
   });
-  document.addEventListener('focusin', (e) => { const svg = svgOf(e.target); if (svg && e.target === svg) showAt(svg, dataOf(svg)?.X1 ?? 0, { announce: true }); });
-  document.addEventListener('focusout', (e) => { if (active && e.target === active.svg) hide(); });
+  // Keyboard focus shows the latest values; focus that comes from a click or tap keeps the pointer's moment.
+  document.addEventListener('focusin', (e) => {
+    const svg = svgOf(e.target);
+    if (!svg || e.target !== svg) return;
+    if (lastDown && lastDown.svg === svg && Date.now() - lastDown.t < 1000) return;
+    showAt(svg, dataOf(svg)?.X1 ?? 0, { announce: true });
+  });
+  // Losing focus closes a readout the keyboard opened (a pointer-driven one follows the pointer instead).
+  document.addEventListener('focusout', (e) => { if (active && active.kbd && e.target === active.svg) hide(); });
 }
