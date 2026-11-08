@@ -220,7 +220,9 @@ switch (Admin › Play mode). Nothing switches automatically.
 launch"). Tag links so Admin › Waitlists shows where people came from: `/waitlist?utm_source=whatsapp&utm_campaign=launch`
 or a referral code `/waitlist?ref=ADA2026`. The site itself shows "Join the real-money waitlist" in the play-money
 banner, on Funds and at the top of Home (play mode only). Signed-in users whose account email is verified join with one click; guests (and accounts with an unverified email) enter or get their email
-and confirm it from a link (valid 48 hours, single use). Everyone sees the consent wording before joining; edit it in
+and confirm it from a link (single use, valid 48 hours by default: Admin › Owner settings).
+Verifying the account email later confirms a pending entry that account asked for (switch
+`waitlist.launch.auto_confirm_verified`). Everyone sees the consent wording before joining; edit it in
 Admin › Content › Texts › `server.waitlists.consent.text` (a new wording gets a new version in every consent record).
 The page pitch is `waitlist.page.pitch`; all other wording and every email is in Content › Texts and Templates
 (Waitlist email).
@@ -238,11 +240,12 @@ The page pitch is `waitlist.page.pitch`; all other wording and every email is in
 - **Send the newsletter:** edit the template in Content › Templates › Waitlist email › "Waitlist newsletter" (variables
   `{{name}}`, `{{count}}`, `{{target}}`, `{{link}}`, `{{unsubscribe_link}}`) and publish it; on Admin › Waitlists press
   **Preview**, then **Send me a test**; then **Send or schedule** (leave the time empty to send now), with a reason and
-  your password. Only confirmed members get it, at most 120 a minute (`NEWSLETTER_PER_MINUTE`); unconfirmed and
+  your password. Only confirmed members get it, at most 120 a minute by default (Admin › Owner settings; the
+  environment variable `NEWSLETTER_PER_MINUTE` is the upper bound); unconfirmed and
   unsubscribed members are skipped and counted, a scheduled send waits for its time and both survive a restart.
   **Cancel** stops a queued send. Every email has a one-click unsubscribe link and header.
-- **Export:** "Download consent CSV" (password check, audited): email, status and the consent record per member, for
-  data-protection requests; no survey answers.
+- **Export:** "Download consent CSV" (password check, audited): email (an owner setting, on by default), status and the
+  consent record per member, for data-protection requests; no survey answers.
 - **Perps access** tab: the Perps waitlist counts; approve, revoke and invite stay in Admin › Perps ops.
 
 **Going live.** In Admin › Play mode request the switch to production (typed RESET, a second admin approves). The
@@ -254,7 +257,9 @@ members; it is never sent unless an admin sends it.
 email; the account data export includes waitlist entries, and closing an account deletes them.
 
 Flags (Admin › Feature flags, group "Waitlists and newsletter"): `waitlist.launch`, `waitlist.launch.public_count`
-(off on a new database), `waitlist.launch.survey`, `newsletter`. Leaving a list works with every flag off.
+(off on a new database), `waitlist.launch.survey`, `newsletter`, `waitlist.launch.cta_play` (on),
+`waitlist.launch.cta_production` (off), `waitlist.launch.auto_confirm_verified` (on). Leaving a list works with every
+flag off.
 
 ## Elections hub (Phase 7B)
 
@@ -278,13 +283,17 @@ the demo data are invented.
   - The **presidency needs two people**: your call shows under "Waiting for a second person"; a different results-desk
     member approves or rejects it there.
   - A call never settles anything by itself: it **proposes** settlements on Admin › Resolution desk (YES for the
-    winner's market, NO for the others, and the runoff market). A second resolver approves them there. Once a market
+    winner's market, NO for the others, and the runoff market). A second resolver approves them there (switch
+    `elections.second_resolver`, on; off settles at once). Pending calls and proposals lapse after 24 hours (owner
+    setting). Once a market
     has been resolved from a call, reverse it on the resolution desk before uncalling.
   - When every seat of a chamber is called, its "which party wins the most seats?" markets are proposed too.
 - **Country data:** Countries, Divisions, Offices, Parties, Candidates, Elections and Races, each with a filter, Edit
   and New.
   - Party logos and candidate photos: upload the image in Content › Media, then paste its id. Without a photo the
     page shows initials in the party colour.
+  - The **Win rule** column shows each rule in words, including the presidency's FCT clause; Edit has a checkbox for
+    it with its explanation.
   - Office win rules are JSON, e.g. `{"type":"spread","share":0.25,"fraction":[2,3],"unit":"state",
     "territory_required":true,"on_fail":"runoff"}` or `{"type":"plurality"}`.
   - Tick **Featured** on a race to show its card on the hub.
@@ -309,6 +318,67 @@ All hub copy (rating words, labels, tooltips, Learn more) is in Content › Text
 under `server.elections.`. Flags (group "Elections hub"): `elections.hub`, `elections.results_map`,
 `elections.results`, `elections.timeline`, `elections.power_index`, `elections.chat`, `elections.simulator`.
 Start options: `start({ elections: { seed, speed, snapshotEveryMin, retainSnapshots } })`.
+
+## Owner settings and switches (ground rule 6)
+
+Every owner choice is a switch you can change in the admin, with the recommended standard as its default
+(`../CLONE_SPEC.md` §38.1). **Admin › Owner settings** lists each value with its explanation (edit the wording in
+Content › Texts › `server.switches.…`), the recommended default, whether you changed it, and its history; press Edit,
+enter the value and a reason (your password too for the ones marked "needs your password"). The effect is immediate,
+everything is audited, and the switch catalogue at the bottom lists every feature flag with its explanation.
+
+| Where | Setting or switch | Recommended default |
+|---|---|---|
+| Owner settings › Waitlists | Confirmation-link lifetime (`waitlists.confirm_link_hours`) | 48 hours |
+| Owner settings › Waitlists | Delete unconfirmed entries after (`waitlists.unconfirmed_delete_days`) | 7 days after the last link expired |
+| Owner settings › Waitlists | Newsletter rate (`waitlists.newsletter_per_minute`) | 120 a minute (never above `NEWSLETTER_PER_MINUTE`) |
+| Owner settings › Waitlists | Email in the consent CSV (`waitlists.export_includes_email`, password) | on |
+| Feature flags › Waitlists | Call to action in play mode (`waitlist.launch.cta_play`) | on |
+| Feature flags › Waitlists | Call to action outside play mode (`waitlist.launch.cta_production`) | off |
+| Feature flags › Waitlists | Confirm a pending entry when the account email is verified (`waitlist.launch.auto_confirm_verified`) | on |
+| Feature flags › Elections | Second resolver for race settlements (`elections.second_resolver`) | on |
+| Owner settings › Elections | Pending call / proposal expiry (`elections.pending_expiry_hours`) | 24 hours |
+| Owner settings › Elections | Projected threshold (`elections.projected_pct`) | 90 % |
+| Owner settings › Elections | Rating bands Safe / Likely / Lean (`elections.rating_*_pct`) | 90 / 75 / 60 % |
+| Admin › Elections › Data › Offices › Edit | FCT clause of the presidential rule ("territory required") | on |
+| Admin › Growth › Referrals | Referral offer (referrer / friend / after trading / caps; password) | ₦1,000 / ₦500 / ₦10,000 / 20 rewards or ₦20,000 |
+| Owner settings › Growth | Network sign-ups a day before review (`referrals.review_ip_signups_per_day`, password) | 5 |
+| Owner settings › Growth | Share-link opens counted per address a minute (`share.clicks_per_ip_per_minute`) | 60 |
+| Feature flags › Growth | Referrals, share links, copy trade (`referrals.predictions`, `share_links`, `copy_trade`) | on |
+| Owner settings › Reach | Coverage a language needs (`i18n.min_coverage_pct`) | 95 % |
+| Owner settings › Reach | Public page cache (`ssr.cache_seconds`, 0 = off) | 60 seconds |
+| Owner settings › Reach | Data saver for visitors who have not chosen (`data_saver.default_on`) | off |
+| Owner settings › Reach | SMS notices per member a day (`sms.per_user_per_day`, password) | 10 |
+| Feature flags › Reach | Server-rendered pages, crawler access, languages, data saver (`ssr`, `ssr.crawlers`, `i18n`, `data_saver`) | on |
+| Feature flags › Reach | SMS notifications (`sms`, simulated adapter) | off |
+| Content › Languages | Each language (Pidgin, Hausa, Yoruba, Igbo) | off until translated, reviewed and covered |
+
+## Growth and reach (Phase 8)
+
+Owner and admin guide for `../CLONE_SPEC.md` §38.
+
+- **Referrals** (Rewards › Refer a friend): members share their code or link (`/?ref=CODE`); the friend signs up, trades
+  ₦10,000 (trades with the referrer do not count) and both are paid — play money in play mode, otherwise credit from the
+  Central Bank (fund it in Admin › Central Bank). Suspicious referrals (same device, same card or bank account, many
+  sign-ups from one network, a high risk score) wait in **Admin › Growth › Review**: Approve (password) or Reject.
+- **Share links**: the share button on every event, position and trade makes a signed link (WhatsApp first, then X,
+  Facebook, Telegram, copy). Members see opens and sign-ups per link on Rewards and can revoke them; support can
+  revoke any link in Admin › Growth. "Copy this trade" only fills in the ticket; the visitor still places the order.
+- **Search and social**: public pages are rendered on the server with titles, descriptions and share cards; search
+  engines find `/sitemap.xml`. Set `PUBLIC_ORIGIN` in production so canonical links use your domain.
+- **Languages** (Admin › Content › Languages): Pidgin, Hausa, Yoruba and Igbo are listed but off. Export a language for
+  your translators, import their file (a dry run shows the changes first), review the strings (each imported or sample
+  string is marked "needs review"), mark the language reviewed, then switch it on (coverage must reach the owner
+  setting). Visitors pick a language in the footer; members in Settings.
+- **Data saver** (Settings › Data and messages, or the footer): lighter pages and fewer live updates; the admin default
+  is an owner setting. Pages switch to polling by themselves when the connection keeps dropping.
+- **SMS**: off. With the `sms` switch on, members with a verified phone can opt in (Settings) to money, security and
+  fill notices by SMS through the simulated adapter (Admin › Growth shows the SMS outbox); a real provider is an owner
+  decision.
+- **Help centre and footer**: Content › Pages (FAQ, Contact with the support hours, Accessibility statement, Trust,
+  Research) and Content › Footer (columns and social links).
+- **Accessibility and performance** are checked by the test suite (`tests/a11y.e2e.test.js`, `tests/perf.e2e.test.js`)
+  and the budget script (`npm run perf:budget`, run in CI after the build).
 
 ## Public trading API (Phase 7)
 
@@ -393,7 +463,7 @@ Developer and admin guide for `../CLONE_SPEC.md` §35 (parity checklist: `../API
   - **Demo funds** (outside production): instant simulated deposits and withdrawals, as before (also the Portfolio "Demo funds" box).
   - Promotional credits (promo codes) can be traded but not withdrawn, and expire after 30 days. Admin › Payments has transactions, reconciliation, AML cases, the double-entry ledger audit, provider settings (limits, fees, sandbox timings) and the webhook log.
 
-- Hubs (`../CLONE_SPEC.md` §29): **Harbor 2026 hub** (`/hubs/elections`, MORE menu and the home rail) with a Senate map of invented states driven by the race markets, the expected-seat history and the governor race's forecast history; **Rates outlook** (`/hubs/economics`) with the implied path from the central-bank decision markets. All states, places, rates and news are invented.
+- Hubs (`../CLONE_SPEC.md` §29): **Rates outlook** (`/hubs/economics`) with the implied path from the central-bank decision markets. The Phase 5B elections page `/hubs/elections` was removed (owner decision 2026-11-08): it redirects to the Nigeria elections hub (§37). All states, places, rates and news are invented.
 - **What's on your ballot?** (`/ballot` and the elections hub): type an address or a 5-digit code from the invented ranges (for example `90142` or "Harbor City") to see the contests that have markets. Your address is used once and never stored or logged; signed-in users can save the matched area (only the area id is kept) and forget it again.
 - **AI summaries**: event pages with news items (Admin › Content › News items) show a short summary with numbered citations to the news and a timeline. By default an offline, deterministic extractive summarizer writes it; nothing leaves the server. To use an external model instead, set **both** `ANTHROPIC_API_KEY` and `AI_SUMMARY_MODEL` (the model id you want) before `npm start`; without both, the external adapter is off. Daily request and token budgets, the moderation blocklist, and hide / regenerate (with a reason, audited) are in Admin › AI summaries; when the budget is used up or a reply fails validation, the extractive summary is shown instead.
 - **Liquidity rewards** (`/incentives`, ☰ → Liquidity Rewards): programs per event with start, end, competition and reward pool (Active / Upcoming, search, sort by reward). Accept the terms to take part; resting orders near the best price earn a share of the pool (formula in `../CLONE_SPEC.md` §29.7), shown as this month's and lifetime rewards. Payouts arrive as cash or credits (simulated funds). Admin › Liquidity incentives creates programs, runs snapshots, pays out and sets blocked regions.

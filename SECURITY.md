@@ -365,6 +365,29 @@ a My Ballot picker, and new public read routes.
 | R | **Unaccountable data changes** | Every country-model edit, simulator action, call, approval, rejection and Power Index change is audited with a reason (before / after) | ✅ (`elections`) |
 | T | **A flag that cannot be turned off** (a key ending in `.map` was swallowed by the perimeter honeypot) | The map flag is `elections.results_map`; a test checks every registered flag key against the honeypot patterns | ✅ (`elections`) |
 
+### 21. Growth and reach (Phase 8, `CLONE_SPEC.md` §38)
+
+New attack surface: owner settings that change money and data behaviour, a second referral program paying money,
+public share links with a redirecting landing and attribution cookies, server-rendered public pages with an in-memory
+cache, share-card images, sitemaps, a crawler exemption from the browser check, per-language translations and their
+import, an SMS channel, and new member and admin routes.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| E / R | **Silent or unauthorised change of an owner setting** (a lower confirmation lifetime, the CSV email, the SMS cap) | `settings.write`; typed and range-checked values (cross-field order for rating bands); a reason on every change; step-up for money / security / personal-data settings; hash-chained audit with before / after; history in the dialog; an environment upper bound where an operator must cap a value (`NEWSLETTER_PER_MINUTE`) | ✅ (`owner-switches`, `authz`) |
+| S / T | **Referral fraud** (self-referral through a second account, trading with oneself to qualify, farming) | Volume never counts fills against the referrer; system accounts never qualify; one referrer per friend, before the first trade, within 30 days; lifetime caps; signals for the same device, the same payment instrument, many network sign-ups a day (owner setting), high risk score hold the referral in a review queue; approval needs step-up; rewards are non-withdrawable credit from the treasury (or play money) | ✅ (`growth`) / residual: heuristics (§38.11) |
+| T / I | **Share-link enumeration or tampering** | 128-bit random ids with an HMAC-SHA256 signature checked before any lookup; tokens of other members' positions only expose what the sharer ticked; revocation by the sharer and by support; another member's link id answers 404 | ✅ (`growth`, `authz`) |
+| T | **Open redirect through `/s/<token>`** | The redirect target is built from stored tickers on the server, never from the request; unknown, revoked, malformed or switched-off links go to `/` | ✅ (`growth`) |
+| E | **Copy trade placing orders** | The copy endpoint returns a prefill only; the page never submits; orders go through the normal review and gates | ✅ (`growth`) |
+| I / T | **Cache poisoning or private data in server-rendered pages** | Fragments are built from public data only, keyed by path, language, currency and the validated origin; no cookie or session is ever read or part of the key; query strings ignored (except an enabled `?lang`); forged `Host` / `X-Forwarded-Host` only see their own entry; private routes get `noindex` and no content; the page is `no-store` with a per-response nonce | ✅ (`reach` cache-poisoning test) |
+| S | **Bots posing as crawlers to skip the browser check** | The exemption applies to public pages only and only while `ssr.crawlers` is on; AI crawlers are refused; private routes always get the challenge; rate tiers unchanged; exemptions are logged (`crawler_exempt`) | ✅ (`reach`) / residual: user-agent based (§38.11) |
+| T | **Script or markup injection through translations** (import or editor) | Translations are CMS entries through the same validator and sanitiser (declared variables only, plain text refuses markup, rich text allowlisted); import is a dry run first and apply needs `content.publish`; imported keys are flagged "needs review"; a language cannot be switched on before review and coverage (step-up, audited) | ✅ (`reach`) |
+| T | **Machine translation shown as reviewed** | All non-English languages ship off and unreviewed; samples carry a "needs review" note; the switch refuses an unreviewed language | ✅ (`reach`) |
+| R / I | **Marketing or SMS consent not provable** (NDPA 2023) | SMS opt-in needs a verified phone and the versioned consent wording (version and hash stored); opt-out always works, with every flag off too | ✅ (`reach`) |
+| D | **SMS abuse or cost runaway** | Off by default; simulated adapter only; only money, security, account, fill and alert notices; a daily cap per member (owner setting, step-up); a persisted outbox with `skipped_cap` | ✅ (`reach`, `owner-switches`) |
+| D | **Expensive public pages and images** | Fragments and PNGs cached for the owner-set TTL; sitemaps bounded; share-click counting limited per address; rate tiers | ✅ / residual: per-process caches (RS1) |
+| I | **Attribution cookies** | First-party only, `SameSite=Lax`, `plx_share` `HttpOnly`, 30 days, ids validated before use; no third-party tracker is loaded; share channels are plain links built in the browser | ✅ |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -392,5 +415,9 @@ a My Ballot picker, and new public read routes.
 - Phase 5D (`CLONE_SPEC.md` §33.13): the flag cache, heist rate limits and job pauses are per process (RS1); the
   pre-production backup is a plain SQLite file in the data directory; region targeting uses the simulated location data
   of Phase 3; the two-person reset relies on distinct people behind distinct admin accounts.
+
+- Phase 8 (`CLONE_SPEC.md` §38.11): the crawler exemption is user-agent based (public pages only); fragment caches,
+  share-click limits and the SMS cap are per process (RS1); referral fraud signals are heuristics that hold for review;
+  SMS is simulated; a manual screen-reader pass is still to do.
 
 Review this document whenever a phase passes the §6 security gate in `PLAN.md`.

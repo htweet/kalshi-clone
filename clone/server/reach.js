@@ -5,7 +5,7 @@
 //                (owner setting `data_saver.default_on`, off). On: lighter images (no promo art, small media variants),
 //                fewer live updates (price ticks batched every 10 s instead of every message), polling instead of the
 //                WebSocket when the connection is unstable, no autoplay (the elections timeline never starts by itself).
-//                The client does the work (public/js/datasaver.js); the server stores the choice.
+//                The client does the work (public/js/locale.js, public/js/ws.js); the server stores the choice.
 //   SMS          a notification channel through a provider adapter interface ({ name, send({to, body}) }). Only the
 //                simulated adapter exists: it writes to the development SMS outbox (server/messaging.js), never to a network.
 //                Behind the flag `sms` (off by default: no real provider is contracted, owner decision 2026-11-08). Members

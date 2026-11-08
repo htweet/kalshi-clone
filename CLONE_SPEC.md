@@ -3735,15 +3735,10 @@ adds a daily temperature family of five invented cities so the cap is visible (�
 
 ### 29.8 Hub data widgets (A15)
 
-Superseded as the elections entry point by the elections hub v2 (§37, Phase 7B); the page and endpoints below are
-unchanged.
-
-- **Senate map** (`GET /v1/hubs/senate_map`): the 12 invented states with grid positions, seats not up (`seated`), and for
-  each state with a race the Blue / Red probabilities (last trade, normalised), lean (≥ 0.8 safe, ≥ 0.6 lean, else
-  toss-up) and leader; chamber 24, majority 13; expected seats = held + Σ P(Blue), projected = held + races led; and the
-  hourly expected-Blue-seat history for 7 days. Page `/hubs/elections` ("Harbor 2026 hub", linked from the home rail and
-  MORE): seat bar with the majority mark, tile map (colours from the data palette, not the brand), seat history, the
-  governor race's forecast history and the ballot card. Party colours use `--line-a` / `--line-b`.
+- **Senate map — removed** (owner decision 2026-11-08, replaced by the elections hub v2, §37 and §38.4). The page
+  `/hubs/elections` now answers 301 to `/category/elections/nigeria-2027`; `GET /v1/hubs/senate_map` is gone (404); the
+  home rail and MORE link to the Nigeria hub. The ballot lookup (§29.5, `/ballot`), the rates hub and forecast history
+  below stay.
 - **Fed funds outlook** (`GET /v1/hubs/fed_funds_outlook`): every open event of the central-bank series (`PLXRATE`,
   outcomes Cut / Hold / Hike), normalised probabilities, implied change `25 bp × (P(hike) − P(cut))` and the implied
   midpoint path from an invented current range of 4.25–4.50 %. Page `/hubs/economics` ("Rates outlook"): meeting table,
@@ -3764,7 +3759,7 @@ unchanged.
 | Ballot | `POST ballot/lookup`, `GET ballot/jurisdictions/:id`; `GET|PUT|DELETE users/:uid/ballot` | public; owner |
 | AI summaries | `GET events/:ticker/ai_summary`; `GET admin/ai_summaries`, `POST admin/ai_summaries/:ticker/{hide,unhide,regenerate}`; `GET|PUT admin/ai_summaries/settings` | public; content.write; settings.write |
 | Incentives | `GET incentive_programs`, `GET incentive_programs/terms`; `GET users/:uid/incentives`, `POST|DELETE users/:uid/incentives/enrollment`; `GET|POST admin/incentives/programs`, `PUT …/:id`, `POST admin/incentives/snapshot`; `POST …/:id/payout`; `GET|PUT admin/incentives/settings` | public; owner; markets.ops; users.money; settings.write |
-| Hubs | `GET hubs/senate_map`, `GET hubs/fed_funds_outlook`, `GET series/:s/events/:e/forecast_history` | public |
+| Hubs | `GET hubs/fed_funds_outlook`, `GET series/:s/events/:e/forecast_history` (`hubs/senate_map` removed in Phase 8, §29.8) | public |
 
 Bodies are checked with `validate.js check()` schemas inside the handlers (unknown fields rejected). Tables (`CREATE TABLE
 IF NOT EXISTS`, no existing table changed): `sports_line_events`, `sports_lines`, `ballot_jurisdictions`,
@@ -5316,20 +5311,27 @@ survey is locked and the launch email is offered (the approval response carries 
 
 ### 36.8 Design choices to confirm
 
-- Confirmation links expire after **48 hours**; unconfirmed requests are deleted a week after their last link expired.
+Owner decision 2026-11-08: recommended standards, admin-switchable (ground rule 6, §38.1).
+- Confirmation links expire after **48 hours** (`waitlists.confirm_link_hours`); unconfirmed requests are deleted a week
+  after their last link expired (`waitlists.unconfirmed_delete_days`) — owner: recommended standard, admin-switchable.
 - **No default target N** (the admin sets it); the alert fires once per target value.
 - The public progress bar is **off** until an admin shows it.
 - Signed-in members with a **verified** account email are confirmed on one click; unverified accounts and guests
-  confirm by email. Verifying the account email later links but does not confirm a pending entry.
+  confirm by email. Verifying the account email later confirms a pending entry that account requested (switch
+  `waitlist.launch.auto_confirm_verified`, on; consent source `signed_in_verified_later`) — owner: recommended
+  standard, admin-switchable.
 - The guest form needs a ticked consent box; signed-in members agree by clicking the join button under the wording.
 - The seeded survey questions and bands of §36.3; free text moderated before anyone reads it (nothing is public).
-- Newsletter throttle **120 emails a minute**; newsletters go to the launch list only (Perps waitlist members never
-  agreed to marketing email).
-- The CSV export includes the email address with the consent fields (so consent can be proven per person) but no
-  survey answers, and needs `users.support` + step-up.
+- Newsletter throttle **120 emails a minute** (`waitlists.newsletter_per_minute`; `NEWSLETTER_PER_MINUTE` is the upper
+  bound) — owner: recommended standard, admin-switchable; newsletters go to the launch list only (Perps waitlist
+  members never agreed to marketing email).
+- The CSV export includes the email address with the consent fields (so consent can be proven per person; setting
+  `waitlists.export_includes_email`, on, step-up) but no survey answers, and needs `users.support` + step-up — owner:
+  recommended standard, admin-switchable.
 - The production switch offers the launch email to confirmed members, once, from Admin › Play mode or Admin ›
   Waitlists; it locks the survey.
-- Call-to-action cards only in play mode (after the switch the launch list has done its job).
+- Call-to-action cards in play mode (`waitlist.launch.cta_play`, on) and not outside it
+  (`waitlist.launch.cta_production`, off) — owner: recommended standard, admin-switchable.
 
 ### 36.9 Residual risks
 
@@ -5367,7 +5369,7 @@ survey is locked and the launch email is offered (the approval response carries 
 Owner request 2026-11-08 (PLAN.md Phase 7B, backlog A19): a results-night elections hub with the structure observed in
 §13.20, adapted to Nigeria and built on a country model (§30.0). It replaces the Phase 5B tile-map hub (§29.8) as the
 elections entry point: the MORE menu links to `/category/elections/nigeria-2027`; the Phase 5B page `/hubs/elections`
-and its API stay at their URLs (unchanged, tested) until the owner confirms their removal. Its invented 12 states are
+and its API were kept until the owner confirmed their removal (2026-11-08: removed in Phase 8, §29.8). Its invented 12 states are
 the second country here ("Harbor", code `XH`, from the ISO 3166 user-assigned range). Clean room: real public
 geography of Nigeria; invented parties, candidates, names, colours and results; no real people, marks or photos.
 
@@ -5530,19 +5532,24 @@ weight × price (0–100) over listed markets; labels for the positive and negat
 
 ### 37.6 Design choices to confirm
 
-- The hub replaces `/hubs/elections` in navigation; the old page and `GET /hubs/senate_map` stay until confirmed.
+Owner decisions 2026-11-08 (ground rule 6, §38.1):
+- The old hub is removed: `/hubs/elections` answers 301 to the Nigeria hub and `GET /v1/hubs/senate_map` is gone (§29.8).
 - Calls use the existing resolver role (`resolution.write`); country data `catalog.write`; the simulator `markets.ops`;
   the Power Index `settings.write`. No new role.
 - Every call's settlement needs a second resolver on the resolution desk (the proposer cannot approve), even for
-  one-person offices; pending calls and proposals lapse after 24 h.
+  one-person offices (switch `elections.second_resolver`, on; off executes the proposals at once, audited); pending
+  calls and proposals lapse after 24 h (`elections.pending_expiry_hours`) — owner: recommended standard,
+  admin-switchable.
 - A winner call is refused unless the candidate meets the win rule on the results reported so far (a call before 100 %
   is a projection the desk takes responsibility for); a runoff only at 100 %.
 - The win rule's FCT clause: 25 % in 24 states **and** in the FCT (`territory_required: true`), per the owner's brief;
-  editable per office.
-- Forecast blend (market or prior → count model by √% reported), the "projected" threshold (90 %), rating bands
-  (90 / 75 / 60) and the seeded strengths, counts, turnout and timing are demo values.
-- Legislative seats have party-level contestants and no per-seat markets (chamber-control markets instead); State
-  Houses of Assembly are configured without races.
+  shown in words and editable per office (a checkbox with its explanation) in Admin › Elections › Data › Offices —
+  owner: recommended standard, admin-switchable.
+- The "projected" threshold (90 %, `elections.projected_pct`) and rating bands (90 / 75 / 60,
+  `elections.rating_*_pct`) — owner: recommended standard, admin-switchable. The forecast blend (market or prior →
+  count model by √% reported) and the seeded strengths, counts, turnout and timing are demo values.
+- Legislative seats have party-level contestants and no per-seat markets (chamber-control markets instead); per-seat
+  markets were not built (§38.12); State Houses of Assembly are configured without races.
 - Counting stops at the LGA (wards and polling units are counts, not rows of results); LGA and ward names are
   placeholders.
 - Snapshots every 30 simulated minutes, at most 400 per election; WebSocket nudges at most one a second per hub.
@@ -5585,6 +5592,273 @@ weight × price (0–100) over listed markets; labels for the positive and negat
   keeping election data and turning the simulator off.
 - `tests/authz.e2e.test.js`: every route classified and the elections IDOR test. `tests/flags.e2e.test.js`: the new
   flags, rules, module and labels. `tests/chat.e2e.test.js`: event chat unchanged by the room hook.
+
+## 38. Growth and reach, Nigeria first (Phase 8)
+
+Built on `phase-8` from the owner's decisions of 2026-11-08 (PLAN.md Phase 8 and ground rule 6). Everything follows
+ground rule 5 (Nigerian defaults, countries as data) and ground rule 6 (every owner choice is an admin switch).
+
+### 38.1 Owner settings and switches (ground rule 6)
+
+A capability is a feature flag (§33). An amount, a duration, a rate or a threshold is an **owner setting**: a validated
+value in **Admin › Owner settings** (`/admin/owner_settings`, `settings.write`). Every setting shows its recommended
+standard default, a CMS-managed explanation (`server.switches.setting.<key>.label` / `.help`), its unit and range,
+whether it is changed from the default, a link to the page it serves and its change history. A change needs a reason
+(3–500 characters) and, where it touches money, security or personal data, a step-up (`owner_setting_change`); it is
+written to the hash-chained admin audit (`owner_settings.update`, before / after), stored in `admin_settings` as
+`owner:<key>`, takes effect at once (modules read the value on use; listeners reset timers; public values reach every
+browser in the flag bundle, `owner_settings`) and survives restarts. Start options can pin a value for tests and win
+over the stored one (shown as "override"). An environment variable can bound a value (`NEWSLETTER_PER_MINUTE` is the
+upper bound of the newsletter rate). Every flag carries a CMS explanation too (`server.switches.flag.<key>`), shown in
+Admin › Feature flags and in the switch catalogue at the bottom of Admin › Owner settings.
+
+| Setting | Recommended default | Range | Step-up | Used by |
+|---|---|---|---|---|
+| `waitlists.confirm_link_hours` | 48 h | 1–336 | – | guest / unverified confirmation links, the email's "expires in N hours" (§36.2) |
+| `waitlists.unconfirmed_delete_days` | 7 days | 1–90 | – | deletes pending guest entries N days after their last link expired (hourly job; a change runs it at the next tick) |
+| `waitlists.newsletter_per_minute` | 120 | 1–10,000, ≤ `NEWSLETTER_PER_MINUTE` | – | newsletter outbox throttle (§36.5) |
+| `waitlists.export_includes_email` | on | – | yes | email column of the consent CSV (empty when off; the export audit records it) |
+| `elections.pending_expiry_hours` | 24 h | 1–168 | – | pending two-person calls and resolution-desk proposals (§37.2, §28.7) |
+| `elections.projected_pct` | 90 % | 51–99 | – | a counting race is "projected" on the map when the leader's chance reaches it |
+| `elections.rating_safe_pct` / `_likely_pct` / `_lean_pct` | 90 / 75 / 60 % | 52–99 / 51–98 / 51–97, ordered | – | rating bands of gauges, ratings and their edges on the hub |
+| `referrals.review_ip_signups_per_day` | 5 | 2–1,000 | yes | the "many sign-ups from one network" fraud signal (§38.2) |
+| `share.clicks_per_ip_per_minute` | 60 | 1–10,000 | – | share-link opens counted per address (§38.3) |
+| `i18n.min_coverage_pct` | 95 % | 1–100 | – | coverage a language needs before it can be switched on (§38.5) |
+| `ssr.cache_seconds` | 60 s | 0–3,600 (0 = no cache) | – | server-rendered fragments and share cards (§38.4) |
+| `data_saver.default_on` | off | – | – | data saver for visitors who have not chosen (§38.7); public |
+| `sms.per_user_per_day` | 10 | 1–100 | yes | SMS notices per member per 24 h (§38.7) |
+
+New switches (Admin › Feature flags; each with its CMS explanation and recommended default):
+
+| Flag | Default | What it does |
+|---|---|---|
+| `waitlist.launch.cta_play` | on | the "Join the real-money waitlist" cards and banner link while play mode is on |
+| `waitlist.launch.cta_production` | off | the same cards outside play mode |
+| `waitlist.launch.auto_confirm_verified` | on | a pending entry an account requested is confirmed when that account verifies its email (consent source `signed_in_verified_later`, welcome email, target check); off: it stays pending until the link is used (the Phase 7A behaviour) |
+| `elections.second_resolver` | on | a race call proposes settlements for a second resolver; off: the call executes them at once (marked approved, with a note), still audited |
+| `referrals.predictions` | on | the Predictions referral program (§38.2) |
+| `share_links` | on | signed share links and their landings (§38.3) |
+| `copy_trade` (child of `share_links`) | on | the copy-trade prefill (§38.3) |
+| `ssr` / `ssr.crawlers` | on / on | server rendering, share cards, sitemaps / crawler access past the browser check (§38.4) |
+| `i18n` | on | languages other than the default (each language also has its own switch, all off) (§38.5) |
+| `data_saver` | on | the data saver mode (§38.7) |
+| `sms` | off | SMS notifications through the simulated adapter (§38.7) |
+
+The referral offer amounts are program settings in Admin › Growth › Referrals (`users.money`, reason, step-up,
+audited): ₦1,000 to the referrer, ₦500 to the friend, after ₦10,000 of the friend's trading, lifetime caps 20 rewards
+/ ₦20,000 per referrer (internal cents, 1 cent = ₦1, §30). The FCT clause of the presidential win rule
+(`territory_required`) is a checkbox with its explanation in Admin › Elections › Data › Offices, next to the rule in
+words ("Win rule" column). No flag key ends in `.map` (the perimeter honeypot, §37.4); a test checks every key.
+
+### 38.2 Referrals for Predictions (P8.1)
+
+The second program of the reusable referral module (`server/referrals.js`, §34.8), in `server/growth-referrals.js`.
+
+- **Codes and attribution.** Every member has a code (Rewards › Refer a friend, with share buttons). A friend is
+  attributed by a code typed on Rewards, the `plx_ref` cookie of a referral link (`/?ref=CODE`) or a share link
+  (§38.3) read at sign-up (`source: link`), or the `ref` a guest gave the real-money waitlist, applied when the account
+  verifies its email and the entry links to it (`source: waitlist`). Within 30 days of sign-up and before the friend's
+  first trade; never oneself.
+- **Qualification.** The friend's Predictions fills (engine `fill` events) at traded value; fills whose counterparty is
+  the referrer never count; system accounts never qualify. At ₦10,000 the referral qualifies.
+- **Payment.** Play mode: play money (`bonus`, minted against `play:mint`). Production: the promotions treasury (the
+  Central Bank, §33.7) as non-withdrawable credit, paid at once, queued or refused when the vault is empty; nothing is
+  paid without the Central Bank (status `refused`). Lifetime caps per referrer (count and amount). Both sides are
+  notified (CMS templates) and see it on Rewards.
+- **Fraud signals** (beyond the account checks of §34.8): the same device as the referrer, the same payment card / bank
+  account / wallet, many referred sign-ups from one network in 24 h (`referrals.review_ip_signups_per_day`), a friend
+  whose P3.7 risk score reaches the hold threshold. A qualifying referral with any signal goes to the **review queue**
+  in Admin › Growth (signals and detail shown): Approve pays both sides (step-up), Reject pays nothing; both audited.
+- Table `referral_reviews`; columns `referrals.source`, `referrals.ip_hash` (keyed hash); the play-mode void of §33
+  voids pending reviews too.
+
+### 38.3 Share and copy-trade links (P8.2)
+
+- **Links.** A market, an event, the sharer's own position or one of their own trades. The URL is `/s/<id>.<sig>`: a
+  128-bit random id and an HMAC-SHA256 signature (key `share-link:v1`), so tokens cannot be enumerated or altered; a
+  forged token fails before any lookup. Revocable by the sharer (DELETE, another member's id answers 404) and by
+  support (Admin › Growth, reason, audited).
+- **What is shown.** Side always; price and size only when the sharer ticks them. `GET /v1/share/<token>` (public)
+  returns only those fields; `GET /v1/share/<token>/copy` (flag `copy_trade`) returns the ticket prefill.
+- **Landing.** `GET /s/<token>` counts the open (per-address limit, §38.1), sets first-party attribution cookies
+  (`plx_share`, and `plx_ref` with the sharer's referral code while referrals are on; 30 days, `SameSite=Lax`,
+  `HttpOnly` for `plx_share`) and answers 302 to a path the server builds from the stored tickers (never from the
+  request), so it cannot become an open redirect; unknown, revoked or switched-off links land on `/`.
+- **Copy trade.** The event page pre-fills market, side, limit price and size (when shown) and says so
+  ("copy-trade-note"); it **never places an order** — the visitor reviews and submits like any order.
+- **Channels.** WhatsApp first, then X, Facebook, Telegram and copy-link: plain share URLs built in the browser; the
+  server calls nothing. **Counts:** opens and sign-ups per link on Rewards › Your share links and in Admin › Growth.
+- Tables `share_links`, `share_clicks`, `share_attributions`.
+
+### 38.4 Public pages for search and social (P8.3)
+
+- **Server rendering** (`server/seo.js`, flag `ssr`): home, all markets, categories, event pages, elections hubs, the
+  rates hub, the API docs, the status page, CMS pages and help articles get their content inside `<main id="view"
+  data-ssr="1">` and full metadata in `<head>`; the SPA renders over it. Private routes (account, portfolio, funds,
+  admin, rewards, notifications, messages, watchlist, verification, waitlist manage / confirm / unsubscribe) get
+  `noindex` and no content.
+- **Cache.** The fragment is cached per path (no query except an enabled `?lang`), language, display currency and
+  canonical origin, for `ssr.cache_seconds`; it is built only from public data and never reads the session, cookies or
+  other headers, so no visitor can be served another's page. The page itself stays `no-store` (per-response CSP nonce).
+  `X-Parlance-SSR: cached | rendered` says which. Content changes and flag changes clear it.
+- **Metadata.** Title, description, canonical URL (`PUBLIC_ORIGIN`, else the request's validated origin), `hreflang`
+  for every enabled language plus `x-default`, Open Graph and X card tags, JSON-LD (Organization and WebSite on home,
+  BreadcrumbList on events), with the CSP nonce.
+- **Share cards.** `/og/site.png`, `/og/event/<TICKER>.png`, `/og/hub/<slug>.png`, `/og/share/<token>.png`: 1200 × 630
+  PNGs drawn in pure JavaScript (`server/og-image.js`, a 5 × 7 bitmap font, the CMS PNG encoder) in the brand colours.
+- **Search engines.** `/sitemap.xml` (index) → `/sitemaps/{pages,categories,markets,hubs}.xml` with `<lastmod>`;
+  `robots.txt` gains the Sitemap line. Search and link-preview crawlers (Google, Bing, DuckDuckGo, Yandex, Baidu, Apple,
+  Facebook, X, WhatsApp, Telegram, LinkedIn, Slack, Discord, Pinterest, Reddit) skip the browser check on public pages
+  while `ssr.crawlers` is on (recorded as `crawler_exempt`); AI crawlers and every private route still get it.
+- **Old hub.** `GET /hubs/elections` answers 301 to `/category/elections/nigeria-2027` (§29.8).
+
+### 38.5 Languages (P8.4)
+
+- **Locales as data** (`i18n_locales`: code, English and native name, direction, enabled, reviewed, default). Seeded:
+  `en-NG` (default, on, reviewed) and Nigerian Pidgin (`pcm`), Hausa (`ha`), Yoruba (`yo`), Igbo (`ig`) — **all off and
+  unreviewed** (owner decision 2026-11-08). Three published sample strings per language are flagged "needs review"
+  with a note that they are machine-written; they never reach a visitor while the language is off. An admin can add a
+  language (an RTL one included: `<html dir="rtl">`).
+- **Translations** are CMS text entries of the locale (`cms_entries.locale`) through the same validator and sanitiser
+  (declared variables only; plain text refuses markup; rich text allowlisted). Missing keys fall back to English, then
+  the code default. Server wording (`server.*`) and templates (in-app, email, push, SMS) are per locale too.
+- **Admin › Content › Languages:** coverage % (published translations / catalog keys), per-key review state, publish
+  all drafts, mark reviewed (`content.publish`, reason), export (JSON with the English default per key) and import (dry
+  run first; apply needs `content.publish`; imported keys are marked "needs review"). The per-language switch
+  (`content.publish`, reason, step-up, audited) refuses unless the language is reviewed and its coverage reaches
+  `i18n.min_coverage_pct`.
+- **Choice.** `?lang=` (enabled only), the member's setting (`PUT /v1/users/<uid>/locale`, Settings) or the guest
+  cookie `plx_locale` (footer switcher), else `en-NG`; only while `i18n` is on. No automatic switch from
+  `Accept-Language` (members choose).
+- **Formatting.** Numbers, dates and plurals per locale through `Intl` (`public/js/locale.js`); money keeps the display
+  currency's format (§30). Table `i18n_text_review`.
+
+### 38.6 Accessibility, WCAG 2.2 AA (P8.5)
+
+- **Automated checks in the suite** (`tests/a11y.e2e.test.js`, axe-core 4.14 as a dev dependency, injected into the
+  page): the key pages signed out (home, all markets, an event, the Nigeria hub, the rates hub, sign-in, sign-up,
+  waitlist, FAQ, the accessibility statement) and signed in (Portfolio, Funds, Deposit, Settings, Security, Rewards) in
+  light and dark at 1280 and 390 px: no violation of the WCAG 2.0 / 2.1 / 2.2 A and AA rules, and the contrast,
+  target-size, label, name and SVG rules are shown to have run.
+- **Fixes from the findings:** faint-text, "featured" and "live" colours raised to 4.5:1 in both themes; text on
+  admin-chosen party colours picks near-black or white and darkens a mid-tone colour until white reaches 4.5:1; tab
+  lists get `role=tab` / `aria-selected` kept in sync and arrow keys (`public/js/a11y.js`); links inside tab bars moved
+  out of the tab list; map tiles named by their visible code and state, and answering Enter and Space; the ratings
+  strip is a focusable named region; post-card and chat-pill buttons include their visible text in their names; a skip
+  link; underlined links in running text; footer targets at least 24 × 24 px; date and time inputs show the focus ring
+  (`:focus-within`); reduced motion stops every animation (pseudo-elements included) and makes scripted scrolling
+  instant; charts carry a text summary, gauges and the seat bar their values.
+- **Keyboard paths** tested with a visible focus at every stop: the skip link, a demo deposit, a trade through the
+  ticket and its review, a setting in Account › Settings.
+- **CMS colours:** brand and YES colours are refused below 4.5:1 (§32.8); party colours are made readable on display.
+- **Accessibility statement:** the CMS page `/support/accessibility`, linked from the footer.
+
+### 38.7 Built for Nigerian networks and phones (P8.6)
+
+- **Data saver** (flag `data_saver`): a member setting (Settings › Data and messages; guests in their browser; the
+  footer switch) with the admin default `data_saver.default_on` (off), applied from the first page view. On: no promo
+  art, smaller images, price ticks batched every 10 s, the elections timeline never auto-plays; `<html data-saver="1">`.
+- **Unstable connections** (with or without data saver): after two drops in a minute or 10 s without connecting, the
+  client switches to polling (a banner says so) and back once the socket is stable.
+- **Pre-compressed assets.** The build writes Brotli and gzip copies of every script and stylesheet; the server sends
+  them to browsers that accept them (`Vary: Accept-Encoding`, `q=0` respected); compressed copies are not URLs of
+  their own.
+- **Performance budgets** (`scripts/perf-budget.js`, `npm run perf:budget`, a CI step after the build), compressed as
+  served: scripts needed before the first render ≤ 160 KB (142 KB at the time of writing), stylesheet ≤ 32 KB (26.5),
+  any lazy chunk ≤ 24 KB (12), all scripts ≤ 380 KB (344). `tests/perf.e2e.test.js` runs the same check and, on a
+  390 px phone with a 4× slower CPU and a 3G link (1.44 Mbit/s, 562 ms round trip, cold cache, production bundle),
+  requires LCP ≤ 2.5 s on home, an event and all markets (≈ 1.8 s measured: the server-rendered content paints first)
+  and INP ≤ 200 ms for tabs, side and amount on the event page (≈ 50 ms).
+- **SMS** (flag `sms`, off): a provider adapter interface; only the simulated adapter exists (writes to the development
+  SMS outbox). Members opt in with a verified phone and the consent wording (version and hash recorded, NDPA 2023);
+  opting out always works. Money, security, account, fill and price-alert notices are queued in a persisted outbox
+  (CMS template `sms.notification`), at most `sms.per_user_per_day` per member per 24 h (the rest `skipped_cap`).
+  Tables `sms_consents`, `sms_notify_outbox`; Admin › Growth shows the SMS outbox.
+- Offline-tolerant pages through the PWA (§31) are unchanged.
+
+### 38.8 Footer and help centre (P8.7)
+
+The footer (CMS `footer`) has **Product** (Markets, Live, Calendar, Elections hub, Perps, API docs), **Company**
+(Trust & security, Privacy, Terms, Regulation, Research, Blog) and **Help** (Help centre, FAQ, Contact support, Fee
+schedule, Responsible trading, Accessibility, Status) columns, social links (network home pages, `https` only, known
+networks only; the validator refuses others), the language switcher and the data saver switch. New CMS pages:
+`support/faq`, `support/contact` (support hours in WAT: Monday–Friday 8:00–20:00, Saturday 10:00–16:00, closed on
+Sundays and Nigerian public holidays; `support@example.test`), `support/accessibility`, `trust/security`,
+`trust/regulation`, `research/blog`, `research/data`, `research/papers`.
+
+### 38.9 Routes, tables, flags
+
+- **Member:** `GET /v1/referrals`, `POST /v1/referrals/apply`, `GET|POST /v1/users/<uid>/share_links`,
+  `DELETE /v1/users/<uid>/share_links/<id>`, `GET /v1/users/<uid>/reach`, `PUT /v1/users/<uid>/data_saver`,
+  `PUT /v1/users/<uid>/sms_notifications`, `PUT /v1/users/<uid>/locale` (owner only; IDOR probes in `authz`).
+- **Public:** `GET /v1/referrals/offer`, `GET /v1/share/<token>`, `GET /v1/share/<token>/copy`, `GET /v1/i18n/locales`,
+  `/s/<token>`, `/og/*.png`, `/sitemap.xml`, `/sitemaps/*.xml`, `/robots.txt` (Sitemap line), `/hubs/elections` (301).
+- **Admin:** `GET /v1/admin/owner_settings`, `GET|PUT /v1/admin/owner_settings/<key>` (`settings.write`);
+  `GET /v1/admin/referrals` (`users.read`), `PUT /v1/admin/referrals/settings` (`users.money` + step-up),
+  `POST /v1/admin/referrals/reviews/<id>/approve|reject`; `GET /v1/admin/share_links`,
+  `POST /v1/admin/share_links/<id>/revoke` (`users.support`); `GET|POST /v1/admin/i18n/locales`,
+  `PUT /v1/admin/i18n/locales/<code>`, `GET .../texts`, `PUT .../review`, `POST .../publish_drafts`, `GET .../export`,
+  `POST .../import` (`content.write` / `content.publish`); `GET /v1/admin/sms/outbox` (`users.support`).
+- **Removed:** `GET /v1/hubs/senate_map` (404).
+- **Tables:** `referral_reviews`, `share_links`, `share_clicks`, `share_attributions`, `i18n_locales`,
+  `i18n_text_review`, `sms_consents`, `sms_notify_outbox`; owner settings in `admin_settings` (`owner:<key>`).
+- **Flags:** §38.1. Module and job gates in `server/flags.js` (`MODULE_FLAGS`, `JOB_FLAGS`, route rules).
+
+### 38.10 Design choices (owner: recommended standard, admin-switchable)
+
+Each is a recommended standard default the owner can change in the admin (§38.1):
+- waitlist link lifetime 48 h, deletion 7 days after expiry, newsletter 120 a minute, email in the CSV — settings;
+  call-to-action in play mode on and outside it off, auto-confirm on verification on — switches (§36.8);
+- second resolver on, pending expiry 24 h, projected 90 %, bands 90 / 75 / 60, the FCT clause on — switch, settings and
+  an editable rule (§37.6);
+- referral ₦1,000 / ₦500 after ₦10,000, caps 20 / ₦20,000 — program settings; review threshold 5 network sign-ups a
+  day — setting;
+- share opens counted 60 per address per minute; page cache 60 s; data saver off by default; SMS off with 10 a day;
+  languages off until reviewed with 95 % coverage.
+Further choices (not switches): no automatic language from `Accept-Language`; WhatsApp listed first; the share card
+uses the light-theme brand colours; crawler exemption by user agent (public pages only).
+
+### 38.11 Residual risks
+
+- The crawler exemption trusts the user agent: anyone claiming to be a search crawler skips the browser check, but
+  only on public pages that crawlers are meant to see; rate tiers still apply and private routes keep the challenge.
+- The fragment cache, share-click limits, the SMS cap window and the polling switch are per process (RS1).
+- Referral fraud signals are heuristics (device id, payment fingerprint, keyed IP hash, risk score); they hold for
+  review, they do not prove fraud. A VPN or many devices defeat them.
+- Server-rendered prices are up to `ssr.cache_seconds` old for crawlers and the first paint (the SPA shows live data).
+- SMS is simulated: delivery, sender id and cost controls of a real provider are untested; the consent record is ready.
+- Machine-written samples exist in the database (flagged); they only show if an admin overrides the review rule by
+  marking the language reviewed.
+- axe-core finds about half of WCAG issues; a manual screen-reader pass (NVDA, TalkBack) is still to do.
+- Performance is measured on an emulated phone and network, not on a real low-end device.
+
+### 38.12 Not built
+
+- **Per-seat legislative markets** (owner item 7B, default off): not built. Senate and House seats have party-level
+  contestants and chamber-control markets (§37.6); a market per seat would add about 469 markets (109 + 360) with
+  their own liquidity, resolution and hub surfaces — not a small change. No switch is registered for it.
+- No real SMS provider (owner decision); no reviewed translations (owner decision: framework only).
+
+### 38.13 Verification
+
+- `tests/owner-switches.e2e.test.js` (8 scenarios): Admin › Owner settings lists every setting at its recommended
+  default with its CMS explanation, a CMS edit of an explanation shows, bad values and missing reasons are refused;
+  each 7A setting changed in the UI with its effect (link lifetime in the email and the token, deletion of old
+  unconfirmed entries, newsletter rate, the CSV email column with step-up), the call-to-action switches in and outside
+  play mode, auto-confirm with consent source `signed_in_verified_later` and the old behaviour when off; the second
+  resolver off settling a call at once, pending expiry and expired proposals, band edges and the projected threshold
+  on the hub, the FCT clause unticked and re-ticked in Admin › Elections; each Phase 8 flag switched in Admin › Feature
+  flags with its effect seen live; each Phase 8 setting with its effect; a restart keeping every value and effect.
+- `tests/growth.e2e.test.js` (6): referrals in production (treasury) and play mode, attribution by link and waitlist
+  ref, trades with the referrer excluded, caps, the review queue, share and copy-trade links, persistence.
+- `tests/reach.e2e.test.js` (8): server rendering and metadata, cache poisoning, crawlers, languages, data saver and
+  the polling fallback, SMS, footer and help centre, persistence.
+- `tests/a11y.e2e.test.js` (6): §38.6. `tests/perf.e2e.test.js` (3): §38.7.
+- `tests/authz.e2e.test.js`: every new route classified, growth IDOR probes; `tests/flags.e2e.test.js`: the new flags.
+- Existing tests changed for the removed hub: `markets-content` (the ballot card is tested on `/ballot`; the hub test
+  asserts the 301 and the 404 of the senate API and a live Fed outlook refresh), `flags` (the hub flags are checked on
+  `/hubs/economics`), `cms-content` (a new-page scenario uses `support/press`, as `support/contact` is now a default
+  page).
 
 ---
 
