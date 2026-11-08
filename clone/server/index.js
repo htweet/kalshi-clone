@@ -58,8 +58,11 @@ function listen(server, port, fallback) {
 // that need open Perps pass `flags: { defaults: { 'perps.waitlist': false } }` (the waitlist is on by default, §36.1).
 // Phase 7A (CLONE_SPEC §36): `waitlists: { confirmTtlMs, guestJoinsPerIp, guestWindowMs, tokenAttemptsPerIp,
 // newsletterPerMinute, now }` (`now`: the newsletter job clock for tests; ignored when NODE_ENV=production).
+// Phase 7B (CLONE_SPEC §37): `elections: { seed, speed, snapshotEveryMin, retainSnapshots }` (`seed`: the Nigerian and Harbor
+// demo elections; `speed`: simulated minutes per real minute). The results simulator also needs the `elections.simulator`
+// flag, off by default: `npm start` outside production starts it on (`flags: { defaults }`), production never does.
 async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports,
-  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, waitlists, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
+  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, waitlists, elections, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src') } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -74,7 +77,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const keyDir = dbFile === ':memory:' ? undefined : path.dirname(path.resolve(dbFile)); // secret.key lives next to the database
   let app; let boot;
   try {
-    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, waitlists, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
+    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, waitlists, elections, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) } });
     const envAdmin = process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD ? { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD } : null;
     boot = app.locals.auth.bootstrap({ admin: admin || envAdmin, demoPassword });
   } catch (e) { try { app?.locals.cms?.close(); app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
@@ -124,7 +127,8 @@ if (require.main === module) {
   // npm start serves the hashed production bundle (built if missing or stale); npm run dev serves the sources.
   // Identity verification gates trading and deposits by default when run as the server (KYC_REQUIRED=0 turns it off);
   // programmatic start() leaves it off unless `identity: { kycRequired: true }`, KYC_REQUIRED=1 or NODE_ENV=production.
-  start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, demo: process.env.DEMO_API === '0' ? null : {}, assets: process.argv.includes('--dev') ? 'src' : (process.env.ASSETS || 'dist') }).then((srv) => {
+  start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, elections: { seed: true },
+    flags: process.env.NODE_ENV === 'production' ? undefined : { defaults: { 'elections.simulator': true } }, demo: process.env.DEMO_API === '0' ? null : {}, assets: process.argv.includes('--dev') ? 'src' : (process.env.ASSETS || 'dist') }).then((srv) => {
     console.log(`Parlance Exchange listening on http://localhost:${srv.port}`);
     // Ctrl+C / termination: close the HTTP server and database cleanly so the DB lock is released.
     let stopping = false;

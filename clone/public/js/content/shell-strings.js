@@ -29,7 +29,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "shell.common.leaderboard": "Leaderboard",
   "shell.common.watchlist": "Watchlist",
   "shell.common.browse_all_markets": "Browse all markets",
-  "shell.common.harbor_2026_hub": "Harbor 2026 hub",
+  "shell.common.elections_hub": "Elections hub",
   "shell.common.rates_outlook": "Rates outlook",
   "shell.common.liquidity_rewards": "Liquidity rewards",
   "shell.common.vault_heist": "Vault Heist",

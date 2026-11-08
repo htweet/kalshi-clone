@@ -244,9 +244,10 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     const px = engine.perpsOps ? engine.perpsOps.previewCounts() : { counts: {}, totals: { perps_subaccounts_cc: 0, perps_apy_accrued_cc: 0, referral_rewards_queued_dollars: dollars(0) } };
     // Phase 7A (CLONE_SPEC.md §36): waitlist members, consents and survey answers are not money: the switch keeps them.
     const wl = engine.waitlistOps ? engine.waitlistOps.previewCounts() : {};
+    const elx = engine.electionsOps ? engine.electionsOps.previewCounts() : {}; // Phase 7B (§37): election data is kept
     return {
       counts: { accounts_with_balance: users.n, open_orders: orders.n, positions: pos.n, position_holders: pos.u, markets_with_escrow: escrow.n, perps_accounts: perps.accounts.n, perps_positions: perps.positions, perps_orders: perps.orders,
-        open_rfqs: rfqs, open_quotes: quotes, active_credit_grants: grants, active_heists: heists, ...px.counts, kept_accounts: db.prepare('SELECT COUNT(*) c FROM users WHERE is_system=0').get().c, kept_markets: db.prepare('SELECT COUNT(*) c FROM markets').get().c, ...wl },
+        open_rfqs: rfqs, open_quotes: quotes, active_credit_grants: grants, active_heists: heists, ...px.counts, kept_accounts: db.prepare('SELECT COUNT(*) c FROM users WHERE is_system=0').get().c, kept_markets: db.prepare('SELECT COUNT(*) c FROM markets').get().c, ...wl, ...elx },
       totals: { balances_dollars: dollars(users.c), cash_dollars: dollars(cash), credits_dollars: dollars(credits), held_dollars: dollars(held), reserved_dollars: dollars(orders.c), position_cost_dollars: dollars(pos.c),
         escrow_dollars: dollars(escrow.c), perps_dollars: ((perps.accounts.c + px.totals.perps_subaccounts_cc) / 10000).toFixed(4), perps_apy_accrued_dollars: (px.totals.perps_apy_accrued_cc / 10000).toFixed(4),
         referral_rewards_queued_dollars: px.totals.referral_rewards_queued_dollars, collateral_advances_dollars: dollars(collateral), vault_dollars: dollars(centralBank ? centralBank.balance() : 0) },
@@ -386,6 +387,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     engine.emit('central_bank', { type: 'settings' });
     try { engine.apiOps?.afterReset(); } catch (e) { console.error('reset api', e.message); } // FIX sessions are logged out
     try { engine.waitlistOps?.afterProductionSwitch(batch); } catch (e) { console.error('reset waitlists', e.message); } // survey locked; launch email offered (§36)
+    try { engine.electionsOps?.afterProductionSwitch(batch); } catch (e) { console.error('reset elections', e.message); } // simulator off; election data kept (§37)
     return { batch_id: batch, backup_file: path.basename(file), counts, totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k.replace(/_cents$/, '_dollars').replace(/_cc$/, '_cc'), k.endsWith('_cc') ? v : dollars(v)])) };
   }
 

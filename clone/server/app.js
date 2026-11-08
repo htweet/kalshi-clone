@@ -40,6 +40,7 @@ const { mountFixAdmin } = require('./fix'); // Phase 7: Admin › API keys › F
 const { mountDeveloperPortal } = require('./dev-portal'); // Phase 7: /docs, /status, demo environment (CLONE_SPEC.md §35.9-§35.11)
 const { createRegistry } = require('./api-registry'); // Phase 7: one route registry → routes, OpenAPI, AsyncAPI, contract tests
 const { createWaitlists, mountWaitlists } = require('./waitlists'); // Phase 7A: waitlists, survey, newsletter (CLONE_SPEC.md §36)
+const { mountElections } = require('./elections'); // Phase 7B: elections hub v2, Nigeria first (CLONE_SPEC.md §37)
 
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
 const SESSION_COOKIE = 'plx_session';
@@ -58,7 +59,7 @@ function parseCookies(header) {
 
 // Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope (ParamError / intParam, server/trade-api.js).
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, env = 'main' }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, elections: electionsOptions = {}, env = 'main' }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -185,7 +186,11 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Phase 7 (CLONE_SPEC.md §35): Account › API keys, Admin › API keys (tiers, revoke, usage), key notifications.
   mountApiKeys({ v1, db, engine, auth, admin, flags, feat, cms: app.locals.cms, apiKeys, security });
   mountFixAdmin({ v1, admin, getGateway: () => app.locals.fix }); // the gateway itself starts in server/index.js
-  community.attachChat(mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify })); // event live chat (CLONE_SPEC.md §20) + reactions / edits (§24)
+  const chatApi = mountChat({ v1, app, db, engine, requireUser, rolesOf: admin.rolesOf, notify: feat.notify }); // event live chat (CLONE_SPEC.md §20)
+  community.attachChat(chatApi); // + reactions / edits (§24)
+  // Phase 7B (CLONE_SPEC.md §37): elections hub v2 — country model, simulated results feed, results desk, timeline,
+  // Power Index, My Ballot by division; the hub chat is a chat room of the module above.
+  app.locals.elections = mountElections({ v1, db, engine, auth, admin, flags, feat, chat: chatApi, options: electionsOptions || {} });
 
   // Trade API v2 (CLONE_SPEC.md §35): market data, portfolio, orders (batch, amend, decrease), order groups, history,
   // RFQ, multivariate collections and Perps under /margin — one registry for routes, OpenAPI and contract tests.

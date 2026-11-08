@@ -27,6 +27,7 @@ const AREA_ROUTES = {
   flags: '/', heist: '/heist', // Phase 5D (CLONE_SPEC.md §33)
   'api-keys': '/account/api-keys', docs: '/docs', status: '/status', // Phase 7 (CLONE_SPEC.md §35)
   waitlist: '/waitlist', // Phase 7A (CLONE_SPEC.md §36)
+  elections: '/category/elections/nigeria-2027', // Phase 7B (CLONE_SPEC.md §37)
 };
 
 function block(src, b, e, file) {
@@ -46,6 +47,7 @@ function serverModules() {
   out.push(['perps', require('../content/perps').STRINGS]); // Perps completion (CLONE_SPEC.md §34)
   out.push(['api', require('../content/api').STRINGS]); // public trading API (CLONE_SPEC.md §35)
   out.push(['waitlists', require('../content/waitlists').STRINGS]); // waitlists, survey, newsletter (CLONE_SPEC.md §36)
+  out.push(['elections', require('../content/elections').STRINGS]); // elections hub v2 (CLONE_SPEC.md §37)
   return out;
 }
 

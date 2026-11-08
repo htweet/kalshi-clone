@@ -50,6 +50,8 @@ const heistView = lazy(() => import('./views/heist.js')); // Phase 5D Central Ba
 const docsView = lazy(() => import('./views/docs.js')); // Phase 7 developer portal (CLONE_SPEC.md §35.9)
 const statusView = lazy(() => import('./views/status.js')); // Phase 7 status page (CLONE_SPEC.md §35.10)
 const waitlistView = lazy(() => import('./views/waitlist.js')); // Phase 7A real-money launch waitlist (CLONE_SPEC.md §36)
+// Phase 7B elections hub v2 (CLONE_SPEC.md §37): /category/elections/<hub>; an unknown slug falls back to the category tag page.
+const electionsView = { render: (ctx) => import('./views/elections.js').then((m) => m.render({ ...ctx, fallback: browse })) };
 
 const routes = [
   [/^\/$/, home],
@@ -64,6 +66,7 @@ const routes = [
   [/^\/perps\/([A-Za-z0-9]+)$/, perps, (m) => ({ mode: 'market', ticker: m[1].toUpperCase() })],
   [/^\/search$/, browse],
   [/^\/category\/([^/]+)$/, browse, (m) => ({ category: m[1] })],
+  [/^\/category\/elections\/([a-z0-9][a-z0-9-]{2,40})$/, electionsView, (m) => ({ hub: m[1] })],
   [/^\/category\/([^/]+)\/([^/]+)$/, browse, (m) => ({ category: m[1], tag: decodeURIComponent(m[2]) })],
   [/^\/markets\/([^/]+)\/([^/]+)\/([^/]+)$/, eventView, (m) => ({ series: m[1], slug: m[2], event: m[3] })],
   [/^\/calendar$/, calendar],
@@ -267,7 +270,7 @@ function showBrowserPush(p) {
 document.getElementById('more-btn').addEventListener('click', (e) => {
   // [data-flag] entries hide while their feature flag is off (public/js/flags.js, CLONE_SPEC.md §33).
   toggleMenu(e.currentTarget, `<a href="/calendar" data-link>${te('shell.common.calendar')}</a><a href="/sports" data-link data-testid="more-sports" data-flag="sports">${te('shell.common.sports_scores')}</a><a href="/social" data-link data-flag="social" data-testid="more-social">${te('shell.common.social')}</a><a href="/messages" data-link data-testid="more-messages" data-flag="social.group_chat">${te('shell.common.group_chats')}</a><a href="/social/circle" data-link data-flag="social">${te('shell.common.inner_circle')}</a><a href="/social/leaderboard" data-link data-flag="social">${te('shell.common.leaderboard')}</a>
-    <a href="/watchlist" data-link data-flag="watchlist" data-testid="more-watchlist">${te('shell.common.watchlist')}</a><a href="/browse" data-link>${te('shell.common.browse_all_markets')}</a><a href="/hubs/elections" data-link data-testid="more-election-hub" data-flag="hubs">${te('shell.common.harbor_2026_hub')}</a><a href="/hubs/economics" data-link data-testid="more-rates" data-flag="hubs">${te('shell.common.rates_outlook')}</a><a href="/incentives" data-link data-flag="incentives" data-testid="more-incentives">${te('shell.common.liquidity_rewards')}</a>${playOn() ? `<a href="/heist" data-link data-flag="heist" data-testid="more-heist">${te('shell.common.vault_heist')}</a>` : ''}<hr><a href="/account/limits" data-link>${te('shell.common.responsible_trading')}</a><button id="more-theme">${te('shell.common.toggle_light_dark')}</button>`);
+    <a href="/watchlist" data-link data-flag="watchlist" data-testid="more-watchlist">${te('shell.common.watchlist')}</a><a href="/browse" data-link>${te('shell.common.browse_all_markets')}</a><a href="/category/elections/nigeria-2027" data-link data-testid="more-election-hub" data-flag="elections.hub">${te('shell.common.elections_hub')}</a><a href="/hubs/economics" data-link data-testid="more-rates" data-flag="hubs">${te('shell.common.rates_outlook')}</a><a href="/incentives" data-link data-flag="incentives" data-testid="more-incentives">${te('shell.common.liquidity_rewards')}</a>${playOn() ? `<a href="/heist" data-link data-flag="heist" data-testid="more-heist">${te('shell.common.vault_heist')}</a>` : ''}<hr><a href="/account/limits" data-link>${te('shell.common.responsible_trading')}</a><button id="more-theme">${te('shell.common.toggle_light_dark')}</button>`);
   const t = document.getElementById('more-theme');
   if (t) t.onclick = () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; if (session.user) session.setProp('theme', next); else { applyTheme(next); try { localStorage.setItem('parlance-theme', next); } catch { /* ignore */ } } closeMenus(); };
 });

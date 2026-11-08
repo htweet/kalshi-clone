@@ -67,7 +67,9 @@ const PANEL = `<header class="chat-head">
   <button class="chat-jump" type="button" data-jump data-testid="chat-jump" hidden>${tes('chat.panel.jump_to_latest')}</button>
   <footer class="chat-foot" data-foot></footer>`;
 
-export function mountChat({ el, ev }) {
+// Options (the elections hub chat, CLONE_SPEC.md §37): `label` replaces the pill text, `pillOnline` shows the online count
+// on the pill itself (a floating pill with no panel header in view).
+export function mountChat({ el, ev, label = null, pillOnline = false }) {
   const T = ev.event_ticker;
   const actions = el.querySelector('.ev-actions');
   if (!actions || !T) return () => {};
@@ -77,7 +79,7 @@ export function mountChat({ el, ev }) {
 
   // ---------------- entry points: header pill (+ compact entry under a sports scoreboard)
   const pill = h('button', { class: 'chat-pill', type: 'button', 'data-testid': 'chat-pill', 'data-flag': 'social.chat', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'chat-panel' },
-    h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', { class: 'chat-pill-label' }, tx('chat.mount_chat.live_chat')), h('span', { class: 'chat-pill-badge', 'data-testid': 'chat-unread', hidden: true }));
+    h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', { class: 'chat-pill-label' }, label || tx('chat.mount_chat.live_chat')), pillOnline ? h('span', { class: 'chat-pill-online faint', 'data-testid': 'chat-pill-online' }) : null, h('span', { class: 'chat-pill-badge', 'data-testid': 'chat-unread', hidden: true }));
   actions.prepend(pill);
   const sb = el.querySelector('#sports-board');
   const sbEntry = sb ? h('button', { class: 'chat-sb-entry', type: 'button', 'data-testid': 'chat-sb-entry' }, h('span', { class: 'chat-pill-dot', 'aria-hidden': 'true' }), h('span', {}, tx('chat.mount_chat.live_chat')), h('span', { class: 'faint', 'data-sb-online': '' })) : null;
@@ -202,6 +204,7 @@ export function mountChat({ el, ev }) {
     pill.dataset.status = r.status;
     $('[data-live]').classList.toggle('on', open);
     $('[data-online]').textContent = tx('chat.mount_chat.online', { online: r.online });
+    if (pillOnline) pill.querySelector('[data-testid=chat-pill-online]').textContent = tx('chat.mount_chat.online', { online: r.online });
     if (sbEntry) { sbEntry.classList.toggle('on', open); sbEntry.querySelector('[data-sb-online]').textContent = tx('chat.mount_chat.online', { online: r.online }); }
     const stateBox = $('[data-state]');
     stateBox.replaceChildren();

@@ -105,6 +105,15 @@ const REGISTRY = [
   ['waitlist.launch.public_count', 'growth', 'waitlist.launch', 'both', false],
   ['waitlist.launch.survey', 'growth', 'waitlist.launch', 'both'],
   ['newsletter', 'growth', null, 'both'],
+  // Phase 7B (CLONE_SPEC.md §37): the elections hub v2 and its widgets; the results simulator (demo and test only, off by
+  // default: `npm start` outside production starts it on through the `defaults` start option).
+  ['elections.hub', 'elections', null, 'both'],
+  ['elections.map', 'elections', 'elections.hub', 'both'],
+  ['elections.results', 'elections', 'elections.hub', 'both'],
+  ['elections.timeline', 'elections', 'elections.hub', 'both'],
+  ['elections.power_index', 'elections', 'elections.hub', 'both'],
+  ['elections.chat', 'elections', 'elections.hub', 'both'],
+  ['elections.simulator', 'elections', null, 'server', false],
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -179,6 +188,13 @@ const ROUTE_RULES = {
   'waitlist.launch.public_count': [R('GET', /^\/waitlists\/real_money_launch\/progress$/, { public: true })],
   'waitlist.launch.survey': [R('PUT', /^\/waitlists\/real_money_launch\/survey$/, { public: true })],
   newsletter: [R('*', /^\/admin\/waitlists\/[^/]+\/(newsletters|launch_email)(\/|$)/, { admin: true })],
+  // Phase 7B (CLONE_SPEC.md §37). The map is part of the hub view (left out of the answer when the flag is off); the hub
+  // chat is the §20 chat of room HUB-<SLUG>, so it also needs social.chat.
+  'elections.hub': [R('GET', /^\/elections\/(hubs|countries|ballot)(\/|$)/, { public: true }), R('*', /^\/users\/[^/]+\/election_ballot$/)],
+  'elections.results': [R('GET', /^\/elections\/races\//, { public: true })],
+  'elections.timeline': [R('GET', /^\/elections\/hubs\/[^/]+\/timeline$/, { public: true })],
+  'elections.power_index': [R('GET', /^\/elections\/power_index\//, { public: true })],
+  'elections.chat': [R('GET', /^\/events\/[^/]+\/chat$/, { when: (req) => /^\/events\/HUB-/i.test(req.path) }), R('*', /^\/users\/[^/]+\/chat\//, { when: (req) => /\/chat\/HUB-/i.test(req.path) })],
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
 // cancelling orders (always possible), responsible-trading limits, notifications inbox, content, admin. Used by the
@@ -199,11 +215,13 @@ const MODULE_FLAGS = {
   mountAccountArea: 'core', mountPayments: 'payments.deposits', mountMarketsContent: 'incentives', mountCms: 'core', mountFlags: 'core', mountPlayMode: 'play.free_deposits', mountCentralBank: 'central_bank',
   mountApiKeys: 'api.keys', mountTradeApi: 'core', mountDeveloperPortal: 'developer_portal', mountFixAdmin: 'api.fix', // Phase 7 (CLONE_SPEC.md §35); /trade-api/v2 public data is core
   mountWaitlists: 'waitlist.launch', // Phase 7A (CLONE_SPEC.md §36); the Perps list is switched by perps.waitlist
+  mountElections: 'elections.hub', // Phase 7B (CLONE_SPEC.md §37)
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
 const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',
   'api.keys', 'api.ws', 'api.fix', // Phase 7: key expiry sweep, public WebSocket sessions, the FIX acceptor
-  'newsletter']; // Phase 7A: the waitlist newsletter outbox
+  'newsletter', // Phase 7A: the waitlist newsletter outbox
+  'elections.simulator']; // Phase 7B: the simulated results feed
 
 // One-time, audited flag migrations for databases that existed before a default changed. Each runs once per database
 // (a meta marker), so a later admin "off" is never switched back on; a new database starts with the new default (or the

@@ -8,7 +8,7 @@ const { dollars, ufp } = require('./util');
 const { fillVo, orderVo } = require('./serialize');
 const { ccToDollars } = require('./pricing');
 
-const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives', 'display_currency', 'content', 'feature_flags', 'central_bank']);
+const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives', 'display_currency', 'content', 'feature_flags', 'central_bank', 'elections']);
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments', 'incentive_rewards']);
 
 function attachWs(server, { engine, auth, security, upgrade = null }) {
@@ -63,7 +63,7 @@ function attachWs(server, { engine, auth, security, upgrade = null }) {
         }
         for (const ch of chans) {
           const sid = c.nextSid++;
-          const filt = Array.isArray(p.market_tickers) && p.market_tickers.length ? p.market_tickers : Array.isArray(p.milestone_ids) && p.milestone_ids.length ? p.milestone_ids : ch === 'chat' || ch === 'event_content' ? p.event_tickers : null; // live_data filters by milestone id, chat by event ticker
+          const filt = Array.isArray(p.market_tickers) && p.market_tickers.length ? p.market_tickers : Array.isArray(p.milestone_ids) && p.milestone_ids.length ? p.milestone_ids : ch === 'chat' || ch === 'event_content' ? p.event_tickers : ch === 'elections' && Array.isArray(p.hubs) ? p.hubs.slice(0, 20) : null; // live_data filters by milestone id, chat by event ticker
           const tickers = filt ? new Set(filt) : null;
           c.subs.set(sid, { channel: ch, tickers, seq: 0 });
           send(c, { id, type: 'subscribed', msg: { sid, channel: ch } });
@@ -112,6 +112,7 @@ function attachWs(server, { engine, auth, security, upgrade = null }) {
   // Phase 5B (CLONE_SPEC.md §29): AI summary changes per event, incentive program changes, the user's own rewards.
   engine.on('event_content', (t, msg) => publish('event_content', t, 'event_content', msg));
   engine.on('incentives', (t, msg) => publish('incentives', null, 'incentives', msg));
+  engine.on('elections', (hub, msg) => publish('elections', hub, 'elections', msg)); // Phase 7B: results / call / config nudges per hub (§37); clients refetch
   engine.on('display_currency', (msg) => publish('display_currency', null, 'display_currency', msg)); // Admin › Currency & defaults (§30)
   engine.on('content', (msg) => publish('content', null, 'content', msg)); // CMS publishes (CLONE_SPEC.md §32.4): what changed, never draft values
   // Phase 5D (CLONE_SPEC.md §33): flag / play-mode changes (a nudge: clients refetch their own evaluated bundle; the

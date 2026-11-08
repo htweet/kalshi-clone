@@ -79,7 +79,8 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
   db.exec(SCHEMA);
   // Extension points for server/chat-extras.js (gap G10, P2.1/P2.2): reactions / sticker / edit time on the message
   // shape, sticker messages, and the viewer's mutes on history reads.
-  const hooks = { vo: [], beforeMessage: null, afterMessage: null, historyFilter: null };
+  const hooks = { vo: [], beforeMessage: null, afterMessage: null, historyFilter: null,
+    room: null }; // room(t) → {ticker, title, series_ticker, active} for rooms that are not events (the elections hub chat, server/elections.js)
   const env = (k, d) => { const n = Number(process.env[k]); return Number.isFinite(n) && n > 0 ? n : d; };
   // Stricter than the global limiter (300 burst / 150 per s per IP): per user and per IP, chat writes only.
   const limits = { userBurst: env('CHAT_USER_BURST', 8), userPerSec: env('CHAT_USER_PER_SEC', 0.5), ipBurst: env('CHAT_IP_BURST', 30), ipPerSec: env('CHAT_IP_PER_SEC', 3) };
@@ -87,7 +88,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
   const ipBucket = bucket(limits.ipBurst, limits.ipPerSec);
 
   // ------------------------------------------------------------ helpers
-  const getEvent = (t) => db.prepare('SELECT ticker, title, series_ticker FROM events WHERE ticker=?').get(t);
+  const getEvent = (t) => db.prepare('SELECT ticker, title, series_ticker FROM events WHERE ticker=?').get(t) || (hooks.room ? hooks.room(t) || undefined : undefined);
   const isLocked = (uid) => !!db.prepare('SELECT 1 FROM acct_locks WHERE user_id=?').get(uid);
   const isBanned = (uid) => !!db.prepare('SELECT 1 FROM mod_bans WHERE user_id=?').get(uid);
   const nicknameOf = (uid) => db.prepare('SELECT nickname FROM social_profiles WHERE user_id=?').get(uid)?.nickname || null;
@@ -109,7 +110,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
     const now = nowIso();
     db.prepare('INSERT INTO chat_rooms(event_ticker,created_at,updated_at) VALUES(?,?,?) ON CONFLICT(event_ticker) DO NOTHING').run(t, now, now);
   }
-  const eventActive = (t) => !!db.prepare("SELECT 1 FROM markets WHERE event_ticker=? AND status='active' LIMIT 1").get(t);
+  const eventActive = (t) => { const x = hooks.room ? hooks.room(t) : null; if (x) return x.active !== false; return !!db.prepare("SELECT 1 FROM markets WHERE event_ticker=? AND status='active' LIMIT 1").get(t); };
   const roomStatus = (room, active) => (room.locked ? 'locked' : active || room.after_close === 'open' ? 'open' : 'read_only');
 
   // Presence: distinct WebSocket connections subscribed to `chat` for the event (approximate online count).
