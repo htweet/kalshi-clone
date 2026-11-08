@@ -153,8 +153,9 @@ test('every flag off hides its UI and blocks its API, then on again', async () =
     ['trading.scalar', null, ['POST', `/v1/users/${u}/orders`, { ticker: 'PLXGDP-26Q4', side: 'yes', type: 'limit', price: 1, count: 1 }]],
     ['trading.collateral_return', null, ['GET', `/v1/users/${u}/collateral_returns`]],
     ['trading.rolling', async () => { await page.goto(BASE + '/live'); await page.waitForSelector('#flash', { state: 'attached' }); return hiddenByFlag(page, '#flash'); }, ['GET', '/v1/rolling/current']],
-    ['hubs', async () => { await page.goto(BASE + '/hubs/elections'); return page.isVisible('[data-testid=feature-unavailable][data-feature=hubs]'); }, null],
-    ['hubs.widgets', async () => { await page.goto(BASE + '/hubs/elections'); await page.waitForSelector('[data-testid=senate-map]', { state: 'attached' }); return hiddenByFlag(page, '[data-testid=senate-map]'); }, ['GET', '/v1/hubs/senate_map']],
+    // The Phase 5B elections hub is removed (owner decision 2026-11-08): the rates hub carries the hubs flags now.
+    ['hubs', async () => { await page.goto(BASE + '/hubs/economics'); return page.isVisible('[data-testid=feature-unavailable][data-feature=hubs]'); }, null],
+    ['hubs.widgets', async () => { await page.goto(BASE + '/hubs/economics'); await page.waitForSelector('[data-testid=fed-outlook]', { state: 'attached' }); return hiddenByFlag(page, '[data-testid=fed-outlook]'); }, ['GET', '/v1/hubs/fed_funds_outlook']],
     ['ballot', async () => { await page.goto(BASE + '/ballot'); return page.isVisible('[data-testid=feature-unavailable][data-feature=ballot]'); }, ['POST', '/v1/ballot/lookup', { query: '90142' }]],
     ['incentives', async () => { await page.goto(BASE + '/'); await openMore(); return hiddenByFlag(page, '.menu [data-testid=more-incentives]'); }, ['GET', '/v1/incentive_programs']],
     ['rewards', async () => { await page.goto(BASE + '/'); await page.click('[data-testid=account-menu]'); await page.waitForSelector('[data-testid=menu-rewards]', { state: 'attached' }); return hiddenByFlag(page, '[data-testid=menu-rewards]'); }, ['GET', '/v1/rewards/new_user_checklist']],

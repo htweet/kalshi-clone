@@ -53,7 +53,9 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "shell.html.search_placeholder": "Trade on anything",
   "shell.html.search_label": "Search markets",
   "shell.html.categories": "Categories",
-  "shell.html.reconnecting": "Reconnecting to live prices…"
+  "shell.html.reconnecting": "Reconnecting to live prices…",
+  "shell.html.polling": "Live updates paused on this connection: refreshing every 15 seconds.",
+  "shell.html.skip_to_content": "Skip to content"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

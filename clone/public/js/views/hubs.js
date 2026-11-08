@@ -1,6 +1,6 @@
 // Hubs with data widgets (Phase 5B, PLAN A15 and P5.3; CLONE_SPEC.md §29.5, §29.8):
-//   /hubs/elections  Senate map (invented states, driven by the Senate-race markets), expected-seat history, the
-//                    governor race's forecast history and "What's on your ballot?"
+//   /hubs/elections  removed (owner decision 2026-11-08): the server redirects it to the elections hub v2 (§37) and so
+//                    does this view on a client-side navigation
 //   /hubs/economics  Fed funds outlook from the central-bank decision markets, implied-change forecast history
 //   /ballot          the ballot lookup on its own page
 // Widgets re-read their endpoints when a price they depend on changes (`ticker` channel, debounced).
@@ -39,24 +39,6 @@ function valueChart(points, { fmt = (v) => String(v), height = 200, label = 'Cha
   const last = points[points.length - 1];
   const hover = hoverAttr([{ name: label, color: 'var(--brand)', points: points.map((p) => ({ x: sx(p.t), y: sy(p.v), t: p.t * 1000, label: fmt(p.v) })) }], { x0: 0, x1: W - padR - 8 });
   return `<svg class="chart v-h" viewBox="0 0 ${esc(W)} ${esc(H)}"${vars({ '--h': `${H}px` })} role="img" aria-label="${esc(label)}"${hover}>${grid}${days}${ref}<path d="${d}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="4.5" fill="var(--brand)"/></svg>`;
-}
-
-// ---------------------------------------------------------------- Senate map
-const LEAN_LABEL = { safe_blue: ts('hubs.lean_label_safe_blue.safe_blue'), lean_blue: ts('hubs.lean_label_lean_blue.lean_blue'), tossup: 'Toss-up', lean_red: ts('hubs.lean_label_lean_red.lean_red'), safe_red: ts('hubs.lean_label_safe_red.safe_red'), held_blue: ts('hubs.lean_label_held_blue.not_up_blue'), held_red: ts('hubs.lean_label_held_red.not_up_red'), held_split: ts('hubs.lean_label_held_split.not_up_split') };
-function senateHtml(m) {
-  const cols = Math.max(...m.states.map((s) => s.grid.col)) + 1;
-  const tiles = [...m.states].sort((a, b) => a.grid.row - b.grid.row || a.grid.col - b.grid.col).map((s) => {
-    const inner = `<span class="hub-tile-code">${esc(s.code)}</span><span class="hub-tile-name">${esc(s.name)}</span><span class="hub-tile-p num" data-testid="tile-p">${s.status === 'race' ? `${s.leader === 'blue' ? te('hubs.senate_html.blue') : te('hubs.senate_html.red')} ${pct(Math.max(s.blue.probability, s.red.probability))}` : te('hubs.senate_html.not_up')}</span><span class="hub-tile-lean">${esc(LEAN_LABEL[s.lean] || '')}</span>`;
-    const attrs = `class="hub-tile lean-${esc(s.lean)}" data-testid="senate-tile" data-state="${esc(s.code)}" data-status="${esc(s.status)}" data-lean="${esc(s.lean)}"${vars({ '--row': s.grid.row + 1, '--col': s.grid.col + 1 })}`;
-    return s.status === 'race' ? `<a ${attrs} href="${eventHref({ series_ticker: s.series_ticker, series_slug: s.series_slug, event_ticker: s.event_ticker })}" data-link>${inner}</a>` : `<div ${attrs}>${inner}</div>`;
-  }).join('');
-  const blueW = (m.seats.expected_blue / m.chamber_size) * 100;
-  return `<div class="hub-seats" data-testid="senate-seats"><div class="hub-seat-n"><b class="c-blue" data-testid="exp-blue">${esc(m.seats.expected_blue.toFixed(1))}</b><span class="faint">${te('hubs.senate_html.expected_blue_seats')}</span></div>
-      <div class="hub-seat-n ta-r"><b class="c-red" data-testid="exp-red">${esc(m.seats.expected_red.toFixed(1))}</b><span class="faint">${te('hubs.senate_html.expected_red_seats')}</span></div></div>
-    <div class="hub-seatbar" role="img" aria-label="${te('hubs.senate_html.expected_seats_blue_red_of', { expected_blue: esc(m.seats.expected_blue), expected_red: esc(m.seats.expected_red), chamber_size: esc(m.chamber_size) })}"><span class="blue v-w"${vars({ '--w': `${blueW.toFixed(2)}%` })}></span><span class="red"></span><i class="maj v-left"${vars({ '--left': `${((m.majority - 0.5) / m.chamber_size) * 100}%` })}></i></div>
-    <div class="faint hub-note">${te('hubs.senate_html.seats_for_a_majority_races', { chamber_size: esc(m.chamber_size), majority: esc(m.majority), races: esc(m.races), projected_blue: esc(m.seats.projected_blue), projected_red: esc(m.seats.projected_red) })}</div>
-    <div class="hub-grid v-cols"${vars({ '--cols': cols })} data-testid="senate-grid">${tiles}</div>
-    <div class="hub-legend">${['safe_blue', 'lean_blue', 'tossup', 'lean_red', 'safe_red'].map((k) => `<span><i class="lean-${k}"></i>${esc(LEAN_LABEL[k])}</span>`).join('')}</div>`;
 }
 
 // ---------------------------------------------------------------- Fed funds outlook
@@ -122,7 +104,7 @@ function mountBallot(box) {
 }
 
 // ---------------------------------------------------------------- pages
-export async function render({ el, params }) {
+export async function render({ el, params, navigate }) {
   const hub = params.hub || 'ballot';
   if (hub === 'ballot') {
     document.title = tx('hubs.render.your_ballot_parlance');
@@ -130,27 +112,26 @@ export async function render({ el, params }) {
     mountBallot(el.querySelector('#ballot-box'));
     return () => {};
   }
-  if (hub !== 'elections' && hub !== 'economics') { const e = new Error(tx('hubs.render.unknown_hub')); e.notFound = true; throw e; }
-  const elections = hub === 'elections';
-  document.title = tx('hubs.render.parlance', { value: elections ? tx('hubs.render.harbor_2026_hub') : tx('hubs.render.rates_outlook') });
-  el.innerHTML = `<div class="hub-page" data-testid="hub-page" data-hub="${esc(hub)}"><div class="overline">${elections ? te('hubs.render.elections') : te('hubs.render.economics')}</div><h1 class="page-title">${elections ? te('hubs.render.harbor_2026_hub') : te('hubs.render.rates_outlook')}</h1>
+  if (hub === 'elections') { // the Phase 5B hub is removed: on to the Nigeria elections hub (CLONE_SPEC.md §29.8, §37)
+    let slug = 'nigeria-2027';
+    try { const r = await get('/v1/elections/hubs'); slug = (r.hubs.find((h) => h.country === 'NG' && h.kind === 'general') || r.hubs.find((h) => h.country === 'NG') || { slug })?.slug || slug; } catch { /* keep the default */ }
+    navigate(`/category/elections/${encodeURIComponent(slug)}`, { replace: true });
+    return () => {};
+  }
+  if (hub !== 'economics') { const e = new Error(tx('hubs.render.unknown_hub')); e.notFound = true; throw e; }
+  document.title = tx('hubs.render.parlance', { value: tx('hubs.render.rates_outlook') });
+  el.innerHTML = `<div class="hub-page" data-testid="hub-page" data-hub="${esc(hub)}"><div class="overline">${te('hubs.render.economics')}</div><h1 class="page-title">${te('hubs.render.rates_outlook')}</h1>
     <div class="hub-layout"><div class="minw-0">
-      <section class="card hub-card" data-flag="hubs.widgets" data-testid="${elections ? 'senate-map' : 'fed-outlook'}"><div class="hub-card-head"><h2>${elections ? te('hubs.render.senate_map') : te('hubs.render.fed_funds_outlook')}</h2><span class="faint" data-updated></span></div><div data-widget><div class="skeleton minh-260"></div></div></section>
-      <section class="card hub-card" data-flag="hubs.widgets"><div class="hub-card-head"><h2>${elections ? te('hubs.render.expected_blue_seats') : te('hubs.render.forecast_history')}</h2><span class="faint">${elections ? te('hubs.render.last_7_days') : te('hubs.render.next_meeting_implied_change')}</span></div><div data-history></div></section>
-      <section class="card hub-card" data-flag="hubs.widgets"><div class="hub-card-head"><h2>${elections ? te('hubs.render.forecast_history_governor') : te('hubs.render.next_meeting_outcome_odds')}</h2><span class="faint">${te('hubs.render.last_7_days')}</span></div><div data-forecast></div></section>
+      <section class="card hub-card" data-flag="hubs.widgets" data-testid="fed-outlook"><div class="hub-card-head"><h2>${te('hubs.render.fed_funds_outlook')}</h2><span class="faint" data-updated></span></div><div data-widget><div class="skeleton minh-260"></div></div></section>
+      <section class="card hub-card" data-flag="hubs.widgets"><div class="hub-card-head"><h2>${te('hubs.render.forecast_history')}</h2><span class="faint">${te('hubs.render.next_meeting_implied_change')}</span></div><div data-history></div></section>
+      <section class="card hub-card" data-flag="hubs.widgets"><div class="hub-card-head"><h2>${te('hubs.render.next_meeting_outcome_odds')}</h2><span class="faint">${te('hubs.render.last_7_days')}</span></div><div data-forecast></div></section>
     </div><aside class="minw-0" data-rail></aside></div></div>`;
   const widget = el.querySelector('[data-widget]'); const history = el.querySelector('[data-history]'); const fc = el.querySelector('[data-forecast]');
   let tickers = new Set();
   async function draw() {
     if (!flagOn('hubs.widgets')) return; // widget data is behind the hubs.widgets flag (CLONE_SPEC.md §33)
     try {
-      if (elections) {
-        const m = await get('/v1/hubs/senate_map');
-        widget.innerHTML = senateHtml(m);
-        history.innerHTML = valueChart(m.history.map((p) => ({ t: p.ts, v: p.expected_blue })), { fmt: (v) => v.toFixed(1), label: tx('hubs.render.expected_blue_seats'), refLine: m.majority - 0.5 });
-        tickers = new Set(m.states.filter((s) => s.status === 'race').flatMap((s) => [s.blue.ticker, s.red.ticker]));
-        await drawForecast(fc, 'PLXSTATE', 'PLXSTATE-26GOV');
-      } else {
+      {
         const o = await get('/v1/hubs/fed_funds_outlook');
         widget.innerHTML = outlookHtml(o);
         tickers = new Set(o.meetings.flatMap((m) => ['CUT', 'HOLD', 'HIKE'].map((k) => `${m.event_ticker}-${k}`)));
@@ -162,8 +143,7 @@ export async function render({ el, params }) {
     } catch (e) { widget.innerHTML = `<p class="faint">${esc(e.message)}</p>`; }
   }
   await draw();
-  if (elections) mountBallot(el.querySelector('[data-rail]'));
-  else el.querySelector('[data-rail]').innerHTML = `<section class="card hub-card"><h2>${te('hubs.render.about_these_numbers')}</h2><p class="faint">${te('hubs.render.probabilities_are_the_last_traded')}</p></section>`;
+  el.querySelector('[data-rail]').innerHTML = `<section class="card hub-card"><h2>${te('hubs.render.about_these_numbers')}</h2><p class="faint">${te('hubs.render.probabilities_are_the_last_traded')}</p></section>`;
   let t = null;
   const unsub = socket.subscribe({ channels: ['ticker'] }, (m) => { if (m.type === 'ticker' && tickers.has(m.msg.market_ticker)) { clearTimeout(t); t = setTimeout(draw, 800); } });
   return () => { unsub(); clearTimeout(t); };

@@ -6,7 +6,7 @@
 //     published one and a banner says so. The server answers that route only to content editors, so the mode cannot
 //     show drafts to anyone else (the flag is dropped when the server refuses).
 //   - Brand colours come from /content-theme.css (a stylesheet: CSS custom properties, no inline styles).
-import { setTexts, staticKeys, t, te, ts } from './i18n.js';
+import { setTexts, staticKeys, t, te, ts, textLocale } from './i18n.js';
 import { esc } from './lib.js';
 import { refreshClientToken } from './security.js';
 
@@ -24,7 +24,8 @@ export const inPreview = () => previewOn;
 export const media = (slot) => current.media[slot] || null;
 export const footerContent = () => current.footer;
 // <img> markup for a media slot, or '' when the slot keeps its built-in artwork (escaped; the URL is a /media path).
-export const slotImg = (slot, cls = 'cms-slot-img') => { const m = media(slot); return m ? `<img src="${esc(m.url)}" alt="${esc(m.alt || '')}" class="${esc(cls)}" width="${esc(m.width)}" height="${esc(m.height)}" data-slot="${esc(slot)}" loading="lazy">` : ''; };
+// Data saver (CLONE_SPEC.md §38.7): decorative promo and hero art is skipped (the built-in artwork is CSS, no download).
+export const slotImg = (slot, cls = 'cms-slot-img') => { const m = media(slot); if (m && document.documentElement.dataset.saver === '1' && /^(hero|promo|hub)\./.test(slot)) return ''; return m ? `<img src="${esc(m.url)}" alt="${esc(m.alt || '')}" class="${esc(cls)}" width="${esc(m.width)}" height="${esc(m.height)}" data-slot="${esc(slot)}" loading="lazy">` : ''; };
 
 let theme = boot.theme || null; // version of the custom brand stylesheet, null = code defaults
 // The brand stylesheet link: present only while the brand differs from the defaults (or in preview). A same-origin
@@ -42,8 +43,14 @@ export function renderFooter() {
   const f = current.footer;
   if (!host || !f || !Array.isArray(f.columns)) return;
   const link = (l) => (l.href.startsWith('/') ? `<a href="${esc(l.href)}" data-link>${esc(l.label)}</a>` : `<a href="${esc(l.href)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a>`);
-  host.innerHTML = `<span data-testid="footer-tagline">${esc(f.tagline || '')}</span><div class="footer-cols" data-testid="footer-cols">${f.columns.map((c) => `<div class="footer-col"><b>${esc(c.title)}</b>${c.links.map(link).join('')}</div>`).join('')}</div>`;
+  // Social links (A18, CLONE_SPEC.md §38.8): new tab, no referrer, an accessible name per network.
+  const social = Array.isArray(f.social) && f.social.length ? `<div class="footer-social" data-testid="footer-social">${f.social.map((s) => `<a href="${esc(s.href)}" target="_blank" rel="noopener noreferrer" data-network="${esc(s.network)}" aria-label="${te('content-live.footer.social', { network: esc(s.label) })}">${esc(s.label)}</a>`).join('')}</div>` : '';
+  host.innerHTML = `<span data-testid="footer-tagline">${esc(f.tagline || '')}</span><nav class="footer-cols" data-testid="footer-cols" aria-label="${te('content-live.footer.nav')}">${f.columns.map((c) => `<div class="footer-col"><b>${esc(c.title)}</b>${c.links.map(link).join('')}</div>`).join('')}</nav>${social}<div class="footer-tools" data-testid="footer-tools"></div>`;
+  for (const fn of footerHooks) { try { fn(host.querySelector('.footer-tools')); } catch (e) { console.error(e); } }
 }
+// Footer tools (the language switcher and the data saver toggle, public/js/locale.js) render into the footer each time.
+const footerHooks = [];
+export const onFooter = (fn) => { footerHooks.push(fn); const el = document.querySelector('footer.footer .footer-tools'); if (el) fn(el); };
 
 function previewBanner() {
   document.getElementById('cms-preview-banner')?.remove();
@@ -60,13 +67,14 @@ function previewBanner() {
 async function fetchBundle() {
   if (previewOn) {
     const ct = await refreshClientToken();
-    const r = await fetch('/v1/admin/cms/preview_bundle', { credentials: 'same-origin', headers: { Accept: 'application/json', ...(ct ? { 'X-Client-Token': ct } : {}) } });
+    const r = await fetch(`/v1/admin/cms/preview_bundle?locale=${encodeURIComponent(textLocale())}`, { credentials: 'same-origin', headers: { Accept: 'application/json', ...(ct ? { 'X-Client-Token': ct } : {}) } });
     if (r.status === 401 || r.status === 403) { previewOn = false; writePreview(false); return fetchBundle(); }
     if (!r.ok) throw new Error(t('content-live.fetch_bundle.http', { status: r.status }));
     return r.json();
   }
   const ct = await refreshClientToken(); // every /v1 call carries the signed client token (PLAN P1.10)
-  const r = await fetch('/v1/content/bundle', { credentials: 'same-origin', headers: { Accept: 'application/json', ...(ct ? { 'X-Client-Token': ct } : {}), ...(etag ? { 'If-None-Match': etag } : {}) } });
+  // The bundle of the page's language (CLONE_SPEC.md §38.5).
+  const r = await fetch(`/v1/content/bundle?locale=${encodeURIComponent(textLocale())}`, { credentials: 'same-origin', headers: { Accept: 'application/json', ...(ct ? { 'X-Client-Token': ct } : {}), ...(etag ? { 'If-None-Match': etag } : {}) } });
   if (r.status === 304) return null;
   if (!r.ok) throw new Error(t('content-live.fetch_bundle.http', { status: r.status }));
   etag = r.headers.get('ETag');

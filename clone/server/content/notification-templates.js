@@ -195,6 +195,12 @@ Object.assign(TEMPLATES, {
     sample: { code: '482913', minutes: '10', app_name: 'Parlance' },
     defaults: { sms: 'Your Parlance code is {{code}}. It expires in {{minutes}} minutes. Never share it with anyone.' },
   },
+  // Phase 8 (CLONE_SPEC.md §38.7): the SMS notification channel (simulated provider adapter, flag `sms`, off by default).
+  'sms.notification': {
+    kind: 'sms', group: 'Text messages', label: 'Notification by SMS (money, security, fills, price alerts)', fields: ['sms'], vars: ['title', 'body', 'app_name'],
+    sample: { title: 'Order filled', body: 'Bought 10 YES at ₦64.', app_name: 'Parlance' },
+    defaults: { sms: '{{app_name}}: {{title}}. {{body}} Reply STOP or switch SMS off in Settings.' },
+  },
   'push.test': {
     kind: 'push', group: 'Push', label: 'Test notification (Settings › Notifications)', fields: ['push_title', 'push_body'], vars: ['app_name'],
     sample: { app_name: 'Parlance' },

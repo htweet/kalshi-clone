@@ -12,7 +12,8 @@
 //      with audit, regeneration rate limited;
 //   6. the Liquidity Incentive Program: enrolment, accrual from resting liquidity, an admin payout through the journal,
 //      the ledger audit balanced, region gating;
-//   7. hub widgets (Senate map, Fed funds outlook, forecast history) computed from market data and updating live;
+//   7. hub widgets (Fed funds outlook, forecast history) computed from market data and updating live; the Phase 5B
+//      Senate map hub is removed (owner decision 2026-11-08): /hubs/elections redirects, its API is gone;
 //   8. a restart keeps everything (cached summary, saved ballot area, rewards, programs, settled lines) and the new
 //      pages have no horizontal overflow at 390 px in dark and light.
 // No test touches the network: the external summarizer is a fake adapter injected through start().
@@ -234,7 +235,7 @@ test('calendar event_limits: a daily family is capped at two per section with a 
 test('ballot lookup: address → invented jurisdiction and its contests; only the jurisdiction is saved; no address in any DB byte or log; rate limited', async () => {
   const page = await signedUpPage('ballot', 'Bea Ballot');
   const uid = uidOf('ballot');
-  await page.goto(BASE + '/hubs/elections');
+  await page.goto(BASE + '/ballot'); // the ballot card's own page (the old /hubs/elections page that also held it is removed)
   await page.waitForSelector('[data-testid=ballot-form]');
   assert.match(await page.textContent('[data-testid=ballot-privacy]'), /don’t store your address/);
   await page.fill('#ballot-address', ADDRESS);
@@ -475,30 +476,21 @@ test('Liquidity Incentive Program: admin program, enrolment, accrual from restin
 });
 
 // ------------------------------------------------------------------------------------------------- 7. hub widgets
-test('hub widgets: Senate map, Fed funds outlook and forecast history are computed from market prices and update live', async () => {
+test('hub widgets: Fed funds outlook and forecast history are computed from market prices and update live; the removed Senate map hub redirects', async () => {
   const last = (t) => D.q('SELECT yes_price_cents p FROM trades WHERE market_ticker=? ORDER BY created_ts DESC, rowid DESC LIMIT 1', t)[0].p;
   const page = await signedUpPage('hubs', 'Hal Hubs');
   const uid = uidOf('hubs');
+  // Owner decision 2026-11-08 (CLONE_SPEC.md §29.8): the Phase 5B elections hub and its Senate-map API are removed. The
+  // page URL answers 301 to the elections hub v2 (this suite seeds no election, so the elections category), and the
+  // browser lands there; the API route no longer exists.
+  const red = await fetch(BASE + '/hubs/elections', { redirect: 'manual' });
+  assert.equal(red.status, 301);
+  assert.match(red.headers.get('location'), /^\/category\/elections(\/[a-z0-9-]+)?$/);
   await page.goto(BASE + '/hubs/elections');
-  await page.waitForSelector('[data-testid=senate-tile]');
-  assert.equal(await page.locator('[data-testid=senate-tile]').count(), 12);
-  assert.equal(await page.locator('[data-testid=senate-tile][data-status=race]').count(), 8);
-  const shown = async (code) => (await page.textContent(`[data-testid=senate-tile][data-state="${code}"] [data-testid=tile-p]`)).trim();
-  const expect = (code) => { const b = last(`PLXSENATE-26${code}-BLUE`); const r = last(`PLXSENATE-26${code}-RED`); const p = b / (b + r); return `${p >= 0.5 ? 'Blue' : 'Red'} ${Math.round(Math.max(p, 1 - p) * 100)}%`; };
-  assert.equal(await shown('RB'), expect('RB'));
-  const m = (await H.call(page, 'GET', '/v1/hubs/senate_map')).body;
-  assert.equal(await page.textContent('[data-testid=exp-blue]'), m.seats.expected_blue.toFixed(1));
-  const races = m.states.filter((s) => s.status === 'race');
-  const exp = m.seats.held_blue + races.reduce((a, s) => a + s.blue.probability, 0);
-  assert.ok(Math.abs(exp - m.seats.expected_blue) < 0.02);
-  // A trade moves the Ridgeback race; the tile follows without a reload.
+  await page.waitForURL(/\/category\/elections/);
+  assert.equal((await H.call(page, 'GET', '/v1/hubs/senate_map')).status, 404);
+  assert.equal(await page.locator('[data-testid=senate-tile]').count(), 0);
   assert.equal((await H.call(page, 'POST', `/v1/users/${uid}/deposits`, { amount_dollars: 300 })).status, 201);
-  const before = await shown('RB');
-  const r = await H.call(page, 'POST', `/v1/users/${uid}/orders`, { ticker: 'PLXSENATE-26RB-RED', side: 'yes', type: 'market', count: 200 });
-  assert.equal(r.status, 201, JSON.stringify(r.body));
-  await page.waitForFunction(([b]) => document.querySelector('[data-testid=senate-tile][data-state="RB"] [data-testid=tile-p]').textContent.trim() !== b, [before], { timeout: 15000 });
-  assert.equal(await shown('RB'), expect('RB'));
-  assert.ok(await page.locator('[data-testid=forecast-history][data-kind=probability] svg').count());
 
   // Fed funds outlook: per-meeting probabilities are the normalised Cut / Hold / Hike prices; implied change 25 × (hike − cut).
   await page.goto(BASE + '/hubs/economics');
@@ -513,6 +505,14 @@ test('hub widgets: Senate map, Fed funds outlook and forecast history are comput
     assert.ok(Math.abs(shownCh - 25 * ((k - c) / s)) <= 0.051, `${et}: ${shownCh} vs ${25 * ((k - c) / s)}`);
   }
   assert.ok(await page.locator('[data-testid=forecast-history][data-kind=rate_decision] svg').count());
+  // A trade on the next meeting's Cut market moves its row without a reload (the live update the Senate tiles showed before).
+  const next = meetings.sort()[0];
+  const cutCell = page.locator(`[data-testid=fed-meeting][data-event="${next}"] [data-k=cut]`);
+  const cutBefore = await cutCell.textContent();
+  const tr = await H.call(page, 'POST', `/v1/users/${uid}/orders`, { ticker: `${next}-CUT`, side: 'yes', type: 'market', count: 200 });
+  assert.equal(tr.status, 201, JSON.stringify(tr.body));
+  await page.waitForFunction(([sel, b]) => (document.querySelector(sel)?.textContent || b) !== b, [`[data-testid=fed-meeting][data-event="${next}"] [data-k=cut]`, cutBefore], { timeout: 15000 });
+  { const c = last(`${next}-CUT`); const h = last(`${next}-HOLD`); const k = last(`${next}-HIKE`); assert.equal(await cutCell.textContent(), `${Math.round((c / (c + h + k)) * 100)}%`); }
   // Event forecast history API: hourly points, normalised for a mutually exclusive event.
   const fh = (await H.call(page, 'GET', '/v1/series/PLXRATE/events/PLXRATE-26DEC/forecast_history?days=2')).body;
   assert.equal(fh.kind, 'rate_decision'); assert.ok(fh.points.length >= 40);
@@ -553,7 +553,7 @@ test('persistence across a restart; new pages clean at 390 px in dark and light'
 
   // 390 px, dark and light: no horizontal overflow on the new pages.
   const lines = D.q("SELECT event_ticker e FROM sports_line_events LIMIT 1")[0].e;
-  const pages = ['/hubs/elections', '/hubs/economics', '/ballot', '/incentives', '/incentives/terms', evUrl(EVT), evUrl(lines), '/calendar'];
+  const pages = ['/hubs/economics', '/ballot', '/incentives', '/incentives/terms', evUrl(EVT), evUrl(lines), '/calendar'];
   for (const theme of ['dark', 'light']) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
     await ctx.addInitScript((t) => { try { localStorage.setItem('parlance-theme', t); } catch { /* ignore */ } }, theme);

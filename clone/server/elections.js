@@ -59,9 +59,9 @@ CREATE TABLE IF NOT EXISTS el_ballot_saved (user_id TEXT PRIMARY KEY REFERENCES 
 const SEED_KEY = 'elections_seed_v1';
 const DAY = 86400000;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
-const CALL_TTL_MS = DAY; // a pending two-person call lapses after a day (like resolution approvals, §28.7)
+
 const ST = { none: 0, counting: 1, counted: 2, called: 3, runoff: 4 };
-const BAND = (p) => (p >= 0.9 ? 'safe' : p >= 0.75 ? 'likely' : p >= 0.6 ? 'lean' : 'tossup');
+
 const pm = (x) => Math.round(Math.max(0, Math.min(1, x)) * 1000); // probability / fraction → per mille
 const KINDS = ['countries', 'divisions', 'offices', 'parties', 'candidates', 'elections', 'races'];
 const PLAIN = /^[^<>\u0000-\u001f\u007f]*$/; // names are plain text (always escaped on output too)
@@ -75,6 +75,13 @@ function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6d2b79f5) >>>
 
 function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, options = {} }) {
   db.exec(SCHEMA);
+  // Owner settings (ground rule 6, CLONE_SPEC.md §38.1), read on every use (live): a pending two-person call lapses after
+  // `elections.pending_expiry_hours` (24 h, like resolution approvals §28.7); rating bands 90 / 75 / 60 and the projected
+  // threshold 90 % are settings too.
+  const OSET = engine.ownerSettings || null;
+  const CALL_TTL = () => (OSET ? OSET.get('elections.pending_expiry_hours') : 24) * 3600000;
+  const bands = () => (OSET ? { safe: OSET.get('elections.rating_safe_pct') / 100, likely: OSET.get('elections.rating_likely_pct') / 100, lean: OSET.get('elections.rating_lean_pct') / 100, projected: OSET.get('elections.projected_pct') / 100 } : { safe: 0.9, likely: 0.75, lean: 0.6, projected: 0.9 });
+  const BAND = (p) => { const b = bands(); return p >= b.safe ? 'safe' : p >= b.likely ? 'likely' : p >= b.lean ? 'lean' : 'tossup'; };
   const can = admin.can;
   const production = process.env.NODE_ENV === 'production';
   const snapEveryMin = Math.max(1, Number(options.snapshotEveryMin || 30));
@@ -356,7 +363,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       return x.cands.map((c) => ({ candidate_id: c.id, name: c.name, initials: c.initials, photo_url: c.photo_url, party: c.party.short_name, color: c.party.color, votes: votes[c.id] || 0, share: tot ? (votes[c.id] || 0) / tot : 0,
         result: x.race.status === 'called' && !unitVotes ? (x.race.winner_candidate_id === c.id ? 'yes' : 'no') : null })).sort((a, b) => b.votes - a.votes);
     };
-    const kindOf = (st, pl, done) => (st === ST.called || done ? 'called' : st === ST.runoff ? 'runoff' : st === ST.counting || st === ST.counted ? (pl >= 0.9 ? 'projected' : 'leading') : 'pending');
+    const kindOf = (st, pl, done) => (st === ST.called || done ? 'called' : st === ST.runoff ? 'runoff' : st === ST.counting || st === ST.counted ? (pl >= bands().projected ? 'projected' : 'leading') : 'pending');
     const states = cfg.mapUnits.map((d) => {
       const base = { id: d.id, code: d.code, name: d.name, row: d.data.row ?? 0, col: d.data.col ?? 0, small: !!d.data.small, territory: !!d.data.territory };
       if (national) {
@@ -433,7 +440,8 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       else if (it.party_id === right) cols[{ lean: 4, likely: 5, safe: 6 }[band]].items.push(it);
       else others.push({ ...it, band });
     }
-    return { left: left ? party(left) : null, right: right ? party(right) : null, settled_left: left ? settled[left] : 0, settled_right: right ? settled[right] : 0, columns: cols, others: others.map((o) => ({ ...o, party: party(o.party_id) })) };
+    const b = bands();
+    return { bands: { safe: Math.round(b.safe * 100), likely: Math.round(b.likely * 100), lean: Math.round(b.lean * 100), projected: Math.round(b.projected * 100) }, left: left ? party(left) : null, right: right ? party(right) : null, settled_left: left ? settled[left] : 0, settled_right: right ? settled[right] : 0, columns: cols, others: others.map((o) => ({ ...o, party: party(o.party_id) })) };
   }
 
   // ---------------------------------------------------------------------------------------------- Power Index
@@ -496,7 +504,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       calls: db.prepare("SELECT * FROM el_calls WHERE race_id=? ORDER BY requested_ts DESC LIMIT 20").all(x.id).map(callVo) };
   }
   const callVo = (c) => ({ id: c.id, race_id: c.race_id, action: c.action, outcome: c.outcome, candidate_id: c.candidate_id, reason: c.reason, status: c.status, requested_by: emailOf(c.requested_by), requested_time: new Date(c.requested_ts).toISOString(),
-    expires_time: new Date(c.requested_ts + CALL_TTL_MS).toISOString(), decided_by: emailOf(c.decided_by), decided_time: c.decided_ts ? new Date(c.decided_ts).toISOString() : null, note: c.note, proposals: J(c.proposals_json, []) });
+    expires_time: new Date(c.requested_ts + CALL_TTL()).toISOString(), decided_by: emailOf(c.decided_by), decided_time: c.decided_ts ? new Date(c.decided_ts).toISOString() : null, note: c.note, proposals: J(c.proposals_json, []) });
   function hubVo(el, req) {
     const mdl = model(el);
     const country = mdl.cfg.row;
@@ -797,9 +805,23 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       else db.prepare('INSERT INTO el_calls(id,race_id,action,outcome,candidate_id,reason,status,requested_by,requested_ts,decided_by,decided_ts,proposals_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
         .run(newId('ec_'), r.id, b.action, b.outcome || null, v.c ? v.c.id : null, b.reason, 'done', actor, now(), actor, now(), JSON.stringify(proposals));
     });
+    // Ground rule 6 switch `elections.second_resolver` (on, CLONE_SPEC.md §38.1): off, the call settles its markets at once
+    // (the caller resolves them, each resolution audited and noted on the proposal); on, a second resolver approves them on
+    // the resolution desk as before.
+    if (proposals.length && !flags.jobOn('elections.second_resolver')) {
+      for (const p of proposals) {
+        const a = db.prepare("SELECT * FROM res_approvals WHERE id=? AND status='pending'").get(p.approval_id);
+        if (!a) continue;
+        try {
+          const outcome = admin.executeResolve(req, a.market_ticker, JSON.parse(a.payload), { approval_id: a.id, second_resolver: 'off' });
+          db.prepare("UPDATE res_approvals SET status='approved', decided_by=?, decided_ts=?, decision_note=?, outcome=? WHERE id=?").run(actor, now(), S('second_resolver_off'), JSON.stringify({ market_status: outcome?.status || null }), a.id);
+          p.executed = true;
+        } catch (x) { console.error('election settlement', a.market_ticker, x.message); }
+      }
+    }
     const after = db.prepare('SELECT status, winner_candidate_id FROM el_races WHERE id=?').get(r.id);
     admin.audit(req, b.action === 'uncall' ? 'elections.uncall' : 'elections.call', 'election_race', r.id, before, { ...after, outcome: b.outcome || null, proposals, approved_by: approvedBy ? emailOf(approvedBy) : null, requested_by: emailOf(actor) }, b.reason);
-    if (proposals.length) for (const u of staffWith('resolution.write')) if (u.id !== actor) feat.notify(u.id, { type: 'admin_approval', title: S('notify.settlement.title', { race: r.name }), body: S('notify.settlement.body', { race: r.name, count: proposals.length }), link: '/admin/resolution' });
+    if (proposals.some((p) => !p.executed)) for (const u of staffWith('resolution.write')) if (u.id !== actor) feat.notify(u.id, { type: 'admin_approval', title: S('notify.settlement.title', { race: r.name }), body: S('notify.settlement.body', { race: r.name, count: proposals.length }), link: '/admin/resolution' });
     const el = electionById(r.election_id);
     const label = b.action === 'uncall' ? `${r.name}` : b.outcome === 'runoff' ? `${r.name}` : `${r.name}: ${v.c.name}`;
     snapshot(el, b.action, label.slice(0, 120));
@@ -816,7 +838,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       auth.assertFresh(req, 'election_call'); // step-up (CLONE_SPEC.md §22.6)
       const office = db.prepare('SELECT two_person FROM el_offices WHERE id=?').get(r.office_id);
       if (office && office.two_person) {
-        if (db.prepare("SELECT 1 FROM el_calls WHERE race_id=? AND status='pending' AND requested_ts>?").get(r.id, now() - CALL_TTL_MS)) throw E.conflict('call_pending', S('error.call_pending'));
+        if (db.prepare("SELECT 1 FROM el_calls WHERE race_id=? AND status='pending' AND requested_ts>?").get(r.id, now() - CALL_TTL())) throw E.conflict('call_pending', S('error.call_pending'));
         const id = newId('ec_');
         db.prepare('INSERT INTO el_calls(id,race_id,action,outcome,candidate_id,reason,status,requested_by,requested_ts) VALUES(?,?,?,?,?,?,?,?,?)').run(id, r.id, action, body.outcome, body.candidate_id || null, body.reason, 'pending', req.auth.user.id, now());
         const c = db.prepare('SELECT * FROM el_calls WHERE id=?').get(id);
@@ -832,7 +854,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
   v1.post(`${A}/races/:id/call`, can('resolution.write'), callRoute('call'));
   v1.post(`${A}/races/:id/uncall`, can('resolution.write'), callRoute('uncall'));
   v1.get(`${A}/calls`, can('catalog.read'), (req, res) => {
-    db.prepare("UPDATE el_calls SET status='expired' WHERE status='pending' AND requested_ts<=?").run(now() - CALL_TTL_MS);
+    db.prepare("UPDATE el_calls SET status='expired' WHERE status='pending' AND requested_ts<=?").run(now() - CALL_TTL());
     const st = String(req.query.status || 'pending');
     if (!['pending', 'done', 'rejected', 'expired', 'all'].includes(st)) throw E.badRequest('status must be pending, done, rejected, expired or all');
     const rows = db.prepare(`SELECT c.*, r.name race_name FROM el_calls c JOIN el_races r ON r.id=c.race_id ${st === 'all' ? '' : 'WHERE c.status=?'} ORDER BY c.requested_ts DESC LIMIT 200`).all(...(st === 'all' ? [] : [st]));
@@ -841,7 +863,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
   const pendingCall = (id) => {
     const c = db.prepare('SELECT * FROM el_calls WHERE id=?').get(String(id));
     if (!c) throw E.notFound();
-    if (c.status === 'pending' && c.requested_ts <= now() - CALL_TTL_MS) { db.prepare("UPDATE el_calls SET status='expired' WHERE id=?").run(c.id); c.status = 'expired'; }
+    if (c.status === 'pending' && c.requested_ts <= now() - CALL_TTL()) { db.prepare("UPDATE el_calls SET status='expired' WHERE id=?").run(c.id); c.status = 'expired'; }
     if (c.status !== 'pending') throw E.conflict('call_closed', S('error.call_closed', { status: c.status }));
     return c;
   };
@@ -874,7 +896,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       elections: els.map((el) => ({ id: el.id, slug: el.slug, title: el.title, country: el.country, kind: el.kind, date: el.date, active: !!el.active, sim: simOf(el), config: J(el.config_json, {}),
         races: db.prepare('SELECT COUNT(*) c FROM el_races WHERE election_id=?').get(el.id).c, called: db.prepare("SELECT COUNT(*) c FROM el_races WHERE election_id=? AND status<>'open'").get(el.id).c,
         snapshots: db.prepare('SELECT COUNT(*) c FROM el_snapshots WHERE election_id=?').get(el.id).c })),
-      simulator_flag: flags.jobOn('elections.simulator'), pending_calls: db.prepare("SELECT COUNT(*) c FROM el_calls WHERE status='pending' AND requested_ts>?").get(now() - CALL_TTL_MS).c,
+      simulator_flag: flags.jobOn('elections.simulator'), pending_calls: db.prepare("SELECT COUNT(*) c FROM el_calls WHERE status='pending' AND requested_ts>?").get(now() - CALL_TTL()).c,
     });
   });
   v1.get(`${A}/elections/:id/desk`, can('catalog.read'), (req, res) => {
@@ -882,7 +904,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
     const mdl = model(el);
     const office = String(req.query.office || '');
     res.json({ election: { id: el.id, slug: el.slug, title: el.title }, races: mdl.races.filter((x) => !office || x.office.key === office).map((x) => ({ ...raceSummary(mdl, x, req), two_person: x.office.two_person, rule: x.rule,
-      pending: db.prepare("SELECT id FROM el_calls WHERE race_id=? AND status='pending' AND requested_ts>?").get(x.id, now() - CALL_TTL_MS)?.id || null })) });
+      pending: db.prepare("SELECT id FROM el_calls WHERE race_id=? AND status='pending' AND requested_ts>?").get(x.id, now() - CALL_TTL())?.id || null })) });
   });
   v1.put(`${A}/elections/:id/simulator`, can('markets.ops'), (req, res) => {
     const el = electionById(req.params.id); if (!el) throw E.notFound();

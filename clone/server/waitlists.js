@@ -177,7 +177,15 @@ function createWaitlists({ db, keyDir }) {
     for (const e of db.prepare('SELECT id FROM waitlist_entries WHERE user_id=?').all(uid)) n += deleteEntry(e.id);
     return n;
   }
-  const api = { db, emailHash, ipHash, encEmail, decEmail, manageToken, entryOfToken, entry, entryOfUser, entryOfEmail, recipientOf, deleteEntry, perps, linkUser, emailVerified, exportFor, forgetUser, norm };
+  // The account email was just verified (POST /verify_email): link entries with that email, then the hooks (the
+  // auto-confirm switch of mountWaitlists, the referral attribution of server/growth.js).
+  const hooks = { verified: [] };
+  function emailVerifiedNow(uid) {
+    const n = linkUser(uid);
+    for (const h of hooks.verified) { try { h(uid); } catch (e) { console.error('waitlist verified hook', e.message); } }
+    return n;
+  }
+  const api = { db, emailHash, ipHash, encEmail, decEmail, manageToken, entryOfToken, entry, entryOfUser, entryOfEmail, recipientOf, deleteEntry, perps, linkUser, emailVerified, emailVerifiedNow, hooks, exportFor, forgetUser, norm };
   INSTANCES.set(db, api);
   if (!hookInstalled) { hookInstalled = true; C.hooks.accountCreated.push((uid, d) => { try { INSTANCES.get(d)?.linkUser(uid); } catch (e) { console.error('waitlist link', e.message); } }); }
   return api;
@@ -188,8 +196,12 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
   const production = process.env.NODE_ENV === 'production';
   const can = admin.can;
   const iso = (t) => (t ? new Date(t).toISOString() : null);
-  const confirmTtlMs = Math.max(60000, Number(options.confirmTtlMs || 48 * 3600000));
-  const perMinute = Math.max(1, Number(options.newsletterPerMinute || process.env.NEWSLETTER_PER_MINUTE || 120));
+  // Owner settings (ground rule 6, CLONE_SPEC.md §38.1), read on every use so a change takes effect live: the confirmation
+  // link lifetime (48 h), the deletion of unconfirmed requests (7 days after the link expired) and the newsletter rate (120 a
+  // minute, NEWSLETTER_PER_MINUTE as the upper bound). The start options (tests) win over the settings.
+  const OS = engine.ownerSettings;
+  const confirmTtlMs = () => (options.confirmTtlMs ? Math.max(60000, Number(options.confirmTtlMs)) : OS.get('waitlists.confirm_link_hours') * 3600000);
+  const perMinute = () => Math.max(1, Number(options.newsletterPerMinute || OS.get('waitlists.newsletter_per_minute')));
   const clock = !production && typeof options.now === 'function' ? options.now : () => Date.now(); // test clock: start options only
   const ipLimit = createLimiter(db, 'waitlist_guest_ip', { limit: Number(options.guestJoinsPerIp || 10), windowMs: Number(options.guestWindowMs || 3600000) });
   const emailLimit = createLimiter(db, 'waitlist_guest_email', { limit: 3, windowMs: 3600000 });
@@ -388,7 +400,7 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
   const meVo = (e) => (e ? { entry_status: e.status, joined_time: iso(e.joined_ts), confirmed_time: iso(e.confirmed_ts), unsubscribed_time: iso(e.unsubscribed_ts), linked: !!e.user_id } : null);
   function listVo(req, e) {
     const c = consent();
-    return { list: LAUNCH, consent: { text: c.text, version: c.version }, confirm_hours: Math.round(confirmTtlMs / 3600000), me: meVo(e), survey: e && e.status === 'confirmed' ? surveyVo(e) : { enabled: flags.on('waitlist.launch.survey', { req }), locked: surveyLocked(), questions: [], answers: {} } };
+    return { list: LAUNCH, consent: { text: c.text, version: c.version }, confirm_hours: Math.round(confirmTtlMs() / 3600000), me: meVo(e), survey: e && e.status === 'confirmed' ? surveyVo(e) : { enabled: flags.on('waitlist.launch.survey', { req }), locked: surveyLocked(), questions: [], answers: {} } };
   }
   const tokenEntry = (req, token) => {
     tokenLimit.hit(`ip:${ipOf(req)}`);
@@ -499,11 +511,34 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
         e = W.entry(id);
       }
       db.prepare("DELETE FROM waitlist_tokens WHERE entry_id=? AND used_ts IS NULL AND purpose='confirm'").run(e.id); // one live link per entry
-      db.prepare("INSERT INTO waitlist_tokens(hash,entry_id,purpose,expires_ts,created_ts,user_id) VALUES(?,?,'confirm',?,?,?)").run(kc.sha256hex(token), e.id, now + confirmTtlMs, now, requester);
+      db.prepare("INSERT INTO waitlist_tokens(hash,entry_id,purpose,expires_ts,created_ts,user_id) VALUES(?,?,'confirm',?,?,?)").run(kc.sha256hex(token), e.id, now + confirmTtlMs(), now, requester);
     });
     e = W.entry(e.id);
-    deliver(e, 'email.waitlist_confirm', { link: `${origin}/waitlist/confirm?token=${token}`, hours: String(Math.round(confirmTtlMs / 3600000)) }, { origin });
+    deliver(e, 'email.waitlist_confirm', { link: `${origin}/waitlist/confirm?token=${token}`, hours: String(Math.round(confirmTtlMs() / 3600000)) }, { origin });
   }
+  // Ground rule 6 switch `waitlist.launch.auto_confirm_verified` (on; owner decision 2026-11-08, CLONE_SPEC.md §38.1): a
+  // member who clicked one-click join while their account email was unverified gave explicit consent then; verifying the
+  // email later proves the inbox, so their pending entry is confirmed (consent source `signed_in_verified_later`). Only
+  // entries this account asked for (its confirmation link carries the account id) are confirmed: a guest-form request by
+  // someone else for the same address is linked, never confirmed on that person's behalf.
+  W.hooks.verified.push((uid) => {
+    if (!flags.jobOn('waitlist.launch.auto_confirm_verified')) return;
+    const u = db.prepare('SELECT id, email FROM users WHERE id=?').get(uid);
+    if (!u) return;
+    const e = db.prepare("SELECT * FROM waitlist_entries WHERE list_key=? AND status='pending' AND (user_id=? OR (user_id IS NULL AND email_hash=?))").get(LAUNCH, uid, W.emailHash(u.email));
+    if (!e || !db.prepare('SELECT 1 FROM waitlist_tokens WHERE entry_id=? AND user_id=?').get(e.id, uid)) return;
+    if (W.entryOfUser(LAUNCH, uid) && W.entryOfUser(LAUNCH, uid).id !== e.id) return;
+    const now = Date.now();
+    tx(db, () => {
+      db.prepare("UPDATE waitlist_entries SET user_id=?, email_enc=NULL, status='confirmed', confirmed_ts=?, unsubscribed_ts=NULL, consent_source='signed_in_verified_later', updated_ts=? WHERE id=? AND status='pending'").run(uid, now, now, e.id);
+      db.prepare('UPDATE waitlist_tokens SET used_ts=? WHERE entry_id=? AND used_ts IS NULL').run(now, e.id);
+    });
+    const origin = originOf(null);
+    try { feat.notify(uid, { type: 'waitlist_joined', title: WS('notify.joined.title'), body: WS('notify.joined.body'), link: '/waitlist' }); } catch (x) { console.error('waitlist notify', x.message); }
+    deliver(W.entry(e.id), 'email.waitlist_welcome', {}, { origin });
+    checkTarget(origin);
+    changed();
+  });
   v1.post('/waitlists/confirm', (req, res) => {
     const b = checkBody(req.body, { token: { type: 'string', maxLen: 100, required: true } }, { unknown: 'reject' });
     tokenLimit.hit(`ip:${ipOf(req)}`);
@@ -623,7 +658,8 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
     for (const n of db.prepare("SELECT * FROM waitlist_newsletters WHERE status='scheduled' AND scheduled_ts<=? ORDER BY scheduled_ts").all(now)) startSend(n, now);
     const sending = db.prepare("SELECT * FROM waitlist_newsletters WHERE status='sending' ORDER BY created_ts").all();
     if (!sending.length) { allowance = 0; return; }
-    allowance = Math.min(perMinute, allowance + (perMinute * dt) / 60000);
+    const rate = perMinute();
+    allowance = Math.min(rate, allowance + (rate * dt) / 60000);
     for (const n of sending) {
       for (const r of db.prepare("SELECT entry_id FROM waitlist_newsletter_outbox WHERE newsletter_id=? AND status='queued' ORDER BY entry_id LIMIT 200").all(n.id)) {
         if (allowance < 1) break;
@@ -640,14 +676,18 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
     }
   }
   engine.on('tick', () => { try { pump(); } catch (x) { if (!/not open|closed/i.test(x.message)) console.error('newsletter job', x.message); } });
-  // Pending guest entries whose confirmation links all expired over a week ago are deleted (data minimisation).
+  // Pending guest entries whose confirmation links all expired more than the owner setting's days ago (default 7) are
+  // deleted (data minimisation). Hourly; a change of the setting runs the purge at the next tick.
   let lastPurge = 0;
+  const purgeEveryMs = Math.max(1000, Number(options.purgeEveryMs || 3600000));
+  OS.listeners.push((k) => { if (k === 'waitlists.unconfirmed_delete_days') lastPurge = 0; });
   engine.on('tick', () => {
-    const now = Date.now();
-    if (now - lastPurge < 3600000) return;
+    const now = clock();
+    if (now - lastPurge < purgeEveryMs) return;
     lastPurge = now;
     try {
-      for (const e of db.prepare("SELECT id FROM waitlist_entries WHERE status='pending' AND user_id IS NULL AND updated_ts<? AND NOT EXISTS (SELECT 1 FROM waitlist_tokens t WHERE t.entry_id=waitlist_entries.id AND t.expires_ts>?)").all(now - 7 * DAY, now - 7 * DAY)) W.deleteEntry(e.id);
+      const keep = OS.get('waitlists.unconfirmed_delete_days') * DAY;
+      for (const e of db.prepare("SELECT id FROM waitlist_entries WHERE status='pending' AND user_id IS NULL AND updated_ts<? AND NOT EXISTS (SELECT 1 FROM waitlist_tokens t WHERE t.entry_id=waitlist_entries.id AND t.expires_ts>?)").all(now - keep, now - keep)) W.deleteEntry(e.id);
     } catch (x) { if (!/not open|closed/i.test(x.message)) console.error('waitlist purge', x.message); }
   });
   function createNewsletter(req, { kind, list, sendAt, reason }) {
@@ -702,7 +742,7 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
       target: st.target, target_reached: !!(st.target && (c.confirmed || 0) >= st.target), target_alert: st.target_alert ? { target: st.target_alert.target, count: st.target_alert.count, time: iso(st.target_alert.ts) } : null,
       public_count: flags.jobOn('waitlist.launch.public_count'), survey_enabled: flags.jobOn('waitlist.launch.survey'), survey_locked_time: iso(st.survey_locked_ts),
       sources: { source: by('source'), utm_source: by('utm_source'), utm_campaign: by('utm_campaign'), ref_code: by('ref_code') },
-      growth: growth(list), survey: aggregates(list), newsletter_flag: flags.jobOn('newsletter'), newsletter_per_minute: perMinute, launch_email: launch.launch_email,
+      growth: growth(list), survey: aggregates(list), newsletter_flag: flags.jobOn('newsletter'), newsletter_per_minute: perMinute(), export_includes_email: OS.get('waitlists.export_includes_email'), confirm_link_hours: Math.round(confirmTtlMs() / 3600000), launch_email: launch.launch_email,
     };
   }
   v1.get(A, can('users.read'), (req, res) => res.json({ lists: Object.keys(LISTS).map((k) => ({ key: k, name: WS(`list.${k}`), ...(k === LAUNCH ? { confirmed: confirmedCount(k), target: settings(k).target } : { waiting: W.perps.count('waiting') }) })) }));
@@ -728,8 +768,9 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
     const csv = (v) => { const t = String(v ?? ''); return /[",\n\r]/.test(t) || /^[=+\-@\t]/.test(t) ? `"${(/^[=+\-@\t]/.test(t) ? `'${t}` : t).replace(/"/g, '""')}"` : t; };
     const rows = db.prepare('SELECT * FROM waitlist_entries WHERE list_key=? ORDER BY joined_ts, id').all(list);
     const lines = [WS('csv.header')];
-    for (const e of rows) lines.push([e.id, e.list_key, e.status, W.recipientOf(e), iso(e.joined_ts), iso(e.confirmed_ts), iso(e.unsubscribed_ts), iso(e.consent_ts), e.consent_version, e.consent_text_sha256, e.consent_source, e.consent_ip_hash, e.source, e.utm_source, e.utm_medium, e.utm_campaign, e.ref_code].map(csv).join(','));
-    admin.audit(req, 'waitlists.export', 'waitlist', list, null, { rows: rows.length, fields: 'consent' }, 'consent export');
+    const withEmail = OS.get('waitlists.export_includes_email'); // owner setting (default on): proves consent per person
+    for (const e of rows) lines.push([e.id, e.list_key, e.status, withEmail ? W.recipientOf(e) : '', iso(e.joined_ts), iso(e.confirmed_ts), iso(e.unsubscribed_ts), iso(e.consent_ts), e.consent_version, e.consent_text_sha256, e.consent_source, e.consent_ip_hash, e.source, e.utm_source, e.utm_medium, e.utm_campaign, e.ref_code].map(csv).join(','));
+    admin.audit(req, 'waitlists.export', 'waitlist', list, null, { rows: rows.length, fields: 'consent', email: withEmail }, 'consent export');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="parlance-waitlist-${list}-${nowIso().slice(0, 10)}.csv"`);
     res.setHeader('Cache-Control', 'no-store');
@@ -758,7 +799,7 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
   // Newsletter (flag `newsletter`: the routes answer feature_disabled and the job pauses while off).
   v1.get(`${A}/:list/newsletters`, can('announce'), (req, res) => {
     const list = listOf(req.params.list);
-    res.json({ newsletters: db.prepare('SELECT * FROM waitlist_newsletters WHERE list_key=? ORDER BY created_ts DESC LIMIT 50').all(list).map(nlVo), per_minute: perMinute, recipients: confirmedCount(list) });
+    res.json({ newsletters: db.prepare('SELECT * FROM waitlist_newsletters WHERE list_key=? ORDER BY created_ts DESC LIMIT 50').all(list).map(nlVo), per_minute: perMinute(), recipients: confirmedCount(list) });
   });
   const sample = (key) => { const { app_name: _a, ...rest } = templates.definition(key)?.sample || {}; void _a; return rest; }; // app_name: the live brand
   v1.post(`${A}/:list/newsletters/preview`, can('announce'), (req, res) => {

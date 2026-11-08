@@ -29,6 +29,7 @@ import { initIdentityUi } from './views/onboarding.js'; // identity banner + com
 import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
 import { initFlags, loadFlags, routeFlagOff, unavailableHtml, renderPlayBanner, onFlags, flagOn, playOn } from './flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
+import { initLocale } from './locale.js'; // languages, Intl formatting, data saver, referral links (CLONE_SPEC.md §38)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
@@ -295,7 +296,12 @@ document.getElementById('search-form').addEventListener('submit', (e) => {
 queries.poll(['live_count'], api.liveCount, { interval: 30000, onData: (d) => { document.getElementById('live-count').textContent = d.count; } });
 
 const banner = document.getElementById('conn-banner');
-socket.onState((s) => { banner.hidden = s.connected; });
+// Data saver's polling fallback (ws.js, CLONE_SPEC.md §38.7) says so instead of "Reconnecting".
+socket.onState((s) => {
+  banner.hidden = s.connected && s.mode !== 'polling';
+  banner.dataset.mode = s.mode || 'ws';
+  banner.textContent = s.mode === 'polling' ? tx('shell.html.polling') : tx('shell.html.reconnecting');
+});
 startLivePatcher(view); // live sports scores on every page (views/scoreboard.js)
 
 // Notifications arrive live on the private channel.
@@ -345,6 +351,7 @@ initContent({ socket, onChange: () => { applyShell(); rebuildAccount(); if (boot
 initPwa();
 window.addEventListener('parlance:install-state', () => { if (!session.user) renderAccount(); }); // signed-out ☰ with "Install app"
 initFlags({ socket, session });
+initLocale();
 onFlags(() => { renderPlayBanner(); rebuildAccount(); if (booted) render(); }); // a flag / play-mode / money-control change, live
 Promise.all([session.load(), loadSite(), loadFlags()]).then(() => { booted = true; renderPlayBanner(); renderAccount(); socket.connect(); render(); });
 window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

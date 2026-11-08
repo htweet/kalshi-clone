@@ -9,7 +9,9 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "content-live.preview_banner.exit_preview": "Exit preview",
   "content-live.fetch_bundle.http": "HTTP {status}",
   "content-live.offer_reload.content_was_updated": "Content was updated",
-  "content-live.offer_reload.reload": "Reload"
+  "content-live.offer_reload.reload": "Reload",
+  "content-live.footer.social": "Parlance on {network} (opens in a new tab)",
+  "content-live.footer.nav": "Site links"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

@@ -273,7 +273,8 @@ const EXPECT = {
   'GET /v1/admin/incentives/programs': perm('markets.ops'), 'POST /v1/admin/incentives/programs': perm('markets.ops'), 'PUT /v1/admin/incentives/programs/:id': perm('markets.ops'),
   'POST /v1/admin/incentives/programs/:id/payout': perm('users.money'), 'POST /v1/admin/incentives/snapshot': perm('markets.ops'),
   'GET /v1/admin/incentives/settings': perm('settings.write'), 'PUT /v1/admin/incentives/settings': perm('settings.write'),
-  'GET /v1/hubs/senate_map': P, 'GET /v1/hubs/fed_funds_outlook': P, 'GET /v1/series/:s/events/:e/forecast_history': P,
+  // GET /v1/hubs/senate_map was removed with the Phase 5B elections hub (owner decision 2026-11-08, CLONE_SPEC.md §29.8).
+  'GET /v1/hubs/fed_funds_outlook': P, 'GET /v1/series/:s/events/:e/forecast_history': P,
   // ---- Phase 5C: content management (CLONE_SPEC.md §32). The published bundle, brand stylesheet and pages are public
   // reads (drafts never reach them: the preview bundle is staff-only); editors (content.write) save drafts, preview,
   // test-send, upload and export; publishing, scheduling and rollback need content.publish (legal pages also step-up).

@@ -1,8 +1,7 @@
 'use strict';
 // Hub data widgets (Phase 5B, PLAN A15; CLONE_SPEC.md §13.19 observed `/api-app/midterms/senate-map`,
 // `/api-app/fed-funds/outlook` and `GET /v1/series/{s}/events/{e}/forecast_history`; §29.8 design):
-//   • Senate map: an invented 12-state tile grid (server/civic-data.js) driven by the platform's own Senate-race
-//     markets — lean per state, expected and projected seats, and the expected-seat history.
+//   • (removed 2026-11-08) the Senate map: the elections hub v2 (server/elections.js, CLONE_SPEC.md §37) replaces it.
 //   • Fed funds outlook: the central-bank decision markets (series PLXRATE, outcomes Cut / Hold / Hike) turned into an
 //     implied change per meeting (±25 bp steps) and an implied rate path from an invented current rate.
 //   • Event forecast history: hourly implied outcome probabilities of one event (normalised for mutually exclusive
@@ -20,7 +19,6 @@ const H = 3600 * 1000; const D = 24 * H;
 const CURRENT_RATE_BPS = { lower: 425, upper: 450 }; // invented current target range 4.25%–4.50%
 const RATE_SERIES = 'PLXRATE';
 const SEED_KEY = 'hubs_seed_v1';
-const CHAMBER = STATES.length * 2;
 
 function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 
@@ -125,50 +123,9 @@ function mountHubs({ v1, db, engine, eventFull, getEvent, incentives, options = 
     engine.on('tick', () => { const now = Date.now(); if (now - lastDay > 10 * 60000) { lastDay = now; try { ensureTemperatureDay(now); } catch (e) { console.error('hubs', e); } } });
   }
 
-  // ------------------------------------------------------------------ Senate map
+  // The Phase 5B Senate map (GET /hubs/senate_map) and its page /hubs/elections are removed (owner decision 2026-11-08,
+  // CLONE_SPEC.md §29.8): the elections hub v2 (/category/elections/<hub>, §37) replaces them; /hubs/elections redirects there.
   const outcomeOf = (ev, re) => ev.markets.find((m) => re.test(m.yes_sub_title));
-  const lean = (p) => (p >= 0.8 ? 'safe_blue' : p >= 0.6 ? 'lean_blue' : p > 0.4 ? 'tossup' : p > 0.2 ? 'lean_red' : 'safe_red');
-  function raceOf(s) {
-    const e = s.senate && getEvent(s.senate);
-    if (!e) return null;
-    const ev = eventFull(e);
-    const b = outcomeOf(ev, /blue/i); const r = outcomeOf(ev, /red/i);
-    if (!b || !r || !ev.markets.some((m) => m.status === 'active')) return null;
-    const pb = priceOf(b.ticker); const pr = priceOf(r.ticker);
-    if (pb == null || pr == null || pb + pr <= 0) return null;
-    return { ev, blue: b, red: r, p: pb / (pb + pr) };
-  }
-  // Expected Blue seats per hour over `days`, from each race's last trade at that time (normalised Blue/Red).
-  function seatHistory(races, days = 7) {
-    const now = Date.now(); const from = now - days * D; const step = H;
-    const base = STATES.reduce((a, s) => a + s.seated.blue, 0);
-    const series = races.map((x) => ({ x, b: tradesOf(x.blue.ticker, from), r: tradesOf(x.red.ticker, from) }));
-    const pts = [];
-    for (let t = from - (from % step) + step; t <= now + step; t += step) {
-      let exp = base; let ok = true;
-      for (const s of series) { const pb = at(s.b, t); const pr = at(s.r, t); if (pb == null || pr == null) { ok = false; break; } exp += pb / (pb + pr); }
-      if (ok) pts.push({ ts: Math.floor(Math.min(t, now) / 1000), expected_blue: Math.round(exp * 100) / 100 });
-    }
-    return pts;
-  }
-  v1.get('/hubs/senate_map', (req, res) => {
-    const states = STATES.map((s) => {
-      const race = raceOf(s);
-      const base = { code: s.code, name: s.name, grid: { row: s.row, col: s.col }, seated: s.seated };
-      if (!race) return { ...base, status: 'not_up', lean: s.seated.blue > s.seated.red ? 'held_blue' : s.seated.red > s.seated.blue ? 'held_red' : 'held_split', event_ticker: null };
-      return { ...base, status: 'race', event_ticker: race.ev.event_ticker, series_ticker: race.ev.series_ticker, series_slug: race.ev.series_slug, title: race.ev.title,
-        blue: { ticker: race.blue.ticker, probability: Math.round(race.p * 1000) / 1000 }, red: { ticker: race.red.ticker, probability: Math.round((1 - race.p) * 1000) / 1000 }, lean: lean(race.p), leader: race.p >= 0.5 ? 'blue' : 'red' };
-    });
-    const races = STATES.map(raceOf).filter(Boolean);
-    const heldBlue = STATES.reduce((a, s) => a + s.seated.blue, 0); const heldRed = STATES.reduce((a, s) => a + s.seated.red, 0);
-    const expBlue = heldBlue + races.reduce((a, r) => a + r.p, 0);
-    const projBlue = heldBlue + races.filter((r) => r.p >= 0.5).length;
-    res.json({
-      chamber_size: CHAMBER, majority: Math.floor(CHAMBER / 2) + 1, races: races.length,
-      seats: { held_blue: heldBlue, held_red: heldRed, expected_blue: Math.round(expBlue * 100) / 100, expected_red: Math.round((CHAMBER - expBlue) * 100) / 100, projected_blue: projBlue, projected_red: CHAMBER - projBlue },
-      states, history: seatHistory(races, Math.min(30, Math.max(1, Number(req.query.days) || 7))), updated_time: new Date().toISOString(),
-    });
-  });
 
   // ------------------------------------------------------------------ Fed funds outlook
   const decision = (ev) => ({ cut: outcomeOf(ev, /^cut/i), hold: outcomeOf(ev, /^hold/i), hike: outcomeOf(ev, /^hike/i) });

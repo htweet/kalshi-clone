@@ -105,6 +105,11 @@ const REGISTRY = [
   ['waitlist.launch.public_count', 'growth', 'waitlist.launch', 'both', false],
   ['waitlist.launch.survey', 'growth', 'waitlist.launch', 'both'],
   ['newsletter', 'growth', null, 'both'],
+  // Ground rule 6 (owner decision 2026-11-08, CLONE_SPEC.md §38.1): the Phase 7A owner choices as switches. Calls to action
+  // while play mode is on (on) and outside it (off); a pending entry confirmed when the account email is later verified (on).
+  ['waitlist.launch.cta_play', 'growth', 'waitlist.launch', 'client'],
+  ['waitlist.launch.cta_production', 'growth', 'waitlist.launch', 'client', false],
+  ['waitlist.launch.auto_confirm_verified', 'growth', 'waitlist.launch', 'server'],
   // Phase 7B (CLONE_SPEC.md §37): the elections hub v2 and its widgets; the results simulator (demo and test only, off by
   // default: `npm start` outside production starts it on through the `defaults` start option).
   ['elections.hub', 'elections', null, 'both'],
@@ -116,6 +121,18 @@ const REGISTRY = [
   ['elections.power_index', 'elections', 'elections.hub', 'both'],
   ['elections.chat', 'elections', 'elections.hub', 'both'],
   ['elections.simulator', 'elections', null, 'server', false],
+  // Ground rule 6: a results-desk call's settlements need a second resolver on the resolution desk (on). Off: the call
+  // settles at once, still audited. Per-seat legislative markets are not built (CLONE_SPEC.md §38.1), so no switch exists.
+  ['elections.second_resolver', 'elections', null, 'server'],
+  // Phase 8 (CLONE_SPEC.md §38): growth and reach, one flag per capability. No key may end in ".map" (perimeter honeypot).
+  ['referrals.predictions', 'growth', null, 'both'],
+  ['share_links', 'growth', null, 'both'],
+  ['copy_trade', 'growth', 'share_links', 'both'],
+  ['ssr', 'reach', null, 'server'],
+  ['ssr.crawlers', 'reach', 'ssr', 'server'],
+  ['i18n', 'reach', null, 'both'],
+  ['data_saver', 'reach', null, 'both'],
+  ['sms', 'reach', null, 'both', false], // simulated provider adapter: off until a real provider is contracted
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -197,6 +214,13 @@ const ROUTE_RULES = {
   'elections.timeline': [R('GET', /^\/elections\/hubs\/[^/]+\/timeline$/, { public: true })],
   'elections.power_index': [R('GET', /^\/elections\/power_index\//, { public: true })],
   'elections.chat': [R('GET', /^\/events\/[^/]+\/chat$/, { when: (req) => /^\/events\/HUB-/i.test(req.path) }), R('*', /^\/users\/[^/]+\/chat\//, { when: (req) => /\/chat\/HUB-/i.test(req.path) })],
+  // Phase 8 (CLONE_SPEC.md §38). Non-API routes (/s/<token>, /og/*, /sitemap*.xml) check their flag in their own handler.
+  'referrals.predictions': [R('*', /^\/referrals(\/|$)/, { user: true }), R('GET', /^\/referrals\/offer$/, { public: true })],
+  share_links: [R('*', /^\/users\/[^/]+\/share_links(\/|$)/), R('GET', /^\/share\/[^/]+$/, { public: true })],
+  copy_trade: [R('GET', /^\/share\/[^/]+\/copy$/, { public: true })],
+  i18n: [R('PUT', /^\/users\/[^/]+\/locale$/)],
+  data_saver: [R('PUT', /^\/users\/[^/]+\/data_saver$/)],
+  sms: [R('PUT', /^\/users\/[^/]+\/sms_notifications$/, { when: (req) => bodyOf(req).enabled === true })], // opting out always works
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
 // cancelling orders (always possible), responsible-trading limits, notifications inbox, content, admin. Used by the
@@ -209,6 +233,10 @@ const CORE_ROUTES = [
   /^\/mock-oidc\//, /^\/(manifest\.webmanifest|sw\.js|offline\.html|content-bundle\.js|content-theme\.css)$/, /^RE:/,
   /^\/docs\/(openapi|asyncapi|fix)\.json$/, // Phase 7: generated API documents (flag developer_portal, checked in server/dev-portal.js)
   /^\/v1\/waitlists\/(manage|unsubscribe|delete|one_click_unsubscribe)$/, /^\/v1\/waitlists\/real_money_launch\/(unsubscribe|me)$/, // Phase 7A: leaving a list always works (§36)
+  // Phase 8 (CLONE_SPEC.md §38): reading one's own reach settings (locale, data saver, SMS opt-in) and the enabled
+  // languages always works; switching SMS off is never blocked. Crawler files and share landings check their flag inside.
+  /^\/v1\/users\/[^/]+\/reach$/, /^\/v1\/i18n\/locales$/, /^\/v1\/users\/[^/]+\/sms_notifications$/,
+  /^\/(sitemap\.xml|sitemaps\/[a-z0-9-]+\.xml|robots\.txt)$/, /^\/s\//, /^\/og\//,
 ];
 // Every mount* module wired in server/app.js → the flag that switches it (or 'core'). Checked by the enforcement test.
 const MODULE_FLAGS = {
@@ -218,12 +246,15 @@ const MODULE_FLAGS = {
   mountApiKeys: 'api.keys', mountTradeApi: 'core', mountDeveloperPortal: 'developer_portal', mountFixAdmin: 'api.fix', // Phase 7 (CLONE_SPEC.md §35); /trade-api/v2 public data is core
   mountWaitlists: 'waitlist.launch', // Phase 7A (CLONE_SPEC.md §36); the Perps list is switched by perps.waitlist
   mountElections: 'elections.hub', // Phase 7B (CLONE_SPEC.md §37)
+  mountOwnerSettings: 'core', // ground rule 6 (CLONE_SPEC.md §38.1)
+  mountPredictionReferrals: 'referrals.predictions', mountShareLinks: 'share_links', mountSeo: 'ssr', mountI18n: 'i18n', mountReach: 'data_saver', // Phase 8 (§38)
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
 const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',
   'api.keys', 'api.ws', 'api.fix', // Phase 7: key expiry sweep, public WebSocket sessions, the FIX acceptor
   'newsletter', // Phase 7A: the waitlist newsletter outbox
-  'elections.simulator']; // Phase 7B: the simulated results feed
+  'elections.simulator', // Phase 7B: the simulated results feed
+  'referrals.predictions', 'sms']; // Phase 8: referral expiry sweep, the SMS notification outbox
 
 // One-time, audited flag migrations for databases that existed before a default changed. Each runs once per database
 // (a meta marker), so a later admin "off" is never switched back on; a new database starts with the new default (or the

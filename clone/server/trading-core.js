@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS settlement_corrections (id TEXT PRIMARY KEY, market_t
 CREATE INDEX IF NOT EXISTS idx_settlement_corrections_market ON settlement_corrections(market_ticker, created_ts);
 `;
 const POLICY_KEY = 'resolution_policy';
-const APPROVAL_TTL_MS = 24 * 3600 * 1000; // a pending resolution request lapses after a day (design choice)
+// A pending resolution request lapses after the owner setting `elections.pending_expiry_hours` (default 24 h; ground rule 6,
+// CLONE_SPEC.md §38.1): one queue, so race-call proposals and every other request share it. Read on every use (live).
 
 // ------------------------------------------------------------------------------------------------ seed content
 // Invented markets for the new structures; inserted once (idempotent) through the engine so the journal sees the
@@ -45,6 +46,7 @@ const SEED = [
 ];
 
 function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) {
+  const TTL = () => (engine.ownerSettings ? engine.ownerSettings.get('elections.pending_expiry_hours') : 24) * 3600 * 1000;
   db.exec(SCHEMA);
   const can = admin.can;
   const lpId = () => db.prepare("SELECT id FROM users WHERE email='liquidity@parlance.local'").get()?.id;
@@ -152,7 +154,7 @@ function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) 
   const policy = () => { const r = db.prepare('SELECT value FROM admin_settings WHERE key=?').get(POLICY_KEY); try { return { two_person_rule: false, ...(r ? JSON.parse(r.value) : {}) }; } catch { return { two_person_rule: false }; } };
   const emailOf = (uid) => (uid ? db.prepare('SELECT email FROM users WHERE id=?').get(uid)?.email || uid : null);
   const approvalVo = (a) => ({ id: a.id, kind: a.kind, market_ticker: a.market_ticker, payload: JSON.parse(a.payload), reason: a.reason, status: a.status,
-    requested_by: emailOf(a.requested_by), requested_time: new Date(a.requested_ts).toISOString(), expires_time: new Date(a.requested_ts + APPROVAL_TTL_MS).toISOString(),
+    requested_by: emailOf(a.requested_by), requested_time: new Date(a.requested_ts).toISOString(), expires_time: new Date(a.requested_ts + TTL()).toISOString(),
     decided_by: emailOf(a.decided_by), decided_time: a.decided_ts ? new Date(a.decided_ts).toISOString() : null, decision_note: a.decision_note, outcome: a.outcome ? JSON.parse(a.outcome) : null });
   const staffWith = (perm) => db.prepare('SELECT * FROM users WHERE is_admin=1 OR id IN (SELECT user_id FROM admin_roles)').all().filter((u) => {
     const roles = admin.rolesOf(u); return roles.length && roles.some((r) => (ROLE_PERMS[r] || []).includes(perm));
@@ -161,7 +163,7 @@ function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) 
   // different admin with resolution.write must approve; nothing changes until then.
   function gate(req, kind, ticker, payload, reason) {
     if (!policy().two_person_rule) return null;
-    if (db.prepare("SELECT 1 FROM res_approvals WHERE market_ticker=? AND status='pending' AND requested_ts>?").get(ticker, Date.now() - APPROVAL_TTL_MS)) throw E.conflict('approval_pending', 'a request for this market is already waiting for a second admin');
+    if (db.prepare("SELECT 1 FROM res_approvals WHERE market_ticker=? AND status='pending' AND requested_ts>?").get(ticker, Date.now() - TTL())) throw E.conflict('approval_pending', 'a request for this market is already waiting for a second admin');
     const id = newId('ra_');
     db.prepare('INSERT INTO res_approvals(id,kind,market_ticker,payload,reason,status,requested_by,requested_ts) VALUES(?,?,?,?,?,?,?,?)').run(id, kind, ticker, JSON.stringify(payload), reason, 'pending', req.auth.user.id, Date.now());
     const a = db.prepare('SELECT * FROM res_approvals WHERE id=?').get(id);
@@ -183,7 +185,7 @@ function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) 
     res.json({ policy: after });
   });
   v1.get('/admin/resolution/approvals', can('catalog.read'), (req, res) => {
-    db.prepare("UPDATE res_approvals SET status='expired' WHERE status='pending' AND requested_ts<=?").run(Date.now() - APPROVAL_TTL_MS);
+    db.prepare("UPDATE res_approvals SET status='expired' WHERE status='pending' AND requested_ts<=?").run(Date.now() - TTL());
     const st = String(req.query.status || 'pending');
     if (!['pending', 'approved', 'rejected', 'expired', 'all'].includes(st)) throw E.badRequest('status must be pending, approved, rejected, expired or all');
     const rows = db.prepare(`SELECT * FROM res_approvals ${st === 'all' ? '' : 'WHERE status=?'} ORDER BY requested_ts DESC LIMIT 200`).all(...(st === 'all' ? [] : [st]));
@@ -192,7 +194,7 @@ function mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify }) 
   const pendingApproval = (id) => {
     const a = db.prepare('SELECT * FROM res_approvals WHERE id=?').get(String(id));
     if (!a) throw E.notFound();
-    if (a.status === 'pending' && a.requested_ts <= Date.now() - APPROVAL_TTL_MS) { db.prepare("UPDATE res_approvals SET status='expired' WHERE id=?").run(a.id); a.status = 'expired'; }
+    if (a.status === 'pending' && a.requested_ts <= Date.now() - TTL()) { db.prepare("UPDATE res_approvals SET status='expired' WHERE id=?").run(a.id); a.status = 'expired'; }
     if (a.status !== 'pending') throw E.conflict('approval_closed', `this request is ${a.status}`);
     return a;
   };

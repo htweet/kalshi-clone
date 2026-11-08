@@ -143,7 +143,10 @@ function ratingsHtml(r) {
   const bubble = (it) => `<span class="el-bub" data-testid="el-bubble" data-code="${esc(it.code)}" data-party="${esc(it.party_id || '')}"${vars({ '--c': (it.party || {}).color })} title="${esc(`${it.code} ${pct0(it.p)}`)}">${esc(it.code)}</span>`;
   const colour = (c) => `<div class="el-rcol b-${esc(c.band)}" data-testid="el-rcol" data-band="${esc(c.band)}" data-party="${esc(c.party?.code || '')}" data-count="${esc(c.items.length)}"${vars({ '--c': c.party?.color })}>${head(c)}<div class="el-rcol-b">${c.items.map((it) => bubble({ ...it, party: c.party })).join('')}</div></div>`;
   const end = (p, n, right) => `<div class="el-rend ${right ? 'r' : ''}" data-testid="el-settled" data-party="${esc(p?.code || '')}" data-count="${esc(n)}">${partyChip(p)}<b class="num">${esc(n)}</b><span class="faint">${te('elections.ratings.settled')}</span></div>`;
-  const bands = ['100%', '90%+', '75%+', '60%+', '50%', '60%+', '75%+', '90%+', '100%'].map((b) => `<span>${esc(b)}</span>`).join('');
+  // Band edges come from the owner settings (Admin › Owner settings, CLONE_SPEC.md §38.1), sent with the ratings.
+  const bd = r.bands || { safe: 90, likely: 75, lean: 60 };
+  const edge = (n) => `${n}%+`;
+  const bands = ['100%', edge(bd.safe), edge(bd.likely), edge(bd.lean), '50%', edge(bd.lean), edge(bd.likely), edge(bd.safe), '100%'].map((b) => `<span data-testid="el-band-edge">${esc(b)}</span>`).join('');
   return `<div class="el-ratings" data-testid="el-ratings"><div class="el-rgrid">${end(r.left, r.settled_left, false)}${r.columns.map(colour).join('')}${end(r.right, r.settled_right, true)}</div><div class="el-rbands faint">${bands}</div>
     ${r.others.length ? `<div class="el-rothers" data-testid="el-ratings-others"><span class="faint">${te('elections.ratings.others')}</span>${r.others.map((o) => bubble(o)).join('')}</div>` : ''}</div>`;
 }

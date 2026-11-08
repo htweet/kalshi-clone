@@ -1,0 +1,88 @@
+'use strict';
+// Server-side wording of Phase 8 (CLONE_SPEC.md §38): Predictions referrals, share links and copy-trade, server-rendered
+// public pages and share cards, languages, data saver and SMS notifications. Keyed templates with named variables; Admin ›
+// Content › Texts overrides them as `server.growth.<key>` (server/cms/texts.js lists this module).
+const catalog = require('./catalog');
+
+const STRINGS = {
+  // ---- referrals (P8.1)
+  'referral.memo_referrer': 'Referral reward: a friend you invited started trading',
+  'referral.memo_referee': 'Welcome bonus: you joined with a referral',
+  'referral.notify.title': 'Referral reward: {amount}',
+  'referral.notify.body_referrer': 'A friend you invited reached the trading goal. {amount} was added to your balance.',
+  'referral.notify.body_referee': 'You reached the trading goal of your invitation. {amount} was added to your balance.',
+  'referral.notify.queued': 'Your {amount} referral reward is queued and will be paid when the promotions budget is funded.',
+  'referral.notify.review.title': 'Referral under review',
+  'referral.notify.review.body': 'Your referral reached the trading goal. We check every referral before paying; this one is being reviewed and you will hear from us soon.',
+  'referral.notify.rejected.title': 'Referral not rewarded',
+  'referral.notify.rejected.body': 'After review, this referral did not meet the programme rules, so no reward was paid.',
+  'referral.notify.admin.title': 'Referral to review',
+  'referral.notify.admin.body': 'A referral reached the trading goal with fraud signals: {signals}. Approve or reject it in Admin › Growth.',
+  'referral.signal.shared_device': 'the same device as the referrer',
+  'referral.signal.shared_payment_instrument': 'the same payment card, bank account or wallet as the referrer',
+  'referral.signal.ip_velocity': '{count} referred sign-ups from one network in 24 hours',
+  'referral.signal.high_risk_score': 'a risk score of {score} (hold threshold {threshold})',
+  'error.referral_off': 'The referral programme is closed right now.',
+  'error.referral_rate': 'Too many attempts. Wait a minute and try again.',
+  'error.referral_code': 'That referral code is not valid.',
+  'error.referral_self': 'You cannot use your own referral code.',
+  'error.referral_used': 'You have already joined with a referral code.',
+  'error.referral_late': 'Referral codes can be added within {days} days of signing up and before your first trade.',
+  'error.referral_review_closed': 'This review has already been decided.',
+  // ---- share links and copy-trade (P8.2)
+  'share.title.market': '{title} · Parlance',
+  'share.title.event': '{title} · Parlance',
+  'share.title.position': '{name} holds {side} on {title}',
+  'share.title.trade': '{name} bought {side} on {title}',
+  'share.text.market': '{title}: {chance} chance on Parlance',
+  'share.text.position': 'I hold {side} on "{title}" on Parlance',
+  'share.text.trade': 'I bought {side} at {price} on "{title}" on Parlance. Copy my trade:',
+  'share.someone': 'A Parlance member',
+  'error.share_target': 'That market, event, position or trade cannot be shared.',
+  'error.share_not_yours': 'You can only share your own positions and trades.',
+  'error.share_gone': 'This share link was revoked or has expired.',
+  'error.share_limit': 'You have created a lot of share links. Try again in a few minutes.',
+  // ---- server-rendered pages and share cards (P8.3)
+  'seo.home.title': 'Parlance · Trade on what happens next in Nigeria',
+  'seo.home.description': 'Trade yes/no contracts on elections, football, the economy and more. Prices in naira; play money while we prepare for launch.',
+  'seo.browse.title': 'All markets · Parlance',
+  'seo.browse.description': 'Every open market on Parlance, by volume.',
+  'seo.category.title': '{category} markets · Parlance',
+  'seo.category.description': 'Open {category} markets on Parlance, by volume.',
+  'seo.event.description': '{market}: {chance} chance. Trade yes or no on Parlance.',
+  'seo.hub.title': '{name} · Elections hub · Parlance',
+  'seo.hub.description': 'Live results, race calls, the seat count and markets for {name}.',
+  'seo.docs.title': 'Parlance API documentation',
+  'seo.docs.description': 'REST, WebSocket and FIX APIs for Predictions and Perps.',
+  'seo.rates.title': 'Rates outlook · Parlance',
+  'seo.rates.description': 'What the central-bank decision markets imply for the next rate meetings.',
+  'seo.elections_crumb': 'Elections',
+  'seo.status.title': 'Status · Parlance',
+  'seo.status.description': 'Current status of the Parlance exchange and its APIs.',
+  'seo.series.title': '{title} · Parlance',
+  'seo.series.description': 'Markets in the {title} series on Parlance.',
+  'seo.markets_heading': 'Markets',
+  'seo.more_markets': 'More markets',
+  'seo.chance': '{chance} chance',
+  'seo.volume': '{amount} volume',
+  'seo.js_note': 'The full exchange loads with JavaScript.',
+  'og.chance': '{chance} CHANCE',
+  'og.yes': 'YES {price}',
+  'og.no': 'NO {price}',
+  // ---- languages (P8.4)
+  'i18n.error.unknown_locale': 'That language is not available.',
+  'i18n.error.locale_off': 'That language is not switched on.',
+  'i18n.error.not_reviewed': 'Mark the language reviewed before switching it on.',
+  'i18n.error.coverage': 'Only {coverage}% of the texts are translated; at least {min}% is needed to switch the language on.',
+  'i18n.error.default_locale': 'The default language cannot be switched off.',
+  'i18n.error.code': 'A language code is 2-3 lowercase letters, optionally followed by a dash and a region (e.g. pcm, yo, ar, fr-CM).',
+  'i18n.error.exists': 'That language already exists.',
+  // ---- SMS notifications (P8.6)
+  'sms.notify': '{app_name}: {title}. {body}',
+  'sms.consent': 'I agree to receive SMS notifications about my account, money and price alerts from Parlance at my verified phone number. Message and data rates may apply. Reply STOP or switch this off in Settings at any time.',
+  'error.sms_phone': 'Verify a phone number first (Account › Identity).',
+  'error.sms_consent_changed': 'The SMS wording has changed. Reload the page and read it again.',
+};
+
+const s = catalog.scoped('server.growth.', STRINGS);
+module.exports = { STRINGS, s };

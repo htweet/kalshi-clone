@@ -5,7 +5,7 @@ import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §3
 import '../content/event-strings.js';
 import { t as T, tHtml } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { vars } from '../dynstyle.js';
-import { api } from '../api.js';
+import { api, request } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars, priceUnit, pxCents, contractValue, amountLabel, toApiDollars, validMoneyInput, moneyStep, sym, fmtDay, fmtDateTime, isNgn } from '../lib.js';
@@ -48,6 +48,7 @@ const icsDate = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replac
 
 export async function render({ el, params, query, navigate }) {
   const eventTicker = params.event.toUpperCase();
+  const { shareDialog } = await import('./share.js'); // share sheet and copy-trade (CLONE_SPEC.md §38.3)
   const { event: ev } = await api.event(eventTicker);
   const { series } = await api.series(ev.series_ticker);
   document.title = tx('event.render.parlance_2', { title: ev.title });
@@ -163,8 +164,11 @@ export async function render({ el, params, query, navigate }) {
     }
     download(`${ev.event_ticker.toLowerCase()}-prices.csv`, 'text/csv', rows.join('\n') + '\n');
   };
-  $('#share-btn').onclick = async () => {
-    try { await navigator.clipboard.writeText(location.href); toast(tx('event.render.link_copied')); } catch { toast(location.href); }
+  // Share sheet (CLONE_SPEC.md §38.3): a signed, counted link when signed in (WhatsApp first), else the page address.
+  $('#share-btn').onclick = () => {
+    const m = market(); const multi = state.ev.markets.length > 1;
+    const ch = prob(m);
+    shareDialog({ kind: multi ? 'market' : 'event', ticker: multi ? m.ticker : ev.event_ticker, title: multi ? `${ev.title}: ${m.yes_sub_title}` : ev.title, text: ch != null ? tx('event.share.text', { title: multi ? `${ev.title}: ${m.yes_sub_title}` : ev.title, chance: ch }) : ev.title }).catch((e) => toast(e.message, 'error'));
   };
   $('#chat-btn').onclick = () => { selectTab('ideas'); $('.big-tabs').scrollIntoView({ behavior: 'smooth' }); };
 
@@ -597,8 +601,9 @@ export async function render({ el, params, query, navigate }) {
       const mine = positions.filter((p) => p.event_ticker === ev.event_ticker && p.side);
       const resting = orders.filter((o) => state.ev.markets.some((m) => m.ticker === o.ticker));
       box.innerHTML = (mine.length || resting.length) ? `<section class="card side-card" data-testid="my-position"><h3>${te('event.render.your_position')}</h3>
-        ${mine.map((p) => `<div class="outcome-row"><span class="outcome-name">${esc(p.outcome)} · <strong>${esc(p.side.toUpperCase())}</strong></span><span class="num">${qty(p.position_fp)} @ ${esc(px(p.avg_price_dollars))}</span></div>`).join('')}
+        ${mine.map((p) => `<div class="outcome-row"><span class="outcome-name">${esc(p.outcome)} · <strong>${esc(p.side.toUpperCase())}</strong></span><span class="num">${qty(p.position_fp)} @ ${esc(px(p.avg_price_dollars))}</span><button class="btn btn-sm btn-ghost" data-share-position="${esc(p.ticker)}" data-flag="share_links" data-testid="share-position">${te('event.share.position')}</button></div>`).join('')}
         ${resting.length ? `<div class="faint mt-6">${te('event.render.resting_order_s_manage_in', { value: resting.length })} <a href="/portfolio" data-link>${te('event.render.portfolio')}</a></div>` : ''}</section>` : '';
+      for (const b of box.querySelectorAll('[data-share-position]')) b.onclick = () => { const p = mine.find((x) => x.ticker === b.dataset.sharePosition); shareDialog({ kind: 'position', ticker: b.dataset.sharePosition, title: p ? `${ev.title}: ${p.outcome}` : ev.title }).catch((e) => toast(e.message, 'error')); };
     } catch { box.innerHTML = ''; }
   }
 
@@ -724,7 +729,28 @@ export async function render({ el, params, query, navigate }) {
   if (session.user) unsubs.push(socket.subscribe({ channels: ['fill'] }, (msg) => { if (tickers.includes(msg.msg.ticker)) drawPosition(); }));
 
   await refreshHeld();
-  drawWatch(); drawRows(); drawHeadline(); drawScalar(); drawTicket(query && query.get('side') ? defaultPrice() : null); drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated(); drawComboLegs();
+  // Copy this trade (CLONE_SPEC.md §38.3): ?s=<token> from a shared position or trade pre-fills the ticket with what the
+  // sharer chose to show (market, side, limit price, size). It never places an order: the visitor checks and submits.
+  let copied = null;
+  if (query && query.get('s') && flagOn('copy_trade')) {
+    try {
+      const c = (await request('GET', `/v1/share/${encodeURIComponent(query.get('s'))}/copy`)).copy;
+      if (c && c.event_ticker === ev.event_ticker && state.ev.markets.some((m) => m.ticker === c.ticker)) {
+        copied = c;
+        state.selected = c.ticker; state.side = c.side === 'no' ? 'no' : 'yes'; state.action = 'buy';
+        if (c.price_cc != null && modes().some(([k]) => k === 'limit')) state.mode = 'limit';
+      }
+    } catch { toast(tx('share.copy.gone')); }
+  }
+  drawWatch(); drawRows(); drawHeadline(); drawScalar(); drawTicket(copied && copied.price_cc != null ? copied.price_cc : query && query.get('side') ? defaultPrice() : null);
+  if (copied) {
+    const tk = $('#ticket');
+    if (copied.count_fp != null) { const n = tk.querySelector('#t-count'); if (n) { n.value = String(Number(copied.count_fp)); n.dispatchEvent(new Event('input', { bubbles: true })); } }
+    const note = document.createElement('div');
+    note.className = 'copy-note'; note.dataset.testid = 'copy-trade-note'; note.setAttribute('role', 'status');
+    note.textContent = tx('share.copy.banner', { name: copied.sharer || '', side: copied.side.toUpperCase(), price: copied.price_cc != null ? tx('share.copy.price', { price: pxc(copied.price_cc) }) : '', size: copied.count_fp != null ? tx('share.copy.size', { count: qty(copied.count_fp) }) : '' });
+    tk.prepend(note);
+  } drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated(); drawComboLegs();
   // Keep canonical URL (slug is decorative, spec §3).
   const canonical = eventHref({ ...ev, series_slug: series.slug });
   if (location.pathname !== canonical) history.replaceState({}, '', canonical);

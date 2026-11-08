@@ -7,6 +7,7 @@
 //   6. Theme System / Light / Dark + Accessible colors (red-green safe palette)
 //   7. Trade mechanics toggles (live since Phase 5A, CLONE_SPEC.md §28.5–§28.6: flip sell, auto-sell prompt, order review, collateral return)
 //   8. Market preview price type: Last traded price / Current buy price
+//   9. Data and messages (Phase 8, CLONE_SPEC.md §38.5, §38.7): data saver, SMS notifications, language (views/reach-settings.js)
 // Every change is saved to the account at once (PUT /users/:uid/preferences) and applied app-wide.
 import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../content/account-settings-strings.js';
@@ -58,6 +59,7 @@ export async function render(panel, { navigate }) {
 
     <section class="card panel set-sec" data-testid="set-price-type" data-order="8"><h2>${te('account-settings.render.market_preview_price_type')}</h2><p class="muted">${te('account-settings.render.the_price_shown_for_markets')}</p>
       <div class="set-radios">${radio('market_price_type', 'last_traded', tx('account-settings.render.last_traded_price'), p.market_price_type)}${radio('market_price_type', 'current_buy', tx('account-settings.render.current_buy_price'), p.market_price_type, tx('account-settings.render.the_best_price_to_buy'))}</div></section>
+    <section class="card panel set-sec" data-testid="set-reach" data-order="9"><div data-reach></div></section>
   </div>`;
 
   const save = async (prefs) => {
@@ -78,6 +80,7 @@ export async function render(panel, { navigate }) {
     b.onclick = async () => { await idApi.revokeApp(session.uid, b.dataset.revoke); toast(tx('account-settings.render.access_removed')); render(panel, { navigate }); };
   }
   drawConsent(panel.querySelector('[data-consent]'), consent);
+  import('./reach-settings.js').then((m) => m.mountReachSettings(panel.querySelector('[data-reach]'))).catch(() => {});
   mountNotifications(panel.querySelector('[data-notif-settings]'), panel.querySelector('[data-security-setting]'));
 }
 

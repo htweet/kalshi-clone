@@ -569,7 +569,9 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     ensureProfile(u.id);
     setProfile(u.id, { email_verified_at: nowIso() });
     logEvent(u.id, 'email_verified', req, {});
-    try { ctx.waitlists?.linkUser(u.id); } catch (e) { console.error('waitlist link', e.message); } // a guest entry with this email joins the account (CLONE_SPEC.md §36.2)
+    // A guest entry with this email joins the account (CLONE_SPEC.md §36.2); the verified hooks run after it (the waitlist
+    // auto-confirm switch and the referral attribution, CLONE_SPEC.md §38).
+    try { (ctx.waitlists?.emailVerifiedNow || ctx.waitlists?.linkUser)?.(u.id); } catch (e) { console.error('waitlist link', e.message); }
     res.json({ verified: true });
   });
 
@@ -899,6 +901,8 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
 
   return {
     gate, settings, enforced, stateFor, kyc, compliance, oauth, webauthn, messaging, docv, statusOf, setAccountArea: (a) => { ctx.accountArea = a; }, setWaitlists: (w) => { ctx.waitlists = w; },
+    // The member's verified phone number (E.164), for the SMS notification channel (server/reach.js, CLONE_SPEC.md §38.7).
+    phoneOf: (uid) => { const p = db.prepare('SELECT phone_enc, phone_verified_at FROM identity_profiles WHERE user_id=?').get(uid); if (!p || !p.phone_verified_at || !p.phone_enc) return null; try { return open(uid, 'phone', p.phone_enc)?.e164 || null; } catch { return null; } },
     close: () => { for (const t of timers) clearInterval(t); kyc.stop(); webauthn.close?.(); oauth.close?.(); },
   };
 }

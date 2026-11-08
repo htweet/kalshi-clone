@@ -52,6 +52,8 @@ const STRINGS = {
   'race.senate_single': '{state} Senate',
   'race.house': '{state} federal constituency {n}',
   'party.candidate': '{party} candidate',
+  // ground rule 6 (CLONE_SPEC.md §38.1): the second-resolver switch is off, so a call settles its markets at once
+  'second_resolver_off': 'Settled by the results-desk call (the second-resolver switch is off).',
 };
 
 const s = catalog.scoped('server.elections.', STRINGS);

@@ -195,7 +195,8 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
     headers(req, res, () => cors(req, res, () => {
       if (res.headersSent) return;
       const p = req.path;
-      if (p === '/robots.txt' && SAFE.has(req.method)) { res.setHeader('Cache-Control', 'public, max-age=3600'); return res.type('text/plain').send(ROBOTS); }
+      // robots.txt; Phase 8 (server/seo.js, CLONE_SPEC.md §38.4) adds the Sitemap line while server rendering is on.
+      if (p === '/robots.txt' && SAFE.has(req.method)) { let tail = ''; try { tail = app.locals.robotsTail ? app.locals.robotsTail(req) : ''; } catch { tail = ''; } res.setHeader('Cache-Control', 'public, max-age=3600'); return res.type('text/plain').send(ROBOTS + tail); }
       if (bot.isHoneypot(p)) { bot.record('honeypot', req); return notFound(res); }
       if (req.method === 'POST' && p === '/v1/csp-report') return cspReport(req, res);
       if (req.method === 'POST' && p === '/v1/bot/challenge') return run([bot.preSessionLimit('auth'), smallJson], req, res, (err) => (err ? next(err) : bot.verifyChallenge(req, res)));
@@ -254,8 +255,13 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
     if (API.test(p) || p.length > 512 || segs.some((s) => s.startsWith('.')) || /\.[A-Za-z][A-Za-z0-9]{0,9}$/.test(segs[segs.length - 1])) return notFound(res);
     const nonce = res.locals.cspNonce;
     setSiteCsp(req, res, nonce);
-    const ch = bot.shouldChallenge(req, trustworthy(req), parseCookies);
+    // Search and link-preview crawlers on public pages skip the browser check while the ssr.crawlers flag is on (server/seo.js);
+    // AI crawlers and every private route still get it.
+    let exempt = false;
+    try { exempt = !!(app.locals.challengeExempt && app.locals.challengeExempt(req)); } catch { exempt = false; }
+    const ch = exempt ? null : bot.shouldChallenge(req, trustworthy(req), parseCookies);
     if (ch) return bot.challenge(req, res, nonce, ch.reasons);
+    if (exempt) bot.record('crawler_exempt', req, {});
     let html = page().replace(/__CSP_NONCE__/g, nonce).replace(/__PLX_BOOT__/g, bot.bootProof(req));
     // CMS (CLONE_SPEC.md §32.8): app name, description, theme-color, favicon and per-page SEO title / description.
     if (app.locals.pageTransform) { try { html = app.locals.pageTransform(html, req, res); } catch (e) { console.error('page transform', e); } }

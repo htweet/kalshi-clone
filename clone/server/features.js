@@ -60,7 +60,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
     const n = { id: newId('n_'), user_id: userId, type, title: (gate && gate.title) || title, body, link, read_at: null, created_ts: Date.now() };
     // In-app channel template (Admin › Content › Templates, CLONE_SPEC.md §32.5): the inbox row and the live toast.
     let tpl = null;
-    try { tpl = hooks.notifyTemplate ? hooks.notifyTemplate(type, { title: n.title, body, link }) : null; } catch (e) { console.error('notify template', e); }
+    try { tpl = hooks.notifyTemplate ? hooks.notifyTemplate(type, { title: n.title, body, link }, userId) : null; } catch (e) { console.error('notify template', e); } // per the member's language (§38.5)
     if (tpl) { n.title = String(tpl.inapp.title).slice(0, 200) || n.title; n.body = String(tpl.inapp.body).slice(0, 1000); }
     db.prepare('INSERT INTO notifications(id,user_id,type,title,body,link,read_at,created_ts) VALUES(?,?,?,?,?,?,?,?)').run(n.id, userId, type, n.title, n.body, link, null, n.created_ts);
     engine.emit('notification', userId, gate && gate.quiet ? { ...notifVo(n), quiet: true } : notifVo(n));

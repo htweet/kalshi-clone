@@ -22,12 +22,13 @@ const AREA_ROUTES = {
   combos: '/combos', sports: '/sports', scoreboard: '/sports', social: '/social', social2: '/social', 'social-manage': '/social/circle', groups: '/messages', chat: '/browse',
   notifications: '/notifications', 'notification-settings': '/notifications/settings', account: '/account', 'account-settings': '/account/settings', 'account-identity': '/account/privacy',
   'account-activity': '/account/activity', 'account-documents': '/account/taxes', 'account-payments': '/account/payments', 'account-menu': '/', auth: '/sign-in', onboarding: '/sign-up/identity',
-  'identity-pages': '/forgot-password', funds: '/funds', rewards: '/rewards', incentives: '/incentives', hubs: '/hubs/elections', placeholder: '/trust/about', currency: '/', pwa: '/',
+  'identity-pages': '/forgot-password', funds: '/funds', rewards: '/rewards', incentives: '/incentives', hubs: '/hubs/economics', placeholder: '/trust/about', currency: '/', pwa: '/',
   components: '/', lib: '/', errors: '/', stepup: '/account', 'payment-forms': '/funds/deposit', 'docv-phone': '/verify/m', 'ai-summary': '/browse', store: '/', security: '/', pages: '/',
   flags: '/', heist: '/heist', // Phase 5D (CLONE_SPEC.md §33)
   'api-keys': '/account/api-keys', docs: '/docs', status: '/status', // Phase 7 (CLONE_SPEC.md §35)
   waitlist: '/waitlist', // Phase 7A (CLONE_SPEC.md §36)
   elections: '/category/elections/nigeria-2027', // Phase 7B (CLONE_SPEC.md §37)
+  share: '/browse', referrals: '/rewards', locale: '/', reach: '/account/settings', // Phase 8 (CLONE_SPEC.md §38)
 };
 
 function block(src, b, e, file) {
@@ -48,6 +49,8 @@ function serverModules() {
   out.push(['api', require('../content/api').STRINGS]); // public trading API (CLONE_SPEC.md §35)
   out.push(['waitlists', require('../content/waitlists').STRINGS]); // waitlists, survey, newsletter (CLONE_SPEC.md §36)
   out.push(['elections', require('../content/elections').STRINGS]); // elections hub v2 (CLONE_SPEC.md §37)
+  out.push(['switches', require('../content/switches').STRINGS]); // ground rule 6: switch and setting explanations (CLONE_SPEC.md §38.1)
+  out.push(['growth', require('../content/growth').STRINGS]); // Phase 8: referrals, share links, SEO, languages, SMS (CLONE_SPEC.md §38)
   return out;
 }
 

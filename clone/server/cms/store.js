@@ -38,7 +38,10 @@ function createStore({ db, emit, requireFresh }) {
   const handlers = new Map();
   const register = (type, h) => handlers.set(type, h);
   const handler = (type) => { const h = handlers.get(type); if (!h) throw new CmsError(404, 'not_found', `unknown content type ${type}`); return h; };
-  const loc = (l) => { const x = l || DEFAULT_LOCALE; if (!LOCALES.includes(x)) throw new CmsError(400, 'validation_failed', 'unsupported locale', { locale: `must be one of ${LOCALES.join(', ')}` }); return x; };
+  // Locales are data since Phase 8 (server/i18n.js, table i18n_locales, CLONE_SPEC.md §38.5); before that table exists
+  // only the default locale is known.
+  const localeList = () => { try { const l = db.prepare('SELECT code FROM i18n_locales').all().map((r) => r.code); return l.length ? l : LOCALES; } catch { return LOCALES; } };
+  const loc = (l) => { const x = l || DEFAULT_LOCALE; const list = localeList(); if (x !== DEFAULT_LOCALE && !list.includes(x)) throw new CmsError(400, 'validation_failed', 'unsupported locale', { locale: `must be one of ${list.join(', ')}` }); return x; };
   const row = (type, key, locale) => db.prepare('SELECT * FROM cms_entries WHERE type=? AND key=? AND locale=?').get(type, key, locale);
   const ensure = (type, key, locale) => db.prepare('INSERT INTO cms_entries(type,key,locale) VALUES(?,?,?) ON CONFLICT DO NOTHING').run(type, key, locale);
   const actorOf = (req) => ({ id: req?.auth?.user.id || null, email: req?.auth?.user.email || null });

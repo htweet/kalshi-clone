@@ -41,6 +41,12 @@ const { mountDeveloperPortal } = require('./dev-portal'); // Phase 7: /docs, /st
 const { createRegistry } = require('./api-registry'); // Phase 7: one route registry → routes, OpenAPI, AsyncAPI, contract tests
 const { createWaitlists, mountWaitlists } = require('./waitlists'); // Phase 7A: waitlists, survey, newsletter (CLONE_SPEC.md §36)
 const { mountElections } = require('./elections'); // Phase 7B: elections hub v2, Nigeria first (CLONE_SPEC.md §37)
+const { createOwnerSettings, mountOwnerSettings } = require('./owner-settings'); // ground rule 6: owner choices as admin settings (§38.1)
+const { mountPredictionReferrals } = require('./growth-referrals'); // Phase 8 P8.1: Predictions referrals, fraud review queue (§38.2)
+const { mountShareLinks } = require('./share-links'); // Phase 8 P8.2: signed share links, copy-trade (§38.3)
+const { mountSeo } = require('./seo'); // Phase 8 P8.3: server-rendered public pages, share cards, sitemaps (§38.4)
+const { mountI18n } = require('./i18n'); // Phase 8 P8.4: languages on the CMS text catalog (§38.5)
+const { mountReach } = require('./reach'); // Phase 8 P8.6: data saver, SMS notifications (§38.7)
 
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
 const SESSION_COOKIE = 'plx_session';
@@ -59,7 +65,7 @@ function parseCookies(header) {
 
 // Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope (ParamError / intParam, server/trade-api.js).
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, elections: electionsOptions = {}, env = 'main' }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, elections: electionsOptions = {}, owner: ownerOptions = {}, growth: growthOptions = {}, seo: seoOptions = {}, reach: reachOptions = {}, env = 'main' }) {
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
   app.set('trust proxy', false);
@@ -108,6 +114,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Feature flags (server/flags.js, CLONE_SPEC.md §33): evaluated per request; modules ask engine.flags.on()/jobOn().
   const flags = createFlags({ db, engine, options: flagsOptions || {} });
   app.locals.flags = flags; engine.flags = flags;
+  // Owner settings (ground rule 6, CLONE_SPEC.md §38.1): validated values every module reads live (engine.ownerSettings).
+  const ownerSettings = createOwnerSettings({ db, engine, overrides: ownerOptions.overrides || {} });
+  app.locals.ownerSettings = ownerSettings; engine.ownerSettings = ownerSettings;
   // Waitlist storage (server/waitlists.js, CLONE_SPEC.md §36): the Perps list and the real-money launch list share it.
   const waitlists = createWaitlists({ db, keyDir });
   app.locals.waitlists = waitlists;
@@ -167,6 +176,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.cms = mountCms({ v1, app, db, engine, admin, auth, options: cmsOptions || {} }); // texts, templates, media, pages, branding (§32)
   // Phase 5D (CLONE_SPEC.md §33): flag admin + bundle, play mode and money controls, Central Bank and the Vault Heist.
   mountFlags({ v1, db, flags, admin, auth, identity: app.locals.identity });
+  mountOwnerSettings({ v1, db, os: ownerSettings, admin, auth, flags }); // Admin › Owner settings (CLONE_SPEC.md §38.1)
   app.locals.centralBank = mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, options: centralBankOptions || {} });
   app.locals.playMode = mountPlayMode({ v1, app, db, engine, auth, admin, flags, feat, payments: app.locals.payments, centralBank: app.locals.centralBank, keyDir, options: playModeOptions || {} });
   // Phase 6 (CLONE_SPEC.md §34): margin tiers / risk limits / APY / waitlist / referral settings, the user side of the
@@ -178,7 +188,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.identity.setWaitlists(waitlists);
   // Every send goes through the templates (CLONE_SPEC.md §32.5): in-app (features.notify), email and push (notify-prefs),
   // account emails (auth, identity), the phone code SMS and the push test (identity, webpush).
-  feat.hooks.notifyTemplate = (type, msg) => app.locals.cms.renderNotification(type, msg);
+  feat.hooks.notifyTemplate = (type, msg, uid) => app.locals.cms.renderNotification(type, msg, { locale: app.locals.i18n ? app.locals.i18n.localeOfUser(uid) : undefined }); // templates per language (§38.5)
   auth.hooks.template = (k, v) => app.locals.cms.renderSystem(k, v);
   // Simulated live sports (CLONE_SPEC.md §19): on with `sports: {speed,…}`, SPORTS=1, or by default from the CLI.
   const sportsOpts = sports ?? (process.env.SPORTS === '1' ? {} : null);
@@ -191,6 +201,12 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Phase 7B (CLONE_SPEC.md §37): elections hub v2 — country model, simulated results feed, results desk, timeline,
   // Power Index, My Ballot by division; the hub chat is a chat room of the module above.
   app.locals.elections = mountElections({ v1, db, engine, auth, admin, flags, feat, chat: chatApi, options: electionsOptions || {} });
+  // Phase 8 (CLONE_SPEC.md §38): growth and reach, Nigeria first.
+  app.locals.i18n = mountI18n({ v1, app, db, engine, auth, admin, flags, cms: app.locals.cms, options: growthOptions.i18n || {} });
+  app.locals.referralsPredictions = mountPredictionReferrals({ v1, app, db, engine, auth, admin, flags, feat, centralBank: app.locals.centralBank, identity: app.locals.identity, security, waitlists, keyDir, options: growthOptions.referrals || {} });
+  app.locals.shareLinks = mountShareLinks({ v1, app, db, engine, auth, admin, flags, security, keyDir, referrals: app.locals.referralsPredictions, eventFull, options: growthOptions.share || {} });
+  app.locals.reach = mountReach({ v1, app, db, engine, auth, admin, flags, feat, cms: app.locals.cms, identity: app.locals.identity, options: reachOptions || {} });
+  app.locals.seo = mountSeo({ app, db, engine, flags, security, cms: app.locals.cms, i18n: app.locals.i18n, eventFull, options: seoOptions || {} });
 
   // Trade API v2 (CLONE_SPEC.md §35): market data, portfolio, orders (batch, amend, decrease), order groups, history,
   // RFQ, multivariate collections and Perps under /margin — one registry for routes, OpenAPI and contract tests.
@@ -428,7 +444,11 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
         // Redesigned home (spec §15.2): upcoming strip, hubs, per-category sections, featured list.
         upcoming: [...open].filter((e) => !e.series_ticker.startsWith('PLXFLASH')).sort((a, b) => Date.parse(a.close_time) - Date.parse(b.close_time)).slice(0, 8)
           .map((e) => ({ event_ticker: e.event_ticker, series_ticker: e.series_ticker, series_slug: e.series_slug, title: e.title, category: e.category, tag: e.tags[0] || e.category, close_time: e.close_time })),
-        hubs: [['Elections', 'Harbor Elections Hub'], ['Companies', 'Public Companies Hub']].map(([cat, title]) => ({ category: cat, title, dollar_volume: evs.filter((e) => e.category === cat).reduce((a, e) => a + e.dollar_volume, 0), events: evs.filter((e) => e.category === cat).length })),
+        // The elections rail card opens the elections hub v2 of Nigeria (the Phase 5B /hubs/elections page is removed, §29.8).
+        hubs: [['Elections', 'Elections Hub'], ['Companies', 'Public Companies Hub']].map(([cat, title]) => {
+          const el = cat === 'Elections' ? (() => { try { return db.prepare("SELECT slug, title FROM el_elections WHERE country='NG' AND active=1 ORDER BY CASE kind WHEN 'general' THEN 0 ELSE 1 END, date LIMIT 1").get(); } catch { return null; } })() : null;
+          return { category: cat, title: el ? el.title : title, href: el ? `/category/elections/${el.slug}` : null, dollar_volume: evs.filter((e) => e.category === cat).reduce((a, e) => a + e.dollar_volume, 0), events: evs.filter((e) => e.category === cat).length };
+        }),
         sections: CATEGORIES.map((c) => ({ category: c, events: byVol.filter((r) => r.event.category === c).slice(0, 4).map((r) => r.event) })).filter((s) => s.events.length),
         featured_list: byVol.filter((r) => r.event.category === 'Elections').slice(0, 3).map(brief),
       },
@@ -510,6 +530,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Static SPA: explicit allowlist, hashed immutable assets (dist) or sources (dev), page template with the CSP nonce and
   // boot proof, bot challenge for suspicious HTML requests; everything else 404 (server/security.js, P1.11/P1.12).
   app.locals.cms.mountStatic(app); // /content-bundle.js and /media/* (CLONE_SPEC.md §32.4, §32.6)
+  app.locals.shareLinks.mountStatic(app); // /s/<token> share landings (CLONE_SPEC.md §38.3)
+  app.locals.seo.mountStatic(app); // /sitemap.xml, /sitemaps/*.xml, /og/*.png, the old /hubs/elections redirect (§38.4)
   security.mountStatic(app);
 
   // Error envelopes (spec §5.4).

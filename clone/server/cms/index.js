@@ -75,6 +75,9 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   const uploads = createLimiter(db, 'cms_upload', { limit: options.uploadsPerMinute ?? 30, windowMs: 60000 });
   const sends = createLimiter(db, 'cms_test_send', { limit: options.testSendsPerMinute ?? 10, windowMs: 60000 });
   const bundleCache = new Map();
+  // Languages (Phase 8, server/i18n.js, CLONE_SPEC.md §38.5) install these: the public locale of a request (enabled ones
+  // only, else the default), the text direction of a locale, the locales a key is translated in.
+  const hooks = { publicLocale: () => DEFAULT_LOCALE, dirOf: () => 'ltr', langOf: (l) => String(l || DEFAULT_LOCALE).split('-')[0] };
 
   // ---------------------------------------------------------------- type handlers
   const asset = (id) => db.prepare("SELECT id, parent_id, variant, mime, ext, width, height, bytes, sha256, original_name, created_by, created_at FROM cms_media WHERE id=?").get(String(id || ''));
@@ -124,7 +127,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   store.register('footer', {
     validate: (key, v) => {
       if (key !== 'links') throw { key: 'the footer entry is "links"' };
-      if (!v || typeof v !== 'object' || !Array.isArray(v.columns)) throw { value: 'must be {tagline, columns: [{title, links: [{label, href}]}]}' };
+      if (!v || typeof v !== 'object' || !Array.isArray(v.columns)) throw { value: 'must be {tagline, columns: [{title, links: [{label, href}]}], social?: [{network, label, href}]}' };
       const tagline = String(v.tagline ?? '').trim();
       if (tagline.length > 200 || plainProblem(tagline)) throw { tagline: 'plain text up to 200 characters' };
       if (v.columns.length > 6) throw { columns: 'at most 6 columns' };
@@ -139,7 +142,19 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
           return { label, href };
         }) };
       });
-      return { tagline, columns };
+      // Social links (Phase 8, A18): known networks only, https only.
+      const NETWORKS = ['whatsapp', 'x', 'facebook', 'instagram', 'telegram', 'youtube', 'tiktok', 'linkedin'];
+      const socialIn = v.social === undefined ? FOOTER.social || [] : v.social;
+      if (!Array.isArray(socialIn) || socialIn.length > 8) throw { social: 'a list of at most 8 links' };
+      const social = socialIn.map((l, i) => {
+        const network = String(l?.network ?? '');
+        const label = String(l?.label ?? '').trim(); const href = String(l?.href ?? '').trim();
+        if (!NETWORKS.includes(network)) throw { [`social.${i}.network`]: `one of ${NETWORKS.join(', ')}` };
+        if (!label || label.length > 40 || plainProblem(label)) throw { [`social.${i}.label`]: 'plain text, 1-40 characters' };
+        if (!/^https:\/\/[^\s"<>]+$/.test(href) || safeHref(href) !== href) throw { [`social.${i}.href`]: 'must be an https:// URL' };
+        return { network, label, href };
+      });
+      return { tagline, columns, social };
     },
   });
   store.register('brand', {
@@ -190,50 +205,65 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     const slugs = new Set([...Object.keys(PAGES), ...m.keys()]);
     return [...slugs].sort().map((s) => pageOf(s, preview)).filter(Boolean).map(({ body, ...rest }) => { void body; return rest; });
   }
-  function bundle(preview = false) {
-    const k = preview ? 'preview' : 'public';
+  // Per locale (Phase 8): the default locale's published texts, overlaid with the locale's own translations; a key the
+  // locale has not translated falls back to the English (en-NG) text, then the code default.
+  function bundle(preview = false, locale = DEFAULT_LOCALE) {
+    const k = `${preview ? 'preview' : 'public'}:${locale}`;
     if (!preview && bundleCache.has(k)) return bundleCache.get(k);
     const cat = texts.load();
     const t = {};
-    for (const [key, v] of (preview ? store.withDrafts('text') : store.published('text'))) {
-      const e = cat.get(key);
-      if (!e || e.scope !== 'client' || typeof v !== 'string') continue;
-      t[key] = e.rich ? sanitize(v, 'rich') : v;
+    const layers = [preview ? store.withDrafts('text') : store.published('text')];
+    if (locale !== DEFAULT_LOCALE) { try { layers.push(preview ? store.withDrafts('text', locale) : store.published('text', locale)); } catch { /* unknown locale */ } }
+    for (const layer of layers) {
+      for (const [key, v] of layer) {
+        const e = cat.get(key);
+        if (!e || e.scope !== 'client' || typeof v !== 'string') continue;
+        t[key] = e.rich ? sanitize(v, 'rich') : v;
+      }
     }
     const br = brand(preview);
-    const b = { locale: DEFAULT_LOCALE, preview: !!preview, texts: t, media: mediaMap(preview), brand: br, theme: brandIsDefault(br) ? null : themeVersion(br), footer: footer(preview) };
+    const b = { locale, lang: hooks.langOf(locale), dir: hooks.dirOf(locale), preview: !!preview, texts: t, media: mediaMap(preview), brand: br, theme: brandIsDefault(br) ? null : themeVersion(br), footer: footer(preview) };
     const body = JSON.stringify(b);
     const out = { body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`, data: b };
     if (!preview) bundleCache.set(k, out);
     return out;
   }
   const templateCache = new Map();
-  const tplOverride = (key) => { if (!templateCache.has(key)) templateCache.set(key, publishedOne('template', key)); return templateCache.get(key); };
+  // Templates per locale (Phase 8): the locale's published template, else the default locale's, else the code default.
+  const tplOverride = (key, locale = DEFAULT_LOCALE) => {
+    const ck = `${key}@${locale}`;
+    if (!templateCache.has(ck)) {
+      let v = null;
+      if (locale !== DEFAULT_LOCALE) { try { v = store.published('template', locale).get(key) ?? null; } catch { v = null; } }
+      templateCache.set(ck, v ?? publishedOne('template', key));
+    }
+    return templateCache.get(ck);
+  };
 
   // ---------------------------------------------------------------- delivery API (used by notify, messaging, push)
   const appName = () => brand().short_name;
-  function renderNotification(type, msg) {
+  function renderNotification(type, msg, { locale = DEFAULT_LOCALE } = {}) {
     const key = templates.definition(`notify.${type}`) ? `notify.${type}` : 'notify._default';
     const vars = { title: msg.title || '', body: msg.body || '', link: msg.link || '', open_line: msg.link ? `\n\nOpen: ${msg.link}` : '', app_name: appName() };
-    const ov = tplOverride(key);
+    const ov = tplOverride(key, locale);
     if (!ov) return null; // defaults pass the composed wording through unchanged
     const f = (field) => templates.renderField(key, field, vars, ov);
     return { inapp: { title: f('inapp_title'), body: f('inapp_body') }, push: { title: f('push_title'), body: f('push_body') }, key };
   }
-  function renderNotificationEmail(type, msg) {
+  function renderNotificationEmail(type, msg, { locale = DEFAULT_LOCALE } = {}) {
     const key = templates.definition(`notify.${type}`) ? `notify.${type}` : 'notify._default';
     const vars = { title: msg.title || '', body: msg.body || '', link: msg.link || '', open_line: msg.link ? `\n\nOpen: ${msg.link}` : '', app_name: appName() };
-    return templates.renderEmail(key, vars, tplOverride(key), tplOverride('email._layout'), { headerImage: mediaMap().email_header?.url || null });
+    return templates.renderEmail(key, vars, tplOverride(key, locale), tplOverride('email._layout', locale), { headerImage: mediaMap().email_header?.url || null });
   }
   // `override` (optional): render with this snapshot of the template's fields instead of the published override (the
   // newsletter outbox renders every recipient with the version that was current when the send was created, §36).
-  function renderSystem(key, vars, { origin = '', override } = {}) {
+  function renderSystem(key, vars, { origin = '', override, locale = DEFAULT_LOCALE } = {}) {
     const v = { app_name: appName(), ...vars };
     const d = templates.definition(key);
     if (!d) throw new Error(`unknown template ${key}`);
-    if (d.kind === 'email') return templates.renderEmail(key, v, override !== undefined ? override : tplOverride(key), tplOverride('email._layout'), { headerImage: mediaMap().email_header?.url || null, origin });
+    if (d.kind === 'email') return templates.renderEmail(key, v, override !== undefined ? override : tplOverride(key, locale), tplOverride('email._layout', locale), { headerImage: mediaMap().email_header?.url || null, origin });
     const out = {};
-    for (const f of d.fields) out[f] = templates.renderField(key, f, v, tplOverride(key));
+    for (const f of d.fields) out[f] = templates.renderField(key, f, v, tplOverride(key, locale));
     return out;
   }
 
@@ -292,7 +322,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     if (req.headers['if-none-match'] === etag) return res.status(304).end();
     res.type(type).send(body);
   };
-  v1.get('/content/bundle', (req, res) => sendCached(req, res, 'application/json', bundle(false)));
+  v1.get('/content/bundle', (req, res) => sendCached(req, res, 'application/json', bundle(false, hooks.publicLocale(req.query.locale))));
   v1.get('/pages', (req, res) => res.json({ pages: pageList(false) }));
   const staffPreview = (req) => req.query.preview === '1' && req.auth && admin.rolesOf(req.auth.user).some((r) => ['admin', 'editor', 'publisher'].includes(r));
   const pageRoute = (req, res) => {
@@ -311,7 +341,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   // Classic script loaded before the app modules: strings read while modules evaluate already see the published text.
   function mountStatic(target) {
     target.get('/content-bundle.js', (req, res) => {
-      const b = bundle(false);
+      const b = bundle(false, hooks.publicLocale(req.query.locale));
       // JSON.stringify output is a JS expression; "<" is escaped so the text can never close a script element.
       sendCached(req, res, 'text/javascript; charset=utf-8', { body: `self.__PLX_CONTENT__=${b.body.replace(/</g, '\\u003c')};\n`, etag: b.etag });
     });
@@ -455,7 +485,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     const b = body(req, { key: KEY, version: { type: 'integer', min: 0, max: 1e9, required: true }, reason: { type: 'string', maxLen: 500 }, locale: { type: 'string', maxLen: 10 } });
     res.json({ entry: store.rollback(req, type, b.key, b) });
   }));
-  v1.get(`${A}/preview_bundle`, can('content.write'), wrap((req, res) => { res.setHeader('Cache-Control', 'no-store'); res.type('application/json').send(bundle(true).body); }));
+  v1.get(`${A}/preview_bundle`, can('content.write'), wrap((req, res) => { res.setHeader('Cache-Control', 'no-store'); const l = String(req.query.locale || DEFAULT_LOCALE); let loc = DEFAULT_LOCALE; try { loc = store.get('text', 'x', l).locale; } catch { loc = DEFAULT_LOCALE; } res.type('application/json').send(bundle(true, loc).body); }));
   v1.get(`${A}/preview_theme.css`, can('content.write'), wrap((req, res) => { res.setHeader('Cache-Control', 'no-store'); res.type('text/css').send(themeCss(true)); }));
   v1.post(`${A}/templates/preview`, can('content.write'), wrap((req, res) => {
     const b = body(req, { key: KEY, value: { type: 'object', nullable: true }, vars: { type: 'object', nullable: true } });
@@ -514,7 +544,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   const timer = setInterval(tick, options.tickMs ?? 1000);
   timer.unref?.();
 
-  return { store, bundle, renderNotification, renderNotificationEmail, renderSystem, templateOverride: (key) => tplOverride(key), mountStatic, pwaConfig, pageTransform, pageOf, brand, mediaMap, close: () => clearInterval(timer), SLOTS, contrast };
+  return { store, hooks, invalidate: () => { bundleCache.clear(); templateCache.clear(); }, bundle, renderNotification, renderNotificationEmail, renderSystem, templateOverride: (key) => tplOverride(key), mountStatic, pwaConfig, pageTransform, pageOf, brand, mediaMap, close: () => clearInterval(timer), SLOTS, contrast };
 }
 
 module.exports = { mountCms, SLOTS, contrast, BRAND_DEFAULT };

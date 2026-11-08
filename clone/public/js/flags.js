@@ -12,9 +12,11 @@ import './content/flags-strings.js';
 import { request } from './api.js';
 import { esc } from './lib.js';
 
-export const flagState = { flags: {}, play_mode: { on: false }, money: null, version: 0, loaded: false };
+export const flagState = { flags: {}, play_mode: { on: false }, money: null, owner: {}, version: 0, loaded: false };
 export const flagOn = (key) => flagState.flags[key] !== false;
 export const playOn = () => !!flagState.play_mode?.on;
+// Public owner settings (ground rule 6, CLONE_SPEC.md §38.1) ride in the bundle, e.g. the data saver default.
+export const ownerSetting = (key, def = null) => (Object.prototype.hasOwnProperty.call(flagState.owner || {}, key) ? flagState.owner[key] : def);
 const listeners = new Set();
 export const onFlags = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 
@@ -57,7 +59,7 @@ export async function loadFlags() {
   try {
     const r = await request('GET', '/v1/feature_flags');
     flagState.flags = r.flags || {}; flagState.version = r.version || 0;
-    flagState.play_mode = r.play_mode || { on: false }; flagState.money = r.money || null;
+    flagState.play_mode = r.play_mode || { on: false }; flagState.money = r.money || null; flagState.owner = r.owner_settings || {};
     clearTimeout(timer);
     // A scheduled start or end changes the evaluation without an admin action: refetch at that moment.
     if (r.next_change_time) { const ms = Date.parse(r.next_change_time) - Date.now(); if (ms > 0 && ms < 2 ** 31 - 1) timer = setTimeout(() => refresh(), ms + 250); }
@@ -81,9 +83,11 @@ export function renderPlayBanner() {
   document.querySelectorAll('.play-banner').forEach((b) => b.remove());
   if (!playOn()) return;
   const heist = flagOn('heist') ? ` <a href="/heist" data-link data-testid="play-banner-heist">${te('flags.play.banner_link')}</a>` : '';
-  const wl = ` <a href="/waitlist?src=banner" data-link data-flag="waitlist.launch" data-testid="waitlist-cta-banner">${te('flags.waitlist.banner_cta')}</a>`; // Phase 7A (§36)
+  const wl = ` <a href="/waitlist?src=banner" data-link data-flag="waitlist.launch waitlist.launch.cta_play" data-testid="waitlist-cta-banner">${te('flags.waitlist.banner_cta')}</a>`; // Phase 7A (§36)
   document.querySelector('header.topbar')?.insertAdjacentHTML('afterend', `<div class="play-banner" role="status" data-testid="play-banner"><div class="container"><span class="play-chip">${te('flags.play.label')}</span> <span>${te('flags.play.banner')}</span>${heist}${wl}</div></div>`);
 }
-// "Join the real-money waitlist" card on Funds and Home (CLONE_SPEC.md §36): play mode only, hidden by its flag.
-export const waitlistCta = (where) => (playOn() ? `<a class="card wl-cta" href="/waitlist?src=${where === 'home' ? 'home' : 'funds'}" data-link data-flag="waitlist.launch" data-testid="waitlist-cta-${where === 'home' ? 'home' : 'funds'}"><span class="overline">${te('flags.waitlist.cta_overline')}</span><b>${te('flags.waitlist.cta_title')}</b><span class="faint">${te('flags.waitlist.cta_body')}</span></a>` : '');
+// "Join the real-money waitlist" card on Funds and Home (CLONE_SPEC.md §36). Ground rule 6 switches (§38.1): shown while
+// play mode is on when `waitlist.launch.cta_play` is on (default on), outside play mode when `.cta_production` is on (off).
+const ctaFlag = () => (playOn() ? 'waitlist.launch.cta_play' : 'waitlist.launch.cta_production');
+export const waitlistCta = (where) => (flagOn(ctaFlag()) ? `<a class="card wl-cta" href="/waitlist?src=${where === 'home' ? 'home' : 'funds'}" data-link data-flag="waitlist.launch ${ctaFlag()}" data-testid="waitlist-cta-${where === 'home' ? 'home' : 'funds'}"><span class="overline">${te('flags.waitlist.cta_overline')}</span><b>${te('flags.waitlist.cta_title')}</b><span class="faint">${te('flags.waitlist.cta_body')}</span></a>` : '');
 export const playLabel = () => (playOn() ? `<span class="play-chip" data-testid="play-label">${te('flags.play.label')}</span>` : '');

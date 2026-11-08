@@ -279,7 +279,8 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
       // Email channel template + shared layout (CLONE_SPEC.md §32.5), rendered when the email is sent (a deferred one uses
       // the template published by then). Dev mailbox stub shared with the sign-in alerts (email_outbox, server/auth.js).
       const cms = app?.locals?.cms;
-      const em = cms ? cms.renderNotificationEmail(d.type, { title: d.title, body: d.body, link: d.link }) : { subject: `Parlance: ${d.title}`, text: `${d.body}${d.link ? `\n\nOpen: ${d.link}` : ''}`, html: null };
+      const loc = app?.locals?.i18n ? app.locals.i18n.localeOfUser(u.id) : undefined; // templates per language (CLONE_SPEC.md §38.5)
+      const em = cms ? cms.renderNotificationEmail(d.type, { title: d.title, body: d.body, link: d.link }, { locale: loc }) : { subject: `Parlance: ${d.title}`, text: `${d.body}${d.link ? `\n\nOpen: ${d.link}` : ''}`, html: null };
       if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'html')) db.exec('ALTER TABLE email_outbox ADD COLUMN html TEXT');
       db.prepare('INSERT INTO email_outbox(id,user_id,to_email,subject,body,html,created_at) VALUES(?,?,?,?,?,?,?)')
         .run(newId('em_'), u.id, u.email, String(em.subject).slice(0, 200), String(em.text).slice(0, 4000), em.html ? String(em.html).slice(0, 40000) : null, nowIso());
@@ -287,7 +288,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
     } else {
       const devices = db.prepare('SELECT id FROM push_devices WHERE user_id=?').all(d.user_id).map((x) => x.id);
       // Push channel template (CLONE_SPEC.md §32.5): Web Push payloads and the in-browser push use the same text.
-      const tpl = app?.locals?.cms ? app.locals.cms.renderNotification(d.type, { title: d.title, body: d.body, link: d.link }) : null;
+      const tpl = app?.locals?.cms ? app.locals.cms.renderNotification(d.type, { title: d.title, body: d.body, link: d.link }, { locale: app.locals.i18n ? app.locals.i18n.localeOfUser(d.user_id) : undefined }) : null;
       if (tpl) d = { ...d, title: String(tpl.push.title).slice(0, 200), body: String(tpl.push.body).slice(0, 1000) };
       // Web Push (server/webpush.js, CLONE_SPEC §31): one encrypted outbox row per subscribed browser, sent by its pump.
       const web = webpush ? webpush.enqueueUser(d.user_id, { id: d.id, pref: d.pref, title: d.title, body: d.body, link: d.link }) : 0;
