@@ -24,6 +24,7 @@ const ROUTE_FLAGS = [
   [/^\/social(\/|$)/, 'social'], [/^\/messages(\/|$)/, 'social.group_chat'], [/^\/watchlist$/, 'watchlist'], [/^\/ballot$/, 'ballot'], [/^\/hubs\//, 'hubs'],
   [/^\/incentives(\/|$)/, 'incentives'], [/^\/rewards$/, 'rewards'], [/^\/sign-up$/, 'accounts.signup'], [/^\/sign-up\/identity$/, 'identity.kyc'], [/^\/verify\/m$/, 'identity.kyc'],
   [/^\/funds\/deposit$/, 'payments.deposits'], [/^\/funds\/withdraw$/, 'payments.withdrawals'], [/^\/heist$/, 'heist'],
+  [/^\/docs(\/|$)/, 'developer_portal'], [/^\/status$/, 'status_page'], [/^\/account\/api-keys$/, 'api.keys'], // Phase 7 (CLONE_SPEC.md §35)
 ];
 export function routeFlagOff(pathname) {
   const hit = ROUTE_FLAGS.find(([re, k]) => re.test(pathname) && !flagOn(k));

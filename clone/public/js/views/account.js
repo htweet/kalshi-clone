@@ -17,7 +17,7 @@ const NAV = [
   ['taxes', '/account/taxes', ts('account.nav.documents'), '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M7.5 10h5M7.5 13h5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'],
   ['settings', '/account/settings', ts('account.nav.settings'), '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 2v2.5M10 15.5V18M2 10h2.5M15.5 10H18M4.3 4.3l1.8 1.8M13.9 13.9l1.8 1.8M4.3 15.7l1.8-1.8M13.9 6.1l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'],
 ];
-const SUB = [['security', '/account', ts('account.sub.security')], ['privacy', '/account/privacy', ts('account.sub.identity_privacy')], ['payments', '/account/payments', ts('account.sub.payment_methods')], ['profile', '/account/profile', ts('account.sub.social_profile')], ['limits', '/account/limits', ts('account.sub.account_limits')], ['alerts', '/account/alerts', ts('account.sub.price_alerts')]];
+const SUB = [['security', '/account', ts('account.sub.security')], ['privacy', '/account/privacy', ts('account.sub.identity_privacy')], ['payments', '/account/payments', ts('account.sub.payment_methods')], ['profile', '/account/profile', ts('account.sub.social_profile')], ['limits', '/account/limits', ts('account.sub.account_limits')], ['alerts', '/account/alerts', ts('account.sub.price_alerts')], ['api-keys', '/account/api-keys', ts('account.sub.api_keys')]];
 const lazyPanel = (load) => (panel, ctx) => load().then((m) => m.render(panel, ctx));
 const PANELS = {
   activity: lazyPanel(() => import('./account-activity.js')),
@@ -25,6 +25,7 @@ const PANELS = {
   settings: lazyPanel(() => import('./account-settings.js')),
   privacy: lazyPanel(() => import('./account-identity.js')),
   payments: lazyPanel(() => import('./account-payments.js')), // Phase 4 (CLONE_SPEC.md §26)
+  'api-keys': lazyPanel(() => import('./api-keys.js')), // Phase 7: API keys and usage (CLONE_SPEC.md §35.2)
 };
 
 export async function render({ el, params, navigate, query }) {
@@ -74,6 +75,7 @@ const EVENT_LABELS = {
   mfa_on: ts('account.event_labels_mfa_on.two_factor_login_turned_on'), mfa_off: ts('account.event_labels_mfa_off.two_factor_login_turned_off'), mfa_fail: ts('account.event_labels_mfa_fail.wrong_two_factor_code'), step_up: ts('account.event_labels_step_up.identity_confirmed'), step_up_fail: ts('account.event_labels_step_up_fail.identity_check_failed'),
   password_change: ts('account.event_labels_password_change.password_changed'), password_change_fail: ts('account.event_labels_password_change_fai.password_change_failed'), password_change_required: ts('account.event_labels_password_change_req.password_reset_required'), password_reset_forced: ts('account.event_labels_password_reset_forc.password_reset_required_by_support'),
   password_rehash: ts('account.event_labels_password_rehash.password_storage_upgraded'), email_change: ts('account.event_labels_email_change.email_address_changed'), session_revoke: ts('account.event_labels_session_revoke.device_signed_out'), sessions_revoke_all: ts('account.event_labels_sessions_revoke_all.signed_out_everywhere'),
+  api_key_created: ts('account.event_labels_api.api_key_created'), api_key_rotated: ts('account.event_labels_api.api_key_rotated'), api_key_revoked: ts('account.event_labels_api.api_key_revoked'), demo_key_created: ts('account.event_labels_api.demo_key_created'), // Phase 7
   sessions_revoked: ts('account.event_labels_sessions_revoked.sessions_ended_role_change'), session_expired: ts('account.event_labels_session_expired.session_expired'), withdrawal_mfa_on: ts('account.event_labels_withdrawal_mfa_on.withdrawal_verification_on'), withdrawal_mfa_off: ts('account.event_labels_withdrawal_mfa_off.withdrawal_verification_off'),
   admin_bootstrap: ts('account.event_labels_admin_bootstrap.admin_account_set_up'), default_password_removed: ts('account.event_labels_default_password_re.default_password_removed'),
   // Phase 3 (CLONE_SPEC.md §25)

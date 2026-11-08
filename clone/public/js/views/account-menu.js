@@ -13,7 +13,7 @@ import { t } from '../content/pwa-strings.js';
 // [href, label, testid, feature flag (CLONE_SPEC.md §33)]
 const ITEMS = [
   ['/account', ts('account-menu.items.account_security'), 'menu-account'], ['/account/activity', ts('account-menu.items.your_activity'), 'menu-activity'], ['/perps', ts('account-menu.items.invest'), 'menu-invest', 'perps'],
-  ['/incentives', ts('account-menu.items.liquidity_rewards'), 'menu-incentives', 'incentives'], ['/account/taxes', ts('account-menu.items.documents'), 'menu-documents'], ['/docs', ts('account-menu.items.api_docs'), 'menu-api-docs'],
+  ['/incentives', ts('account-menu.items.liquidity_rewards'), 'menu-incentives', 'incentives'], ['/account/taxes', ts('account-menu.items.documents'), 'menu-documents'], ['/docs', ts('account-menu.items.api_docs'), 'menu-api-docs', 'developer_portal'],
   ['/account/settings', ts('account-menu.items.settings'), 'menu-settings'],
 ];
 export const GROUPS = [

@@ -17,6 +17,8 @@ const LABELS = {
   // Phase 4 (CLONE_SPEC.md §26)
   payout_destination: 'add a withdrawal destination',
   // Phase 5A (CLONE_SPEC.md §28.7)
+  // Phase 7 (CLONE_SPEC.md §35)
+  api_key_create: 'create an API key', api_key_rotate: 'rotate an API key', api_settings: 'change API rate tiers',
   settlement_correction: 'correct a settled market', resolution_policy: 'change the resolution approval rule', payments_settings: 'change payment settings', payments_recon_resolve: 'resolve a reconciliation item', aml_case_decision: 'decide an AML case',
 };
 

@@ -61,7 +61,7 @@ function luminance(hex) {
 }
 const contrast = (a, b) => { const x = luminance(a); const y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 const PAGE_SLUG = /^[a-z0-9][a-z0-9-]{0,59}(\/[a-z0-9][a-z0-9-]{0,59})?$/;
-const TYPES = ['text', 'template', 'media', 'page', 'footer', 'brand'];
+const TYPES = ['text', 'template', 'media', 'page', 'footer', 'brand', 'incident']; // incident: status-page incidents (server/dev-portal.js, CLONE_SPEC.md §35.10)
 
 function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   db.exec(MEDIA_SCHEMA);

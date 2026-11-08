@@ -11,7 +11,8 @@ const PROFILES = {
   // Text-catalog keys flagged rich: bold, italic, lists, links, paragraphs, line breaks.
   rich: new Set(['b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'a', 'p', 'br']),
   // CMS pages and email bodies: the above plus headings and quotes.
-  page: new Set(['b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'a', 'p', 'br', 'h2', 'h3', 'h4', 'blockquote', 'hr']),
+  // pre / code: the developer portal's code samples (CLONE_SPEC.md §35.9); no attributes, contents escaped like any text.
+  page: new Set(['b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'a', 'p', 'br', 'h2', 'h3', 'h4', 'blockquote', 'hr', 'pre', 'code']),
 };
 const VOID = new Set(['br', 'hr']);
 const DROP_CONTENT = new Set(['script', 'style', 'iframe', 'object', 'embed', 'template', 'svg', 'math', 'textarea', 'select', 'noscript', 'title', 'head', 'xmp', 'plaintext', 'noembed', 'noframes']);

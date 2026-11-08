@@ -618,4 +618,35 @@ function mountFixAdmin({ v1, admin, getGateway }) {
   });
 }
 
-module.exports = { createFixGateway, mountFixAdmin, encode, parse, checksum, utc, parseUtc, SOH, TARGETS };
+// The message tables of the portal's FIX pages (GET /docs/fix.json): one declaration, rendered by public/js/views/docs.js.
+// [msgType, name, direction, session types, [[tag, field, required?, note]]]
+const FIX_SPEC = {
+  version: BEGIN, targets: TARGETS, signed_logon: '52 SendingTime, 35 MsgType, 34 MsgSeqNum, 49 SenderCompID, 56 TargetCompID joined with SOH; RSA-PSS SHA-256 (salt 32) or Ed25519; base64 in 96 RawData',
+  header: [[8, 'BeginString', true, 'FIX.4.4'], [9, 'BodyLength', true, 'bytes after this field up to the CheckSum, at most 8192'], [35, 'MsgType', true], [49, 'SenderCompID', true, 'yours; 1-32 of A-Z a-z 0-9 _ . -'], [56, 'TargetCompID', true, 'PARLANCE or PARLANCEDC'], [34, 'MsgSeqNum', true], [52, 'SendingTime', true, 'UTC YYYYMMDD-HH:MM:SS.sss'], [43, 'PossDupFlag', false], [122, 'OrigSendingTime', false], [10, 'CheckSum', true, 'sum of bytes mod 256, 3 digits']],
+  messages: [
+    ['A', 'Logon', 'both', ['order', 'dropcopy'], [[98, 'EncryptMethod', true, '0'], [108, 'HeartBtInt', true, '1-300 seconds'], [141, 'ResetSeqNumFlag', false, 'Y resets both sides to 1'], [553, 'Username', true, 'API key id'], [95, 'RawDataLength', false], [96, 'RawData', true, 'base64 signature']]],
+    ['0', 'Heartbeat', 'both', ['order', 'dropcopy'], [[112, 'TestReqID', false, 'when answering a TestRequest']]],
+    ['1', 'TestRequest', 'both', ['order', 'dropcopy'], [[112, 'TestReqID', true]]],
+    ['2', 'ResendRequest', 'both', ['order', 'dropcopy'], [[7, 'BeginSeqNo', true], [16, 'EndSeqNo', true, '0 = up to the latest']]],
+    ['3', 'Reject', 'both', ['order', 'dropcopy'], [[45, 'RefSeqNum', true], [371, 'RefTagID', false], [372, 'RefMsgType', false], [373, 'SessionRejectReason', false], [58, 'Text', false]]],
+    ['4', 'SequenceReset', 'both', ['order', 'dropcopy'], [[123, 'GapFillFlag', false, 'Y = gap fill'], [36, 'NewSeqNo', true]]],
+    ['5', 'Logout', 'both', ['order', 'dropcopy'], [[58, 'Text', false]]],
+    ['D', 'NewOrderSingle', 'in', ['order'], [[11, 'ClOrdID', true, 'unique per session, at most 64'], [55, 'Symbol', true, 'market or perps ticker'], [54, 'Side', true, '1 Buy, 2 Sell'], [38, 'OrderQty', true, 'contracts'], [40, 'OrdType', true, '1 Market, 2 Limit'], [44, 'Price', false, 'dollars, required for limit'], [59, 'TimeInForce', false, '1 GTC (default), 3 IOC'], [126, 'ExpireTime', false, 'good-til-time'], [18, 'ExecInst', false, '6 = post only'], [20001, 'ContractSide', false, 'Predictions: Y (default) or N'], [1, 'Account', false, 'Perps: subaccount'], [20002, 'Leverage', false, 'Perps']]],
+    ['F', 'OrderCancelRequest', 'in', ['order'], [[11, 'ClOrdID', true], [41, 'OrigClOrdID', false], [37, 'OrderID', false, 'one of 37 / 41']]],
+    ['G', 'OrderCancelReplaceRequest', 'in', ['order'], [[11, 'ClOrdID', true], [41, 'OrigClOrdID', false], [37, 'OrderID', false], [38, 'OrderQty', false, 'new total quantity'], [44, 'Price', false, 'new price']]],
+    ['q', 'OrderMassCancelRequest', 'in', ['order'], [[11, 'ClOrdID', true], [530, 'MassCancelRequestType', true, '1 by Symbol, 7 all orders'], [55, 'Symbol', false]]],
+    ['8', 'ExecutionReport', 'out', ['order', 'dropcopy'], [[37, 'OrderID', true], [11, 'ClOrdID', true], [41, 'OrigClOrdID', false], [17, 'ExecID', true], [150, 'ExecType', true, '0 New, F Trade, 4 Canceled, 5 Replaced, 8 Rejected, C Expired'], [39, 'OrdStatus', true, '0 New, 1 Partially filled, 2 Filled, 4 Canceled, 8 Rejected, C Expired'], [55, 'Symbol', true], [54, 'Side', true], [20001, 'ContractSide', false], [38, 'OrderQty', true], [44, 'Price', false], [14, 'CumQty', true], [151, 'LeavesQty', true], [6, 'AvgPx', true], [31, 'LastPx', false], [32, 'LastQty', false], [1003, 'TradeID', false], [103, 'OrdRejReason', false], [58, 'Text', false], [60, 'TransactTime', true], [20003, 'OrderSource', false, 'user, api, fix, rfq …']]],
+    ['9', 'OrderCancelReject', 'out', ['order'], [[37, 'OrderID', true], [11, 'ClOrdID', true], [41, 'OrigClOrdID', true], [39, 'OrdStatus', true], [434, 'CxlRejResponseTo', true, '1 cancel, 2 replace'], [102, 'CxlRejReason', false], [58, 'Text', false]]],
+    ['r', 'OrderMassCancelReport', 'out', ['order'], [[11, 'ClOrdID', true], [530, 'MassCancelRequestType', true], [531, 'MassCancelResponse', true, '0 rejected'], [533, 'TotalAffectedOrders', false]]],
+    ['V', 'MarketDataRequest', 'in', ['order'], [[262, 'MDReqID', true], [263, 'SubscriptionRequestType', true, '0 snapshot, 1 snapshot + updates, 2 unsubscribe'], [264, 'MarketDepth', false], [146, 'NoRelatedSym', true], [55, 'Symbol', true, 'repeating']]],
+    ['W', 'MarketDataSnapshotFullRefresh', 'out', ['order'], [[262, 'MDReqID', true], [55, 'Symbol', true], [268, 'NoMDEntries', true], [269, 'MDEntryType', true, '0 bid, 1 offer'], [270, 'MDEntryPx', true], [271, 'MDEntrySize', true]]],
+    ['X', 'MarketDataIncrementalRefresh', 'out', ['order'], [[262, 'MDReqID', true], [268, 'NoMDEntries', true], [279, 'MDUpdateAction', true, '0 new, 1 change, 2 delete'], [269, 'MDEntryType', true, '0 bid, 1 offer, 2 trade'], [55, 'Symbol', true], [270, 'MDEntryPx', true], [271, 'MDEntrySize', false]]],
+    ['Y', 'MarketDataRequestReject', 'out', ['order'], [[262, 'MDReqID', true], [281, 'MDReqRejReason', false], [58, 'Text', false]]],
+    ['R', 'QuoteRequest', 'in', ['order'], [[131, 'QuoteReqID', true], [146, 'NoRelatedSym', true], [55, 'Symbol', true], [38, 'OrderQty', true]]],
+    ['AI', 'QuoteStatusReport', 'out', ['order'], [[131, 'QuoteReqID', true], [117, 'QuoteID', false, 'the RFQ id'], [55, 'Symbol', true], [297, 'QuoteStatus', true, '0 accepted, 5 rejected'], [58, 'Text', false]]],
+    ['S', 'Quote', 'out', ['order'], [[131, 'QuoteReqID', true], [117, 'QuoteID', true], [55, 'Symbol', true], [132, 'BidPx', false, 'YES bid'], [133, 'OfferPx', false, 'YES offer (1 − NO bid)'], [134, 'BidSize', false], [135, 'OfferSize', false]]],
+    ['j', 'BusinessMessageReject', 'out', ['order', 'dropcopy'], [[45, 'RefSeqNum', true], [372, 'RefMsgType', true], [380, 'BusinessRejectReason', true, '3 unsupported type, 4 not available'], [58, 'Text', false]]],
+  ].map(([type, name, direction, sessions, fields]) => ({ type, name, direction, sessions, fields: fields.map(([tag, field, required, note]) => ({ tag, field, required: !!required, note: note || '' })) })),
+};
+
+module.exports = { createFixGateway, mountFixAdmin, encode, parse, checksum, utc, parseUtc, SOH, TARGETS, FIX_SPEC };

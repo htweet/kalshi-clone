@@ -37,6 +37,7 @@ const { createSecurity } = require('./security');
 const { createApiKeys, mountApiKeys } = require('./api-keys'); // Phase 7: API keys and signed requests (CLONE_SPEC.md §35)
 const { mountTradeApi, ParamError, intParam, STATUS_FILTER } = require('./trade-api'); // Phase 7: public Trade API v2 (§35)
 const { mountFixAdmin } = require('./fix'); // Phase 7: Admin › API keys › FIX sessions
+const { mountDeveloperPortal } = require('./dev-portal'); // Phase 7: /docs, /status, demo environment (CLONE_SPEC.md §35.9-§35.11)
 const { createRegistry } = require('./api-registry'); // Phase 7: one route registry → routes, OpenAPI, AsyncAPI, contract tests
 
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
@@ -66,6 +67,8 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   const security = createSecurity({ app, db, rate, parseCookies, options: { ...(securityOptions || {}), dataDir: keyDir } });
   app.locals.security = security;
   app.use(security.early);
+  // Demo environment proxy (server/dev-portal.js): streams /demo-api/trade-api/* to the demo server unparsed, cookies stripped.
+  app.use('/demo-api', (req, res, next) => (app.locals.portal ? app.locals.portal.demoProxy(req, res, next) : next(E.notFound())));
   app.use(jsonBody()); // JSON bodies with per-route size limits (server/validate.js, PLAN P1.8)
   // Payment provider webhooks (server/payments.js): server-to-server, authenticated by their HMAC signature over the raw
   // body, so they run before the session, CSRF and client-token middleware.
@@ -179,6 +182,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.apiRegistry = registry;
   tradeApi = mountTradeApi({ app, v2, v1, db, engine, auth, flags, feat, admin, security, apiKeys, ordersApi, eventFull, registry, env });
   app.locals.tradeApi = tradeApi;
+  app.locals.portal = mountDeveloperPortal({ app, v1, db, engine, flags, admin, auth, apiKeys, registry, getDemo: () => app.locals.demo || null, getFix: () => app.locals.fix || null, getTradeWs: () => app.locals.tradeWs || null, env });
   engine.apiOps = { resetForProduction: () => tradeApi.resetForProduction(), afterReset: () => apiKeys.events.emit('production_reset') };
 
   // ======================= Web client API v1 =======================

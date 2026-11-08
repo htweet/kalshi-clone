@@ -79,7 +79,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   app.locals.tradeWs = tradeWs;
   const fixGw = createFixGateway({ db, engine, apiKeys: app.locals.apiKeys, tradeApi: app.locals.tradeApi, flags: app.locals.flags, security: app.locals.security, env, options: fix || {} });
   app.locals.fix = fixGw;
-  const hub = attachWs(server, { db, engine, auth: app.locals.auth, security: app.locals.security, upgrade: (req, socket, head, url) => tradeWs.handleUpgrade(req, socket, head, url.pathname) });
+  const hub = attachWs(server, { db, engine, auth: app.locals.auth, security: app.locals.security, upgrade: (req, socket, head, url) => tradeWs.handleUpgrade(req, socket, head, url.pathname) || app.locals.portal.demoUpgrade(req, socket, head, url) });
   app.locals.wsHub = hub; // admin health page (server/admin.js)
   const ticker = setInterval(() => { try { engine.tick(); } catch (e) { console.error('tick', e); } }, tickMs);
   let bound;
@@ -93,11 +93,24 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   app.locals.payments?.setDeliveryBase(`http://127.0.0.1:${bound}`);
   if (port !== 0 && bound !== port) console.warn(`Port ${port} is in use; using ${bound} instead.`); // 0 = any free port
   if (!quiet) for (const n of boot.notices) console.log(n);
+  // Demo environment (CLONE_SPEC.md §35.11): a second exchange in this process, own port and SQLite file, play money,
+  // its own users and keys; the main site proxies /demo-api to it. Off for programmatic starts unless `demo` is given.
+  let demoSrv = null;
+  if (demo && env === 'main') {
+    try {
+      const demoDb = demo.dbFile || process.env.DEMO_DB_FILE || (dbFile === ':memory:' ? ':memory:' : dbFile.replace(/(\.db)?$/, '.demo.db'));
+      demoSrv = await start({ port: demo.port ?? (process.env.DEMO_PORT ? Number(process.env.DEMO_PORT) : 0), dbFile: demoDb, env: 'demo', quiet: true, tickMs, rate, perps, combos, sports: false, marketsContent: {}, assets: 'src',
+        security: { ...(security || {}), challengeMode: 'off' }, api: demo.api || api, flags: { overrides: { 'api.fix': false, ...(demo.flagOverrides || {}) } } });
+      app.locals.demo = { port: demoSrv.port, app: demoSrv.app, close: () => demoSrv.close() };
+      if (!quiet) console.log(`Demo environment (play money) on http://localhost:${demoSrv.port}, proxied at /demo-api/trade-api/v2`);
+    } catch (e) { console.error(`Demo environment did not start: ${e.message}`); }
+  }
   const setupUrl = boot.setupPath ? `http://localhost:${bound}${boot.setupPath}` : null;
   if (setupUrl && !quiet) console.log(`No admin account can sign in yet. Create the first admin within 60 minutes (single use):\n  ${setupUrl}\nor set ADMIN_EMAIL and ADMIN_PASSWORD, or run: npm run create-admin`);
   return {
     port: bound, db, engine, server, app, fix: fixGw, setupUrl, setupPath: boot.setupPath,
-    close: () => new Promise((r) => { clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { db.close(); r(); }); server.closeAllConnections?.(); }),
+    demo: demoSrv,
+    close: () => new Promise((r) => { if (demoSrv) demoSrv.close().catch(() => {}); clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { db.close(); r(); }); server.closeAllConnections?.(); }),
   };
 }
 
@@ -107,7 +120,7 @@ if (require.main === module) {
   // npm start serves the hashed production bundle (built if missing or stale); npm run dev serves the sources.
   // Identity verification gates trading and deposits by default when run as the server (KYC_REQUIRED=0 turns it off);
   // programmatic start() leaves it off unless `identity: { kycRequired: true }`, KYC_REQUIRED=1 or NODE_ENV=production.
-  start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, assets: process.argv.includes('--dev') ? 'src' : (process.env.ASSETS || 'dist') }).then((srv) => {
+  start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, demo: process.env.DEMO_API === '0' ? null : {}, assets: process.argv.includes('--dev') ? 'src' : (process.env.ASSETS || 'dist') }).then((srv) => {
     console.log(`Parlance Exchange listening on http://localhost:${srv.port}`);
     // Ctrl+C / termination: close the HTTP server and database cleanly so the DB lock is released.
     let stopping = false;

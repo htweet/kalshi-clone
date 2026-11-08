@@ -47,6 +47,8 @@ const fundsView = lazy(() => import('./views/funds.js')); // Phase 4 deposits / 
 const hubsView = lazy(() => import('./views/hubs.js')); // Phase 5B hubs, Senate map, Fed outlook, ballot (CLONE_SPEC.md §29)
 const incentivesView = lazy(() => import('./views/incentives.js')); // Phase 5B Liquidity Incentive Program (§29)
 const heistView = lazy(() => import('./views/heist.js')); // Phase 5D Central Bank + Vault Heist (CLONE_SPEC.md §33)
+const docsView = lazy(() => import('./views/docs.js')); // Phase 7 developer portal (CLONE_SPEC.md §35.9)
+const statusView = lazy(() => import('./views/status.js')); // Phase 7 status page (CLONE_SPEC.md §35.10)
 
 const routes = [
   [/^\/$/, home],
@@ -95,7 +97,10 @@ const routes = [
   [/^\/incentives\/terms$/, incentivesView, () => ({ page: 'terms' })],
   [/^\/hubs\/([a-z]+)$/, hubsView, (m) => ({ hub: m[1] })],
   [/^\/ballot$/, hubsView, () => ({ hub: 'ballot' })],
-  [/^\/(docs)$/, placeholderView, (m) => ({ slug: m[1] })],
+  [/^\/docs$/, docsView],
+  [/^\/docs\/reference\/([a-z0-9_]+)$/, docsView, (m) => ({ op: m[1] })],
+  [/^\/docs\/([a-z-]+)$/, docsView, (m) => ({ page: m[1] })],
+  [/^\/status$/, statusView],
   [/^\/(trust|research|support|legal)\/([a-z0-9-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })], // CMS pages (CLONE_SPEC.md §32.7)
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],

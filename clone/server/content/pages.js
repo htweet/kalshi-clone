@@ -38,4 +38,6 @@ const FOOTER = {
     { title: 'Help', links: [{ label: 'Help center', href: '/support/help-center' }, { label: 'Responsible trading', href: '/support/responsible-trading' }, { label: 'Fee schedule', href: '/support/fees' }] },
   ],
 };
+// Developer portal prose (CLONE_SPEC.md §35.9): docs/* pages, seeded into the CMS on first start (server/dev-portal.js).
+Object.assign(PAGES, require('./developer-docs').DOCS_PAGES);
 module.exports = { PAGES, FOOTER };

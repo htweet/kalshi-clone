@@ -165,7 +165,7 @@ const ROUTE_RULES = {
   // Phase 7 (CLONE_SPEC.md §35). /trade-api is gated by server/trade-api.js (api.keys / api.trading per key owner).
   'api.keys': [R('*', /^\/users\/[^/]+\/api_keys(\/|$)/, { user: true })],
   'api.demo': [R('*', /^\/developer\/demo_credentials$/, { user: true })],
-  developer_portal: [R('GET', /^\/developer\/(portal|reference)$/)],
+  developer_portal: [R('GET', /^\/developer\/portal$/)],
   status_page: [R('GET', /^\/status$/)],
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
@@ -177,6 +177,7 @@ const CORE_ROUTES = [
   /^\/v1\/users\/[^/]+\/(notifications(\/read|\/[^/]+\/read|\/preferences|\/settings\/[^/]+|\/deliveries)?$|deposit_limit|trading_limits|daily_session_time_limit|mfa|security|sessions|password|email|withdrawal_mfa|identity$|email_verification|data_export|close_account|sign_in_methods|api_keys|geolocation|withdrawal_holds|preferences|marketing_consent|connected_apps|activity|tax_documents|payments\/|withdrawal_times|credit_history|deposits$|withdrawals$|money_controls)/,
   /^\/v1\/admin\//, /^\/v1\/perps\/admin\//, /^\/v1\/push\//, /^\/v1\/oauth\/link$/,
   /^\/mock-oidc\//, /^\/(manifest\.webmanifest|sw\.js|offline\.html|content-bundle\.js|content-theme\.css)$/, /^RE:/,
+  /^\/docs\/(openapi|asyncapi|fix)\.json$/, // Phase 7: generated API documents (flag developer_portal, checked in server/dev-portal.js)
 ];
 // Every mount* module wired in server/app.js → the flag that switches it (or 'core'). Checked by the enforcement test.
 const MODULE_FLAGS = {
