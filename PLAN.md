@@ -7,6 +7,7 @@ Status date: 2026-11-03. Covers everything not yet built, everything still to re
 2. **Clean room.** Build from observed behaviour and public docs only. No Kalshi code, text, images, fonts, logos or trademarks; invented data only.
 3. **Research ethics.** Logged-out public surfaces and the public developer docs only, at a polite rate. Never bypass Kalshi's bot challenge or WAF, never use anyone's credentials, never automate logged-in access. Logged-in behaviour comes only from captures you make yourself, with personal data removed before sharing.
 4. **Definition of done.** Fully wired, 100% DB-persistent, end-to-end browser tests, `npm audit` clean, spec section updated with evidence and design choices, full suite green before merging to `main`.
+5. **Nigeria first, multi-country ready** (owner decision 2026-11-08, `CLONE_SPEC.md` §30.0). Parlance is mainly for Nigerians and may scale to more countries. Defaults are Nigerian (NGN, WAT, en-NG, Nigerian states and calendar); country facts (divisions, offices, seats, election rules, parties, holidays, currency, time zone) are admin-managed data keyed by country code, never hard-coded; election features assume N parties, not two. Clean room still holds: invented candidates and parties in seed data, never real politicians or their photos.
 
 ---
 
@@ -177,6 +178,64 @@ Owner requirement: every feature and module can be switched and rolled out from 
 - P7.4 API parity checklist against the public Trade API v2 reference (markets, events, series, orderbook, trades, candlesticks, portfolio balance/positions/orders/fills/settlements, order create/amend/decrease/cancel/batch, order groups, RFQ/quotes, multivariate collections, WebSocket channels) with contract tests generated from our OpenAPI spec.
 - Security gate: signature replay window, clock-skew handling, key storage (public keys only), abuse throttling.
 
+### Phase 7B — Elections hub v2, Nigeria first (M–L)
+Owner request 2026-11-08: a results-night elections hub modelled on the observed midterms page (`CLONE_SPEC.md` §13.20), adapted to Nigeria and built on the country model (ground rule 5). It replaces the Phase 5B tile-map hub (§29.8). That hub's invented 12 states stay as a second test country, proving nothing is Nigeria-specific in code.
+- **P7B.1 Country and election model** (DB, Admin › Elections, every change audited with a reason). Each country (`NG` first; currency, time zone, locale) has:
+  - **divisions:** for Nigeria, 6 geopolitical zones → 36 states + FCT → 774 LGAs → wards → polling units. Seeded: the zones, states, FCT and LGA counts; ward and polling-unit counts are invented demo numbers per state;
+  - **offices and chambers:** President; Senate, 109 seats, 3 per state + 1 FCT; House of Representatives, 360 constituencies; 36 Governors; State Houses of Assembly;
+  - **win rules, as configuration:**
+    - **President:** most votes, plus at least 25% of votes in at least two-thirds of the states and the FCT. The rule is a configurable check; a runoff follows when no candidate meets it.
+    - **Governor:** most votes, plus 25% in two-thirds of the state's LGAs.
+    - **Legislative seats:** first past the post.
+  - **parties:** name, short name, colour, logo through the CMS media library (§32.2), and an optional coalition;
+  - **candidates:** with a photo through the CMS, or initials avatars;
+  - **elections:** the general election plus off-cycle governorship elections (Anambra, Bayelsa, Edo, Ekiti, Imo, Kogi, Ondo, Osun).
+  - Each race links to one or more markets: "winner?" per candidate or party, chamber control, seat counts, turnout.
+- **P7B.2 Live results feed (simulated, like sports §19):**
+  - results arrive the way the electoral commission collates them: polling unit → ward → LGA → state → national;
+  - each race shows % of polling units reported and votes per candidate and party;
+  - for the presidency, a tracker counts the states and FCT where each candidate has reached 25%;
+  - an admin **results desk** calls and uncalls races with a reason, with a two-person check for the presidency;
+  - a call proposes a settlement through the existing resolution desk (§28);
+  - snapshots are persisted for the timeline;
+  - the simulator only runs for demo and test, and is behind a flag.
+- **P7B.3 Hub page** at `/category/elections/<hub>` (e.g. `nigeria-2027`):
+  - **Left sidebar:** All markets · Elections · <hub> · Presidential · Senate · House of Reps · Governorship · Off-cycle · International elections · Referendums.
+  - **Tabs:** Overview · Presidential · Senate · House · Governorship · States · My Ballot; plus a "Search states and candidates" box.
+  - **Page elements:**
+    - **control gauges**, multi-party: the leader's chance and a rating word;
+    - **office switch and seat bar:** forecast and current seats per party, with a majority mark;
+    - **results map** of the 36 states + FCT, drawn with simple shapes and no imported map assets:
+      - solid = called, hatched = projected or leading, with ticks and % labels;
+      - a side list for the FCT and small states;
+      - a tooltip on hover (desktop) or tap (390 px) with % reported, candidates, vote share, votes, Yes/No and volume;
+    - **ratings chart** (Safe · Likely · Lean · Toss-up by the leading party's probability, with "N Settled" ends);
+    - **timeline** with play, markers and LIVE, replaying the map, seat bar and ratings;
+    - **Featured race cards** (% reported, margin, chances, votes, two-colour bar);
+    - **Power Index:**
+      - **formula:** admin-defined, from market prices, e.g. ruling party vs opposition strength;
+      - **display:** history chart, change over the last 24 h, and "Learn more" text from the CMS;
+    - **More markets** table;
+    - **floating hub chat** with an online count, reusing §20 chat (moderation, rate limits, slow mode).
+  - **My Ballot** uses Nigerian divisions: choose state → LGA → ward. No address is stored (§29.5 rules).
+- **P7B.4 Cross-cutting:**
+  - every widget gets a flag (`elections.hub`, `.map`, `.results`, `.timeline`, `.power_index`, `.chat`);
+  - all copy, labels, rating words and Learn-more text live in the CMS; NGN and WAT throughout; 390 px layouts;
+  - live updates over WebSocket;
+  - all data is DB-persistent and survives a restart, and the production switch resets play-money positions only;
+  - authz classification; browser tests for every widget, the results desk and the timeline;
+  - `CLONE_SPEC.md` §36.
+- **Security gate:**
+  - results-desk calls need a role, a reason and step-up, with the two-person rule for the presidency, all audited;
+  - the feed cannot be written by clients;
+  - hub chat follows §20 abuse controls;
+  - map and tooltip rendering is XSS-safe (party and candidate names come from admins);
+  - media goes through the CMS re-encoding.
+- **Owner decisions before production:**
+  - legal and regulatory review of election markets in Nigeria;
+  - the source of real results, whether a licensed feed or manual entry by the results desk;
+  - whether real parties and candidates are entered by admins at launch. They are never seeded.
+
 ### Phase 8 — Growth and reach (M)
 - P8.1 Referrals and copy-trade links (signed, non-guessable codes; fraud checks).
 - P8.2 Server-side rendering or prerendering for public pages, sitemap, metadata; i18n framework; accessibility audit (WCAG 2.2 AA).
@@ -219,7 +278,7 @@ All research follows the ground rules (logged-out public surfaces and docs only;
 2. Phase 2 social (live chat already in flight) in parallel with research R1–R4
 3. Phase 3 identity/compliance → Phase 4 payments sandbox
 4. Phases 5 and 6 in parallel (markets, perps)
-5. Phase 7 public API
+5. Phase 7 public API → **Phase 7B elections hub v2 (Nigeria first)**
 6. Phases 8–9 growth and production readiness, ending with the pen test
 
 ---
@@ -290,6 +349,7 @@ The project is complete only when **all** of the following hold:
 | PWA | ✅ built on `pwa` (CLONE_SPEC.md §31; tracked here at the owner's request): web app manifest (standalone, brand theme colour, shortcuts to Markets / Portfolio / Deposit) with own icons drawn by `clone/scripts/make-icons.js`; service worker versioned by the build hash that precaches only the public hashed assets (fetched without credentials), never caches navigations, `/v1`, `/trade-api` or the WebSocket and passes everything else through untouched; static offline page under its own strict CSP; "New version available — Reload" toast with user-confirmed `skipWaiting`; "Install app" in the ☰ menus (`beforeinstallprompt`, iOS Add-to-Home-Screen steps, hidden when standalone); caches and this browser's push subscription cleared at sign-out; real Web Push for the Push channel (VAPID RFC 8292 keys encrypted at rest, aes128gcm RFC 8291 with `node:crypto` only, subscriptions API with an https + push-service allowlist, device list with test send and remove, persisted encrypted outbox with backoff, 404/410 cleanup, resumable after restart); CMS-ready content: every PWA string keyed in `public/js/content/pwa-strings.js` / `server/content/pwa.js`, the offline page rendered from them at build time, the manifest built from one config object (§31.12); `pwa` suite (9 scenarios, production bundle, local fake push service). Residual: at-least-once delivery, lock-screen text, VAPID key tied to the master key (§31.11) |
 | 6 Perps completion | ✅ built on `phase-6` (CLONE_SPEC.md §34): P6.1 order amend (replace in one transaction) and decrease (in place), order groups (limit groups capped during matching, OCO, group-level cancel, reset, limits), subaccounts (isolated or cross) with transfers between them and with Predictions cash, server-side trailing stops (persisted watermark, fires once on a gap); P6.2 size-tiered margin (bracketed IM/MM per market, editable in Admin › Perps ops; tier 1 = max leverage, last cap = max position), portfolio maintenance margin with largest-first liquidation, fractional perps on integer units (one-time migration), risk limits (leverage per tier, max position with resting orders, open orders per market / total, subaccounts, order groups); P6.3 APY on collateral (accrual job, treasury queue / refuse, play money in play mode), Perps referrals in a reusable `server/referrals.js`, waitlist gate in the flag gate with Admin approve / bulk invite / revoke and CMS notifications and emails; a double-entry perps journal in centicents joined to the ledger audit; 9 flags under `perps`; production switch archives and zeroes the new balances; security gate: property-based liquidation and funding invariants (`tests/lib/property.js`) and API risk-limit tests; suites `perps-trading`, `perps-risk`, `perps-growth`, `perps-invariants` (24 scenarios). Residual: discrete trigger and liquidation evaluation, the liquidity account as the only liquidation counterparty, per-process throttles (§34.14) |
 | 7 Public API | ✅ built on `phase-7` (CLONE_SPEC.md §35; parity in `API_PARITY.md`): P7.1 API keys (Account › API keys with the A2 lock and step-up; RSA-2048 generated and shown once, or pasted RSA / Ed25519 public keys; scopes read / trade / perps; CIDR allowlists; expiry; rotation with an admin-set grace; revocation signing WebSocket and FIX sessions out; usage dashboard; CMS notifications and emails), signed requests (`PARLANCE-ACCESS-*`, RSA-PSS SHA-256 salt 32 or Ed25519, 5 s / 1 s window with clear skew errors, persisted replay store, dummy-key verification, locked / frozen / closed owners refused, 403 scope / IP), rate tiers Basic / Advanced / Premier / Prime (token buckets, endpoint costs, `/account/limits`, `/account/endpoint_costs`, 429 + Retry-After, RateStore interface for RS1), Admin › API keys; P7.2 `/trade-api/v2` (orders through the same `/v1` gates, batch create / cancel with per-item results (G5), amend, decrease, order groups, history with cursors, RFQ, multivariate, Perps under `/margin`), public WebSocket `/trade-api/ws/v2` and `/margin` (channels, commands, seq, caps, heartbeat, revocation); P7.3 developer portal `/docs` (CMS-seeded prose, search, theme, agreement, generated OpenAPI 3.1 / AsyncAPI 2.6 / FIX tables from one registry, browser-signed Try it on an in-process demo environment behind `/demo-api`), status page with admin incidents; P7.4 contract tests over every operation; A16, A17 FIX 4.4 gateway (signed logon, sequence recovery, order entry, market data, RFQ, drop copy, admin disconnect); 7 flags; suites `api-keys`, `trade-api`, `fix`, `dev-portal`, `api-contract` (23 scenarios) + authz. Residual: per-process buckets and caps (RS1), FIX without TLS, demo in-process (§35.15) |
+| 7B Elections hub v2 (Nigeria first) | pending (owner request 2026-11-08; spec §13.20, §30.0) |
 | 8 Growth & reach | pending |
 | 9 Production readiness | pending |
 | Research R1–R12 | R4 partly answered by HAR4 (logged-in request headers, spec §13.13); R2/R3 still need logged-in captures of Portfolio (all tabs), Account › Security, deposits/withdrawals and placing an order |
@@ -334,3 +394,4 @@ Every item below is part of "100% complete" (§8) and is assigned to a phase.
 | A16 | **Developer portal** structure: Welcome · Quick Start · Concepts · Predictions APIs · Perps APIs · Changelog; search; Developer Agreement; REST + WebSocket + **FIX** for both products (§13.18) — ✅ closed by Phase 7 (§35.9) | 7 |
 | A17 | **FIX gateway** (simulated FIX 4.4/5.0SP2 subset): logon/session with API-key auth, order entry, order groups, market data, RFQ, **drop copy**; documented per the public FIX pages — ✅ closed by Phase 7 (§35.8; FIX 4.4 only, groups joined by tag 20004) | 7 |
 | A18 | Site footer (Product / Company / Help columns, social links) and help-centre pages (Trust, Research, Support, Fee schedule, FAQ) (§13.16) | 8 |
+| A19 | **Results-night elections hub** (owner screenshots 2026-11-08, §13.20): sidebar and tabs, control gauges, seat bar, results map with called/projected states and tooltips, ratings swingometer, timeline replay, featured race cards with % reported and margin, Power Index, More markets, hub chat; adapted to Nigeria and N parties (§30.0) | 7B |

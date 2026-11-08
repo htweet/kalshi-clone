@@ -665,6 +665,51 @@ This step follows §13.14, on the third progress-bar segment.
   - `GET /v1/series/{s}/events/{e}/forecast_history`: event-level forecast series.
   - `GET /v1/live_data/batch?milestone_ids=` → `{live_datas:[{type, details}]}` (§19).
 
+### 13.20 Election hub on results night (OBSERVED SHOT, 2026-11-08, logged out)
+
+Four owner screenshots of `/category/elections/midterms` while votes were being counted. Recorded as structure only: the
+page names real candidates, parties and photos, none of which the clone uses (clean room; invented people only). Built as
+Phase 7B (PLAN.md), adapted to Nigeria first (§30.0).
+
+- **Shell:**
+  - The page sits under the category strip with **Midterms** highlighted.
+  - **Left sidebar:** All markets · US Elections · **Midterms** (current) · 2028 · Senate · House · Governor · International elections · Referendums.
+  - **Title:** "2026 Midterm Election Predictions".
+  - **Tabs:** **OVERVIEW · SENATE · HOUSE · GOVERNOR · STATES · MY BALLOT**, with a "Search states and candidates" box at the right.
+- **Control forecast gauges:** two cards, "Senate control forecast" and "House control forecast".
+  - A half-circle dial runs from one party's colour to the other's, with a pointer.
+  - The centre shows a big percentage (e.g. "100%") and a rating word under it ("Safe Dem").
+  - Party labels sit at each end, with party icons.
+- **Chamber switch and seat bar:** pills **Senate · House · Governor**, then a seat bar.
+  - **Ends:** "56 DEM forecast" on the left and "REP forecast 44" on the right; under them, "47 current" and "53 current".
+  - **Centre:** "● LIVE KALSHI MIDTERMS FORECAST".
+  - **Segments:** four, shaded from solid to leaning for each side.
+- **Results map:** the whole country, with states coloured by party.
+  - **Solid** colour = settled; **hatched** = projected or leaning.
+  - **Tick** = race called.
+  - Some states show a **percentage** instead of a tick (e.g. "AK 97%").
+  - Grey = no race.
+  - **Small states:** listed in a column at the right, each with a tick.
+  - **Hover tooltip:** state badge, "<State> Senate winner?", "98.5% of vote counted"; one row per candidate (photo, name, vote share % and vote count, **Yes**/**No** result); then trading volume ("$192,649 vol").
+  - **Watermark:** the brand name sits at the map's corner.
+- **Ratings chart (swingometer):** nine columns.
+  - Columns: DEM · Safe · Likely · Lean · Toss-up · Lean · Likely · Safe · REP, each headed with a count (e.g. "2 Safe", "0 Likely").
+  - The two ends show a party mascot and "20 Settled" / "13 Settled".
+  - Races still open are circular state bubbles stacked in their column.
+  - Bottom labels give the probability bands: 100% · 90%+ · 75%+ · 60%+ · 50% · 60%+ · 75%+ · 90%+ · 100%.
+- **TIMELINE:** a play button and a track with marker dots for past moments, ending at "● LIVE". Scrubbing replays the map, the seat bar and the ratings chart at that time.
+- **Featured** (a dropdown title): race cards.
+  - **Header:** "<Race> winner?" and "96.9% votes counted · D +0.9" (the margin is underlined, with a tooltip).
+  - **Body:** the two leading candidates with photo, name and chance ("99%" / "1%"), a two-colour bar, and each side's vote count.
+  - **Other variants:** a party-level card shows party icons instead of photos; a card with no margin shows "· 205,287 votes".
+- **"● LIVE AMERICAN POWER INDEX":** one composite number from the platform's markets.
+  - **Headline:** "Leaning Democratic +16.3", with "Flat Last 24H" under it.
+  - **Blurb:** "The 'S&P' for politics … one number to represent the shifts in political power. Learn more".
+  - **Chart:** Feb to Nov, with a scale running "+17 R … Tie … +17 D". The line is red above the tie and blue below, with event dots and a live dot at the end.
+- **More markets:** a table with an "N events" count ("34 events") and a Market column.
+- **"Midterms Chat":** a floating pill at the bottom right showing the online count ("67K"), opened by a chevron. It is a hub-level chat room (compare event chat, §20).
+- **Copy observed:** "Safe Dem", "Settled", "LIVE", "votes counted", "vol", "Yes"/"No", "Flat Last 24H".
+
 ## 14. Perpetual futures ("Perps")
 
 Parlance's leveraged perpetual-futures product. This section was written from the public margin API docs (cited by file name: a doc file `a_b_c.md` is `https://docs.kalshi.com/a/b/c.md`, fetched 2026-11-02; not redistributed here), one live public listing sample (`/v1/search/series?derivative_type=margin`, cited as **[live]**), and strings in the shipped web bundle (cited by chunk file name). These sources were treated as data. No code, text, images or fonts were copied. Anything the sources do not establish is marked **UNKNOWN**, followed by the design choice the clone makes.
@@ -3754,7 +3799,26 @@ Owner decision (2026-11-04): Parlance displays **Nigerian naira by default**. A 
 **display-only**: the engine, ledger, journal, database and API keep their units (integer cents, centi-cent prices,
 `*_dollars` strings). It is a sandbox display rule, not an exchange rate.
 
-### 30.1 The rule
+### 30.0 Market focus: Nigeria first, multi-country ready (owner decision 2026-11-08)
+
+Parlance is **mainly for Nigerians** and may later add more countries. Every new feature follows these rules:
+
+- **Defaults:**
+  - currency NGN (§30.1);
+  - time zone Africa/Lagos (WAT, UTC+1);
+  - en-NG formats;
+  - Nigerian examples, copy and seed data: states, the FCT, geopolitical zones, the national calendar.
+- **Nothing country-specific in code:** country facts live in DB-backed configuration that admins manage:
+  - currency, time zone and locale;
+  - administrative divisions;
+  - elected offices and chambers, seat counts and election rules;
+  - parties and their colours;
+  - holidays;
+  - which features are on.
+
+  Adding a country means adding data, not code. Every feature that depends on a country takes a `country` (ISO 3166-1 alpha-2 code: `NG` first).
+- **Multi-party by default:** election features never assume two parties. They handle N parties, coalitions and runoffs.
+- **Clean room:** this still applies, so seed and demo data use invented candidates and parties. Real geography and public facts about offices are fine. Real politicians, real party marks and photos of real people are never seeded.
 
 | Internal | NGN (default) | USD (alternative) |
 |---|---|---|
