@@ -13,9 +13,12 @@ export async function render(ctx) {
 }
 
 // ---------------------------------------------------------------- keys
+let keysSeq = 0; // only the latest search renders (an older, slower answer must not overwrite a newer one)
 async function renderKeys({ el, perms, query }) {
+  const my = ++keysSeq;
   const q = query.get('q') || '';
   const data = await get(`/api_keys${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  if (my !== keysSeq || !el.isConnected) return;
   el.innerHTML = section(tx('admin.api.keys.title'), te('admin.api.keys.intro')) +
     `<form class="adm-table-tools" data-search><input type="search" class="adm-input" name="q" value="${esc(q)}" placeholder="${te('admin.api.keys.search')}" aria-label="${te('admin.api.keys.search')}" data-testid="adm-key-search"><button class="btn btn-sm" type="submit">${te('admin.api.keys.find')}</button></form>
     <div class="card adm-card"><div class="adm-scroll"><table class="table adm-grid" data-testid="adm-key-list"><thead><tr><th>${te('admin.api.col.user')}</th><th>${te('admin.api.col.label')}</th><th>${te('admin.api.col.key')}</th><th>${te('admin.api.col.scopes')}</th><th>${te('admin.api.col.tier')}</th><th>${te('admin.api.col.status')}</th><th>${te('admin.api.col.today')}</th><th>${te('admin.api.col.last_used')}</th><th>${te('admin.api.col.actions')}</th></tr></thead>

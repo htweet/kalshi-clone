@@ -159,7 +159,8 @@ test('Admin › API keys: search, tier with reason (audited), usage, revoke sign
   await ap.goto(`${H.BASE}/admin/api_keys`);
   await ap.fill('[data-testid=adm-key-search]', H.email('carol'));
   await ap.press('[data-testid=adm-key-search]', 'Enter');
-  await ap.waitForSelector(`[data-testid=adm-key-row][data-key="${key.id}"]`);
+  // The unfiltered list already holds Carol's row, so wait for the filtered result itself (a single row), not just her row.
+  await ap.waitForFunction((id) => { const rows = document.querySelectorAll('[data-testid=adm-key-row]'); return rows.length === 1 && rows[0].dataset.key === id; }, key.id);
   assert.equal(await ap.locator('[data-testid=adm-key-row]').count(), 1);
   // Tier: Premier, with a reason.
   await ap.selectOption(`[data-testid=adm-key-row][data-key="${key.id}"] [data-testid=adm-key-tier]`, 'premier');
