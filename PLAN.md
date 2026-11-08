@@ -178,6 +178,47 @@ Owner requirement: every feature and module can be switched and rolled out from 
 - P7.4 API parity checklist against the public Trade API v2 reference (markets, events, series, orderbook, trades, candlesticks, portfolio balance/positions/orders/fills/settlements, order create/amend/decrease/cancel/batch, order groups, RFQ/quotes, multivariate collections, WebSocket channels) with contract tests generated from our OpenAPI spec.
 - Security gate: signature replay window, clock-skew handling, key storage (public keys only), abuse throttling.
 
+### Phase 7A — Waitlists: Perps on, real-money launch waitlist and newsletter (S–M)
+Owner decisions 2026-11-08: the Phase 6 and 7 design choices are confirmed as built (`CLONE_SPEC.md` §34.13, §35.14); the Perps waitlist is **on**; and a **real-money launch waitlist** gauges demand while the site runs in play mode. The owner will announce: "join the waitlist for the newsletter on the real-money launch". Once N people have joined, the owner decides to switch to real money: play mode off and the Central Bank off, through the existing two-person production switch (§33).
+- **P7A.1 Perps waitlist on:**
+  - `perps.waitlist` is enabled by default for new databases, and an existing database is switched on once by an audited migration, with the reason "owner decision 2026-11-08";
+  - the test servers that need open Perps say so explicitly; no assertion is weakened.
+- **P7A.2 Launch waitlist:** a reusable waitlist module. The Perps waitlist moves onto it unchanged in behaviour; a list is a key (`perps`, `real_money_launch`).
+  - **Who can join:**
+    - signed-in users with one click;
+    - guests with an email and **double opt-in** (a confirmation link, expiring, single use).
+  - **Consent and privacy:**
+    - consent is recorded with time, wording version and source, following the Nigeria Data Protection Act 2023;
+    - every email carries a one-click unsubscribe, and users can delete their data;
+    - no duplicates; rate limits and bot protection on the guest form; email addresses are encrypted at rest, with a hash for lookups.
+- **P7A.3 Opinion survey (optional, short, admin-defined through the CMS):** example questions:
+  - would you trade with real money?
+  - expected first deposit, in naira bands;
+  - preferred payment method (bank transfer, card, USSD, wallet);
+  - which markets interest you;
+  - a free-text comment, moderated.
+  Answers can be edited until launch; results appear as aggregates only.
+- **P7A.4 Public side:**
+  - a "Join the real-money waitlist" call to action in the play-mode banner, on Funds and on Home;
+  - a `/waitlist` page with the CMS pitch text, the survey and the user's status;
+  - an optional public progress bar ("N of TARGET joined"), which an admin can switch on or off.
+- **P7A.5 Admin › Waitlists:**
+  - **Per list:** the count, confirmed vs pending, daily growth, sources (UTM or referral code), the target N and survey results.
+  - **Export:** CSV with consent fields only, behind step-up and audited.
+  - **Approve or invite:** for the Perps list.
+  - **Newsletter:** a CMS template with preview and test send, sent now or scheduled, through a throttled, persisted outbox that resumes after a restart. Members who unsubscribed or never confirmed are skipped.
+  - **Target reached:**
+    - the admins get a one-time alert (in-app and email);
+    - the Play mode page shows "launch target reached";
+    - the switch itself stays the manual, two-person, RESET-confirmed production switch. **Nothing switches automatically.**
+  - **Launch email:** when the production switch runs, admins are offered the "We're live with real money" email to confirmed members. It is never sent automatically.
+- **P7A.6 Cross-cutting:**
+  - flags `waitlist.launch` (on), `waitlist.launch.public_count`, `waitlist.launch.survey`, `newsletter`;
+  - all copy and emails in the CMS; DB-persistent and survives a restart;
+  - authz classification; browser tests for joining (signed in and guest), confirming, the survey, unsubscribing, the newsletter send, the target alert and the restart;
+  - `CLONE_SPEC.md` §36 (the elections hub becomes §37);
+  - the production switch keeps waitlist members, consents and survey answers (they are not money).
+
 ### Phase 7B — Elections hub v2, Nigeria first (M–L)
 Owner request 2026-11-08: a results-night elections hub modelled on the observed midterms page (`CLONE_SPEC.md` §13.20), adapted to Nigeria and built on the country model (ground rule 5). It replaces the Phase 5B tile-map hub (§29.8). That hub's invented 12 states stay as a second test country, proving nothing is Nigeria-specific in code.
 - **P7B.1 Country and election model** (DB, Admin › Elections, every change audited with a reason). Each country (`NG` first; currency, time zone, locale) has:
@@ -224,7 +265,7 @@ Owner request 2026-11-08: a results-night elections hub modelled on the observed
   - live updates over WebSocket;
   - all data is DB-persistent and survives a restart, and the production switch resets play-money positions only;
   - authz classification; browser tests for every widget, the results desk and the timeline;
-  - `CLONE_SPEC.md` §36.
+  - `CLONE_SPEC.md` §37.
 - **Security gate:**
   - results-desk calls need a role, a reason and step-up, with the two-person rule for the presidency, all audited;
   - the feed cannot be written by clients;
@@ -236,9 +277,56 @@ Owner request 2026-11-08: a results-night elections hub modelled on the observed
   - the source of real results, whether a licensed feed or manual entry by the results desk;
   - whether real parties and candidates are entered by admins at launch. They are never seeded.
 
-### Phase 8 — Growth and reach (M)
-- P8.1 Referrals and copy-trade links (signed, non-guessable codes; fraud checks).
-- P8.2 Server-side rendering or prerendering for public pages, sitemap, metadata; i18n framework; accessibility audit (WCAG 2.2 AA).
+### Phase 8 — Growth and reach, Nigeria first (M–L)
+Detailed 2026-11-08. Every item follows ground rule 5: Nigerian defaults, country as data, ready for more countries.
+- **P8.1 Referrals for Predictions** (a second program in `server/referrals.js`):
+  - codes and share links;
+  - rewards paid from the promotions treasury in production, or as play money in play mode;
+  - qualification on a volume threshold, never counting trades against the referrer (as for Perps);
+  - lifetime caps.
+  - **Fraud signals beyond the account:** linkage between referrer and referee by device, payment instrument and IP velocity, using the P3.7 fraud scores; flagged referrals go to an admin review queue.
+  - The waitlist's `ref` attribution (P7A.2) carries over at sign-up.
+- **P8.2 Share and copy-trade links:**
+  - every market, event, position and trade can be shared through a signed, non-guessable link;
+  - **WhatsApp first** (the main sharing channel in Nigeria), then X, Facebook, Telegram and copy-link;
+  - "Copy this trade" opens the market with the ticket prefilled from the shared position. It shows only what the sharer chose to show (side and price; sizes optional) and **never trades automatically**;
+  - attribution and click counts; open-redirect-safe; links can be revoked.
+- **P8.3 Public pages for search and social:**
+  - **Server-rendered HTML** for public routes (home, categories, events, markets, series, hubs, docs, CMS pages, status), cached per locale and currency, never per user (no cookies in the cache key). The SPA takes over after load.
+  - **Metadata:** title, description, canonical URL and `hreflang`.
+  - **Share cards:** Open Graph and X cards with server-generated PNG images (price, chance and title; pure-JS encoder, CMS brand colours).
+  - **Search engines:** `sitemap.xml` (split per section, last-modified dates), `robots.txt`, and structured data where it fits.
+- **P8.4 Languages (i18n)** on the CMS text catalog (§32):
+  - locales `en-NG` (default), Nigerian Pidgin (`pcm`), Hausa (`ha`), Yoruba (`yo`) and Igbo (`ig`), with more added as data;
+  - **translation workflow in Admin › Texts:** missing keys fall back to English, coverage % per locale, review and publish per locale, export and import for translators;
+  - **locale switcher:** stored per user, with a guest cookie;
+  - **formatting:** numbers, dates and plurals per locale (`Intl`);
+  - **layout:** RTL-ready for future countries;
+  - **email and push templates** per locale.
+- **P8.5 Accessibility, WCAG 2.2 AA:**
+  - automated `axe-core` checks of the key pages in light and dark at 1280 and 390 px, in the test suite;
+  - keyboard paths for trading, funds and account;
+  - visible focus, 24 px minimum targets, contrast checks on CMS colour changes, reduced motion, and screen-reader labels for charts, the map and gauges (text alternatives);
+  - fixes for everything found; an accessibility statement page.
+- **P8.6 Built for Nigerian networks and phones:**
+  - a **data saver mode** (lighter images, fewer live updates, polling fallback when the WebSocket is unstable, no autoplay);
+  - performance budgets for low-end Android on 3G (JS and CSS size, LCP and INP targets) checked in CI;
+  - offline-tolerant pages through the PWA (§31);
+  - SMS as a notification channel through a simulated provider adapter (a real provider later, behind the same interface).
+- **P8.7 Site footer and help centre** (A18): Product · Company · Help columns, social links, Trust · Research · Support · Fee schedule · FAQ. All CMS pages, with Nigerian contact and support-hours content.
+- **P8.8 Cross-cutting:**
+  - a flag per capability (`referrals.predictions`, `share_links`, `copy_trade`, `ssr`, `i18n`, `data_saver`, `sms`);
+  - CMS text; DB persistence;
+  - authz classification; browser tests per feature;
+  - `CLONE_SPEC.md` §38; README; SECURITY.
+- **Security gate:**
+  - referral fraud (linkage signals, caps, the review queue);
+  - share links are signed and cannot be enumerated or turned into open redirects;
+  - server rendering never leaks private data or caches per-user pages (cache-poisoning tests);
+  - translated text goes through the CMS sanitizer (no script or markup injection through translations);
+  - marketing consent under the Nigeria Data Protection Act;
+  - SMS abuse limits.
+- **Owner decisions:** the referral reward amounts in naira; the first non-English locales and who translates; whether SMS goes to a real provider before launch.
 
 ### Phase 9 — Production readiness (L)
 - P9.1 Hosting: container image, reverse proxy with TLS, secrets from the environment/vault, separate admin origin.
@@ -278,7 +366,7 @@ All research follows the ground rules (logged-out public surfaces and docs only;
 2. Phase 2 social (live chat already in flight) in parallel with research R1–R4
 3. Phase 3 identity/compliance → Phase 4 payments sandbox
 4. Phases 5 and 6 in parallel (markets, perps)
-5. Phase 7 public API → **Phase 7B elections hub v2 (Nigeria first)**
+5. Phase 7 public API → **Phase 7A waitlists (Perps on, real-money launch waitlist)** → **Phase 7B elections hub v2 (Nigeria first)**
 6. Phases 8–9 growth and production readiness, ending with the pen test
 
 ---
@@ -348,9 +436,10 @@ The project is complete only when **all** of the following hold:
 | Currency & defaults (NGN) | ✅ built on `naira` (CLONE_SPEC.md §30): NGN display default (a contract pays ₦100, 1 internal cent = ₦1, kobo on sub-cent grids, perps ×100), display-only (engine, ledger, journal, DB and API unchanged); `GET /v1/exchange/display_currency`; DB-backed currency, locale and time zone switched live over WebSocket; Admin › Settings › Currency & defaults (preview, reason, step-up, hash-chained audit) with new-account defaults (theme, order review, flip sell, market preview, notification channels); one formatter per side for views, toasts, notifications, emails, memos, errors, CSV and PDF; calendar days in the configured zone; keyed wording modules for Phase 5C; `currency` suite (7 scenarios). Residual: past notifications and memos keep the wording of their time; limits and reports stay on UTC days |
 | PWA | ✅ built on `pwa` (CLONE_SPEC.md §31; tracked here at the owner's request): web app manifest (standalone, brand theme colour, shortcuts to Markets / Portfolio / Deposit) with own icons drawn by `clone/scripts/make-icons.js`; service worker versioned by the build hash that precaches only the public hashed assets (fetched without credentials), never caches navigations, `/v1`, `/trade-api` or the WebSocket and passes everything else through untouched; static offline page under its own strict CSP; "New version available — Reload" toast with user-confirmed `skipWaiting`; "Install app" in the ☰ menus (`beforeinstallprompt`, iOS Add-to-Home-Screen steps, hidden when standalone); caches and this browser's push subscription cleared at sign-out; real Web Push for the Push channel (VAPID RFC 8292 keys encrypted at rest, aes128gcm RFC 8291 with `node:crypto` only, subscriptions API with an https + push-service allowlist, device list with test send and remove, persisted encrypted outbox with backoff, 404/410 cleanup, resumable after restart); CMS-ready content: every PWA string keyed in `public/js/content/pwa-strings.js` / `server/content/pwa.js`, the offline page rendered from them at build time, the manifest built from one config object (§31.12); `pwa` suite (9 scenarios, production bundle, local fake push service). Residual: at-least-once delivery, lock-screen text, VAPID key tied to the master key (§31.11) |
 | 6 Perps completion | ✅ built on `phase-6` (CLONE_SPEC.md §34): P6.1 order amend (replace in one transaction) and decrease (in place), order groups (limit groups capped during matching, OCO, group-level cancel, reset, limits), subaccounts (isolated or cross) with transfers between them and with Predictions cash, server-side trailing stops (persisted watermark, fires once on a gap); P6.2 size-tiered margin (bracketed IM/MM per market, editable in Admin › Perps ops; tier 1 = max leverage, last cap = max position), portfolio maintenance margin with largest-first liquidation, fractional perps on integer units (one-time migration), risk limits (leverage per tier, max position with resting orders, open orders per market / total, subaccounts, order groups); P6.3 APY on collateral (accrual job, treasury queue / refuse, play money in play mode), Perps referrals in a reusable `server/referrals.js`, waitlist gate in the flag gate with Admin approve / bulk invite / revoke and CMS notifications and emails; a double-entry perps journal in centicents joined to the ledger audit; 9 flags under `perps`; production switch archives and zeroes the new balances; security gate: property-based liquidation and funding invariants (`tests/lib/property.js`) and API risk-limit tests; suites `perps-trading`, `perps-risk`, `perps-growth`, `perps-invariants` (24 scenarios). Residual: discrete trigger and liquidation evaluation, the liquidity account as the only liquidation counterparty, per-process throttles (§34.14) |
-| 7 Public API | ✅ built on `phase-7` (CLONE_SPEC.md §35; parity in `API_PARITY.md`): P7.1 API keys (Account › API keys with the A2 lock and step-up; RSA-2048 generated and shown once, or pasted RSA / Ed25519 public keys; scopes read / trade / perps; CIDR allowlists; expiry; rotation with an admin-set grace; revocation signing WebSocket and FIX sessions out; usage dashboard; CMS notifications and emails), signed requests (`PARLANCE-ACCESS-*`, RSA-PSS SHA-256 salt 32 or Ed25519, 5 s / 1 s window with clear skew errors, persisted replay store, dummy-key verification, locked / frozen / closed owners refused, 403 scope / IP), rate tiers Basic / Advanced / Premier / Prime (token buckets, endpoint costs, `/account/limits`, `/account/endpoint_costs`, 429 + Retry-After, RateStore interface for RS1), Admin › API keys; P7.2 `/trade-api/v2` (orders through the same `/v1` gates, batch create / cancel with per-item results (G5), amend, decrease, order groups, history with cursors, RFQ, multivariate, Perps under `/margin`), public WebSocket `/trade-api/ws/v2` and `/margin` (channels, commands, seq, caps, heartbeat, revocation); P7.3 developer portal `/docs` (CMS-seeded prose, search, theme, agreement, generated OpenAPI 3.1 / AsyncAPI 2.6 / FIX tables from one registry, browser-signed Try it on an in-process demo environment behind `/demo-api`), status page with admin incidents; P7.4 contract tests over every operation; A16, A17 FIX 4.4 gateway (signed logon, sequence recovery, order entry, market data, RFQ, drop copy, admin disconnect); 7 flags; suites `api-keys`, `trade-api`, `fix`, `dev-portal`, `api-contract` (23 scenarios) + authz. Residual: per-process buckets and caps (RS1), FIX without TLS, demo in-process (§35.15) |
+| 7 Public API | ✅ merged to `main` 2026-11-08 (1844923); built on `phase-7` (CLONE_SPEC.md §35; parity in `API_PARITY.md`): P7.1 API keys (Account › API keys with the A2 lock and step-up; RSA-2048 generated and shown once, or pasted RSA / Ed25519 public keys; scopes read / trade / perps; CIDR allowlists; expiry; rotation with an admin-set grace; revocation signing WebSocket and FIX sessions out; usage dashboard; CMS notifications and emails), signed requests (`PARLANCE-ACCESS-*`, RSA-PSS SHA-256 salt 32 or Ed25519, 5 s / 1 s window with clear skew errors, persisted replay store, dummy-key verification, locked / frozen / closed owners refused, 403 scope / IP), rate tiers Basic / Advanced / Premier / Prime (token buckets, endpoint costs, `/account/limits`, `/account/endpoint_costs`, 429 + Retry-After, RateStore interface for RS1), Admin › API keys; P7.2 `/trade-api/v2` (orders through the same `/v1` gates, batch create / cancel with per-item results (G5), amend, decrease, order groups, history with cursors, RFQ, multivariate, Perps under `/margin`), public WebSocket `/trade-api/ws/v2` and `/margin` (channels, commands, seq, caps, heartbeat, revocation); P7.3 developer portal `/docs` (CMS-seeded prose, search, theme, agreement, generated OpenAPI 3.1 / AsyncAPI 2.6 / FIX tables from one registry, browser-signed Try it on an in-process demo environment behind `/demo-api`), status page with admin incidents; P7.4 contract tests over every operation; A16, A17 FIX 4.4 gateway (signed logon, sequence recovery, order entry, market data, RFQ, drop copy, admin disconnect); 7 flags; suites `api-keys`, `trade-api`, `fix`, `dev-portal`, `api-contract` (23 scenarios) + authz. Residual: per-process buckets and caps (RS1), FIX without TLS, demo in-process (§35.15) |
+| 7A Waitlists (Perps on, launch waitlist, newsletter) | pending (owner decisions 2026-11-08) |
 | 7B Elections hub v2 (Nigeria first) | pending (owner request 2026-11-08; spec §13.20, §30.0) |
-| 8 Growth & reach | pending |
+| 8 Growth & reach (Nigeria first) | planned 2026-11-08 (P8.1–P8.8) |
 | 9 Production readiness | pending |
 | Research R1–R12 | R4 partly answered by HAR4 (logged-in request headers, spec §13.13); R2/R3 still need logged-in captures of Portfolio (all tabs), Account › Security, deposits/withdrawals and placing an order |
 

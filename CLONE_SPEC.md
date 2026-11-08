@@ -4805,7 +4805,10 @@ journal account into `perps:reset:<batch>` before the epoch changes; the liquidi
 epoch. The preview counts subaccounts with a balance, accruals, queued payouts, pending referrals, queued rewards and
 active groups, with the accrued total. The reverse guard counts subaccount balances.
 
-### 34.13 Design choices to confirm
+### 34.13 Design choices (confirmed by the owner 2026-11-08)
+
+All choices below are accepted as built, with one change: the **Perps waitlist is on** (`perps.waitlist` enabled by
+default; grandfathering, staff exemption and protective actions unchanged). Built in Phase 7A (PLAN.md).
 
 - Subaccount 0 keeps its balance in `perp_accounts`; up to 32 subaccount numbers, 10 by default; `auto_rebalance` is
   not built.
@@ -5078,7 +5081,9 @@ validates the documented status and schema; an operation without a plan fails it
 - **Changed:** the CMS 'page' allowlist gains `pre` / `code`; the `/v1` order handler takes `post_only` and records the
   dispatch channel as `source`; the candlestick route's series parameter is named `:series_ticker`.
 
-### 35.14 Design choices to confirm
+### 35.14 Design choices (confirmed by the owner 2026-11-08)
+
+All choices below are accepted as built.
 
 - Header names `PARLANCE-ACCESS-*` only; the `KALSHI-ACCESS-*` aliases are not accepted (clean-room naming; one
   spelling avoids ambiguity when both are sent).
