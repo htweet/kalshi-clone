@@ -140,6 +140,12 @@ test('rotate with a grace period, then revoke: the old key works until its grace
   assert.equal((await bob.call('GET', `/v1/users/${alice.uid}/api_keys`)).status, 403);
   assert.equal((await bob.call('DELETE', `/v1/users/${alice.uid}/api_keys/${k2}`)).status, 403);
   assert.equal(H.q1('SELECT status FROM api_keys WHERE id=?', k2).status, 'active');
+  // The expiry job: a key within 3 days of its expiry gets one notice (in-app + CMS email), then is signed out at expiry.
+  H.run('UPDATE api_keys SET expires_ts=? WHERE id=?', Date.now() + 86400000, k2);
+  await eventually(() => assert.equal(H.q1('SELECT expiry_notified FROM api_keys WHERE id=?', k2).expiry_notified, 1));
+  await eventually(() => assert.ok(H.q("SELECT * FROM notifications WHERE user_id=? AND type='api_key_expiring'", alice.uid).length === 1));
+  await eventually(() => assert.ok(H.q("SELECT * FROM email_outbox WHERE user_id=? AND subject='Your API key expires soon'", alice.uid).length === 1));
+  H.run('UPDATE api_keys SET expires_ts=NULL, expiry_notified=0 WHERE id=?', k2);
 });
 
 test('Admin › API keys: search, tier with reason (audited), usage, revoke signs a WebSocket out, rate-tier settings', async () => {

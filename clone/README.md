@@ -208,6 +208,44 @@ limits, APY and referral rewards also a password check.
 Flags (Admin › Feature flags): `perps.subaccounts`, `perps.portfolio_margin`, `perps.order_groups`, `perps.amend`,
 `perps.trailing_stops`, `perps.fractional`, `perps.apy`, `perps.referrals`, `perps.waitlist` (off on a new database).
 
+## Public trading API (Phase 7)
+
+Developer and admin guide for `../CLONE_SPEC.md` §35 (parity checklist: `../API_PARITY.md`).
+
+**For developers:**
+- **API docs** (☰ › API Docs, `/docs`): Quick Start, Concepts, the generated REST / WebSocket / FIX reference, rate
+  limits, changelog, Developer Agreement. Search with Ctrl K. The machine-readable documents are
+  `/docs/openapi.json` (OpenAPI 3.1), `/docs/asyncapi.json` (AsyncAPI 2.6) and `/docs/fix.json`.
+- **API keys** (Account & security › API keys): needs identity verification and a password check. Let Parlance
+  generate an RSA key pair (save the private key: it is shown once) or paste your own RSA or Ed25519 public key. Scopes:
+  read, trade, perps. Optional IP allowlist and expiry. **Rotate** keeps the old key working for 24 hours; **Revoke** is
+  immediate and signs WebSocket and FIX sessions out. The usage table shows requests, 429s and errors per day.
+- **Signing:** headers `PARLANCE-ACCESS-KEY`, `PARLANCE-ACCESS-TIMESTAMP` (ms) and `PARLANCE-ACCESS-SIGNATURE` (base64
+  over `timestamp + METHOD + path`, RSA-PSS SHA-256 with a 32-byte salt, or Ed25519). Requests older than 5 s or more
+  than 1 s in the future are refused. Samples in curl, Python and JavaScript are on the Quick Start page.
+- **Demo environment:** `npm start` also starts a demo exchange (play money, its own database `data/parlance.demo.db`,
+  its own users and keys) reachable at `/demo-api/trade-api/v2` and `/demo-api/trade-api/ws/v2`. Every reference page
+  has **Try it**, which creates a demo key in your browser and signs requests there. `DEMO_API=0` turns it off;
+  `DEMO_PORT` / `DEMO_DB_FILE` move it.
+- **FIX 4.4** (off until an admin switches on the `api.fix` flag): `FIX_PORT` sets the port (default: any free port;
+  the status page shows it). TargetCompID `PARLANCE` for order entry, `PARLANCEDC` for drop copy; the Logon is signed
+  with your API key (see the FIX page).
+- **Status:** `/status` shows the API, WebSocket, FIX and demo, and any incidents.
+
+**Admin:**
+- **Admin › API keys and FIX** (`users.read`; changes `users.support`): find keys by email, key id or label; change a
+  key's **tier** (Basic, Advanced, Premier, Prime) with a reason; see 30 days of usage; **revoke** with a reason. The
+  live **FIX sessions** list has **Disconnect**. With `settings.write`: the tiers' read / write tokens per second,
+  WebSocket and FIX caps, and the rotation grace period (password check).
+- **Admin › Status incidents** (`content.write`; publishing `content.publish`): post an incident (title, details,
+  status, impact, affected components) and mark it resolved; every change is a content version with a reason.
+- **Portal prose** is content: Admin › Content › Pages › `docs/…` (the Developer Agreement is a legal page: publishing
+  needs a password check). Emails for created, revoked and expiring keys are in Admin › Content › Templates › API email.
+- **Flags:** `api.keys` (keys and signed requests), `api.trading` (order entry over the API and FIX), `api.ws`,
+  `api.fix` (off on a new database), `api.demo`, `developer_portal`, `status_page`.
+- **Switch to production:** API keys stay; resting API orders and order groups are reset with everything else; FIX
+  sessions are logged out.
+
 ## Trading core (Phase 5A)
 
 - **Finer prices.** Some markets trade in 0.1¢ steps (`deci_cent`), or in finer steps near 0¢ and 100¢ (`tapered`). Combos use 0.1¢ steps, and 0.01¢ near the edges. The ticket's limit field steps by the market's tick and lists the bands.

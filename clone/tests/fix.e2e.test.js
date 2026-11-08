@@ -89,12 +89,17 @@ test('order entry: New, Replace, Cancel, rejects, fills, Perps and mass cancel a
   const pn = await fx.waitFor((m) => m.type === '8' && m.get(11) === 'P-1');
   assert.equal(pn.get(150), '0');
   assert.equal(H.q1('SELECT status FROM perp_orders WHERE id=?', pn.get(37)).status, 'resting');
+  // Tag 20004 puts a FIX order into an order group made over REST.
+  const g = (await fk.signed.call('POST', `${B}/portfolio/order_groups`, { contracts_limit: 5 })).body.order_group_id;
+  fx.send('D', [[11, 'G-1'], [55, T], [54, '1'], [38, '1'], [40, '2'], [44, '0.0200'], [20004, g]]);
+  const gr = await fx.waitFor((m) => m.type === '8' && m.get(11) === 'G-1');
+  assert.equal(H.q1('SELECT group_id FROM order_group_orders WHERE order_id=?', gr.get(37)).group_id, g);
   // Mass cancel: every resting order (Predictions and Perps).
   fx.send('D', [[11, 'F-7'], [55, T], [54, '1'], [38, '1'], [40, '2'], [44, '0.0200']]);
   await fx.waitFor((m) => m.type === '8' && m.get(11) === 'F-7');
   fx.send('q', [[11, 'M-1'], [530, '7']]);
   const mr = await fx.waitFor((m) => m.type === 'r');
-  assert.equal(mr.get(531), '7'); assert.equal(mr.get(533), '2');
+  assert.equal(mr.get(531), '7'); assert.equal(mr.get(533), '3');
   assert.equal(H.q1("SELECT COUNT(*) c FROM perp_orders WHERE user_id=? AND status='resting'", fred.uid).c, 0);
   // Unsupported message type → BusinessMessageReject.
   fx.send('AE', [[571, 'X']]);

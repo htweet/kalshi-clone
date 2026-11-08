@@ -255,7 +255,7 @@ Exchange status [HAR1#0]: `exchange_active, trading_active, intra_exchange_trans
 
 ### 5.3 Authentication (DOC:openapi.yaml securitySchemes, DOC:api_keys)
 
-API clients sign each request with RSA-PSS. Headers: `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-TIMESTAMP` (ms), `KALSHI-ACCESS-SIGNATURE` (base64 over timestamp+method+path). An OAuth bearer alternative exists. The browser app uses cookie session + CSRF instead (§4.7).
+API clients sign each request with RSA-PSS. Headers: `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-TIMESTAMP` (ms), `KALSHI-ACCESS-SIGNATURE` (base64 over timestamp+method+path). An OAuth bearer alternative exists. The browser app uses cookie session + CSRF instead (§4.7). **Clone:** §35.3 (`PARLANCE-ACCESS-*`, RSA-PSS or Ed25519).
 
 ### 5.4 Error behavior (OBSERVED)
 
@@ -408,7 +408,8 @@ The companion implementation in `clone/` (product name **"Parlance Exchange"**, 
 | §31 Progressive Web App: web app manifest + own icons, service worker (precache of the hashed bundle, network-only navigations, offline page, user-confirmed updates), install entry (prompt / iOS steps), real Web Push (VAPID RFC 8292, aes128gcm RFC 8291, encrypted outbox with retries) | yes | tests `pwa`; design choices (not observed on the live site) |
 | §32 content management (Phase 5C): every SPA string in a keyed text catalog (client and server `t()`, admin overrides, declared variables, plain or allowlist rich text, live updates, staff preview), notification / email / SMS templates on every send, media library with server-side re-encode and slots (logo, icons, manifest), CMS pages with SEO and legal step-up, footer, brand colours with a contrast check, drafts → schedule → publish → rollback with hash-chained audit, editor / publisher roles, JSON export / import with dry run, hard-coded-text enforcement | yes | tests `cms`, `cms-content` |
 | §33 feature flags, play mode, Central Bank and money controls (Phase 5D): a flag for every feature and module (on/off, kill switch, rollout, allow/deny by user, role and region, schedule) enforced by a server gate with jobs paused and the UI hidden live, Admin › Feature flags with reason, step-up, history and audit; play mode with signup bonus, free deposits and no withdrawals; Vault Heist against the Central Bank vault; two-person switch to production with backup, archives and reset; per-user deposit / withdrawal revocation; the promotions treasury | yes | tests `flags`, `playmode`; design choices (not observed) |
-| Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery, public signed API keys, FIX gateway | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
+| §35 public trading API: signed API keys (RSA-PSS / Ed25519), rate tiers, `/trade-api/v2` (orders, batch, groups, history, RFQ, Perps), public WebSocket, FIX 4.4 gateway (simulated), developer portal with demo Try it, status page | yes | tests `api-keys`, `trade-api`, `fix`, `dev-portal`, `api-contract`; parity in `API_PARITY.md` |
+| Real KYC vendors, real payment providers (sandbox rails built, no real money), real email/SMS delivery | **no / simulated** | real-world services stay sandboxed by design (PLAN §8.1) | payments run on sandbox rails (§26); see §16.x–19.x "not done" notes |
 
 Verification: 284 end-to-end scenarios across 36 files in `clone/tests/` (run `npm run test:e2e`), each against a real server and a real SQLite file, in Chromium (Playwright) wherever there is UI; the Phase 6 security gate (`perps-invariants`) drives the live engine with property-based sequences. The second file covers the §13 additions: layout, grid/list persistence, subcategories, calendar, the full social loop, live price-alert and fill notifications, limits enforcement and cooling-off, the session lock, two-factor login, persistence across a restart, and no horizontal overflow at 390px in light and dark.
 
@@ -4786,6 +4787,269 @@ clock, queued, paid when the vault is funded, refused per setting, paused by its
 fraud checks and caps; the waitlist gate, join with position, bulk invite unlocking an open page live, a CMS-edited
 approval email, revoke, persistence; play-money APY and rewards and the production switch zeroing the new balances.
 `perps-invariants` (4): §34.11.
+
+---
+
+## 35. Public trading API (Phase 7)
+
+Evidence: §5 (Trade API v2 protocol facts, envelopes, rate tiers), §6 (`api_keys` call site), §7.1 (public WebSocket),
+§13.18 (developer portal), §13.19 (A2 lock on `/users/{uid}/api_keys`), §14.11 (`/trade-api/ws/v2/margin`), PLAN P7.1–P7.4,
+A16, A17. Everything else in this section is a design choice of the clone, listed in §35.14.
+
+### 35.1 Pieces
+
+| Module | Role |
+|---|---|
+| `server/api-keys.js` | Keys (create / rotate / revoke), signature verification, replay store, owner checks, rate tiers (RateStore), usage, Account › API keys and Admin › API keys routes, notifications and emails, the expiry job |
+| `server/api-registry.js` | The single route registry: schemas, the validator, OpenAPI 3.1 and AsyncAPI 2.6 generation, query checks |
+| `server/trade-api.js` | `/trade-api/v2`: the auth gate, every operation, internal dispatch into the `/v1` pipeline, Predictions order groups, batches, history, Perps under `/margin` |
+| `server/trade-ws.js` | `/trade-api/ws/v2` and `/trade-api/ws/v2/margin` |
+| `server/fix.js` | FIX 4.4 gateway, its message tables, Admin › FIX sessions routes |
+| `server/dev-portal.js` | `/docs/*.json`, `/v1/developer/*`, `/v1/status`, incidents (CMS type), docs seeding, the demo proxy and provisioning |
+| `server/content/api.js`, `server/content/developer-docs.js` | Server wording; the portal's prose defaults (seeded into the CMS) |
+| `public/js/views/api-keys.js`, `docs.js`, `status.js`, `admin/api-keys.js`, `public/js/docs-sign.js`, `public/developer.css` | Account › API keys, the portal, the status page, Admin › API keys and Status incidents, WebCrypto signing |
+
+### 35.2 API keys (P7.1)
+
+- **Account › API keys** (`/account/api-keys`, a sub-tab of Account & security). Locked by the A2 lock (403
+  `permission_denied`, §13.19) until identity verification is approved; creating and rotating also need a fresh step-up
+  (`api_key_create`, `api_key_rotate`). Revoking needs neither.
+- **A key:** label (1–60 plain characters), scopes `read` (always) + optional `trade` (order entry) + optional `perps`
+  (the margin product), optional IP allowlist (at most 20 IPv4 / IPv6 addresses or CIDR ranges), optional expiry (at most
+  2 years), tier (default Basic). At most 10 active keys per user (setting).
+- **Two modes:** `generate` — RSA-2048 made on the server; the PKCS#8 private key is in the create response only
+  (`Cache-Control: no-store`), shown once with copy / download / "I have saved it", never stored or logged; `public_key`
+  — the user pastes an RSA (2048–8192 bit) or Ed25519 SPKI PEM; a pasted private key is refused before anything is stored.
+- **Stored** (`api_keys`): id (`plxk_<uuid>`; demo `plxdemo_<uuid>`), user, label, algorithm, public key PEM,
+  fingerprint (`SHA256:<base64>` of the SPKI DER), origin, scopes, allowlist, tier, status, env, created / expires /
+  revoked times, rotated from / to, last used time and IP.
+- **Rotation** makes a new key with the same label, scopes, allowlist, expiry and tier; the old key's expiry becomes
+  `min(expiry, now + grace)` (admin setting `rotation_grace_seconds`, default 24 h). **Revocation** (owner or staff, with
+  a reason) is immediate; the `revoked` event ends the key's WebSocket sessions (close 4401 after `session_revoked`) and
+  FIX sessions (Logout). Expiry is swept every engine tick; owners get a notice `expiry_notice_days` (3) before.
+- **Usage** (`api_key_usage`, per key per UTC day): requests, 429s, errors, WebSocket connections, FIX messages; flushed
+  every 2 s; shown in the usage dashboard (14 days) and Admin › API keys (30 days).
+- **Notifications and emails** (CMS, §32.5): `notify.api_key_created` / `_revoked` / `_expiring` and
+  `email.api_key_created` / `_revoked` / `_expiring`.
+- **Admin › API keys** (`users.read`; tier and revoke `users.support`; settings `settings.write` + step-up): search by
+  email, key id or label; tier select with reason; usage dialog; revoke with reason; rate-tier and grace settings; live
+  FIX sessions with disconnect.
+
+### 35.3 Signed requests
+
+Headers `PARLANCE-ACCESS-KEY`, `PARLANCE-ACCESS-TIMESTAMP` (unix ms), `PARLANCE-ACCESS-SIGNATURE` = base64 of the
+signature over `timestamp + METHOD + path` (path without the query string). RSA: RSA-PSS, SHA-256, salt length 32 (the
+digest length); Ed25519: Ed25519. The `KALSHI-ACCESS-*` names are **not** accepted (§35.14). Checks in order: headers →
+well-formed → environment prefix → window (default **5 s past, 1 s future**; start options `api.windowPastMs` /
+`windowFutureMs` or Admin settings) → signature (unknown ids verified against a dummy key) → key active and unexpired →
+owner not locked (`acct_locks`), closed (identity `closed`: closure / self-exclusion) or frozen (deposits and withdrawals
+both revoked) → replay (state-changing requests; `api_replay`) → IP allowlist. Failures: 401
+`token_authentication_failure` with `reason` one of `missing_headers`, `malformed`, `wrong_environment`, `clock_skew`
+(with `server_time_ms` and a sentence saying how far off), `invalid_signature`, `key_revoked`, `key_expired`,
+`account_unavailable`, `replayed_request`; 403 `forbidden` with `reason` `ip_not_allowed` / `insufficient_scope`. The
+security log records each refusal (key id, reason; never the signature). A session cookie is never a credential on
+`/trade-api`, and API headers are never read on `/v1`.
+
+### 35.4 Rate tiers
+
+| Tier | Read tokens/s | Write tokens/s | WebSocket connections | FIX sessions |
+|---|---|---|---|---|
+| Basic (default) | 200 | 100 | 5 | 1 |
+| Advanced | 300 | 300 | 10 | 2 |
+| Premier | 1,000 | 1,000 | 25 | 5 |
+| Prime | 4,000 | 4,000 | 50 | 10 |
+
+Token buckets per key and budget hold one second of budget. Costs: 10 per request; cancels 2; batch create 10 per
+order, batch cancel 2 per id; `/account/*` 1. A request costing more than the bucket is refused. The 429 envelope is
+`too_many_requests` with `tier`, `bucket`, `retry_after_seconds` and a `Retry-After` header. `GET /account/limits` and
+`/account/endpoint_costs` expose them. Tiers and the default tier are editable (Admin › API keys). Buckets live in a
+`RateStore` (in memory today; a shared store implements `take` / `level`, RS1). A verified key skips the per-IP
+perimeter limiter; failed signatures do not.
+
+### 35.5 REST surface (`/trade-api/v2`)
+
+- **Public:** `exchange/status|schedule|announcements` (announcements = open status incidents), `markets`,
+  `markets/trades` (cursor, `min_ts` / `max_ts`), `markets/{ticker}`, `markets/{ticker}/orderbook`, `events`,
+  `events/{ticker}`, `series`, `series/{ticker}`, `series/{series_ticker}/markets/{ticker}/candlesticks`,
+  `historical/trades`, `historical/markets/{ticker}/candlesticks`, `multivariate_event_collections[/{collection}]`,
+  `margin/markets[/{ticker}[/orderbook|/trades]]`.
+- **Key, `read`:** `account/limits`, `account/endpoint_costs`, `portfolio/balance`, `portfolio/positions`,
+  `portfolio/orders` (cursor, filters), `portfolio/orders/queue_positions`, `portfolio/orders/{id}`,
+  `portfolio/orders/{id}/queue_position`, `portfolio/fills` (cursor), `portfolio/settlements` (cursor),
+  `portfolio/order_groups[/{id}]`, `communications/id`, `communications/rfqs[/{id}]`, `communications/quotes[/{id}]`.
+- **Key, `trade`:** `POST portfolio/orders`, `POST|DELETE portfolio/orders/batched` (at most 20, per-item results,
+  partial failure; closes gap G5), `DELETE portfolio/orders/{id}`, `POST …/amend`, `POST …/decrease`, order groups
+  create / delete / `PUT …/reset`, RFQ and quote create / delete / accept / confirm, `POST
+  multivariate_event_collections/{collection}`.
+- **Perps (`perps` + `read` / `trade`):** `margin/balance|positions|orders[/{id}]|fills|order_groups`, `POST
+  margin/orders`, `DELETE margin/orders/{id}`, amend, decrease, `POST margin/positions/{ticker}/close`, perps order groups.
+- **Create-order body (v2):** `ticker, side (yes|no), action (buy|sell), type (limit|market), count | count_fp,
+  yes_price | no_price | yes_price_dollars | no_price_dollars, client_order_id, expiration_ts (s), buy_max_cost (cents,
+  market buys), post_only, order_group_id`; only `good_till_canceled` time in force. Order objects show the user's side
+  and action with both `yes_price_dollars` and `no_price_dollars`, counts `_fp`, fees, `order_group_id` and `source`
+  (`user`, `api`, `fix`, …).
+
+**One engine, one rule set.** Writes are dispatched internally into the `/v1` pipeline (step-up guard, flag gate with
+money controls, session limits, schemas, locks, Idempotency-Key, identity / location / fraud gate, the handler) as the
+key's owner, on a request object built from `app.request`, so flags, play mode, trading limits and every other rule
+apply exactly as on the website. Reads with cursors query the tables through the shared serializers.
+
+**Predictions order groups** (`order_groups`, `order_group_orders`): `contracts_limit`; fills of member orders add up;
+at the limit every resting member is canceled (`order_group_triggered`) and the group refuses orders until `reset`;
+`delete` cancels the members. Evaluated after each fill (§35.14).
+
+### 35.6 One registry → routes, docs, validation, tests (P7.3 / P7.4)
+
+Each operation is declared once (id, method, path, tag, product, auth, scopes, bucket, cost, query schema, body schema,
+response schema, handler). From it come the Express routes; the query checks (integers that do not parse or are out of
+range answer `{msg}`, enums `{error}`); `GET /docs/openapi.json` (OpenAPI 3.1, servers production and demo, security
+schemes, `x-parlance-*` extensions); the portal reference; and `tests/api-contract.e2e.test.js`. WebSocket channels are
+declared the same way → `GET /docs/asyncapi.json` (AsyncAPI 2.6). FIX message tables → `GET /docs/fix.json`. The
+validator is a JSON-Schema subset (`type`, `properties`, `required`, `items`, `enum`, `pattern`, `minimum` / `maximum`,
+lengths, `anyOf` / `oneOf`, `$ref`); no new dependency.
+
+### 35.7 Public WebSocket
+
+`/trade-api/ws/v2` (Predictions) and `/trade-api/ws/v2/margin` (Perps; needs `perps`), signed upgrade (method GET, the
+path), flag `api.ws`.
+
+- **Commands:** `subscribe` (`channels`, `market_ticker` / `market_tickers`), `unsubscribe` (`sids`),
+  `update_subscription` (`sids`, `market_tickers`, `add_markets` / `delete_markets`), `list_subscriptions`; replies
+  `subscribed`, `unsubscribed`, `ok`; errors `{id, type:'error', msg:{code, msg}}` (1 bad JSON, 2 params, 5 unknown
+  command, 8 unknown channel, 10 market required, 11 unknown sid, 12 rate, 13 too many subscriptions).
+- **Data:** `{type, sid, seq, msg}`, `seq` contiguous per subscription.
+- **Predictions channels:** `orderbook_delta` (`orderbook_snapshot` per market, then `orderbook_delta` with
+  `price_dollars`, `delta_fp`, `side`), `ticker`, `trade`, `market_lifecycle_v2`; owner channels `fill`, `user_orders`,
+  `order_group_updates`, `market_positions`.
+- **Margin channels:** `orderbook_delta` (snapshot, then deltas computed from the engine's book snapshots), `ticker`,
+  `trade`, `fill`, `user_orders`, `order_group_updates`, `market_positions`, `account`.
+- **Caps:** per-key connections from the tier (429 at the upgrade), 64 KiB frames, 20 commands/s, 100 subscriptions.
+  Heartbeat ping every 10 s; two missed pongs close the socket. A flag change, revocation, expiry or an owner lock
+  closes the key's sockets at once (4401). The engine events feeding `/v1/ws` feed it too.
+
+### 35.8 FIX gateway (A17, simulated)
+
+- **Transport:** FIX 4.4 tag=value over TCP, flag `api.fix` (**off by default**; the listener starts and stops with the
+  flag), port start option `fix.port` / `FIX_PORT` (0 = any free port). Own parser: BeginString `FIX.4.4`, BodyLength (at
+  most 8192) and CheckSum enforced, 32 KiB buffer, garbled messages ignored (more than 5 → disconnect), 100 messages/s
+  per session.
+- **Sessions:** `TargetCompID` `PARLANCE` (order entry, market data, RFQ) or `PARLANCEDC` (drop copy).
+- **Signed logon:** `553` key id, `96` base64 signature over `52 SendingTime`, `35 MsgType`, `34 MsgSeqNum`,
+  `49 SenderCompID`, `56 TargetCompID` joined with SOH (`95` its length); SendingTime inside the API window;
+  replay-protected; scopes `trade` (order entry) / `read` (drop copy); IP allowlist; the tier's session cap; one live
+  session per (key, sender, target).
+- **Sequence numbers** persist (`fix_session_state`); `141=Y` resets; gaps → ResendRequest, out-of-order messages ignored
+  until filled; their ResendRequest → stored application messages resent with `43=Y` and `122`, admin ranges as
+  SequenceReset-GapFill; too low without PossDup → Logout. Heartbeat, TestRequest, Logout, Reject (3) and
+  BusinessMessageReject (j).
+- **Order entry:** D / F / G / q → 8 / 9 / r through the same dispatch as REST (orders record `source = fix`);
+  ExecutionReports come from engine events (`0` New, `F` Trade with 31/32, `4` Canceled, `5` Replaced, `8` Rejected,
+  `C` Expired). Order-entry sessions report their own orders; drop copy reports all of the user's orders.
+- **Market data:** V → W snapshot and X incremental refresh (bids, offers, trades), Y reject. **RFQ:** R → AI (accepted
+  or rejected) and an S Quote per quote received.
+- **Symbology:** Predictions `55` = market ticker, `54` 1 buy / 2 sell, `20001` ContractSide Y / N, `44` = that side's
+  price in dollars, `38` contracts; Perps `55` = perps ticker, `54` 1 long / 2 short, `1` subaccount, `20002` leverage; `20004` OrderGroupID joins a group made over REST.
+- **Admin:** Admin › API keys lists live sessions and disconnects them (reason, audit). Tables `fix_session_state`,
+  `fix_outbound`, `fix_orders`, `fix_session_log`.
+
+### 35.9 Developer portal (A16)
+
+- **Frame:** `/docs` header (wordmark, "API Docs", search with Ctrl K, status link, theme toggle); tabs Welcome · Quick
+  Start · Concepts · Predictions APIs · Perps APIs · FIX · Changelog; side links Rate limits, Demo environment,
+  Developer Agreement, Your API keys. Flag `developer_portal`. It runs under the strict CSP (no inline script).
+- **Prose** = CMS pages `docs/welcome`, `quick-start`, `concepts`, `predictions`, `perps`, `fix`, `rate-limits`, `demo`,
+  `changelog` and `agreement` (the agreement is `legal`: publishing needs step-up), seeded on first start as published
+  version 1 (reason `seed: …`), edited in Admin › Content › Pages, live on open pages. Quick Start has curl, Python and
+  JavaScript signing samples; the JavaScript and Python ones are run by the tests.
+- **Reference:** generated (REST operations per product and tag, parameters, body and response schemas, token cost,
+  scopes; WebSocket channels; FIX message tables).
+- **Try it** on each REST reference page: "Create demo credentials" generates an RSA-PSS key pair with WebCrypto (the
+  private key non-extractable, kept in IndexedDB), registers the public key on the demo environment
+  (`POST /v1/developer/demo_credentials`), then signs requests in the browser to `/demo-api/trade-api/v2` with
+  `credentials: 'omit'`.
+
+### 35.10 Status page
+
+`/status` and `GET /v1/status` (flag `status_page`): overall state; components (REST API, WebSocket, FIX gateway with its
+port, demo environment, website) from live state (flags, listeners, the demo instance), degraded by open incidents; and
+incidents of the last 90 days. Incidents are CMS entries of type `incident` (title, details, status investigating /
+identified / monitoring / resolved, impact maintenance / degraded / outage, components, start, end), posted and resolved
+in Admin › Status incidents (draft + publish with a reason; every version kept). Open incidents also feed
+`GET /trade-api/v2/exchange/announcements`.
+
+### 35.11 Demo environment and the production switch
+
+- **Demo** (`api.demo`): `npm start` starts a second exchange in the same process (`start({ env: 'demo' })`) with its own
+  SQLite file (`<db>.demo.db` or `DEMO_DB_FILE`), its own port (`DEMO_PORT`, default any free port), play money, its own
+  users and keys (`plxdemo_`), FIX off. `DEMO_API=0` disables it; programmatic starts need `demo: {}`.
+- **Proxy:** the main site proxies `/demo-api/trade-api/*` (HTTP, streamed, 64 KiB, API headers only, no cookies either
+  way) and the WebSocket upgrade `/demo-api/trade-api/ws/v2[/margin]`; the demo accepts signatures over its path with or
+  without the `/demo-api` prefix.
+- **Demo credentials:** a demo account linked to the signed-in user (`demo-<hash>@demo.example.test`, $10,000 of play
+  money, $2,000 moved to Perps), at most 5 active demo keys (the oldest is revoked).
+- **Production switch** (§33.6): API keys **survive** (credentials, not money); resting API orders are canceled like all
+  orders; Predictions order groups are closed (`production_reset`); FIX sessions are logged out; the batch counts
+  `api_order_groups` and `api_keys_kept`.
+
+### 35.12 Parity and contract tests
+
+`API_PARITY.md` (repository root) marks every area of the public Trade API v2 reference as built, partial or not built,
+with the reason. `tests/api-contract.e2e.test.js` calls **every** operation of the OpenAPI document with a signed key and
+validates the documented status and schema; an operation without a plan fails it.
+
+### 35.13 Flags, routes, tables
+
+- **Flags** (§33): `api.keys` (key management, signed authentication, the expiry job), `api.trading` (API and FIX order
+  entry; child of `api.keys`), `api.ws` (public WebSocket; job), `api.fix` (off by default; job), `api.demo`,
+  `developer_portal`, `status_page`. Client `[data-flag]`: the ☰ "API Docs" item; route flags for `/docs`, `/status`,
+  `/account/api-keys`.
+- **`/v1` routes:** `GET|POST /users/:uid/api_keys`, `POST /users/:uid/api_keys/:id/rotate`,
+  `DELETE /users/:uid/api_keys/:id`, `GET /users/:uid/api_keys/usage`; `GET|PUT /admin/api_keys/settings`,
+  `GET /admin/api_keys[/:id]`, `PUT /admin/api_keys/:id/tier`, `POST /admin/api_keys/:id/revoke`,
+  `GET /admin/fix/sessions`, `POST /admin/fix/sessions/:id/disconnect`; `GET /status`, `GET /developer/portal`,
+  `GET|POST /developer/demo_credentials`. Static: `/docs/openapi.json`, `/docs/asyncapi.json`, `/docs/fix.json`. All
+  classified in `tests/authz.e2e.test.js` (signed-key probes with full and read-only keys; key and order IDOR).
+- **Tables:** `api_keys`, `api_key_usage`, `api_replay`, `order_groups`, `order_group_orders`, `fix_session_state`,
+  `fix_outbound`, `fix_orders`, `fix_session_log`; setting `api.settings`; CMS types `page` (docs/*) and `incident`.
+- **Changed:** the CMS 'page' allowlist gains `pre` / `code`; the `/v1` order handler takes `post_only` and records the
+  dispatch channel as `source`; the candlestick route's series parameter is named `:series_ticker`.
+
+### 35.14 Design choices to confirm
+
+- Header names `PARLANCE-ACCESS-*` only; the `KALSHI-ACCESS-*` aliases are not accepted (clean-room naming; one
+  spelling avoids ambiguity when both are sent).
+- Window 5 s past / 1 s future; replay protection for state-changing requests only (GETs are read-only).
+- Scopes: `read` always, `trade` optional, and a separate `perps` scope for the leveraged product.
+- Tiers Basic / Advanced / Premier / Prime with the numbers of §35.4; one-second buckets; costs 10 / 2.
+- Auth errors: precise reasons once the signature is proven (revoked, expired, account unavailable), generic before.
+- "Frozen" = both deposits and withdrawals revoked by staff; "self-excluded" = a closed account.
+- Demo environment in-process on its own port and database, behind a same-origin proxy (not a separate service).
+- Predictions order groups evaluated after each fill (the filling order is not split at the limit).
+- FIX: target comp ids `PARLANCE` / `PARLANCEDC`, custom tags 20001 / 20002 / 20003, the SOH-joined logon pre-image, only
+  GTC limit orders (plus market IOC), sessions per (key, sender, target).
+- Production switch: keys survive; orders and groups reset; FIX logged out.
+- API key management stays in the browser (no key-management endpoints on the signed API).
+
+### 35.15 Residual risks
+
+Per-process rate buckets, WebSocket / FIX caps and the replay purge (RS1); GETs replayable inside the window; FIX without
+TLS (terminate it in front, P9.1); the demo shares the process with production; group limits evaluated after fills;
+Try-it keeps a demo key in the browser profile until "Forget this demo key".
+
+### 35.16 Verification
+
+- `api-keys` (4): the A2 lock, create with step-up, the private key shown once and never stored, a pasted Ed25519 key, a
+  refused private key, scopes and an IP allowlist, usage, CMS notification and email; rotation with grace and revocation,
+  audit and security activity, key IDOR; Admin › API keys tier / usage / revoke closing a WebSocket / rate settings;
+  restart.
+- `trade-api` (5): every security-gate case (headers, skew both ways, signatures, path tampering, replay, environment,
+  cookies vs keys, scopes, IP, locked and frozen owners, expired and revoked keys, the security log without signatures),
+  unparseable params, endpoint costs, a 429 with Retry-After shown in the usage dashboard; orders, batch with partial
+  failure and batch cancel, idempotency, flags and trading limits; order groups, history cursors, Perps; the WebSocket.
+- `fix` (6): §35.8 end to end, including the admin disconnect, a restart and the production switch.
+- `dev-portal` (5): navigation, search, theme, the generated documents, Try it on the demo without cookies, environment
+  isolation, CMS live edits, the JavaScript and Python samples, the status page with an incident, the flags.
+- `api-contract` (3): §35.12 and the rendered reference listing exactly the documented operations. `authz`: §35.13.
 
 ---
 

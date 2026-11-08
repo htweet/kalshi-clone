@@ -301,6 +301,31 @@ house into collateral (APY, referral rewards), referral codes, the waitlist gate
 | T / R | **Unaccountable risk changes** (tiers, limits) | `perps.ops` + reason + step-up + hash-chained audit; tier validation (caps increase, rates never fall, maintenance below initial) | ✅ |
 | T | **Play money crossing into production** through the new balances | The production switch archives and zeroes subaccounts, accruals, queued payouts and pending referrals and closes every perps journal account; perps journal entries carry the money mode and epoch (audit check for mixed epochs) | ✅ (`perps-growth`) |
 
+### 18. Public trading API, WebSocket, FIX, developer portal and demo (Phase 7, `CLONE_SPEC.md` §35)
+
+New attack surface: API keys (creation, rotation, revocation, the private key shown once), signed requests on
+`/trade-api/v2` (orders, batches, order groups, RFQ, Perps), the public WebSocket (`/trade-api/ws/v2`, `/margin`), a FIX
+4.4 TCP acceptor, the `/docs` portal with in-browser signing, a second exchange (the demo environment) behind a
+same-origin proxy, the status page and its admin-posted incidents.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| S | **Forged or stolen request** (no key, another key, a tampered path) | Signature over `timestamp + METHOD + path` with RSA-PSS SHA-256 (salt 32) or Ed25519, verified with Node's crypto; unknown key ids verified against a dummy key (same work, no timing oracle); only public keys stored | ✅ (`trade-api`) |
+| S / R | **Replay** of a captured state-changing request | (key, hash of timestamp + signature) persisted for the window and refused a second time; timestamps outside 5 s past / 1 s future refused with the server time | ✅ (`trade-api`) / residual: GETs may be replayed inside the window (read-only) |
+| I | **Private-key exposure** | Generated keys: shown once (`no-store`), never stored or logged; pasted private keys refused before storage; the demo Try-it key is a non-extractable WebCrypto key in the browser's IndexedDB; signatures never logged (asserted) | ✅ (`api-keys`, `dev-portal`) |
+| S / E | **Cookie or key confusion** (CSRF through the API, key used on browser routes) | `/trade-api` never accepts a session cookie (anonymous and cookie both get 401) and so needs no CSRF; `/v1` never reads the API headers; the internal dispatch object is built server-side (`app.request`), never from client data | ✅ (`trade-api`, `authz`) |
+| E | **Scope escalation** | `read` always; `trade` for order entry; `perps` for the margin product; checked per operation from the registry, on the WebSocket path and at FIX logon | ✅ (`authz` signed-key probes) |
+| E | **Bypassing the web app's rules through the API** | Writes are dispatched through the same `/v1` gates: step-up guard, flags (with play-mode money controls), session limits, body schemas, locks, Idempotency-Key, identity / location / fraud gate, trading limits; `api.trading` switches API order entry off on its own | ✅ (`trade-api`) |
+| S | **Use by a blocked owner or from the wrong place** | Locked, closed (self-excluded) or frozen owners get 401 `account_unavailable` even with a valid signature; CIDR allowlists (IPv4 / IPv6) per key → 403; demo keys refused on production and the reverse (prefix + separate databases) | ✅ (`trade-api`, `dev-portal`) |
+| D | **Abuse / flooding** | Token buckets per key and tier (read / write, per-endpoint costs; batches cost per item; a request above the bucket is refused), WebSocket connection caps, 64 KiB frames, 20 commands/s, FIX session caps, 100 messages/s per FIX session, 8 KiB FIX bodies and 32 KiB buffers; failed signatures still pass the per-IP perimeter limiter | ✅ / residual: buckets per process (RS1) |
+| T | **FIX framing attacks** (bad BodyLength, CheckSum, huge messages, sequence games) | Own parser: BeginString, BodyLength and CheckSum enforced, size caps, garbled messages ignored and counted, too-low MsgSeqNum → Logout, gaps resolved by resend / gap fill only | ✅ (`fix`) |
+| R | **Unaccountable key and session actions** | Create, rotate, revoke, tier changes, settings, FIX disconnects: hash-chained audit with actor and reason; user-visible security activity; notifications and emails from CMS templates | ✅ |
+| I / E | **IDOR on keys, orders, groups, RFQs** | Every lookup keyed by the key's owner (foreign ids 404); key management only on the owner's `/users/:uid` paths; staff routes behind `users.read` / `users.support` / `settings.write` | ✅ (`authz` IDOR probes, `api-keys`) |
+| T | **Revoked key still connected** | Revocation, expiry, the owner's lock or the flag going off end the key's WebSocket sessions (4401) and FIX sessions (Logout) at once, and every heartbeat re-checks | ✅ (`api-keys`, `trade-api`, `fix`) |
+| T / I | **Demo proxy as a pivot** | Only `/demo-api/trade-api/*`; only the API headers cross, never cookies or Set-Cookie; 64 KiB body cap; loopback target fixed at start; the demo is a separate database with play money | ✅ (`dev-portal`) |
+| T | **Portal / incident content injection** | Prose is CMS pages sanitised by the 'page' allowlist (now with `pre`/`code`, no attributes); incidents are plain text; the portal runs under the site's strict CSP (no inline script; Try-it is a module) | ✅ (`dev-portal` CSP check) |
+| T | **Play money crossing into production through API state** | The production switch cancels API orders like all orders, closes order groups and logs FIX sessions out; keys survive (credentials, not money) | ✅ (`fix`) |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -308,7 +333,9 @@ house into collateral (APY, referral rewards), referral codes, the waitlist gate
 - Payments run on sandbox rails only (Phase 4, `CLONE_SPEC.md` §26.13): simulated providers with loopback webhook delivery
   and derived secrets, an in-process tokenizer instead of provider-hosted fields, three AML rule hooks rather than a
   monitoring programme. KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
-- Signed API keys for the public trading API are not built (P7.1).
+- Phase 7 (`CLONE_SPEC.md` §35.13): rate buckets, the replay window cache's purge and WebSocket / FIX caps are per
+  process (RS1); GET requests may be replayed inside the 6 s window; FIX runs without TLS (terminate TLS in front, P9.1);
+  the demo environment shares the process (and the machine) with production.
 - Phase 6 (`CLONE_SPEC.md` §34.14): trailing stops and liquidations act on discrete evaluations; the liquidity account
   is the only liquidation counterparty (no liquidation queue, auction or auto-deleveraging); referral fraud checks are
   account-level only; position limits are per subaccount; throttles are per process (RS1).

@@ -330,7 +330,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       this.clIds.add(cl);
       let r;
       if (perp) {
-        const body = { ticker: sym.toUpperCase(), side: side === '1' ? 'bid' : 'ask', type: ordType === '1' ? 'market' : 'limit', count: Number(qty), client_order_id: cl, ...(ordType === '2' ? { price: v(44) } : {}), ...(v(1) ? { subaccount: Number(v(1)) } : {}), ...(v(20002) ? { leverage: Number(v(20002)) } : {}), ...(String(v(18) || '').includes('6') ? { post_only: true } : {}) };
+        const body = { ticker: sym.toUpperCase(), side: side === '1' ? 'bid' : 'ask', type: ordType === '1' ? 'market' : 'limit', count: Number(qty), client_order_id: cl, ...(ordType === '2' ? { price: v(44) } : {}), ...(v(1) ? { subaccount: Number(v(1)) } : {}), ...(v(20002) ? { leverage: Number(v(20002)) } : {}), ...(String(v(18) || '').includes('6') ? { post_only: true } : {}), ...(v(20004) ? { order_group_id: v(20004) } : {}) };
         r = await tradeApi.dispatch(this.principal, 'POST', '/perps/orders', body, this.ctx());
         if (r.status < 400) this.track(r.body.order.order_id, cl, null, 'perps');
       } else {
@@ -339,6 +339,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
         if (ordType === '2') body[`${contract}_price_dollars`] = v(44);
         if (v(126)) { const t = parseUtc(v(126)); if (t == null) return this.execReject(cl, sym, side, qty, s('fix.bad_value', { tag: 126 })); body.expiration_ts = Math.floor(t / 1000); }
         if (String(v(18) || '').includes('6')) body.post_only = true;
+        if (v(20004)) body.order_group_id = v(20004); // an order group made over REST (CLONE_SPEC.md §35.8)
         r = await tradeApi.createOrder(this.principal, body, this.ctx());
         if (r.status < 400) this.track(r.body.order.order_id, cl, null, 'predictions');
       }
@@ -631,7 +632,7 @@ const FIX_SPEC = {
     ['3', 'Reject', 'both', ['order', 'dropcopy'], [[45, 'RefSeqNum', true], [371, 'RefTagID', false], [372, 'RefMsgType', false], [373, 'SessionRejectReason', false], [58, 'Text', false]]],
     ['4', 'SequenceReset', 'both', ['order', 'dropcopy'], [[123, 'GapFillFlag', false, 'Y = gap fill'], [36, 'NewSeqNo', true]]],
     ['5', 'Logout', 'both', ['order', 'dropcopy'], [[58, 'Text', false]]],
-    ['D', 'NewOrderSingle', 'in', ['order'], [[11, 'ClOrdID', true, 'unique per session, at most 64'], [55, 'Symbol', true, 'market or perps ticker'], [54, 'Side', true, '1 Buy, 2 Sell'], [38, 'OrderQty', true, 'contracts'], [40, 'OrdType', true, '1 Market, 2 Limit'], [44, 'Price', false, 'dollars, required for limit'], [59, 'TimeInForce', false, '1 GTC (default), 3 IOC'], [126, 'ExpireTime', false, 'good-til-time'], [18, 'ExecInst', false, '6 = post only'], [20001, 'ContractSide', false, 'Predictions: Y (default) or N'], [1, 'Account', false, 'Perps: subaccount'], [20002, 'Leverage', false, 'Perps']]],
+    ['D', 'NewOrderSingle', 'in', ['order'], [[11, 'ClOrdID', true, 'unique per session, at most 64'], [55, 'Symbol', true, 'market or perps ticker'], [54, 'Side', true, '1 Buy, 2 Sell'], [38, 'OrderQty', true, 'contracts'], [40, 'OrdType', true, '1 Market, 2 Limit'], [44, 'Price', false, 'dollars, required for limit'], [59, 'TimeInForce', false, '1 GTC (default), 3 IOC'], [126, 'ExpireTime', false, 'good-til-time'], [18, 'ExecInst', false, '6 = post only'], [20001, 'ContractSide', false, 'Predictions: Y (default) or N'], [1, 'Account', false, 'Perps: subaccount'], [20002, 'Leverage', false, 'Perps'], [20004, 'OrderGroupID', false, 'an order group id (made over REST)']]],
     ['F', 'OrderCancelRequest', 'in', ['order'], [[11, 'ClOrdID', true], [41, 'OrigClOrdID', false], [37, 'OrderID', false, 'one of 37 / 41']]],
     ['G', 'OrderCancelReplaceRequest', 'in', ['order'], [[11, 'ClOrdID', true], [41, 'OrigClOrdID', false], [37, 'OrderID', false], [38, 'OrderQty', false, 'new total quantity'], [44, 'Price', false, 'new price']]],
     ['q', 'OrderMassCancelRequest', 'in', ['order'], [[11, 'ClOrdID', true], [530, 'MassCancelRequestType', true, '1 by Symbol, 7 all orders'], [55, 'Symbol', false]]],
