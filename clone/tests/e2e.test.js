@@ -302,6 +302,11 @@ test('chart hover: a line, the time, a dot per series and a legend follow the po
   await page.waitForFunction((prev) => document.querySelector('#chart .ch-line').getBoundingClientRect().left > prev + 50, x1);
   assert.deepEqual(await shownRows(), await expected(box.x + box.width * 0.6));
   assert.notEqual(await page.textContent('#chart [data-testid=chart-hover-time]'), t1);
+  // A live redraw replaces the chart under a still pointer: the readout comes back on the new chart by itself.
+  const before = await shownRows();
+  await page.evaluate(() => { const c = document.querySelector('#chart'); c.innerHTML = c.querySelector('svg').outerHTML; });
+  await page.waitForFunction(() => { const o = document.querySelector('#chart [data-testid=chart-hover]'); return o && !o.hidden && document.querySelector('#chart svg').classList.contains('ch-on'); });
+  assert.deepEqual(await shownRows(), before);
   // Near the right edge the legend flips to the left of the line and stays inside the chart.
   await page.mouse.move(box.x + box.width * 0.9, y);
   await page.waitForFunction(() => document.querySelector('#chart [data-testid=chart-hover-legend]').classList.contains('left'));
