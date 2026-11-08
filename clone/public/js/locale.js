@@ -87,7 +87,9 @@ export function initLocale() {
   const redraw = () => drawTools(document.querySelector('footer.footer .footer-tools'));
   onFooter(drawTools);
   loadLocales().then(redraw);
-  onFlags(() => { applySaver(); loadLocales().then(redraw); });
+  // A flag change redraws the footer tools at once (a switched-off tool disappears with the change), then again once the
+  // language list has been re-read.
+  onFlags(() => { applySaver(); redraw(); loadLocales().then(redraw); });
   let lastUid;
   session.subscribe(() => { if (!session.loaded) return; const uid = session.uid || null; if (uid !== lastUid) { lastUid = uid; loadMemberSaver().then(redraw); } });
   window.addEventListener('parlance:data-saver', redraw);
