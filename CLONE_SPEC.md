@@ -5858,7 +5858,8 @@ uses the light-theme brand colours; crawler exemption by user agent (public page
 - Existing tests changed for the removed hub: `markets-content` (the ballot card is tested on `/ballot`; the hub test
   asserts the 301 and the 404 of the senate API and a live Fed outlook refresh), `flags` (the hub flags are checked on
   `/hubs/economics`), `cms-content` (a new-page scenario uses `support/press`, as `support/contact` is now a default
-  page).
+  page), `account-area` (the observed Settings sections keep their order; "Data and messages" is appended after them).
+- Full suite: 374 scenarios across 48 files.
 
 ---
 
