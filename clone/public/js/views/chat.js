@@ -200,7 +200,12 @@ export function mountChat({ el, ev, label = null, pillOnline = false }) {
     st.lastSlow = r.slow_mode_sec;
     const open = r.status === 'open';
     pill.classList.toggle('on', open);
-    pill.setAttribute('aria-label', tx('chat.mount_chat.live_chat', { value: open ? '' : r.status === 'locked' ? (' ' + tx('chat.mount_chat.locked')) : (' ' + tx('chat.mount_chat.read_only')) }));
+    // The accessible name is the visible text plus the state as screen-reader-only text (WCAG 2.5.3 label in name,
+    // CLONE_SPEC.md §38.6): no aria-label that could drift from what is shown.
+    pill.removeAttribute('aria-label');
+    let srState = pill.querySelector('[data-pill-state]');
+    if (!srState) { srState = h('span', { class: 'sr-only', 'data-pill-state': '' }); pill.append(srState); }
+    srState.textContent = open ? '' : ` ${tx(r.status === 'locked' ? 'chat.mount_chat.locked' : 'chat.mount_chat.read_only')}`;
     pill.dataset.status = r.status;
     $('[data-live]').classList.toggle('on', open);
     $('[data-online]').textContent = tx('chat.mount_chat.online', { online: r.online });

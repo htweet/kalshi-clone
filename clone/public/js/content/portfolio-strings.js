@@ -199,7 +199,8 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "portfolio.render.quote_deleted": "Quote deleted",
   "portfolio.render.withdrawal_of_is_under_review": "Withdrawal of {money} is under review",
   "portfolio.render.deposited": "Deposited",
-  "portfolio.render.withdrew": "Withdrew"
+  "portfolio.render.withdrew": "Withdrew",
+  "portfolio.render.tabs": "Portfolio sections"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

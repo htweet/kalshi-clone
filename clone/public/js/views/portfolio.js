@@ -54,8 +54,7 @@ export async function render({ el, navigate, query }) {
         <div class="form-error" id="f-error" role="alert"></div>
       </form>
     </div>
-    <div class="tabs" role="tablist" id="pf-tabs">${TABS.map(([k, l]) => `<button data-tab="${esc(k)}" class="${k === tab ? 'on' : ''}"${k === 'rfqs' || k === 'quotes' ? ' data-flag="combos.rfq"' : ''}>${esc(l)}</button>`).join('')}
-      <a class="btn btn-ghost ml-auto" href="/portfolio?perpsTab=positions" data-link data-testid="perps-portfolio-link">${te('portfolio.render.perps')}</a><a class="btn btn-ghost" href="${esc(api.csvUrl(uid))}" download data-testid="csv-link">${te('portfolio.render.export_csv')}</a></div>
+    <div class="tabs" id="pf-tabs"><div class="tablist-contents" role="tablist" aria-label="${te('portfolio.render.tabs')}">${TABS.map(([k, l]) => `<button data-tab="${esc(k)}" class="${k === tab ? 'on' : ''}"${k === 'rfqs' || k === 'quotes' ? ' data-flag="combos.rfq"' : ''}>${esc(l)}</button>`).join('')}</div>      <a class="btn btn-ghost ml-auto" href="/portfolio?perpsTab=positions" data-link data-testid="perps-portfolio-link">${te('portfolio.render.perps')}</a><a class="btn btn-ghost" href="${esc(api.csvUrl(uid))}" download data-testid="csv-link">${te('portfolio.render.export_csv')}</a></div>
     <div class="card p-4-12" id="panel"></div>`;
 
   const $ = (s) => el.querySelector(s);

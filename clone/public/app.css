@@ -649,7 +649,7 @@ svg.ch-on .ch-end { opacity: 0; }
 .stepup-dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .stepup-dialog h2 { margin: 0 0 var(--space-2); font-size: var(--fs-2xl); line-height: var(--lh-2xl); }
 .stepup-actions { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-4); }
-.sec-badge { display: inline-block; margin-left: var(--space-1h); padding: var(--space-half) var(--space-2); border-radius: var(--rounded-pill); background: var(--brand); color: #fff; font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); }
+.sec-badge { display: inline-block; margin-left: var(--space-1h); padding: var(--space-half) var(--space-2); border-radius: var(--rounded-pill); background: var(--brand); color: var(--on-brand); font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); }
 .sec-bad td:nth-child(2) { color: var(--no); font-weight: var(--fw-semibold); }
 
 /* ---------- phone ---------- */

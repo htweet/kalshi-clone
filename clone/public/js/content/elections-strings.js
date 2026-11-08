@@ -140,7 +140,8 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "elections.level.ward": "Ward",
   "elections.level.district": "District",
   "elections.level.precinct": "Precinct",
-  "elections.chat.label": "{title} chat"
+  "elections.chat.label": "{title} chat",
+  "elections.ratings.region": "Race ratings (scroll sideways on a phone)"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {
   "elections.power.learn_more_body": { "rich": true }

@@ -666,7 +666,7 @@ export async function renderPerpsPortfolio({ el, query, navigate }) {
     </div>
     <div class="perps-layout">
       <div class="perps-main"><section class="card perps-box">
-        <div class="perps-tabs" role="tablist" data-testid="perps-port-tabs">${tabs.map(([k, l]) => `<button data-ptab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}<a class="btn btn-sm btn-ghost perps-tabs-link" href="/perps" data-link>${te('perps.render_perps_portfolio.browse_perps')}</a></div>
+        <div class="perps-tabs" data-testid="perps-port-tabs"><div class="tablist-contents" role="tablist">${tabs.map(([k, l]) => `<button data-ptab="${esc(k)}" class="${k === tab ? 'on' : ''}">${esc(l)}</button>`).join('')}</div><a class="btn btn-sm btn-ghost perps-tabs-link" href="/perps" data-link>${te('perps.render_perps_portfolio.browse_perps')}</a></div>
         <div class="perps-panel" data-testid="perps-port-panel"></div></section></div>
       <aside class="perps-side-col">${transferBox()}</aside>
     </div></div>`;

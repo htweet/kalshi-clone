@@ -10,6 +10,11 @@ p a, .faint a, .muted a, .cms-body a, li a:not(.btn) { text-decoration: underlin
 .footer-col a, .footer-social a, .crumbs a { display: inline-flex; align-items: center; min-height: 24px; }
 .footer-col { gap: 0; }
 
+/* A tab list inside a toolbar that also holds links: the tabs keep the toolbar's flex layout. */
+.tablist-contents { display: contents; }
+/* A login prompt inside a composer or an empty state is running text too. */
+.composer a.c-brand, .empty a.c-brand { text-decoration: underline; text-underline-offset: 2px; }
+
 /* ---------- footer: social links and tools (A18, §38.8) ---------- */
 .footer-social { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
 .footer-tools { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }

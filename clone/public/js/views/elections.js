@@ -35,7 +35,18 @@ function h(tag, attrs = {}, ...kids) {
 }
 const avatarHtml = (c, cls = '') => (c.photo_url
   ? `<img class="el-av ${esc(cls)}" src="${esc(c.photo_url)}" alt="" width="32" height="32" loading="lazy">`
-  : `<span class="el-av el-av-init ${esc(cls)}"${vars({ '--c': c.party?.color || c.color })} aria-hidden="true">${esc(c.initials || '')}</span>`);
+  : `<span class="el-av el-av-init ${esc(cls)}"${vars(chipColors(c.party?.color || c.color))} aria-hidden="true">${esc(c.initials || '')}</span>`);
+// Text on an admin-chosen party colour (WCAG 1.4.3, CLONE_SPEC.md §38.6): near-black or white, whichever contrasts more;
+// a mid-tone colour that reaches 4.5:1 with neither is darkened (mixed towards black) just enough for white text.
+const lum = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
+function chipColors(hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(String(hex || ''))) return { '--c': hex || null };
+  const L = lum(hex); const white = 1.05 / (L + 0.05); const dark = (L + 0.05) / (lum('#0d0e11') + 0.05);
+  if (Math.max(white, dark) >= 4.5) return { '--c': hex, '--on-c': white >= dark ? '#ffffff' : '#0d0e11' };
+  let rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)); let out = hex;
+  for (let k = 0; k < 20 && 1.05 / (lum(out) + 0.05) < 4.5; k++) { rgb = rgb.map((v) => Math.round(v * 0.92)); out = `#${rgb.map((v) => v.toString(16).padStart(2, '0')).join('')}`; }
+  return { '--c': out, '--on-c': '#ffffff' };
+}
 const partyChip = (p) => (p ? `<span class="el-chip"${vars({ '--c': p.color })}><i></i>${esc(p.short_name)}</span>` : '');
 
 // ---------------------------------------------------------------------------------------------- gauges
@@ -79,7 +90,7 @@ function mapHtml(m, parties) {
     const i = pIdx.get(s.party_id);
     const fill = s.kind === 'called' && s.color ? s.color : (s.kind === 'projected' || s.kind === 'leading') && i != null ? `url(#el-h${i})` : 'var(--fill-x40)';
     const mark = s.kind === 'called' ? '✓' : s.label || '';
-    return `<g class="el-tile k-${esc(s.kind)}" data-testid="el-map-state" data-code="${esc(s.code)}" data-id="${esc(s.id)}" data-kind="${esc(s.kind)}" data-party="${esc(s.party_id || '')}" tabindex="0" role="button" aria-label="${esc(`${s.name} ${tx(`elections.map.kind_${s.kind}`)}${s.label ? ` ${s.label}` : ''}`)}">
+    return `<g class="el-tile k-${esc(s.kind)}" data-testid="el-map-state" data-code="${esc(s.code)}" data-id="${esc(s.id)}" data-kind="${esc(s.kind)}" data-party="${esc(s.party_id || '')}" tabindex="0" role="button" aria-label="${esc(`${s.code}${s.label ? ` ${s.label}` : ''}: ${s.name}, ${tx(`elections.map.kind_${s.kind}`)}`)}">
       <polygon points="${hexPts(cx, cy)}" fill="${esc(fill)}"/><text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" class="el-tile-code">${esc(s.code)}</text>${mark ? `<text x="${cx.toFixed(1)}" y="${(cy + 11).toFixed(1)}" text-anchor="middle" class="el-tile-mark" data-testid="el-tile-mark">${esc(mark)}</text>` : ''}</g>`;
   }).join('');
   const side = m.states.filter((s) => s.small).map((s) => `<button type="button" class="el-side-item k-${esc(s.kind)}" data-testid="el-map-side-item" data-id="${esc(s.id)}" data-code="${esc(s.code)}"><span class="el-sw"${vars({ '--c': s.kind === 'pending' || s.kind === 'none' ? '' : s.color })}></span><b>${esc(s.code)}</b><span class="faint">${s.kind === 'called' ? '✓' : esc(s.label || '')}</span></button>`).join('');
@@ -140,14 +151,14 @@ function wireMap(root, map, onPick) {
 function ratingsHtml(r) {
   if (!r) return '';
   const head = (c) => `<div class="el-rcol-h"><b class="num">${esc(c.items.length)}</b> ${te(`elections.band.${c.band}`)}</div>`;
-  const bubble = (it) => `<span class="el-bub" data-testid="el-bubble" data-code="${esc(it.code)}" data-party="${esc(it.party_id || '')}"${vars({ '--c': (it.party || {}).color })} title="${esc(`${it.code} ${pct0(it.p)}`)}">${esc(it.code)}</span>`;
+  const bubble = (it) => `<span class="el-bub" data-testid="el-bubble" data-code="${esc(it.code)}" data-party="${esc(it.party_id || '')}"${vars(chipColors((it.party || {}).color))} title="${esc(`${it.code} ${pct0(it.p)}`)}">${esc(it.code)}</span>`;
   const colour = (c) => `<div class="el-rcol b-${esc(c.band)}" data-testid="el-rcol" data-band="${esc(c.band)}" data-party="${esc(c.party?.code || '')}" data-count="${esc(c.items.length)}"${vars({ '--c': c.party?.color })}>${head(c)}<div class="el-rcol-b">${c.items.map((it) => bubble({ ...it, party: c.party })).join('')}</div></div>`;
   const end = (p, n, right) => `<div class="el-rend ${right ? 'r' : ''}" data-testid="el-settled" data-party="${esc(p?.code || '')}" data-count="${esc(n)}">${partyChip(p)}<b class="num">${esc(n)}</b><span class="faint">${te('elections.ratings.settled')}</span></div>`;
   // Band edges come from the owner settings (Admin › Owner settings, CLONE_SPEC.md §38.1), sent with the ratings.
   const bd = r.bands || { safe: 90, likely: 75, lean: 60 };
   const edge = (n) => `${n}%+`;
   const bands = ['100%', edge(bd.safe), edge(bd.likely), edge(bd.lean), '50%', edge(bd.lean), edge(bd.likely), edge(bd.safe), '100%'].map((b) => `<span data-testid="el-band-edge">${esc(b)}</span>`).join('');
-  return `<div class="el-ratings" data-testid="el-ratings"><div class="el-rgrid">${end(r.left, r.settled_left, false)}${r.columns.map(colour).join('')}${end(r.right, r.settled_right, true)}</div><div class="el-rbands faint">${bands}</div>
+  return `<div class="el-ratings" data-testid="el-ratings" tabindex="0" role="region" aria-label="${te('elections.ratings.region')}"><div class="el-rgrid">${end(r.left, r.settled_left, false)}${r.columns.map(colour).join('')}${end(r.right, r.settled_right, true)}</div><div class="el-rbands faint">${bands}</div>
     ${r.others.length ? `<div class="el-rothers" data-testid="el-ratings-others"><span class="faint">${te('elections.ratings.others')}</span>${r.others.map((o) => bubble(o)).join('')}</div>` : ''}</div>`;
 }
 

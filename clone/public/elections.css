@@ -34,7 +34,7 @@
 .el-chip { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); }
 .el-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--text-x30)); display: inline-block; }
 .el-av { width: 32px; height: 32px; border-radius: 50%; flex: none; object-fit: cover; }
-.el-av-init { display: inline-grid; place-items: center; background: var(--c, var(--fill-x50)); color: #fff; font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-bold); }
+.el-av-init { display: inline-grid; place-items: center; background: var(--c, var(--fill-x50)); color: var(--on-c, var(--text-x10)); font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-bold); }
 .el-av-sm { width: 22px; height: 22px; font-size: var(--fs-3xs); line-height: var(--lh-3xs); }
 .el-badge { display: inline-block; padding: var(--space-half) var(--space-2); border-radius: var(--rounded-pill); background: var(--fill-x40); font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); }
 .el-badge.ok { background: var(--brand-x20, var(--fill-x40)); color: var(--brand); }
@@ -105,7 +105,7 @@
 .el-rcol.b-tossup { border-top-color: var(--text-x30); }
 .el-rcol-h { font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-x20); text-align: center; }
 .el-rcol-b { display: flex; flex-wrap: wrap; gap: var(--space-half); justify-content: center; }
-.el-bub { width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--c, var(--fill-x50)); color: #fff; font-size: var(--fs-3xs); line-height: var(--lh-3xs); font-weight: var(--fw-bold); }
+.el-bub { width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--c, var(--fill-x50)); color: var(--on-c, var(--text-x10)); font-size: var(--fs-3xs); line-height: var(--lh-3xs); font-weight: var(--fw-bold); }
 .el-rend { display: grid; gap: var(--space-1); justify-items: center; align-content: start; text-align: center; font-size: var(--fs-xs); line-height: var(--lh-xs); }
 .el-rend b { font-size: var(--fs-xl); line-height: var(--lh-xl); }
 .el-rbands { display: grid; grid-template-columns: repeat(9, minmax(56px, 1fr)); min-width: 560px; text-align: center; font-size: var(--fs-2xs); line-height: var(--lh-2xs); }
