@@ -288,18 +288,18 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     const p = pm && pageOf(`${pm[1]}/${pm[2]}`);
     if (p) { title = p.seo_title || p.title; desc = p.seo_description || desc; }
     let out = html
-      .replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`)
-      .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(desc)}">`)
-      .replace(/<meta name="theme-color" content="[^"]*" media="\(prefers-color-scheme: light\)">/, `<meta name="theme-color" content="${esc(b.light.brand)}" media="(prefers-color-scheme: light)">`)
-      .replace(/<meta name="theme-color" content="[^"]*" media="\(prefers-color-scheme: dark\)">/, `<meta name="theme-color" content="${esc(b.dark.brand)}" media="(prefers-color-scheme: dark)">`)
-      .replace(/<meta name="apple-mobile-web-app-title" content="[^"]*">/, `<meta name="apple-mobile-web-app-title" content="${esc(b.short_name)}">`);
+      .replace(/<title>[^<]*<\/title>/, () => `<title>${esc(title)}</title>`)
+      .replace(/<meta name="description" content="[^"]*">/, () => `<meta name="description" content="${esc(desc)}">`)
+      .replace(/<meta name="theme-color" content="[^"]*" media="\(prefers-color-scheme: light\)">/, () => `<meta name="theme-color" content="${esc(b.light.brand)}" media="(prefers-color-scheme: light)">`)
+      .replace(/<meta name="theme-color" content="[^"]*" media="\(prefers-color-scheme: dark\)">/, () => `<meta name="theme-color" content="${esc(b.dark.brand)}" media="(prefers-color-scheme: dark)">`)
+      .replace(/<meta name="apple-mobile-web-app-title" content="[^"]*">/, () => `<meta name="apple-mobile-web-app-title" content="${esc(b.short_name)}">`);
     const fav = publishedOne('media', 'favicon') || publishedOne('media', 'pwa_icon');
     const favA = fav && (variantOf(fav.asset_id, 'favicon-48') || asset(fav.asset_id));
-    if (favA) out = out.replace(/<link rel="icon" href="[^"]*">/, `<link rel="icon" href="${esc(mediaUrl(favA))}" type="${esc(favA.mime)}">`);
+    if (favA) out = out.replace(/<link rel="icon" href="[^"]*">/, () => `<link rel="icon" href="${esc(mediaUrl(favA))}" type="${esc(favA.mime)}">`);
     const apple = publishedOne('media', 'pwa_icon');
     const appleA = apple && variantOf(apple.asset_id, 'apple-touch-icon');
-    if (appleA) out = out.replace(/<link rel="apple-touch-icon" href="[^"]*">/, `<link rel="apple-touch-icon" href="${esc(mediaUrl(appleA))}">`);
-    if (!brandIsDefault(b)) out = out.replace('</head>', `  <link rel="stylesheet" id="cms-theme" href="/content-theme.css?v=${esc(themeVersion(b))}" nonce="${esc(res.locals?.cspNonce || '')}">\n</head>`);
+    if (appleA) out = out.replace(/<link rel="apple-touch-icon" href="[^"]*">/, () => `<link rel="apple-touch-icon" href="${esc(mediaUrl(appleA))}">`);
+    if (!brandIsDefault(b)) out = out.replace('</head>', () => `  <link rel="stylesheet" id="cms-theme" href="/content-theme.css?v=${esc(themeVersion(b))}" nonce="${esc(res.locals?.cspNonce || '')}">\n</head>`);
     void m;
     return out;
   }

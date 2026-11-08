@@ -453,6 +453,47 @@ test('footer and help centre: Product / Company / Help columns, social links, Ni
   assert.deepEqual(p.errors, []);
 });
 
+// Regression (lead review): admin-written text was spliced into the page with String.replace, which treats `$&`, `$'`,
+// `` $` `` and `$$` in the replacement as patterns, so a CMS page mentioning them was served mangled (the rest of the
+// document pasted into the title, or the matched tag repeated). Both the CMS head (title, description) and the server
+// rendering (title, description, Open Graph, the page body) must carry the text exactly as written.
+test('server-rendered pages keep admin text with dollar patterns exactly as written (title, description, Open Graph, body), served and in the browser', async () => {
+  const title = "Fees $& rebates $' and $` with $$5";
+  const desc = "Pay $& now, $' later";
+  const bodyText = "Tiers: $& first, $' then $` and $$10 last";
+  let r = await adminCall('PUT', '/v1/admin/cms/page/draft', { key: 'support/press', value: { title, section: 'info', seo_title: title, seo_description: desc, body: `<p>${bodyText}</p>` } });
+  assert.equal(r.status, 200, r.text);
+  r = await adminCall('POST', '/v1/admin/cms/page/publish', { key: 'support/press', reason: 'dollar pattern regression' });
+  assert.equal(r.status, 200, r.text);
+  const dec = (s) => String(s).replace(/&#39;|&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  for (const ssr of [true, false]) {
+    await setFlag('ssr', ssr);
+    const pg = await html('/support/press');
+    assert.equal(pg.status, 200);
+    const titles = [...pg.text.matchAll(/<title>([^<]*)<\/title>/g)].map((m) => m[1]);
+    assert.equal(titles.length, 1, `one <title> (ssr ${ssr})`);
+    assert.equal(dec(titles[0]), title, `title as written (ssr ${ssr})`);
+    assert.equal(dec(meta(pg.text, 'name', 'description')), desc, `description as written (ssr ${ssr})`);
+    assert.equal((pg.text.match(/<\/html>/g) || []).length, 1, `the document is not duplicated (ssr ${ssr})`);
+    assert.equal((pg.text.match(/<main id="view"/g) || []).length, 1, `one main (ssr ${ssr})`);
+    if (ssr) {
+      assert.equal(dec(meta(pg.text, 'property', 'og:title')), title, 'og:title as written');
+      const main = /<main id="view" tabindex="-1" data-ssr="1">([\s\S]*?)<\/main>/.exec(pg.text);
+      assert.ok(main, 'server-rendered main');
+      assert.ok(dec(main[1]).includes(bodyText), `body as written: ${main[1].slice(0, 300)}`);
+    }
+  }
+  await setFlag('ssr', true);
+  // In the browser: the tab title and the rendered page read exactly as written.
+  const p = await newPage();
+  await p.goto(BASE + '/support/press');
+  await p.waitForSelector('[data-testid=cms-page][data-page="support/press"] [data-testid=cms-page-body]');
+  assert.equal(await p.textContent('[data-testid=cms-page] h1'), title);
+  assert.equal((await p.textContent('[data-testid=cms-page-body]')).trim(), bodyText);
+  await eventually(async () => (await p.title()).includes(title));
+  assert.deepEqual(p.errors, []);
+});
+
 test('persistence across a restart: languages and their switches, translations and review states, data saver and SMS choices, owner settings', async () => {
   const snap = () => ({ locales: dbq('SELECT code, enabled, reviewed, dir FROM i18n_locales ORDER BY code'), review: q1('SELECT COUNT(*) c FROM i18n_text_review').c, pcm: q1("SELECT COUNT(*) c FROM cms_entries WHERE locale='pcm' AND published_json IS NOT NULL").c,
     saver: dbq("SELECT user_id, value FROM user_settings WHERE key IN ('data_saver','locale') ORDER BY user_id, key"), sms: dbq('SELECT user_id, enabled, consent_version FROM sms_consents ORDER BY user_id'), owner: dbq("SELECT key, value FROM admin_settings WHERE key LIKE 'owner:%' ORDER BY key") });

@@ -160,7 +160,7 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
     const locales = i18n ? i18n.enabledCodes() : ['en-NG'];
     const alt = locales.map((l) => `<link rel="alternate" hreflang="${esc(l)}" href="${esc(`${origin}${canonPath}${l === 'en-NG' ? '' : `?lang=${encodeURIComponent(l)}`}`)}">`).join('\n  ');
     const img = `${origin}${mdl.og}`;
-    const ld = (mdl.ld || []).map((o) => JSON.stringify(o).replace(/__ORIGIN__/g, origin).replace(/</g, '\\u003c'));
+    const ld = (mdl.ld || []).map((o) => JSON.stringify(o).replace(/__ORIGIN__/g, () => origin).replace(/</g, '\\u003c'));
     const head = [
       `<link rel="canonical" href="${esc(self)}">`, alt, `<link rel="alternate" hreflang="x-default" href="${esc(`${origin}${canonPath}`)}">`,
       `<meta property="og:site_name" content="${esc(b.app_name || 'Parlance')}">`, `<meta property="og:type" content="${esc(mdl.type || 'website')}">`, `<meta property="og:title" content="${esc(mdl.title)}">`,
@@ -174,14 +174,14 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
   app.locals.pageTransform = (html, req, res) => {
     let out = prev ? prev(html, req, res) : html;
     if (!flags.jobOn('ssr')) return out;
-    if (PRIVATE.test(req.path)) return out.replace('</head>', '  <meta name="robots" content="noindex">\n</head>');
+    if (PRIVATE.test(req.path)) return out.replace('</head>', () => '  <meta name="robots" content="noindex">\n</head>');
     const fr = fragment(req);
     const f = fr.out;
     if (!f) return out;
     const nonce = esc(res.locals?.cspNonce || '');
-    out = out.replace(/<title>[^<]*<\/title>/, `<title>${esc(f.title)}</title>`).replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(f.description)}">`);
-    out = out.replace('</head>', `  ${f.head}\n${f.ld.map((j) => `  <script type="application/ld+json" nonce="${nonce}">${j}</script>`).join('\n')}\n</head>`);
-    out = out.replace('<main id="view" tabindex="-1"></main>', `<main id="view" tabindex="-1" data-ssr="1">${f.body}</main>`);
+    out = out.replace(/<title>[^<]*<\/title>/, () => `<title>${esc(f.title)}</title>`).replace(/<meta name="description" content="[^"]*">/, () => `<meta name="description" content="${esc(f.description)}">`);
+    out = out.replace('</head>', () => `  ${f.head}\n${f.ld.map((j) => `  <script type="application/ld+json" nonce="${nonce}">${j}</script>`).join('\n')}\n</head>`);
+    out = out.replace('<main id="view" tabindex="-1"></main>', () => `<main id="view" tabindex="-1" data-ssr="1">${f.body}</main>`);
     // `cached` when the fragment came from the cache (owner setting ssr.cache_seconds; 0 turns the cache off), else `rendered`.
     res.setHeader('X-Parlance-SSR', fr.cached ? 'cached' : 'rendered');
     return out;

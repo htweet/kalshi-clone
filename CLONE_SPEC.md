@@ -5851,15 +5851,17 @@ uses the light-theme brand colours; crawler exemption by user agent (public page
   flags with its effect seen live; each Phase 8 setting with its effect; a restart keeping every value and effect.
 - `tests/growth.e2e.test.js` (6): referrals in production (treasury) and play mode, attribution by link and waitlist
   ref, trades with the referrer excluded, caps, the review queue, share and copy-trade links, persistence.
-- `tests/reach.e2e.test.js` (8): server rendering and metadata, cache poisoning, crawlers, languages, data saver and
-  the polling fallback, SMS, footer and help centre, persistence.
+- `tests/reach.e2e.test.js` (9): server rendering and metadata, cache poisoning, crawlers, languages, data saver and
+  the polling fallback, SMS, footer and help centre, admin text with `$&` / `$'` / `` $` `` / `$$` kept exactly as
+  written in the served head and body (both the CMS head and the server rendering insert it with function replacers,
+  never as a String.replace pattern), persistence.
 - `tests/a11y.e2e.test.js` (6): §38.6. `tests/perf.e2e.test.js` (3): §38.7.
 - `tests/authz.e2e.test.js`: every new route classified, growth IDOR probes; `tests/flags.e2e.test.js`: the new flags.
 - Existing tests changed for the removed hub: `markets-content` (the ballot card is tested on `/ballot`; the hub test
   asserts the 301 and the 404 of the senate API and a live Fed outlook refresh), `flags` (the hub flags are checked on
   `/hubs/economics`), `cms-content` (a new-page scenario uses `support/press`, as `support/contact` is now a default
   page), `account-area` (the observed Settings sections keep their order; "Data and messages" is appended after them).
-- Full suite: 374 scenarios across 48 files.
+- Full suite: 375 scenarios across 48 files.
 
 ---
 
