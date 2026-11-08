@@ -534,8 +534,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.seo.mountStatic(app); // /sitemap.xml, /sitemaps/*.xml, /og/*.png, the old /hubs/elections redirect (§38.4)
   security.mountStatic(app);
 
-  // Error envelopes (spec §5.4).
-  // eslint-disable-next-line no-unused-vars
+  // Error envelopes (spec §5.4). Express needs the four-argument signature to treat this as the error handler.
   app.use((err, req, res, next) => {
     if (err instanceof ApiError) return res.status(err.status).json(err.toJSON());
     if (err instanceof ParamError) return res.status(400).json({ msg: err.message });

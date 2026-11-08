@@ -258,7 +258,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       const leading = !!leader && leader.id === c.id && c.votes > 0;
       return { candidate_id: c.id, count, territory_ok: territoryOk, meets: leading && count >= needed && territoryOk };
     });
-    return { ...base, share, needed, units: plain.length, territories: terr.map((id) => cfg.divs.get(id).code), unit: rule.unit, on_fail: rule.on_fail || 'none', candidates: rows };
+    return { ...base, share, needed, units: plain.length, territories: terr.map((id) => cfg.divs.get(id).code), territory_required: !!rule.territory_required, unit: rule.unit, on_fail: rule.on_fail || 'none', candidates: rows };
   }
 
   // ---------------------------------------------------------------------------------------------- compact state

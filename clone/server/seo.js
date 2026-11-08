@@ -175,13 +175,15 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
     let out = prev ? prev(html, req, res) : html;
     if (!flags.jobOn('ssr')) return out;
     if (PRIVATE.test(req.path)) return out.replace('</head>', '  <meta name="robots" content="noindex">\n</head>');
-    const f = fragment(req).out;
+    const fr = fragment(req);
+    const f = fr.out;
     if (!f) return out;
     const nonce = esc(res.locals?.cspNonce || '');
     out = out.replace(/<title>[^<]*<\/title>/, `<title>${esc(f.title)}</title>`).replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(f.description)}">`);
     out = out.replace('</head>', `  ${f.head}\n${f.ld.map((j) => `  <script type="application/ld+json" nonce="${nonce}">${j}</script>`).join('\n')}\n</head>`);
     out = out.replace('<main id="view" tabindex="-1"></main>', `<main id="view" tabindex="-1" data-ssr="1">${f.body}</main>`);
-    res.setHeader('X-Parlance-SSR', 'hit');
+    // `cached` when the fragment came from the cache (owner setting ssr.cache_seconds; 0 turns the cache off), else `rendered`.
+    res.setHeader('X-Parlance-SSR', fr.cached ? 'cached' : 'rendered');
     return out;
   };
   // Search and link-preview crawlers get public pages without the browser check (flag ssr.crawlers).

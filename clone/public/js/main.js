@@ -29,7 +29,7 @@ import { initIdentityUi } from './views/onboarding.js'; // identity banner + com
 import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
 import { initFlags, loadFlags, routeFlagOff, unavailableHtml, renderPlayBanner, onFlags, flagOn, playOn } from './flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
-import { initLocale } from './locale.js'; // languages, Intl formatting, data saver, referral links (CLONE_SPEC.md §38)
+import { initLocale, flagsReady } from './locale.js'; // languages, Intl formatting, data saver, referral links (CLONE_SPEC.md §38)
 import { initA11y } from './a11y.js'; // tab semantics on every tab list (WCAG 2.2 AA, CLONE_SPEC.md §38.6)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
@@ -355,5 +355,5 @@ initFlags({ socket, session });
 initLocale();
 initA11y();
 onFlags(() => { renderPlayBanner(); rebuildAccount(); if (booted) render(); }); // a flag / play-mode / money-control change, live
-Promise.all([session.load(), loadSite(), loadFlags()]).then(() => { booted = true; renderPlayBanner(); renderAccount(); socket.connect(); render(); });
+Promise.all([session.load(), loadSite(), loadFlags()]).then(() => { booted = true; flagsReady(); renderPlayBanner(); renderAccount(); socket.connect(); render(); });
 window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

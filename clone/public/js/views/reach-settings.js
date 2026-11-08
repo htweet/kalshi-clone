@@ -13,7 +13,7 @@ export async function mountReachSettings(el) {
     const [{ reach: r }, loc] = await Promise.all([request('GET', `/v1/users/${encodeURIComponent(session.uid)}/reach`), loadLocales()]);
     const langs = loc.enabled ? loc.locales : [];
     el.innerHTML = `<h2>${te('reach.title')}</h2>
-      ${r.data_saver_available ? `<div class="set-toggle"><div><strong>${te('reach.saver.label')}</strong><p class="faint">${te('reach.saver.hint')}</p></div>
+      ${r.data_saver_available ? `<div class="set-toggle" data-flag="data_saver"><div><strong>${te('reach.saver.label')}</strong><p class="faint">${te('reach.saver.hint')}</p></div>
         <label class="switch"><input type="checkbox" data-saver data-testid="toggle-data_saver" ${r.data_saver ? 'checked' : ''} aria-label="${te('reach.saver.label')}"><span aria-hidden="true"></span></label></div>` : ''}
       ${r.sms.available || r.sms.enabled ? `<div class="set-sms" data-testid="sms-settings" data-enabled="${r.sms.enabled ? '1' : '0'}"><strong>${te('reach.sms.label')}</strong>
         <p class="faint">${r.sms.enabled ? te('reach.sms.on', { time: esc(r.sms.consent_time ? new Date(r.sms.consent_time).toLocaleString() : '') }) : te('reach.sms.off', { per_day: esc(r.sms.per_day) })}</p>

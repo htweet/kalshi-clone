@@ -65,8 +65,8 @@ export async function setSaver(on) {
 // ---------------------------------------------------------------- footer tools
 function toolsHtml() {
   const list = locales.enabled && flagOn('i18n') ? locales.locales : [];
-  const sel = list.length > 1 ? `<label class="footer-tool"><span>${te('locale.footer.language')}</span><select data-testid="locale-select" aria-label="${te('locale.footer.language')}">${list.map((l) => `<option value="${esc(l.code)}" lang="${esc(l.code)}"${l.code === lang() ? ' selected' : ''}>${esc(l.native_name)}${l.native_name !== l.name ? ` · ${esc(l.name)}` : ''}</option>`).join('')}</select></label>` : '';
-  const saver = flagOn('data_saver') ? `<label class="footer-tool switch-row"><input type="checkbox" data-testid="saver-toggle"${saverOn() ? ' checked' : ''}><span>${te('locale.footer.data_saver')}</span></label>` : '';
+  const sel = list.length > 1 ? `<label class="footer-tool" data-flag="i18n"><span>${te('locale.footer.language')}</span><select data-testid="locale-select" aria-label="${te('locale.footer.language')}">${list.map((l) => `<option value="${esc(l.code)}" lang="${esc(l.code)}"${l.code === lang() ? ' selected' : ''}>${esc(l.native_name)}${l.native_name !== l.name ? ` · ${esc(l.name)}` : ''}</option>`).join('')}</select></label>` : '';
+  const saver = flagOn('data_saver') ? `<label class="footer-tool switch-row" data-flag="data_saver"><input type="checkbox" data-testid="saver-toggle"${saverOn() ? ' checked' : ''}><span>${te('locale.footer.data_saver')}</span></label>` : '';
   return sel + saver;
 }
 function drawTools(el) {
@@ -91,4 +91,10 @@ export function initLocale() {
   let lastUid;
   session.subscribe(() => { if (!session.loaded) return; const uid = session.uid || null; if (uid !== lastUid) { lastUid = uid; loadMemberSaver().then(redraw); } });
   window.addEventListener('parlance:data-saver', redraw);
+}
+// Called once the first flag bundle has arrived (main.js boot): the admin default (owner setting data_saver.default_on)
+// and the flags are only known from then on, so a visitor who arrives while the default is on gets the lighter pages.
+export function flagsReady() {
+  applySaver();
+  drawTools(document.querySelector('footer.footer .footer-tools'));
 }
