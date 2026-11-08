@@ -264,10 +264,19 @@ test('ballot lookup: address → invented jurisdiction and its contests; only th
     assert.equal(bytes.indexOf(Buffer.from(needle)), -1, `${needle} in the database bytes`);
     assert.ok(!LOGS.some((l) => l.includes(needle)), `${needle} in a log line`);
   }
-  // Rate limit (20 lookups a minute per user): the 21st within the window is refused with a retry hint.
-  let limited = null;
-  for (let i = 0; i < 24 && !limited; i++) { const r = await H.call(page, 'POST', '/v1/ballot/lookup', { address: '90142' }); if (r.status === 429) limited = r; }
+  // Rate limit (20 lookups a minute per user, a window aligned to the clock minute): the 21st within a window is refused
+  // with a retry hint. Up to 45 tries, so a window that rolls over mid-loop (the count restarts) still reaches the limit;
+  // and no more than 20 lookups succeed in the window that refused.
+  let limited = null; let okInWindow = 0; let win = null;
+  for (let i = 0; i < 45 && !limited; i++) {
+    const w = Math.floor(Date.now() / 60000);
+    const r = await H.call(page, 'POST', '/v1/ballot/lookup', { address: '90142' });
+    const w2 = Math.floor(Date.now() / 60000);
+    if (w2 !== win) { win = w2; okInWindow = 0; }
+    if (r.status === 429) limited = r; else if (w === w2) okInWindow += 1;
+  }
   assert.ok(limited, 'rate limited'); assert.ok(limited.body.error.retry_after_sec >= 1);
+  assert.ok(okInWindow <= 20, `${okInWindow} lookups passed in the refusing window`);
   await H.assertClean(assert, page);
   await page.context().close();
 });
