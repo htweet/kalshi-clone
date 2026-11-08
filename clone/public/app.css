@@ -482,6 +482,21 @@ form.stat .btn { height: var(--control-sm); padding: 0 var(--space-3); font-size
 .chart-end { font-family: var(--font-display); font-size: var(--fs-3xl); font-weight: var(--fw-bold); }
 .change-chips { display: flex; gap: var(--space-3); font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-x30); font-variant-numeric: tabular-nums; }
 svg.chart { width: 100%; height: 240px; display: block; overflow: visible; }
+/* Chart hover readout (public/js/chart-hover.js): line, time, dots and a legend that follow the pointer. */
+svg[data-hover] { touch-action: pan-y; cursor: crosshair; }
+svg[data-hover]:focus { outline: none; }
+svg[data-hover]:focus-visible { box-shadow: var(--ring); border-radius: var(--rounded-x05); }
+svg.ch-on .ch-end { opacity: 0; }
+.ch-host { position: relative; }
+.ch-hover { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.ch-hover[hidden] { display: none; }
+.ch-line { position: absolute; width: 1px; background: var(--text-x30); transform: translateX(-50%); }
+.ch-time { position: absolute; transform: translateX(-50%); font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); color: var(--text-x20); white-space: nowrap; }
+.ch-dot { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px var(--surface-x10); transform: translate(-50%, -50%); }
+.ch-legend { position: absolute; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-radius: var(--rounded-x05); background: color-mix(in srgb, var(--surface-x10) 82%, transparent); white-space: nowrap; }
+.ch-row { display: flex; flex-direction: column; color: var(--c); }
+.ch-name { font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-caps); text-transform: uppercase; }
+.ch-val { font-family: var(--font-display); font-size: var(--fs-2xl); line-height: var(--lh-2xl); font-weight: var(--fw-bold); letter-spacing: var(--ls-display); font-variant-numeric: tabular-nums; }
 .range-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) 0; border-bottom: 1px solid var(--line); }
 .range-row .seg { background: none; padding: 0; }
 .range-row .seg button { height: var(--control-sm); color: var(--text-x30); font-size: var(--fs-md); }

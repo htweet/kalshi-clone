@@ -835,6 +835,14 @@ The engine owns these SQLite tables, created with `CREATE TABLE IF NOT EXISTS`: 
 - **Chart:**
   - Legend, then lines with the outcome name and a big % at each line's end; a scrubber.
   - `$… vol`, with **1D 1W 1M ALL** on the right.
+  - **Hover readout** (OBSERVED, owner screenshot 2026-11-08, a soccer match chart; built on every price chart in `public/js/chart-hover.js`):
+    - **Follows the pointer:** a vertical line with the time above it ("1:01 PM"; with the date when the range is over 36 h) and a dot on each line.
+    - **Legend:** beside the line, one row per outcome with the name in small caps over a big condensed value in its colour ("LAZ 57.5%", "TIE 23.2%", "NAP 19.9%"), ordered as the lines are, top first. Each value is that series' last point at or before the moment.
+    - **Placement:** the legend flips to the left of the line near the right edge. The end labels give way while it shows, and everything hides when the pointer leaves.
+    - **Other inputs:**
+      - **touch:** a tap or a horizontal drag shows it; a tap elsewhere hides it;
+      - **keyboard:** the chart is focusable; ← / → step through points, Home / End jump, Escape hides; the values are announced to screen readers.
+    - **Charts:** event, home and hub forecast charts, plus the Perps mark chart (one row, a naira price).
 - **Outcome table:** header "Chance", a sort icon and a search icon. Each row has a photo, name, big condensed %, a ▲/▼ day change, and outlined **Yes 74¢** (green) and **No 27¢** (red) buttons.
 - **Related events:** tabs of related event groups ("Events · Balance of Power · Election Specials · Seat Counts") with search and "Show more" [SHOT3:event-series].
 - **Below the table:**
