@@ -297,6 +297,12 @@ test('chart hover: a line, the time, a dot per series and a legend follow the po
   assert.equal(await page.locator('#chart .ch-dot').count(), seriesN);
   const l1 = await legend(); const x1 = await lineX();
   assert.ok(l1.left > x1 && !l1.flipped, 'the legend sits to the right of the line');
+  // A click focuses the chart, but the readout keeps the clicked moment (keyboard focus alone shows the latest one).
+  const atClick = await shownRows();
+  await page.mouse.down(); await page.mouse.up();
+  await page.waitForTimeout(100);
+  assert.deepEqual(await shownRows(), atClick);
+  assert.ok(Math.abs((await lineX()) - x1) < 2, 'the line did not jump to the end');
   // It follows the pointer.
   await page.mouse.move(box.x + box.width * 0.6, y);
   await page.waitForFunction((prev) => document.querySelector('#chart .ch-line').getBoundingClientRect().left > prev + 50, x1);
@@ -307,11 +313,12 @@ test('chart hover: a line, the time, a dot per series and a legend follow the po
   await page.evaluate(() => { const c = document.querySelector('#chart'); c.innerHTML = c.querySelector('svg').outerHTML; });
   await page.waitForFunction(() => { const o = document.querySelector('#chart [data-testid=chart-hover]'); return o && !o.hidden && document.querySelector('#chart svg').classList.contains('ch-on'); });
   assert.deepEqual(await shownRows(), before);
-  // Near the right edge the legend flips to the left of the line and stays inside the chart.
-  await page.mouse.move(box.x + box.width * 0.9, y);
-  await page.waitForFunction(() => document.querySelector('#chart [data-testid=chart-hover-legend]').classList.contains('left'));
+  // At the right end of the line the readout stops at the last moment and the legend stays inside the chart (at this
+  // width the drawing is centred with room beside it; the flip to the left is checked at phone width below).
+  await page.mouse.move(box.x + box.width * 0.99, y);
+  await page.waitForFunction((prev) => document.querySelector('#chart .ch-line').getBoundingClientRect().left > prev, x1);
   const l3 = await legend();
-  assert.ok(l3.right <= (await lineX()) + 1 && l3.left >= box.x - 1, JSON.stringify(l3));
+  assert.ok(l3.right <= box.x + box.width && l3.left >= box.x, JSON.stringify(l3));
   // Mouse out: gone, and the end labels are back.
   await page.mouse.move(box.x + box.width / 2, box.y - 60);
   await page.waitForFunction(() => document.querySelector('#chart [data-testid=chart-hover]').hidden);
@@ -334,10 +341,16 @@ test('chart hover: a line, the time, a dot per series and a legend follow the po
   await ph.goto(BASE + EVENT_URL);
   await ph.waitForSelector(svgSel);
   const pb = await ph.locator(svgSel).boundingBox();
-  await ph.touchscreen.tap(pb.x + pb.width * 0.5, pb.y + pb.height / 2);
+  await ph.touchscreen.tap(pb.x + pb.width * 0.3, pb.y + pb.height / 2);
   await ph.waitForFunction(() => { const o = document.querySelector('#chart [data-testid=chart-hover]'); return o && !o.hidden; });
-  const lp = await ph.$eval('#chart [data-testid=chart-hover-legend]', (l) => { const r = l.getBoundingClientRect(); return { left: r.left, right: r.right }; });
-  assert.ok(lp.left >= 0 && lp.right <= 390, `legend within the phone screen ${JSON.stringify(lp)}`);
+  const lp = await ph.$eval('#chart [data-testid=chart-hover-legend]', (l) => { const r = l.getBoundingClientRect(); return { left: r.left, right: r.right, flipped: l.classList.contains('left') }; });
+  assert.ok(lp.left >= 0 && lp.right <= 390 && !lp.flipped, `legend right of the line, within the phone screen ${JSON.stringify(lp)}`);
+  // Near the right end the chart fills the phone's width: the legend flips to the left of the line and stays on screen.
+  await ph.touchscreen.tap(pb.x + pb.width * 0.97, pb.y + pb.height / 2);
+  await ph.waitForFunction(() => document.querySelector('#chart [data-testid=chart-hover-legend]').classList.contains('left'));
+  const lf = await ph.$eval('#chart [data-testid=chart-hover-legend]', (l) => { const r = l.getBoundingClientRect(); return { left: r.left, right: r.right }; });
+  const lineL = await ph.$eval('#chart .ch-line', (l) => l.getBoundingClientRect().left);
+  assert.ok(lf.right <= lineL + 1 && lf.left >= 0, `flipped legend left of the line ${JSON.stringify(lf)} line ${lineL}`);
   assert.ok(await ph.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'no horizontal scroll');
   const vol = await ph.locator('#ev-vol').boundingBox(); // plain text outside the chart
   await ph.touchscreen.tap(vol.x + vol.width / 2, vol.y + vol.height / 2);
