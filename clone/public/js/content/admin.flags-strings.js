@@ -70,7 +70,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.group.platform": "Platform",
   "admin.flags.group.play": "Play mode and Central Bank",
   "admin.flags.group.api": "Public API and developer portal",
-  "admin.flags.group.growth": "Waitlists and newsletter",
+  "admin.flags.group.growth": "Growth: waitlists, referrals, sharing",
   "admin.flags.group.elections": "Elections hub",
   "admin.flags.label.trading": "Prediction trading",
   "admin.flags.label.trading.limit_orders": "Limit orders",
@@ -149,7 +149,22 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.label.elections.power_index": "Power Index",
   "admin.flags.label.elections.chat": "Elections hub chat",
   "admin.flags.label.elections.simulator": "Simulated results feed (demo and test only)",
-  "admin.flags.label.newsletter": "Waitlist newsletter (sends and the outbox job)"
+  "admin.flags.label.newsletter": "Waitlist newsletter (sends and the outbox job)",
+  "admin.flags.recommended_on": "Recommended: on",
+  "admin.flags.recommended_off": "Recommended: off",
+  "admin.flags.label.waitlist.launch.cta_play": "Waitlist calls to action in play mode",
+  "admin.flags.label.waitlist.launch.cta_production": "Waitlist calls to action outside play mode",
+  "admin.flags.label.waitlist.launch.auto_confirm_verified": "Confirm pending entries when the email is verified",
+  "admin.flags.label.elections.second_resolver": "Second resolver for race-call settlements",
+  "admin.flags.label.referrals.predictions": "Predictions referrals",
+  "admin.flags.label.share_links": "Share links",
+  "admin.flags.label.copy_trade": "Copy this trade",
+  "admin.flags.label.ssr": "Server-rendered public pages",
+  "admin.flags.label.ssr.crawlers": "Search and link-preview crawlers",
+  "admin.flags.label.i18n": "Languages",
+  "admin.flags.label.data_saver": "Data saver",
+  "admin.flags.label.sms": "SMS notifications",
+  "admin.flags.group.reach": "Reach"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

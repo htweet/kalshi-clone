@@ -8,11 +8,12 @@
 //   /admin/cms/pages      pages (legal, help, info) with SEO fields, and the footer
 //   /admin/cms/branding   brand / YES colours per theme with the contrast check, app name and short name
 //   /admin/cms/transfer   JSON export, and import with a dry-run diff
+//   /admin/cms/languages  languages: coverage, review, switch, translation editor, export / import (views/admin/languages.js)
 import { t, te, ts } from '../../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../../content/admin.cms-strings.js';
 import { get, post, put, del, esc, toast, section, subTabs, dialog, confirmAction, badge, fmtTime, fromLocalInput, download } from './ui.js';
 
-const TABS = [['hub', ts('admin.cms.tabs.overview')], ['texts', ts('admin.cms.tabs.texts')], ['templates', ts('admin.cms.tabs.templates')], ['media', ts('admin.cms.tabs.media')], ['pages', ts('admin.cms.tabs.pages_footer')], ['branding', ts('admin.cms.tabs.branding')], ['transfer', ts('admin.cms.tabs.import_export')]];
+const TABS = [['hub', ts('admin.cms.tabs.overview')], ['texts', ts('admin.cms.tabs.texts')], ['templates', ts('admin.cms.tabs.templates')], ['media', ts('admin.cms.tabs.media')], ['pages', ts('admin.cms.tabs.pages_footer')], ['branding', ts('admin.cms.tabs.branding')], ['languages', ts('admin.cms.tabs.languages')], ['transfer', ts('admin.cms.tabs.import_export')]];
 const BASE = '/admin/cms';
 
 export async function render({ el, parts, perms, query }) {
@@ -27,6 +28,7 @@ export async function render({ el, parts, perms, query }) {
   if (tab === 'pages') return pages(ctx);
   if (tab === 'branding') return branding(ctx);
   if (tab === 'transfer') return transfer(ctx);
+  if (tab === 'languages') return import('./languages.js').then((m) => m.render(ctx)); // Phase 8 (CLONE_SPEC.md §38.5)
   return hub(ctx);
 }
 

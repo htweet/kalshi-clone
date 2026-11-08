@@ -34,7 +34,8 @@ export async function render({ el }) {
   const table = dataTable(el.querySelector('#ft'), { testid: 'flags-table', pageSize: 100, rowAttrs: (f) => `data-flag-key="${esc(f.key)}"`,
     searchText: (f) => [f.key, label(f.key), groupLabel(f.group)].join(' '),
     cols: [
-      { key: 'key', label: tx('admin.flags.col.flag'), render: (f) => `<b>${esc(label(f.key))}</b><div class="faint"><code>${esc(f.key)}</code>${f.parent ? ` · ${te('admin.flags.edit.parent', { parent: esc(f.parent) })}` : ''}</div>` },
+      // Ground rule 6 (CLONE_SPEC.md §38.1): the explanation and the recommended default next to every switch.
+      { key: 'key', label: tx('admin.flags.col.flag'), render: (f) => `<b>${esc(label(f.key))}</b><div class="faint"><code>${esc(f.key)}</code>${f.parent ? ` · ${te('admin.flags.edit.parent', { parent: esc(f.parent) })}` : ''}</div>${f.help && f.help !== `flag.${f.key}` ? `<div class="flag-help" data-testid="flag-help">${esc(f.help)}</div>` : ''}<div class="faint" data-testid="flag-recommended" data-on="${f.recommended ? '1' : '0'}">${te(f.recommended ? 'admin.flags.recommended_on' : 'admin.flags.recommended_off')}</div>` },
       { key: 'effective', label: tx('admin.flags.col.state'), render: stateHtml },
       { key: 'rollout_pct', label: tx('admin.flags.col.rollout'), num: true, render: (f) => `<span data-testid="flag-rollout">${esc(f.rollout_pct)}%</span>` },
       { key: '_t', label: tx('admin.flags.col.targeting'), sort: false, render: targetingHtml },
@@ -86,7 +87,7 @@ async function editFlag(key, roles, done) {
     { name: 'reason', label: tx('admin.flags.edit.reason'), required: true, span: true },
   ];
   const hist = history.length ? `<ul class="adm-hist" data-testid="flag-history">${history.map((h) => `<li data-testid="flag-history-row">${te('admin.flags.edit.history_row', { version: esc(h.version), action: esc(h.action), who: esc(h.actor_email || '—'), time: esc(fmtTime(h.time)) })}<div class="faint">${esc(h.reason)}</div></li>`).join('')}</ul>` : `<p class="faint">${te('admin.flags.edit.no_history')}</p>`;
-  const d = dialog(`<h3>${te('admin.flags.edit.title', { flag: esc(label(key)) })}</h3><p class="faint"><code>${esc(key)}</code></p>
+  const d = dialog(`<h3>${te('admin.flags.edit.title', { flag: esc(label(key)) })}</h3><p class="faint"><code>${esc(key)}</code></p>${f.help ? `<p data-testid="flag-dialog-help">${esc(f.help)}</p>` : ''}<p class="faint">${te(f.recommended ? 'admin.flags.recommended_on' : 'admin.flags.recommended_off')}</p>
     ${formHtml(fields, { submit: tx('admin.flags.edit.save'), id: 'flag', testid: 'flag-form' })}
     ${f.routes.length ? `<details><summary>${te('admin.flags.edit.routes')}</summary><pre class="adm-pre">${esc(f.routes.join('\n'))}</pre></details>` : ''}
     <h4>${te('admin.flags.edit.history')}</h4>${hist}`, { wide: true, testid: 'flag-dialog' });

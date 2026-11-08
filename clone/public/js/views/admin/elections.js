@@ -132,9 +132,12 @@ async function data(el, ov, ctx, my) {
   const rows = r[kind];
   const key = kind === 'countries' ? 'code' : 'id';
   const cols = ['id', ...FIELDS[kind].map((f) => f[0]).filter((f) => !['config', 'data', 'rule', 'prior'].includes(f))].slice(0, 7);
-  el.querySelector('[data-testid=adm-el-rows]').innerHTML = `<div class="table-wrap"><table class="table"><thead><tr>${cols.map((c) => `<th>${esc(c === 'id' ? tx('admin.el.field.id') : label(c))}</th>`).join('')}<th></th></tr></thead><tbody>${rows.map((x) => `<tr data-testid="adm-el-row" data-id="${esc(x[key])}">${cols.map((c) => `<td>${c === 'color' ? `<span class="el-swatch v-bg"${vars({ '--bg': x.color })}></span> ` : ''}${esc(shown(c === 'id' ? x[key] : x[c]))}</td>`).join('')}<td>${canWrite ? `<button type="button" class="btn btn-sm" data-edit="${esc(x[key])}" data-testid="adm-el-edit">${te('admin.el.data.edit')}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>${rows.length >= 500 ? `<p class="faint">${te('admin.el.data.first_500')}</p>` : ''}`;
+  // Offices show their win rule in words, with the territory (FCT) clause visible (ground rule 6, CLONE_SPEC.md §38.1).
+  const ruleCell = (x) => (kind === 'offices' ? `<td data-testid="adm-el-rule" data-territory="${x.rule && x.rule.territory_required ? '1' : '0'}">${esc(ruleText(x.rule))}</td>` : '');
+  el.querySelector('[data-testid=adm-el-rows]').innerHTML = `<div class="table-wrap"><table class="table"><thead><tr>${cols.map((c) => `<th>${esc(c === 'id' ? tx('admin.el.field.id') : label(c))}</th>`).join('')}${kind === 'offices' ? `<th>${te('admin.el.rule.col')}</th>` : ''}<th></th></tr></thead><tbody>${rows.map((x) => `<tr data-testid="adm-el-row" data-id="${esc(x[key])}">${cols.map((c) => `<td>${c === 'color' ? `<span class="el-swatch v-bg"${vars({ '--bg': x.color })}></span> ` : ''}${esc(shown(c === 'id' ? x[key] : x[c]))}</td>`).join('')}${ruleCell(x)}<td>${canWrite ? `<button type="button" class="btn btn-sm" data-edit="${esc(x[key])}" data-testid="adm-el-edit">${te('admin.el.data.edit')}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>${rows.length >= 500 ? `<p class="faint">${te('admin.el.data.first_500')}</p>` : ''}`;
   const openForm = (row) => {
-    const fields = [...(row ? [] : CREATE[kind]), ...FIELDS[kind]].map(([name, type]) => ({ name, label: label(name), type: type === 'json' ? 'textarea' : type || 'text', value: row ? (type === 'json' ? JSON.stringify(row[name] ?? null) : type === 'checkbox' ? !!row[name] : row[name] ?? '') : type === 'checkbox' && name === 'active' ? true : '', span: type === 'json' }))
+    const fields = [...(row ? [] : CREATE[kind]), ...FIELDS[kind]].map(([name, type]) => ({ name, label: label(name), type: type === 'json' ? 'textarea' : type || 'text', value: row ? (type === 'json' ? JSON.stringify(row[name] ?? null) : type === 'checkbox' ? !!row[name] : row[name] ?? '') : type === 'checkbox' && name === 'active' ? true : '', span: type === 'json', ...(name === 'rule' ? { hint: tx('admin.el.rule.json_hint') } : {}) }))
+      .concat(kind === 'offices' && row && row.rule && row.rule.type === 'spread' ? [{ name: 'territory_required', label: tx('admin.el.rule.fct_label'), type: 'checkbox', value: !!row.rule.territory_required, hint: tx('admin.el.rule.fct_hint'), span: true }] : [])
       .concat([{ name: 'reason', label: tx('admin.el.data.reason'), required: true, span: true }]);
     const d = dialog(`<h3>${row ? te('admin.el.data.edit_title', { id: esc(row[key]) }) : te('admin.el.data.new_title', { kind: esc(tx(`admin.el.kind.${kind}`)) })}</h3>${formHtml(fields, { submit: tx('admin.el.data.save'), id: 'eld', testid: 'adm-el-form' })}`, { wide: true });
     wireForm(d.querySelector('form'), fields, async (v) => {
@@ -150,12 +153,21 @@ async function data(el, ov, ctx, my) {
         out[name] = x;
       }
       if (Object.keys(errs).length) throw Object.assign(new Error(tx('admin.el.data.bad_json')), { fields: errs });
+      // The territory (FCT) clause checkbox edits the same rule object.
+      if (kind === 'offices' && row && row.rule && row.rule.type === 'spread' && !!v.territory_required !== !!(out.rule || row.rule).territory_required) out.rule = { ...(out.rule || row.rule), territory_required: !!v.territory_required };
       if (row) await put(`/elections/${kind}/${encodeURIComponent(row[key])}`, out); else await post(`/elections/${kind}`, out);
       d.close(); toast(tx('admin.el.data.saved')); render(ctx);
     });
   };
   el.querySelector('[data-testid=adm-el-rows]').onclick = (e) => { const b = e.target.closest('[data-edit]'); if (b) openForm(rows.find((x) => String(x[key]) === b.dataset.edit)); };
   const nb = el.querySelector('[data-testid=adm-el-new]'); if (nb) nb.onclick = () => openForm(null);
+}
+
+function ruleText(r) {
+  if (!r) return '';
+  if (r.type !== 'spread') return tx('admin.el.rule.plurality');
+  const frac = Array.isArray(r.fraction) ? `${r.fraction[0]}/${r.fraction[1]}` : String(r.fraction);
+  return tx(r.territory_required ? 'admin.el.rule.spread_fct' : 'admin.el.rule.spread', { share: Math.round(Number(r.share) * 100), fraction: frac, unit: r.unit, on_fail: r.on_fail || '' });
 }
 
 // ---------------------------------------------------------------------------------------------- Power Index

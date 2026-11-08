@@ -76,7 +76,7 @@
   --surface-x30: #1a1d22;
   --text-x10: #f4f5f7;
   --text-x20: #a8aeb8;
-  --text-x30: #6d7480;
+  --text-x30: #8a919c; /* WCAG 2.2 AA (Phase 8, CLONE_SPEC.md §38.6): 5.3:1 or more on every dark surface */
   --line: #24282f;
   --fill-x30: #191c21;
   --fill-x40: #22262d;
@@ -103,7 +103,7 @@
   --surface-x30: #f2f3f6;
   --text-x10: #0e1116;
   --text-x20: #4d5562;
-  --text-x30: #868e9b;
+  --text-x30: #5f6672; /* WCAG 2.2 AA (Phase 8): 4.7:1 or more on every light surface and fill */
   --line: #e4e7ec;
   --fill-x30: #f2f3f6;
   --fill-x40: #e7e9ee;
@@ -111,7 +111,8 @@
   --brand: #008751; /* Nigerian green (flag), 4.6:1 on white */
   --brand-x20: #e2f3ea;
   --on-brand: #ffffff;
-  --featured: #e8590c;
+  --featured: #c2410c; /* 5.2:1 on white (was 3.6:1) */
+  --live: #d6293b; /* 4.9:1 on white */
   --yes: #0b7285; /* teal: distinct from the green brand, 5.6:1 on white and under white text */
   --on-yes: #ffffff;
   --yes-x20: #e2f2f5;

@@ -47,6 +47,9 @@ export const SECTIONS = [
   ['waitlists', ts('admin.sections.waitlists'), 'users.read', './admin/waitlists.js'],
   // Phase 7B (CLONE_SPEC.md §37): elections, results simulator, results desk, the country model and the Power Index.
   ['elections', ts('admin.sections.elections'), 'catalog.read', './admin/elections.js'],
+  // Phase 8 (CLONE_SPEC.md §38): ground rule 6's Owner settings, and Growth (referrals, review queue, share links, SMS).
+  ['owner_settings', ts('admin.sections.owner_settings'), 'settings.write', './admin/owner-settings.js'],
+  ['growth', ts('admin.sections.growth'), 'users.read', './admin/growth.js'],
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -58,7 +61,7 @@ const LOADERS = {
   './admin/payments.js': () => import('./admin/payments.js'), './admin/content5b.js': () => import('./admin/content5b.js'),
   './admin/cms.js': () => import('./admin/cms.js'), './admin/flags.js': () => import('./admin/flags.js'), './admin/playmode.js': () => import('./admin/playmode.js'),
   './admin/api-keys.js': () => import('./admin/api-keys.js'), './admin/waitlists.js': () => import('./admin/waitlists.js'),
-  './admin/elections.js': () => import('./admin/elections.js'),
+  './admin/elections.js': () => import('./admin/elections.js'), './admin/owner-settings.js': () => import('./admin/owner-settings.js'), './admin/growth.js': () => import('./admin/growth.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.

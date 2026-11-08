@@ -1,0 +1,62 @@
+/* Phase 8 (CLONE_SPEC.md §38): share sheet and copy-trade, referrals, footer tools and social links, owner settings, server-
+   rendered content, data saver, accessibility helpers. Tokens only (§27). */
+
+/* ---------- accessibility (WCAG 2.2 AA, §38.6) ---------- */
+.skip-link { position: absolute; left: var(--space-2); top: -100px; z-index: 1000; padding: var(--space-2) var(--space-4); background: var(--surface-x20); color: var(--text-x10); border: 2px solid var(--brand); border-radius: var(--rounded-x05); }
+.skip-link:focus { top: var(--space-2); }
+/* Links inside running text are underlined, so they never rely on colour alone (1.4.1). */
+p a, .faint a, .muted a, .cms-body a, li a:not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
+/* 24 × 24 px minimum targets (2.5.8) for small text links. */
+.footer-col a, .footer-social a, .crumbs a { display: inline-flex; align-items: center; min-height: 24px; }
+.footer-col { gap: 0; }
+
+/* ---------- footer: social links and tools (A18, §38.8) ---------- */
+.footer-social { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.footer-tools { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }
+.footer-tool { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-sm); }
+.footer-tool select { min-height: var(--control-sm); padding: 0 var(--space-2); background: var(--surface-x20); color: var(--text-x10); border: 1px solid var(--line); border-radius: var(--rounded-x05); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.footer-tool input[type=checkbox] { width: 20px; height: 20px; margin: var(--space-0); }
+
+/* ---------- share sheet and copy-trade (§38.3) ---------- */
+.share-dialog { border: 1px solid var(--line); border-radius: var(--rounded-x30); background: var(--surface-x20); color: var(--text-x10); padding: var(--space-5); width: min(440px, calc(100vw - 24px)); box-shadow: var(--shadow-pop); }
+.share-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.share-dialog h2 { margin: 0 0 var(--space-2); font-size: var(--fs-xl); line-height: var(--lh-xl); }
+.share-channels { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--space-2); margin: var(--space-3) 0; }
+.share-ch { min-height: var(--control-md); justify-content: center; }
+.share-url input { width: 100%; min-height: var(--control-md); padding: 0 var(--space-2); background: var(--surface-x30); color: var(--text-x10); border: 1px solid var(--line); border-radius: var(--rounded-x05); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.share-opts { border: 1px solid var(--line); border-radius: var(--rounded-x05); padding: var(--space-3); margin: var(--space-3) 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.share-opts label { display: flex; gap: var(--space-2); align-items: center; min-height: 24px; }
+.share-actions { display: flex; justify-content: flex-end; margin-top: var(--space-3); }
+.copy-note { margin: var(--space-3) var(--space-3) 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line)); border-radius: var(--rounded-x05); background: var(--brand-x20); color: var(--text-x10); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+
+/* ---------- referrals (§38.2) ---------- */
+.ref-code { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin: var(--space-3) 0; }
+.ref-code b { font-size: var(--fs-2xl); line-height: var(--lh-2xl); letter-spacing: var(--ls-caps); }
+.ref-stats { display: flex; flex-wrap: wrap; gap: var(--space-4); margin: var(--space-2) 0; }
+.ref-progress { display: flex; flex-direction: column; gap: var(--space-1h); margin: var(--space-3) 0; }
+.ref-bar { height: 8px; border-radius: var(--rounded-x05); background: var(--fill-x40); overflow: hidden; }
+.ref-bar span { display: block; height: 100%; width: var(--w, 0%); background: var(--brand); }
+
+/* ---------- Admin › Owner settings (§38.1) ---------- */
+.owner-list { display: flex; flex-direction: column; }
+.owner-row { display: flex; gap: var(--space-4); justify-content: space-between; align-items: flex-start; padding: var(--space-3) 0; border-top: 1px solid var(--line); }
+.owner-row:first-child { border-top: 0; }
+.owner-main { min-width: 0; flex: 1 1 320px; }
+.owner-help { margin: var(--space-1) 0; color: var(--text-x20); }
+.owner-side { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.owner-value { font-weight: var(--fw-semibold); }
+.owner-dl { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }
+.owner-dl div { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: var(--space-3); }
+.owner-dl dt { color: var(--text-x20); }
+.owner-dl dd { margin: 0; }
+.flag-help { margin-top: var(--space-1); color: var(--text-x20); font-size: var(--fs-sm); line-height: var(--lh-sm); max-width: 520px; }
+@media (max-width: 640px) { .owner-row { flex-direction: column; } .owner-side { justify-content: flex-start; } .owner-dl div { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- server-rendered content (§38.4): shown until the app renders over it ---------- */
+.ssr { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) 0; min-width: 0; overflow-wrap: anywhere; }
+.ssr h1 { margin: 0; font-size: var(--fs-3xl); line-height: var(--lh-3xl); }
+.ssr ul { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-1h); }
+
+/* ---------- data saver (§38.7): no decorative art ---------- */
+html[data-saver="1"] .rail-art, html[data-saver="1"] .promo .art-img, html[data-saver="1"] img[data-slot^="hero."], html[data-saver="1"] img[data-slot^="promo."], html[data-saver="1"] img[data-slot^="hub."] { display: none; }
+.banner[data-mode="polling"] { background: var(--fill-x40); color: var(--text-x10); }

@@ -22,6 +22,7 @@ const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { ApiError, E, nowIso, newId } = require('./util');
 const S = require('./content/playmode'); // keyed server wording (CLONE_SPEC.md §33, §32.3)
+const SW = require('./content/switches'); // ground rule 6: the CMS-managed explanation of every switch (CLONE_SPEC.md §38.1)
 
 // ------------------------------------------------------------------------------------------------ registry
 // [key, group, parent, scope, default]  scope: 'both' (server routes + UI), 'server' (pipeline / job only), 'client' (UI
@@ -483,7 +484,9 @@ function mountFlags({ v1, db, flags, admin, auth, identity }) {
     return { ...f, group: def.group, parent: def.parent, scope: def.scope, allow_users: f.allow_users.map((id) => ({ id, email: emailOf(id) })), deny_users: f.deny_users.map((id) => ({ id, email: emailOf(id) })),
       starts_time: f.starts_at ? new Date(f.starts_at).toISOString() : null, ends_time: f.ends_at ? new Date(f.ends_at).toISOString() : null,
       effective: g.on, effective_reason: g.reason, env_override: Object.prototype.hasOwnProperty.call(flags.overrides, k) ? flags.overrides[k] : null,
-      routes: (flags.ROUTE_RULES[k] || []).map((r) => `${r.method} ${r.re.source}`), job: flags.JOB_FLAGS.includes(k) };
+      routes: (flags.ROUTE_RULES[k] || []).map((r) => `${r.method} ${r.re.source}`), job: flags.JOB_FLAGS.includes(k),
+      // Ground rule 6: the recommended standard default and a short explanation (Admin › Content › Texts server.switches.flag.*).
+      recommended: def.default, help: SW.s(`flag.${k}`) };
   };
   // Public: the caller's evaluated flags (booleans only).
   v1.get('/feature_flags', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(flags.bundle(req)); });

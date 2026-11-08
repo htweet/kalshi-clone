@@ -136,6 +136,13 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.el.pi.terms_hint": "One market per line: TICKER weight (value = offset + Σ weight × price 0-100)",
   "admin.el.pi.intro": "The Power Index is computed from market prices with this formula; its history is recomputed from the trades. The Learn more text is a CMS text (elections.power.learn_more_body).",
   "admin.el.pi.now": "Now {value} · 24h change {change}",
-  "admin.el.pi.off": "Off"
+  "admin.el.pi.off": "Off",
+  "admin.el.rule.col": "Win rule",
+  "admin.el.rule.plurality": "Most votes (first past the post)",
+  "admin.el.rule.spread": "Most votes and at least {share}% in {fraction} of the {unit} divisions; otherwise {on_fail}",
+  "admin.el.rule.spread_fct": "Most votes and at least {share}% in {fraction} of the {unit} divisions and in each territory (the FCT); otherwise {on_fail}",
+  "admin.el.rule.fct_label": "Territories (the FCT) must reach the share too",
+  "admin.el.rule.fct_hint": "Nigeria's presidential rule: the winner needs the most votes and at least 25% in two-thirds of the 36 states and in the FCT; without it a runoff follows. On, a candidate short of the share in the FCT cannot be called the winner. Turn it off only for an office whose rule has no territory clause. Every change needs a reason and is audited.",
+  "admin.el.rule.json_hint": "type plurality, or spread with share (0-1), fraction [2,3], unit (state or lga), territory_required and on_fail runoff."
 } /* CONTENT_JSON_END */;
 register(STRINGS);

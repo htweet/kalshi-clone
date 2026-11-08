@@ -57,7 +57,9 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.sections.api_keys": "API keys and FIX",
   "admin.sections.status": "Status incidents",
   "admin.sections.waitlists": "Waitlists",
-  "admin.sections.elections": "Elections"
+  "admin.sections.elections": "Elections",
+  "admin.sections.owner_settings": "Owner settings",
+  "admin.sections.growth": "Growth"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

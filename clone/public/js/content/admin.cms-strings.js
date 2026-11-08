@@ -162,7 +162,8 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.cms.hub.payments": "Payments",
   "admin.cms.hub.rails_limits_and_providers": "Rails, limits and providers",
   "admin.cms.hub.home_banners_navigation": "Home, banners & navigation",
-  "admin.cms.hub.hero_promos_info_cards_news": "Hero, promos, info cards, news, help"
+  "admin.cms.hub.hero_promos_info_cards_news": "Hero, promos, info cards, news, help",
+  "admin.cms.tabs.languages": "Languages"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);
