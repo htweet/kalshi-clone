@@ -49,9 +49,23 @@ const timeAt = (d, x) => (d.X1 > d.X0 ? d.T0 + ((x - d.X0) / (d.X1 - d.X0)) * (d
 const fmtWhen = (d, t) => (d.T1 - d.T0 <= 36 * 3600000 ? fmtDt(t, { hour: 'numeric', minute: '2-digit' }) : fmtDt(t, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }));
 
 let active = null; // { svg, host, ov, x }
+let lastPointer = null; // { x, y } in client px while a pointer is over a chart
+// A live redraw replaces the chart's svg (and the overlay) under a still pointer: show the readout again on the new one.
+const watched = new WeakSet();
+function watchHost(host) {
+  if (watched.has(host) || typeof MutationObserver === 'undefined') return;
+  watched.add(host);
+  new MutationObserver(() => {
+    if (!active || active.host !== host || active.svg.isConnected || !lastPointer) return;
+    const svg = host.querySelector('svg[data-hover]');
+    active = null;
+    if (svg) showAt(svg, viewX(svg, lastPointer.x, lastPointer.y));
+  }).observe(host, { childList: true });
+}
 function overlay(svg) {
   const host = svg.parentElement;
   host.classList.add('ch-host');
+  watchHost(host);
   let ov = host.querySelector(':scope > .ch-hover');
   if (!ov) {
     ov = document.createElement('div');
@@ -63,6 +77,7 @@ function overlay(svg) {
   return { host, ov };
 }
 function hide() {
+  lastPointer = null;
   if (!active) return;
   active.ov.hidden = true;
   active.svg.classList.remove('ch-on');
@@ -122,13 +137,11 @@ export function installChartHover() {
   installed = true;
   document.addEventListener('pointermove', (e) => {
     const svg = svgOf(e.target);
-    if (svg) showAt(svg, viewX(svg, e.clientX, e.clientY));
-    else if (active && e.pointerType === 'mouse') hide();
+    if (svg) { showAt(svg, viewX(svg, e.clientX, e.clientY)); lastPointer = { x: e.clientX, y: e.clientY }; } else if (active && e.pointerType === 'mouse') hide();
   }, { passive: true });
   document.addEventListener('pointerdown', (e) => {
     const svg = svgOf(e.target);
-    if (svg) showAt(svg, viewX(svg, e.clientX, e.clientY));
-    else hide();
+    if (svg) { showAt(svg, viewX(svg, e.clientX, e.clientY)); lastPointer = { x: e.clientX, y: e.clientY }; } else hide();
   }, { passive: true });
   // Leaving the chart (mouse out of the svg, or out of the window) hides it.
   document.addEventListener('pointerout', (e) => {
