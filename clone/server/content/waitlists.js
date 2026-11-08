@@ -58,7 +58,7 @@ const SURVEY_DEFAULTS = {
   'real_money_launch.first_deposit': {
     kind: 'naira_band', sort: 20, required: false, active: true,
     prompt: 'How much would you expect to deposit first?',
-    bands: [{ id: 'b1', min_cents: 0, max_cents: 500000 }, { id: 'b2', min_cents: 500000, max_cents: 2000000 }, { id: 'b3', min_cents: 2000000, max_cents: 10000000 }, { id: 'b4', min_cents: 10000000, max_cents: 50000000 }, { id: 'b5', min_cents: 50000000, max_cents: null }],
+    bands: [{ id: 'b1', min_cents: 0, max_cents: 5000 }, { id: 'b2', min_cents: 5000, max_cents: 20000 }, { id: 'b3', min_cents: 20000, max_cents: 100000 }, { id: 'b4', min_cents: 100000, max_cents: 500000 }, { id: 'b5', min_cents: 500000, max_cents: null }], // ₦0–5,000 · ₦5,000–20,000 · ₦20,000–100,000 · ₦100,000–500,000 · ₦500,000+
   },
   'real_money_launch.payment_method': {
     kind: 'single', sort: 30, required: false, active: true,

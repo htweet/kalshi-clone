@@ -291,7 +291,7 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
           out.bands = bands.map((b, i) => {
             const id = str(b && b.id, 40); const min = Number(b && b.min_cents); const max = b && b.max_cents != null ? Number(b.max_cents) : null;
             if (!/^[a-z0-9_]{1,40}$/.test(id) || ids.has(id)) errs[`bands.${i}.id`] = 'a unique id';
-            if (!Number.isInteger(min) || min < 0 || min < last || (max != null && (!Number.isInteger(max) || max <= min)) || (max == null && i !== bands.length - 1)) errs[`bands.${i}`] = 'ascending whole amounts in kobo-free naira cents; only the last band is open-ended';
+            if (!Number.isInteger(min) || min < 0 || min < last || (max != null && (!Number.isInteger(max) || max <= min)) || (max == null && i !== bands.length - 1)) errs[`bands.${i}`] = 'ascending whole amounts in internal cents (₦1 each at the NGN default); only the last band is open-ended';
             ids.add(id); last = max ?? min;
             return { id, min_cents: min, max_cents: max };
           });
@@ -624,7 +624,9 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
   function createNewsletter(req, { kind, list, sendAt, reason }) {
     const key = kind === 'launch' ? 'email.waitlist_launch' : 'email.waitlist_newsletter';
     const override = cms.templateOverride(key) || null;
-    const subject = cms.renderSystem(key, {}, { origin: originOf(req), override }).subject; // as members will see it (no per-member variables in the default subject)
+    const origin = originOf(req);
+    // The subject as members will see it (a {{name}} in an override shows the guest greeting here).
+    const subject = cms.renderSystem(key, { name: WS('greeting.guest'), ...nlVars({ list_key: list, kind, origin }) }, { origin, override }).subject;
     const now = Date.now();
     const id = newId('wnl_');
     db.prepare('INSERT INTO waitlist_newsletters(id,list_key,kind,template_key,template_json,subject,status,scheduled_ts,origin,reason,created_by,created_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
