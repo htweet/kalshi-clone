@@ -28,7 +28,7 @@ before(async () => {
   admin = await H.adminClient();
   dana = await H.user('dana', { dollars: 100 });
 });
-after(async () => { await browser?.close(); await H.stop(); H.cleanup(); });
+after(async () => { try { await browser?.close(); } finally { await H.stop(); H.cleanup(); } });
 
 test('portal: tabs, CMS-seeded prose, generated reference, FIX tables, search (Ctrl K), theme, agreement, changelog', async () => {
   // Seeded through the CMS: every docs page is published version 1 with a reason.

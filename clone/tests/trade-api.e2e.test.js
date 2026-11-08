@@ -27,7 +27,7 @@ before(async () => {
   // Premier: these tests send bursts of orders well above Basic's write budget (the 429 test uses its own key).
   assert.equal((await admin.call('PUT', `/v1/admin/api_keys/${ak.id}/tier`, { tier: 'premier', reason: 'e2e burst headroom' })).status, 200);
 });
-after(async () => { await browser?.close(); await H.stop(); H.cleanup(); });
+after(async () => { try { await browser?.close(); } finally { await H.stop(); H.cleanup(); } });
 const setFlag = async (key, enabled) => { let r = await admin.call('PUT', `/v1/admin/flags/${key}`, { enabled, reason: `e2e ${key} ${enabled}` }); if (r.code === 'step_up_required') { await admin.call('POST', '/v1/step_up', { password: PW }); r = await admin.call('PUT', `/v1/admin/flags/${key}`, { enabled, reason: `e2e ${key} ${enabled}` }); } assert.equal(r.status, 200, r.text); };
 const raw = (p, headers, init = {}) => fetch(H.BASE + p, { ...init, headers: { accept: 'application/json', ...headers } }).then(async (r) => ({ status: r.status, headers: r.headers, body: await r.json().catch(() => null) }));
 

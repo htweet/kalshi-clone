@@ -53,7 +53,7 @@ before(async () => {
   F.pg2 = (await s.call('POST', '/trade-api/v2/margin/order_groups', { kind: 'limit', contracts_limit: 5 })).body.order_group_id;
   F.coll = 'PLXCOMBO';
 });
-after(async () => { await browser?.close(); await H.stop(); H.cleanup(); });
+after(async () => { try { await browser?.close(); } finally { await H.stop(); H.cleanup(); } });
 
 // Per operation: path parameters, query, body, and who calls (default: Alice's key; 'maker'; 'public').
 const plan = () => ({

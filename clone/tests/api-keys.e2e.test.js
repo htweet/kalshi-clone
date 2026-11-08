@@ -21,9 +21,12 @@ before(async () => {
   await H.start({ auth: { stepUpMs: 2000 } });
   browser = await chromium.launch();
 });
+// Close everything first, then check: a failed assertion here must never leave the server or browser running (an open
+// socket would keep the test process alive and stall the whole suite).
 after(async () => {
-  for (const p of allPages) assert.deepEqual(p.errors, [], 'no page errors');
-  await browser?.close(); await H.stop(); H.cleanup();
+  const errors = allPages.flatMap((p) => p.errors);
+  try { await browser?.close(); } finally { await H.stop(); H.cleanup(); }
+  assert.deepEqual(errors, [], 'no page errors');
 });
 
 test('identity lock, create with step-up, private key shown once, paste a public key, scopes and IP allowlist, usage', async () => {

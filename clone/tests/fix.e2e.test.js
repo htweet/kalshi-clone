@@ -33,7 +33,7 @@ before(async () => {
   fk = await H.key(fred, { kind: 'rsa', label: 'FIX order entry' });
   T = H.openMarket();
 });
-after(async () => { fx?.close(); dc?.close(); await browser?.close(); await H.stop(); H.cleanup(); });
+after(async () => { try { fx?.close(); dc?.close(); await browser?.close(); } finally { await H.stop(); H.cleanup(); } });
 
 test('off by default; the flag starts the acceptor; logon is signed (bad signature and wrong scope refused)', async () => {
   assert.equal(H.srv.fix.port(), null, 'no listener while api.fix is off');
