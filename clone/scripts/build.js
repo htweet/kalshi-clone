@@ -17,6 +17,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const zlib = require('node:zlib');
 
 const ROOT = path.join(__dirname, '..');
 const PUBLIC = path.join(ROOT, 'public');
@@ -126,6 +127,14 @@ async function build({ quiet = false, salt = '' } = {}) {
     const version = crypto.createHash('sha256').update(`${hash}\0${files.join('\n')}\0${salt}`).digest('hex').slice(0, 16);
     fs.writeFileSync(path.join(tmp, 'sw.js'), renderServiceWorker(fs.readFileSync(path.join(PUBLIC, 'sw.js'), 'utf8'), version, precache));
     fs.writeFileSync(path.join(tmp, MANIFEST), JSON.stringify({ source_hash: hash, built_at: new Date().toISOString(), esbuild: esbuild.version, entry: { js: mainJs, css: appCss }, files, pwa: { version, precache } }, null, 1));
+    // Pre-compressed copies (Brotli and gzip) of every script and stylesheet, served by server/security.js to browsers that
+    // accept them: about a quarter of the bytes on slow mobile networks (PLAN P8.6, CLONE_SPEC.md §38.7). Not in `files`:
+    // they are encodings of the same URL, not assets of their own.
+    for (const f of files.filter((x) => /\.(js|css)$/.test(x))) {
+      const buf = fs.readFileSync(path.join(tmp, f));
+      fs.writeFileSync(path.join(tmp, `${f}.br`), zlib.brotliCompressSync(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buf.length } }));
+      fs.writeFileSync(path.join(tmp, `${f}.gz`), zlib.gzipSync(buf, { level: 9 }));
+    }
 
     fs.rmSync(DIST, { recursive: true, force: true });
     fs.renameSync(tmp, DIST);

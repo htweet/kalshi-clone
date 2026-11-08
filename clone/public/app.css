@@ -149,7 +149,8 @@ sup { font-size: var(--fs-3xs); line-height: 0; }
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 :where(select) option { background: var(--surface-x20); color: var(--text-x10); }
-:where(input, select, textarea):focus { outline: none; border-color: var(--brand); box-shadow: var(--ring); }
+/* Date and time inputs focus an inner field: the ring follows :focus-within there (WCAG 2.4.7, CLONE_SPEC.md §38.6). */
+:where(input, select, textarea):focus, :where(input):focus-within { outline: none; border-color: var(--brand); box-shadow: var(--ring); }
 :where(input[type=checkbox], input[type=radio], input[type=range]) { accent-color: var(--brand); }
 
 /* ---------- typography ---------- */
@@ -176,7 +177,7 @@ main { flex: 1; width: 100%; max-width: var(--container); margin: 0 auto; paddin
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes shimmer { to { background-position: -200% 0; } }
 @keyframes pulse { 50% { opacity: .3; } }
-@media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 
 /* ---------- header ---------- */
 .topbar { background: var(--surface-x10); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 30; }

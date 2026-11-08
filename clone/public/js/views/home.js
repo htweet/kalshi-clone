@@ -7,7 +7,7 @@ import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { queries, session } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, eventHref, cents, multiplier, prob, previewPct, catSlug, catLabel, toast, dayKey, fmtTime, fmtDay } from '../lib.js';
+import { scrollMotion, esc, eventHref, cents, multiplier, prob, previewPct, catSlug, catLabel, toast, dayKey, fmtTime, fmtDay } from '../lib.js';
 import { eventCard, rankList, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { waitlistCta } from '../flags.js'; // Phase 7A: "Join the real-money waitlist" while in play mode (CLONE_SPEC.md §36)
 
@@ -60,8 +60,8 @@ export async function render({ el, navigate }) {
     </aside></div>`;
 
   const strip = el.querySelector('#upcoming');
-  el.querySelector('#up-prev').onclick = () => strip.scrollBy({ left: -400, behavior: 'smooth' });
-  el.querySelector('#up-next').onclick = () => strip.scrollBy({ left: 400, behavior: 'smooth' });
+  el.querySelector('#up-prev').onclick = () => strip.scrollBy({ left: -400, behavior: scrollMotion() });
+  el.querySelector('#up-next').onclick = () => strip.scrollBy({ left: 400, behavior: scrollMotion() });
   strip.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-star]');
     if (!b) return;

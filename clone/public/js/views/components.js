@@ -150,8 +150,8 @@ export function postCard(p, { showEvent = true, expanded = false } = {}) {
       ${stickerImg(p.sticker)}
       ${showEvent && p.event ? `<a class="post-event" href="${esc(p.event.link)}" data-link>${esc(p.event.title)}</a><br>` : ''}
       <div class="post-actions">
-        <button data-act="like" class="${p.liked ? 'on' : ''}" aria-pressed="${esc(p.liked)}" aria-label="${te('components.post_card.like')}">${ICON.heart}<span data-testid="like-count">${esc(p.like_count)}</span></button>
-        <button data-act="comments" aria-label="${te('components.post_card.replies')}">${ICON.reply}<span data-testid="comment-count">${esc(p.comment_count)}</span></button>
+        <button data-act="like" class="${p.liked ? 'on' : ''}" aria-pressed="${esc(p.liked)}">${ICON.heart}<span class="sr-only">${te('components.post_card.like')} </span><span data-testid="like-count">${esc(p.like_count)}</span></button>
+        <button data-act="comments">${ICON.reply}<span class="sr-only">${te('components.post_card.replies')} </span><span data-testid="comment-count">${esc(p.comment_count)}</span></button>
         <button data-act="bookmark" class="bm ${p.bookmarked ? 'on' : ''}" aria-pressed="${esc(p.bookmarked)}" aria-label="${te('components.post_card.bookmark')}">${ICON.bookmark}</button>
         <button data-act="share" aria-label="${te('components.post_card.share')}" data-testid="post-share">${ICON.share}</button>
       </div>

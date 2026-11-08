@@ -5,7 +5,7 @@ import { te, t as tx } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../content/ai-summary-strings.js';
 import { request } from '../api.js';
 import { socket } from '../ws.js';
-import { esc, fmtDay } from '../lib.js';
+import { esc, fmtDay, scrollMotion } from '../lib.js';
 
 const fmt = (iso) => fmtDay(iso);
 
@@ -37,7 +37,7 @@ export function mountAiSummary(box, ev) {
     e.preventDefault();
     const n = document.getElementById(`news-${a.dataset.cite}`);
     if (!n) return;
-    n.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    n.scrollIntoView({ behavior: scrollMotion(), block: 'center' });
     n.classList.add('ai-highlight'); setTimeout(() => n.classList.remove('ai-highlight'), 1800);
   });
   draw();

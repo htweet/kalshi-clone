@@ -6,6 +6,8 @@ import { uiPrefs } from './prefs.js';
 import { fmtDate } from './currency.js'; // display currency, locale and time zone (CLONE_SPEC.md §30)
 // Money and contract prices are formatted by currency.js only (₦ by default, $ / ¢ when an admin switches to USD).
 export { money, pxc, px, money0, moneyCents, moneyCompact, pxCents, priceUnit, sym, contractValue, amountLabel, toApiDollars, fromApiDollars, moneyStep, moneyMin, validMoneyInput, moneyInputHint, assetPrice, assetDecimals, fmtDt, fmtDate, fmtDay, fmtDateTime, fmtTime, dayKey, currency, isNgn } from './currency.js';
+// Scrolling the page for the user: instant when the device asks for reduced motion (WCAG 2.3.3, CLONE_SPEC.md §38.6).
+export const scrollMotion = () => (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const cents = (dollarStr) => (dollarStr == null ? null : Math.round(Number(dollarStr) * 100));
 // Phase 5A (CLONE_SPEC.md §28.1): prices are 4-decimal dollar strings on the market's grid; cc = $0.0001 (1¢ = 100 cc).

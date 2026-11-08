@@ -273,6 +273,26 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
   function mountStatic(target) {
     if (assets === 'dist') {
       // Content-hashed, minified bundles: cache forever (S3). Source files under /js and the per-file CSS are not served.
+      // Scripts and stylesheets go out pre-compressed (Brotli, else gzip) when the browser accepts it and the build wrote the
+      // copy (scripts/build.js; PLAN P8.6, CLONE_SPEC.md §38.7). The name is checked against the hashed-file pattern first.
+      const ASSET_DIR = path.join(DIST, 'assets');
+      target.get(/^\/assets\/[A-Za-z0-9_-]+\.(js|css)$/, (req, res, next) => {
+        const name = req.path.slice('/assets/'.length);
+        const ae = String(req.headers['accept-encoding'] || '');
+        const accepts = (enc) => ae.split(',').some((part) => {
+          const [n, ...ps] = part.split(';').map((x) => x.trim());
+          if (n.toLowerCase() !== enc) return false;
+          const q = ps.find((x) => x.startsWith('q='));
+          return !q || Number(q.slice(2)) > 0; // q=0 means "not acceptable"
+        });
+        const pick = [['br', '.br'], ['gzip', '.gz']].find(([enc, ext]) => accepts(enc) && fs.existsSync(path.join(ASSET_DIR, name + ext)));
+        res.setHeader('Vary', 'Accept-Encoding');
+        if (!pick) return next();
+        res.setHeader('Content-Encoding', pick[0]);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.type(name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8');
+        return res.sendFile(name + pick[1], { root: ASSET_DIR, dotfiles: 'deny', lastModified: true, headers: {} }, (err) => { if (err && !res.headersSent) next(); });
+      });
       target.use('/assets', onlyExt(['.js', '.css', '.woff2']), express.static(path.join(DIST, 'assets'), { ...staticOpts('public, max-age=31536000, immutable') }));
     } else {
       const cssFiles = new Set(fs.readdirSync(PUBLIC).filter((f) => f.endsWith('.css')));

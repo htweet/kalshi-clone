@@ -8,7 +8,7 @@ import { vars } from '../dynstyle.js';
 import { api, request } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
-import { esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars, priceUnit, pxCents, contractValue, amountLabel, toApiDollars, validMoneyInput, moneyStep, sym, fmtDay, fmtDateTime, isNgn } from '../lib.js';
+import { scrollMotion, esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars, priceUnit, pxCents, contractValue, amountLabel, toApiDollars, validMoneyInput, moneyStep, sym, fmtDay, fmtDateTime, isNgn } from '../lib.js';
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
@@ -170,7 +170,7 @@ export async function render({ el, params, query, navigate }) {
     const ch = prob(m);
     shareDialog({ kind: multi ? 'market' : 'event', ticker: multi ? m.ticker : ev.event_ticker, title: multi ? `${ev.title}: ${m.yes_sub_title}` : ev.title, text: ch != null ? tx('event.share.text', { title: multi ? `${ev.title}: ${m.yes_sub_title}` : ev.title, chance: ch }) : ev.title }).catch((e) => toast(e.message, 'error'));
   };
-  $('#chat-btn').onclick = () => { selectTab('ideas'); $('.big-tabs').scrollIntoView({ behavior: 'smooth' }); };
+  $('#chat-btn').onclick = () => { selectTab('ideas'); $('.big-tabs').scrollIntoView({ behavior: scrollMotion() }); };
 
   // ---------- head-to-head, legend, rows ----------
   function drawH2H() {

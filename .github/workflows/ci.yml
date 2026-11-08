@@ -53,6 +53,8 @@ jobs:
         run: node ../scripts/secret-scan.js --all
       - name: Build
         run: npm run build --if-present
+      - name: Performance budgets (compressed script and stylesheet sizes, PLAN P8.6)
+        run: npm run perf:budget
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests

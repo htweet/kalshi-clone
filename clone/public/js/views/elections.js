@@ -144,7 +144,12 @@ function wireMap(root, map, onPick) {
     if (onPick) onPick(g.dataset.id);
   });
   wrap.addEventListener('focusin', (e) => { const g = e.target.closest('[data-id]'); if (g) show(g.dataset.id, g); });
-  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); });
+  wrap.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { hide(); return; }
+    // A tile is role=button: Enter and Space pin it like a click (WCAG 2.1.1, CLONE_SPEC.md §38.6).
+    const g = (e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('g[data-id]');
+    if (g) { e.preventDefault(); g.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+  });
 }
 
 // ---------------------------------------------------------------------------------------------- ratings swingometer
