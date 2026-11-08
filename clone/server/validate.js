@@ -30,6 +30,8 @@ const BODY_LIMITS = [
   [/^\/v1\/admin\/catalog\/import$/, '256kb'], // CSV import: a few hundred rows
   [/^\/v1\/admin\/cms\/media$/, '12mb'], // one image upload, base64 (CMS media library, CLONE_SPEC.md §32.6)
   [/^\/v1\/admin\/cms\/import$/, '8mb'], // a full content export
+  [/^\/v1\/admin\/i18n\/locales\/[^/]+\/import$/, '4mb'], // a translator's file: every catalog key with its English (Phase 8, CLONE_SPEC.md §38.5)
+  [/^\/v1\/(referrals\/apply|users\/[^/]+\/(share_links|locale|data_saver|sms_notifications))$/, '4kb'], // Phase 8 member writes
   [/^\/v1\/admin\//, '64kb'],
 ];
 const limitFor = (p) => (BODY_LIMITS.find(([re]) => re.test(p)) || [null, DEFAULT_LIMIT])[1];

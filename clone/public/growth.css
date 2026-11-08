@@ -15,7 +15,8 @@ p a, .faint a, .muted a, .cms-body a, li a:not(.btn) { text-decoration: underlin
 .footer-tools { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }
 .footer-tool { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-sm); }
 .footer-tool select { min-height: var(--control-sm); padding: 0 var(--space-2); background: var(--surface-x20); color: var(--text-x10); border: 1px solid var(--line); border-radius: var(--rounded-x05); font-size: var(--fs-sm); line-height: var(--lh-sm); }
-.footer-tool input[type=checkbox] { width: 20px; height: 20px; margin: var(--space-0); }
+.footer-tool input[type=checkbox] { width: 24px; height: 24px; margin: var(--space-0); }
+.footer-social a { min-width: 24px; justify-content: center; }
 
 /* ---------- share sheet and copy-trade (§38.3) ---------- */
 .share-dialog { border: 1px solid var(--line); border-radius: var(--rounded-x30); background: var(--surface-x20); color: var(--text-x10); padding: var(--space-5); width: min(440px, calc(100vw - 24px)); box-shadow: var(--shadow-pop); }

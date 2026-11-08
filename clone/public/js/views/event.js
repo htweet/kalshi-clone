@@ -722,6 +722,8 @@ export async function render({ el, params, query, navigate }) {
   }));
   const legTickers = isCombo ? (ev.markets[0].mve_selected_legs || []).map((l) => l.market_ticker) : [];
   unsubs.push(socket.subscribe({ channels: ['market_lifecycle_v2'], market_tickers: [...tickers, ...legTickers] }, () => refreshEvent().catch(() => {})));
+  // Polling fallback (data saver on an unstable connection, ws.js, CLONE_SPEC.md §38.7): the prices are re-read instead.
+  unsubs.push(socket.onPoll(() => refreshEvent().catch(() => {})));
   unsubs.push(socket.subscribe({ channels: ['trade'], market_tickers: tickers }, () => { if (state.bottomTab === 'trades') { clearTimeout(tradeT); tradeT = setTimeout(() => drawBottom(), 150); } }));
   const onNotif = (e) => { if (e.detail.type === 'price_target') drawAlerts(); };
   window.addEventListener('parlance:notification', onNotif);

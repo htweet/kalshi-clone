@@ -7,6 +7,7 @@
 //     show drafts to anyone else (the flag is dropped when the server refuses).
 //   - Brand colours come from /content-theme.css (a stylesheet: CSS custom properties, no inline styles).
 import { setTexts, staticKeys, t, te, ts, textLocale } from './i18n.js';
+import './content/content-live-strings.js'; // this module's own keys (they were never registered before Phase 8)
 import { esc } from './lib.js';
 import { refreshClientToken } from './security.js';
 

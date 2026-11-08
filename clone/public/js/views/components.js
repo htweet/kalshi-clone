@@ -97,7 +97,10 @@ export function multiChart(series, { height = 260, endLabels = false, width = 70
     return `<path d="${d}" fill="none" stroke="${esc(s.color)}" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="5" fill="${esc(s.color)}"/>`;
   }).join('') + labelSvg;
   const hover = hoverAttr(series.map((s) => ({ name: s.name, color: s.color, points: s.points.map((p) => ({ x: sx(p.t), y: sy(p.v), t: p.t * 1000, label: `${Number(Number(p.v).toFixed(2))}%` })) })), { x0: 0, x1: W - padR - 8 });
-  return `<svg class="chart v-h" viewBox="0 0 ${esc(W)} ${esc(H)}"${vars({ '--h': `${height}px` })} role="img" aria-label="${te('components.multi_chart.price_history')}"${hover}>${grid}${days}${lines}</svg>`;
+  // Text alternative (WCAG 1.1.1, CLONE_SPEC.md §38.6): the latest value of every line and the period the chart covers.
+  const summary = series.filter((s) => s.points.length).map((s) => tx('components.multi_chart.sr_line', { name: s.name, value: Number(Number(s.points[s.points.length - 1].v).toFixed(1)), from: Number(Number(s.points[0].v).toFixed(1)) })).join('; ');
+  const sr = tx('components.multi_chart.sr', { lines: summary, from: fmtDay(minX * 1000), to: fmtDay(maxX * 1000) });
+  return `<svg class="chart v-h" viewBox="0 0 ${esc(W)} ${esc(H)}"${vars({ '--h': `${height}px` })} role="img" aria-label="${esc(sr)}" data-testid="chart-svg"${hover}>${grid}${days}${lines}</svg>`;
 }
 export const seriesColor = (m, i) => (m.color_code && m.color_code !== '#5b5bd6' ? m.color_code : OC_COLORS[i % OC_COLORS.length]);
 

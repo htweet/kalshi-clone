@@ -37,7 +37,9 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "components.line_chart.no_trades_yet": "No trades yet.",
   "components.badge_label_first_trade.first_trade": "First trade",
   "components.badge_label_profitable_month.profitable_month": "Profitable month",
-  "components.badge_label_top_10.top_10": "Top 10"
+  "components.badge_label_top_10.top_10": "Top 10",
+  "components.multi_chart.sr": "Price history from {from} to {to}: {lines}.",
+  "components.multi_chart.sr_line": "{name} {value}% now, {from}% at the start"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);
