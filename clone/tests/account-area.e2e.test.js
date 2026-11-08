@@ -58,10 +58,10 @@ test('frame, ☰ menu, trophy and category index; placeholder pages; earlier acc
   assert.equal((await page.textContent('[data-testid=menu-group-trust] summary')).trim(), 'Trust');
   assert.ok(await page.locator('[data-testid=menu-promo]:has-text("Enter promo code")').isVisible());
   assert.ok(await page.locator('[data-testid=menu-logout]:has-text("Log out")').isVisible());
-  // A later-phase destination opens a clear placeholder.
+  // API Docs opens the developer portal (built in Phase 7, CLONE_SPEC.md §35.9; it was a "Phase 7" placeholder before).
   await page.click('[data-testid=menu-api-docs]');
-  await page.waitForSelector('[data-testid=placeholder-page][data-page=docs]');
-  assert.match(await page.textContent('[data-testid=placeholder-page]'), /Phase 7/);
+  await page.waitForSelector('[data-testid=docs-portal][data-page=welcome] [data-testid=docs-prose]');
+  assert.match(await page.textContent('[data-testid=docs-tabs]'), /Predictions APIs/);
   await page.click('[data-testid=account-menu]');
   await page.click('[data-testid=menu-group-support] summary');
   await page.click('[data-testid=menu-group-support] a:has-text("Fee schedule")');

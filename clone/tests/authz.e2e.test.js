@@ -19,6 +19,7 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { start } = require('../server/index.js');
 const { Client } = require('./lib/client');
+const { SignedClient, ed25519, pubPem } = require('./lib/signing'); // Phase 7 signed API-key probes (CLONE_SPEC.md §35)
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-authz-'));
 const DB_FILE = path.join(TMP, 'authz.db');
@@ -33,6 +34,7 @@ const OPTS = {
   rate: { burst: 1e6, perSec: 1e6 },
   security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH },
   admin: { email: `root.${stamp}@example.test`, password: PW },
+  demo: {}, // Phase 7: the demo environment, so /v1/developer/demo_credentials is reachable
 };
 
 let srv;
@@ -53,6 +55,8 @@ const P = { who: 'public' };
 const U = { who: 'user' };
 const O = { who: 'owner' };
 const perm = (p, extra = {}) => ({ who: `perm:${p}`, ...extra });
+// Phase 7: public Trade API routes authenticated by a signed API key with these scopes (never by a session cookie).
+const K = (scope) => ({ who: 'key', scope });
 const EXPECT = {
   // ---- public market data (Trade API v2)
   'GET /trade-api/v2/exchange/status': P,
@@ -63,7 +67,7 @@ const EXPECT = {
   'GET /trade-api/v2/events': P,
   'GET /trade-api/v2/events/:ticker': P,
   'GET /trade-api/v2/series/:ticker': P,
-  'GET /trade-api/v2/series/:s/markets/:ticker/candlesticks': P,
+  // (the candlestick route's series parameter is :series_ticker since Phase 7's route registry; classified below)
   // ---- public site data
   'GET /v1/site_config': P, 'GET /v1/help': P, 'GET /v1/help/:slug': P,
   'GET /v1/bff/home': P, 'GET /v1/events/:ticker/related': P, 'GET /v1/live_data/count': P, 'GET /v1/search/series': P,
@@ -294,6 +298,38 @@ const EXPECT = {
   'GET /v1/admin/users/:id/money_controls': perm('users.read'), 'PUT /v1/admin/users/:id/money_controls': perm('users.money'),
   'GET /v1/admin/central_bank': perm('users.read'), 'POST /v1/admin/central_bank/fund': perm('users.money'), 'POST /v1/admin/central_bank/defund': perm('users.money'),
   'PUT /v1/admin/central_bank/settings': perm('settings.write'), 'POST /v1/admin/central_bank/queue/process': perm('users.money'),
+  // ---- Phase 7: public trading API (CLONE_SPEC.md §35). Market data is public; portfolio / order routes need a signed
+  // API key with the listed scopes — a session cookie is never a credential there (anonymous and cookie both get 401).
+  // Key management is the owner's (A2 identity lock + step-up inside); staff manage keys, tiers and FIX sessions;
+  // the generated API documents, the portal data and the status page are public reads (behind their flags).
+  'GET /trade-api/v2/exchange/schedule': P, 'GET /trade-api/v2/exchange/announcements': P, 'GET /trade-api/v2/series': P,
+  'GET /trade-api/v2/series/:series_ticker/markets/:ticker/candlesticks': P, 'GET /trade-api/v2/historical/trades': P, 'GET /trade-api/v2/historical/markets/:ticker/candlesticks': P,
+  'GET /trade-api/v2/multivariate_event_collections': P, 'GET /trade-api/v2/multivariate_event_collections/:collection_ticker': P,
+  'GET /trade-api/v2/margin/markets': P, 'GET /trade-api/v2/margin/markets/:ticker': P, 'GET /trade-api/v2/margin/markets/:ticker/orderbook': P, 'GET /trade-api/v2/margin/markets/:ticker/trades': P,
+  'GET /trade-api/v2/account/limits': K('read'), 'GET /trade-api/v2/account/endpoint_costs': K('read'), 'GET /trade-api/v2/portfolio/balance': K('read'),
+  'GET /trade-api/v2/portfolio/positions': K('read'), 'GET /trade-api/v2/portfolio/orders': K('read'), 'GET /trade-api/v2/portfolio/orders/queue_positions': K('read'),
+  'POST /trade-api/v2/portfolio/orders/batched': K('trade'), 'DELETE /trade-api/v2/portfolio/orders/batched': K('trade'), 'POST /trade-api/v2/portfolio/orders': K('trade'),
+  'GET /trade-api/v2/portfolio/orders/:order_id': K('read'), 'GET /trade-api/v2/portfolio/orders/:order_id/queue_position': K('read'), 'DELETE /trade-api/v2/portfolio/orders/:order_id': K('trade'),
+  'POST /trade-api/v2/portfolio/orders/:order_id/amend': K('trade'), 'POST /trade-api/v2/portfolio/orders/:order_id/decrease': K('trade'),
+  'GET /trade-api/v2/portfolio/fills': K('read'), 'GET /trade-api/v2/portfolio/settlements': K('read'), 'GET /trade-api/v2/portfolio/order_groups': K('read'),
+  'POST /trade-api/v2/portfolio/order_groups': K('trade'), 'GET /trade-api/v2/portfolio/order_groups/:order_group_id': K('read'),
+  'DELETE /trade-api/v2/portfolio/order_groups/:order_group_id': K('trade'), 'PUT /trade-api/v2/portfolio/order_groups/:order_group_id/reset': K('trade'),
+  'GET /trade-api/v2/communications/id': K('read'), 'GET /trade-api/v2/communications/rfqs': K('read'), 'POST /trade-api/v2/communications/rfqs': K('trade'),
+  'GET /trade-api/v2/communications/rfqs/:rfq_id': K('read'), 'DELETE /trade-api/v2/communications/rfqs/:rfq_id': K('trade'), 'GET /trade-api/v2/communications/quotes': K('read'),
+  'POST /trade-api/v2/communications/quotes': K('trade'), 'GET /trade-api/v2/communications/quotes/:quote_id': K('read'), 'DELETE /trade-api/v2/communications/quotes/:quote_id': K('trade'),
+  'PUT /trade-api/v2/communications/quotes/:quote_id/accept': K('trade'), 'PUT /trade-api/v2/communications/quotes/:quote_id/confirm': K('trade'),
+  'POST /trade-api/v2/multivariate_event_collections/:collection_ticker': K('trade'),
+  'GET /trade-api/v2/margin/balance': K('read+perps'), 'GET /trade-api/v2/margin/positions': K('read+perps'), 'GET /trade-api/v2/margin/orders': K('read+perps'),
+  'POST /trade-api/v2/margin/orders': K('trade+perps'), 'GET /trade-api/v2/margin/orders/:order_id': K('read+perps'), 'DELETE /trade-api/v2/margin/orders/:order_id': K('trade+perps'),
+  'POST /trade-api/v2/margin/orders/:order_id/amend': K('trade+perps'), 'POST /trade-api/v2/margin/orders/:order_id/decrease': K('trade+perps'),
+  'POST /trade-api/v2/margin/positions/:ticker/close': K('trade+perps'), 'GET /trade-api/v2/margin/fills': K('read+perps'), 'GET /trade-api/v2/margin/order_groups': K('read+perps'),
+  'POST /trade-api/v2/margin/order_groups': K('trade+perps'), 'DELETE /trade-api/v2/margin/order_groups/:order_group_id': K('trade+perps'), 'POST /trade-api/v2/margin/order_groups/:order_group_id/reset': K('trade+perps'),
+  'POST /v1/users/:uid/api_keys': O, 'POST /v1/users/:uid/api_keys/:id/rotate': O, 'DELETE /v1/users/:uid/api_keys/:id': O, 'GET /v1/users/:uid/api_keys/usage': O,
+  'GET /v1/admin/api_keys/settings': perm('settings.write'), 'PUT /v1/admin/api_keys/settings': perm('settings.write'), 'GET /v1/admin/api_keys': perm('users.read'),
+  'GET /v1/admin/api_keys/:id': perm('users.read'), 'PUT /v1/admin/api_keys/:id/tier': perm('users.support'), 'POST /v1/admin/api_keys/:id/revoke': perm('users.support'),
+  'GET /v1/admin/fix/sessions': perm('users.read'), 'POST /v1/admin/fix/sessions/:id/disconnect': perm('users.support'),
+  'GET /v1/status': P, 'GET /v1/developer/portal': P, 'GET /v1/developer/demo_credentials': U, 'POST /v1/developer/demo_credentials': U,
+  'GET /docs/openapi.json': P, 'GET /docs/asyncapi.json': P, 'GET /docs/fix.json': P,
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };
@@ -324,6 +360,7 @@ function enumerateRoutes(app) {
 
 // ------------------------------------------------------------------------------------------- principals + fixtures
 const principals = {}; // name -> Client
+const keys = {}; // Phase 7: B's signed clients { full, read }
 let anon; let A; let B; let C;
 const fx = {}; // fixtures owned by A
 const newEmail = (n) => `${n}.${stamp}@example.test`;
@@ -347,6 +384,15 @@ before(async () => {
   B = await makeUser('bob');
   C = await makeUser('carol');
   for (const role of ROLES) principals[role] = await makeUser(`role-${role}`, [role]);
+  // Phase 7: B's signed API keys, a full one and a read-only one (identity approved for the A2 lock).
+  dbrun("UPDATE identity_profiles SET status='approved' WHERE user_id=?", B.uid);
+  for (const [name, scopes] of [['full', ['read', 'trade', 'perps']], ['read', ['read']]]) {
+    const kp = ed25519();
+    const r = await B.call('POST', `/v1/users/${B.uid}/api_keys`, { label: `authz ${name}`, scopes, mode: 'public_key', public_key: pubPem(kp) });
+    assert.equal(r.status, 201, r.text);
+    keys[name] = new SignedClient(BASE, r.body.api_key.api_key_id, kp.privateKey);
+  }
+  dbrun("UPDATE api_keys SET tier='prime' WHERE user_id=?", B.uid); // the matrix sends bursts; Basic would answer 429
 });
 after(async () => { if (srv) await srv.close(); });
 
@@ -469,6 +515,24 @@ test('object-level IDOR: user B cannot read or change user A\'s orders, perps or
   assert.equal((await B.call('DELETE', `/v1/users/${B.uid}/orders`)).body.canceled_count, 0);
   assert.equal((await B.call('PUT', `/v1/users/${B.uid}/notifications/read`, {})).status, 200);
 
+  // ---- Phase 7: A's API key and A's order through B's signed key and B's own key-management paths.
+  dbrun("UPDATE identity_profiles SET status='approved' WHERE user_id=?", A.uid);
+  const akp = ed25519();
+  r = await A.call('POST', `/v1/users/${A.uid}/api_keys`, { label: 'authz A', scopes: ['read', 'trade'], mode: 'public_key', public_key: pubPem(akp) });
+  assert.equal(r.status, 201, ctxCode(r));
+  fx.key = r.body.api_key.api_key_id;
+  for (const [m, p, body] of [['DELETE', `/v1/users/${B.uid}/api_keys/${fx.key}`], ['POST', `/v1/users/${B.uid}/api_keys/${fx.key}/rotate`, {}]]) refused(await B.call(m, p, body), `B ${m} ${p}`);
+  assert.ok(!(await B.call('GET', `/v1/users/${B.uid}/api_keys`)).body.api_keys.some((k) => k.api_key_id === fx.key), 'B does not see A\'s key');
+  assert.ok(!(await B.call('GET', `/v1/users/${B.uid}/api_keys/usage`)).body.usage.some((u) => u.api_key_id === fx.key));
+  for (const [m, p, body] of [['GET', `/trade-api/v2/portfolio/orders/${fx.oid}`], ['DELETE', `/trade-api/v2/portfolio/orders/${fx.oid}`], ['POST', `/trade-api/v2/portfolio/orders/${fx.oid}/amend`, { yes_price: 3 }],
+    ['POST', `/trade-api/v2/portfolio/orders/${fx.oid}/decrease`, { reduce_by: 1 }], ['DELETE', '/trade-api/v2/portfolio/orders/batched', { ids: [fx.oid] }], ['GET', `/trade-api/v2/margin/orders/${fx.perpOid}`], ['DELETE', `/trade-api/v2/margin/orders/${fx.perpOid}`],
+    ['GET', `/trade-api/v2/communications/rfqs/${fx.rfq}`], ['DELETE', `/trade-api/v2/communications/rfqs/${fx.rfq}`]]) {
+    const res = await keys.full.call(m, p, body);
+    if (m === 'DELETE' && p.endsWith('/batched')) assert.ok(res.body.orders[0].error, `B batch-cancel of A's order must fail per item: ${ctxCode(res)}`);
+    else refused(res, `B signed ${m} ${p}`);
+  }
+  assert.equal(dbq('SELECT status FROM api_keys WHERE id=?', fx.key)[0].status, 'active');
+
   // ---- A's objects are untouched.
   assert.equal(dbq('SELECT status FROM orders WHERE id=?', fx.oid)[0].status, 'resting');
   assert.equal(dbq('SELECT status FROM perp_orders WHERE id=?', fx.perpOid)[0].status, 'resting');
@@ -517,6 +581,10 @@ test('WebSocket channel authorization: private channels need a session; another 
   assert.equal(fr.msg.code, 9);
   forged.close();
 
+  // Phase 7: the public API WebSocket needs a signed upgrade (a cookie is not enough).
+  const pub = new (require('ws').WebSocket)(`${BASE.replace('http', 'ws')}/trade-api/ws/v2`, { headers: { cookie: A.cookieHeader() } });
+  const code = await new Promise((resolve) => { pub.once('unexpected-response', (q, res) => resolve(res.statusCode)); pub.once('open', () => resolve(101)); pub.once('error', () => resolve(0)); });
+  assert.equal(code, 401);
   // A foreign Origin is refused at the upgrade.
   const foreign = A.socket({ origin: 'https://evil.example' });
   await assert.rejects(foreign.opened, /refused|403|Unexpected/i);
@@ -567,6 +635,19 @@ test('authorization matrix: anonymous, user, other user (IDOR) and every admin r
       if (who === 'public') assertPassedGate(r, key); else assertUnauth(r, key);
     });
     if (who === 'public') continue;
+    // Phase 7 signed routes: a session cookie is not a credential; the full key passes; a read-only key is refused
+    // trade / perps scopes with 403.
+    if (who === 'key') {
+      await check(`${key} as signed-in user (cookie)`, async () => assertUnauth(await run(B, B.uid), `${key} cookie`));
+      const signed = async (k) => { probes++; const body = ['GET', 'HEAD', 'DELETE'].includes(route.method) ? undefined : {}; return k.call(route.method, fill(route, B.uid), body); };
+      await check(`${key} with a full key`, async () => assertPassedGate(await signed(keys.full), `${key} full key`));
+      await check(`${key} with a read-only key`, async () => {
+        const r = await signed(keys.read);
+        if (spec.scope === 'read') assertPassedGate(r, `${key} read key`);
+        else assert.ok(r.status === 403 && r.reason === 'insufficient_scope', `${key} read key: expected 403 insufficient_scope, got ${ctxCode(r)}`);
+      });
+      continue;
+    }
     // Signed-in regular user on its own resources.
     await check(`${key} as user`, async () => {
       const who2 = spec.fresh ? await throwaway(B) : B;

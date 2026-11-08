@@ -180,7 +180,6 @@ export async function render({ el, params, navigate }) {
     <nav class="docs-tabs" aria-label="${te('docs.head.title')}" data-testid="docs-tabs">${TABS.map((id) => `<a href="${esc(hrefOf(id))}" data-link data-tab="${esc(id)}" class="${id === activeTab ? 'on' : ''}"${id === activeTab ? ' aria-current="page"' : ''}>${esc(t(`docs.tab.${id}`))}</a>`).join('')}</nav>
     <div class="docs-body"><article class="docs-main" data-testid="docs-content">${main}</article>
       <aside class="docs-side"><h4>${te('docs.side.more')}</h4><ul class="dev-list">${SIDE.map((id) => `<li><a href="/docs/${esc(id)}" data-link data-side="${esc(id)}">${esc(t(`docs.side.${id}`))}</a></li>`).join('')}<li><a href="/account/api-keys" data-link>${te('docs.side.keys')}</a></li></ul></aside></div></div>`;
-  if (page === 'reference') { const o = ops.find((x) => x.id === params.op); const host = el.querySelector('[data-try-host]'); if (o && host) await tryIt(host, o, c.portal); }
 
   // Search: Ctrl K / Cmd K focuses it; results are links into guides and the reference.
   const input = el.querySelector('[data-testid=docs-search]');
@@ -201,5 +200,7 @@ export async function render({ el, params, navigate }) {
     applyTheme(next);
     try { localStorage.setItem('parlance-theme', next); } catch { /* private mode */ }
   });
+  // Try it last: search and the theme toggle work while it loads the demo key and example data.
+  if (page === 'reference') { const o = ops.find((x) => x.id === params.op); const host = el.querySelector('[data-try-host]'); if (o && host) await tryIt(host, o, c.portal); }
   return () => document.removeEventListener('keydown', onKey);
 }

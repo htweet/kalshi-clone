@@ -229,16 +229,21 @@ function attachTradeWs({ db, engine, apiKeys, flags, tradeApi, registry, env = '
   // ---------------------------------------------------------------- revocation and heartbeat
   const closeKey = (keyId, reason) => { for (const c of [...clients]) if (c.key.id === keyId) endClient(c, reason); };
   apiKeys.events.on('revoked', (k, by) => closeKey(k.id, by === 'expired' ? 'key_expired' : 'key_revoked'));
+  // Re-check the key and the owner: expiry, a lock, or the flag going off ends the session.
+  const stillAllowed = (c) => {
+    try {
+      const k = apiKeys.getKey(c.key.id);
+      if (!k || apiKeys.effectiveStatus(k) !== 'active') { endClient(c, 'key_revoked'); return false; }
+      if (apiKeys.blockedReason(c.user.id)) { endClient(c, 'account_unavailable'); return false; }
+      if (!flags.on('api.ws', { uid: c.user.id })) { endClient(c, 'feature_disabled'); return false; }
+    } catch { /* db closing */ }
+    return true;
+  };
+  flags.listeners.push(() => { for (const c of [...clients]) stillAllowed(c); }); // a flag change applies at once
   const iv = setInterval(() => {
     for (const c of [...clients]) {
       if (!c.alive) { c.misses += 1; if (c.misses >= 2) { clients.delete(c); try { c.ws.terminate(); } catch { /* ignore */ } continue; } }
-      // Re-check the key and the owner: expiry, a lock, or the flag going off ends the session.
-      try {
-        const k = apiKeys.getKey(c.key.id);
-        if (!k || apiKeys.effectiveStatus(k) !== 'active') { endClient(c, 'key_revoked'); continue; }
-        if (apiKeys.blockedReason(c.user.id)) { endClient(c, 'account_unavailable'); continue; }
-        if (!flags.on('api.ws', { uid: c.user.id })) { endClient(c, 'feature_disabled'); continue; }
-      } catch { /* db closing */ }
+      if (!stillAllowed(c)) continue;
       c.alive = false;
       try { c.ws.ping(); } catch { /* ignore */ }
     }
