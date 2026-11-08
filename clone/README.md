@@ -219,7 +219,7 @@ switch (Admin › Play mode). Nothing switches automatically.
 **Announce it.** Share the page `/waitlist` (for example "Join the waitlist for the newsletter on the real-money
 launch"). Tag links so Admin › Waitlists shows where people came from: `/waitlist?utm_source=whatsapp&utm_campaign=launch`
 or a referral code `/waitlist?ref=ADA2026`. The site itself shows "Join the real-money waitlist" in the play-money
-banner, on Funds and at the top of Home (play mode only). Signed-in users join with one click; guests enter their email
+banner, on Funds and at the top of Home (play mode only). Signed-in users whose account email is verified join with one click; guests (and accounts with an unverified email) enter or get their email
 and confirm it from a link (valid 48 hours, single use). Everyone sees the consent wording before joining; edit it in
 Admin › Content › Texts › `server.waitlists.consent.text` (a new wording gets a new version in every consent record).
 The page pitch is `waitlist.page.pitch`; all other wording and every email is in Content › Texts and Templates

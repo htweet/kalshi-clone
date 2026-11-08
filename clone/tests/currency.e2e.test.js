@@ -32,7 +32,8 @@ const SNOW = 'PLXSNOW-26DEC'; const SNOW_URL = '/markets/plxsnow/snow/plxsnow-26
 const BTC = 'PLXBTCPERP';
 const D = H.db(DB_FILE);
 let PORT; let BASE; let srv; let browser; let admin; let ada; let adaUid;
-const opts = (port) => ({ port, dbFile: DB_FILE, tickMs: 300, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, identity: { kycRequired: false }, auth: { stepUpMs: 60000 } });
+const opts = (port) => ({ port, dbFile: DB_FILE, tickMs: 300, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, identity: { kycRequired: false }, auth: { stepUpMs: 60000 },
+  flags: { defaults: { 'perps.waitlist': false } } }); // Perps open: the ×100 test moves cash to Perps as a new user (waitlist on by default, §36.1)
 const naira = (cents) => `₦${Number(cents).toLocaleString('en-NG', { minimumFractionDigits: Number.isInteger(cents) ? 0 : 2, maximumFractionDigits: 2 })}`;
 const uidOf = (email) => D.q('SELECT id FROM users WHERE email=?', email)[0].id;
 const mainText = (page) => page.evaluate(() => document.querySelector('main').textContent);

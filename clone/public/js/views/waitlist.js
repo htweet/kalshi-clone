@@ -113,7 +113,13 @@ async function renderMain({ el, query }) {
     const one = el.querySelector('[data-testid=waitlist-join-one-click]');
     if (one) one.onclick = async () => {
       one.disabled = true;
-      try { const r = await request('POST', `${API}/join`, clean({ consent: true, consent_version: data.consent.version, ...attribution(query) })); toast(t('waitlist.join.joined_toast')); if (my === seq) draw(r); } catch (ex) { err.textContent = ex.message; one.disabled = false; }
+      try {
+        const r = await request('POST', `${API}/join`, clean({ consent: true, consent_version: data.consent.version, ...attribution(query) }));
+        if (my !== seq) return;
+        if (r.status === 'check_email') { state.checkEmail = true; draw(data); return; } // an unverified account email: double opt-in
+        toast(t('waitlist.join.joined_toast'));
+        draw(r);
+      } catch (ex) { err.textContent = ex.message; one.disabled = false; }
     };
     const g = el.querySelector('[data-guest]');
     if (g) g.addEventListener('submit', async (e) => {

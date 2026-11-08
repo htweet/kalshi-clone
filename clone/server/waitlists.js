@@ -11,7 +11,10 @@
 // header pair, RFC 8058); members can leave and delete their data, and the account data export and closure include it.
 // Join responses never say whether an email is already on the list (no enumeration); the guest form is rate limited per
 // IP and per email, needs the signed client token like every /v1 write (the bot challenge) and has a honeypot field.
-// When a guest later signs up with the same email, the entry links to the account (and its encrypted copy is dropped).
+// One click is for accounts whose email is verified; an unverified account's join is a confirmation request like a
+// guest's (the same link to the account email, the same non-enumerating reply), linked to the account only when the
+// link is confirmed. A guest entry links to an account with the same email only once that account's email is verified
+// (on verification, or on confirmation), and then its encrypted copy is dropped.
 //
 // Opinion survey: questions are CMS entries of type `survey` (drafts, publish with reason, versions, rollback, audit;
 // defaults in server/content/waitlists.js): single choice, multiple choice, naira band and free text (length-capped,
@@ -80,6 +83,8 @@ let hookInstalled = false;
 function createWaitlists({ db, keyDir }) {
   db.exec(SCHEMA);
   migratePerps(db);
+  // The account that asked for a confirmation link (an unverified one-click join): confirming links that account.
+  if (!db.prepare('PRAGMA table_info(waitlist_tokens)').all().some((c) => c.name === 'user_id')) db.exec('ALTER TABLE waitlist_tokens ADD COLUMN user_id TEXT');
   const keys = {
     enc: kc.deriveKey('waitlist-email:v1', { dir: keyDir }),
     hash: kc.deriveKey('waitlist-email-hash:v1', { dir: keyDir }),
@@ -140,10 +145,14 @@ function createWaitlists({ db, keyDir }) {
     nextWaiting: (n) => db.prepare("SELECT user_id FROM waitlist_entries WHERE list_key='perps' AND status='waiting' ORDER BY joined_ts, user_id LIMIT ?").all(n).map((r) => r.user_id),
   };
 
-  // ---- linking: a guest who later signs up with the same email (account created hook)
+  // ---- linking: a guest entry joins the account with the same email once that email is verified (server/identity.js);
+  // an unverified sign-up proves nothing about the inbox, so it never takes over someone's entry.
+  const emailVerified = (uid) => {
+    try { return !!db.prepare('SELECT email_verified_at v FROM identity_profiles WHERE user_id=?').get(uid)?.v; } catch { return false; } // no identity module: unverified
+  };
   function linkUser(uid) {
     const u = db.prepare('SELECT id, email, is_system FROM users WHERE id=?').get(uid);
-    if (!u || u.is_system) return 0;
+    if (!u || u.is_system || !emailVerified(uid)) return 0;
     let n = 0;
     for (const e of db.prepare('SELECT * FROM waitlist_entries WHERE email_hash=? AND user_id IS NULL').all(emailHash(u.email))) {
       if (entryOfUser(e.list_key, uid)) continue;
@@ -168,7 +177,7 @@ function createWaitlists({ db, keyDir }) {
     for (const e of db.prepare('SELECT id FROM waitlist_entries WHERE user_id=?').all(uid)) n += deleteEntry(e.id);
     return n;
   }
-  const api = { db, emailHash, ipHash, encEmail, decEmail, manageToken, entryOfToken, entry, entryOfUser, entryOfEmail, recipientOf, deleteEntry, perps, linkUser, exportFor, forgetUser, norm };
+  const api = { db, emailHash, ipHash, encEmail, decEmail, manageToken, entryOfToken, entry, entryOfUser, entryOfEmail, recipientOf, deleteEntry, perps, linkUser, emailVerified, exportFor, forgetUser, norm };
   INSTANCES.set(db, api);
   if (!hookInstalled) { hookInstalled = true; C.hooks.accountCreated.push((uid, d) => { try { INSTANCES.get(d)?.linkUser(uid); } catch (e) { console.error('waitlist link', e.message); } }); }
   return api;
@@ -413,13 +422,22 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
     res.setHeader('Cache-Control', 'no-store');
     res.json({ progress: { count: confirmedCount(LAUNCH), target: settings(LAUNCH).target } });
   });
-  // Signed in: one click. A guest entry with the account's email (or an unsubscribed entry) is taken over and confirmed.
+  // Signed in with a verified email: one click. A guest entry with the account's email (or an unsubscribed entry) is taken
+  // over and confirmed. An unverified email proves nothing about the inbox: the join becomes a confirmation request to the
+  // account email (double opt-in, as for guests), with the same reply whatever exists for that address.
   v1.post(`/waitlists/${LAUNCH}/join`, requireUser, (req, res) => {
     const b = checkBody(req.body, JOIN, { unknown: 'reject' });
     const u = req.auth.user;
-    const cs = consentOf(req, b, 'signed_in');
+    const verified = W.emailVerified(u.id);
+    const cs = consentOf(req, b, verified ? 'signed_in' : 'signed_in_unverified');
     const at = attribution(b);
     const now = Date.now();
+    const own = W.entryOfUser(LAUNCH, u.id);
+    if (own && own.status === 'confirmed') return res.json(listVo(req, own));
+    if (!verified) {
+      try { emailLimit.hit(`email:${W.emailHash(u.email)}`); requestConfirmation(req, u.email, cs, at, { requester: u.id }); } catch (x) { if (x.status !== 429) throw x; }
+      return res.status(202).json({ status: 'check_email', ...listVo(req, null) });
+    }
     // The caller's own entry, else an unlinked guest entry with the account's email (taken over and confirmed).
     const byEmail = W.entryOfEmail(LAUNCH, u.email);
     let e = W.entryOfUser(LAUNCH, u.id) || (byEmail && !byEmail.user_id ? byEmail : null);
@@ -457,12 +475,18 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
     ipLimit.hit(`ip:${ipOf(req)}`);
     if (b.website) { try { security?.bot?.record('waitlist_honeypot', req, {}); } catch { /* best effort */ } return accepted(res); } // a bot filled the hidden field
     try { emailLimit.hit(`email:${W.emailHash(email)}`); } catch { return accepted(res); } // the same reply; no more mail to that inbox this hour
-    const at = attribution(b);
+    requestConfirmation(req, email, cs, attribution(b));
+    return accepted(res);
+  });
+  // One confirmation request (the guest form, or an account whose email is not verified). A confirmed entry gets an
+  // "already on the list" email; otherwise the entry (new, pending or unsubscribed) is pending with a fresh consent record
+  // and one live link. `requester`: the account that asked, stored on the link (confirming links that account's entry).
+  function requestConfirmation(req, email, cs, at, { requester = null } = {}) {
     const origin = originOf(req);
     const now = Date.now();
     const account = db.prepare('SELECT id FROM users WHERE email=? AND is_system=0').get(email);
     let e = W.entryOfEmail(LAUNCH, email) || (account ? W.entryOfUser(LAUNCH, account.id) : null);
-    if (e && e.status === 'confirmed') { deliver(e, 'email.waitlist_already', {}, { origin }); return accepted(res); }
+    if (e && e.status === 'confirmed') { deliver(e, 'email.waitlist_already', {}, { origin }); return; }
     const token = crypto.randomBytes(32).toString('base64url');
     tx(db, () => {
       if (e) {
@@ -475,12 +499,11 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
         e = W.entry(id);
       }
       db.prepare("DELETE FROM waitlist_tokens WHERE entry_id=? AND used_ts IS NULL AND purpose='confirm'").run(e.id); // one live link per entry
-      db.prepare("INSERT INTO waitlist_tokens(hash,entry_id,purpose,expires_ts,created_ts) VALUES(?,?,'confirm',?,?)").run(kc.sha256hex(token), e.id, now + confirmTtlMs, now);
+      db.prepare("INSERT INTO waitlist_tokens(hash,entry_id,purpose,expires_ts,created_ts,user_id) VALUES(?,?,'confirm',?,?,?)").run(kc.sha256hex(token), e.id, now + confirmTtlMs, now, requester);
     });
     e = W.entry(e.id);
     deliver(e, 'email.waitlist_confirm', { link: `${origin}/waitlist/confirm?token=${token}`, hours: String(Math.round(confirmTtlMs / 3600000)) }, { origin });
-    return accepted(res);
-  });
+  }
   v1.post('/waitlists/confirm', (req, res) => {
     const b = checkBody(req.body, { token: { type: 'string', maxLen: 100, required: true } }, { unknown: 'reject' });
     tokenLimit.hit(`ip:${ipOf(req)}`);
@@ -495,7 +518,13 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
       if (db.prepare('UPDATE waitlist_tokens SET used_ts=? WHERE hash=? AND used_ts IS NULL').run(now, t.hash).changes !== 1) throw err(410, 'waitlist_link_used', 'error.link_used'); // single use, also under a race
       db.prepare("UPDATE waitlist_entries SET status='confirmed', confirmed_ts=?, unsubscribed_ts=NULL, updated_ts=? WHERE id=?").run(now, now, e.id);
     });
-    if (!e.user_id) W.linkUser(db.prepare('SELECT id FROM users WHERE email=? AND is_system=0').get(W.decEmail(e) || '')?.id || '');
+    if (!e.user_id) {
+      // The account that asked for this link (an unverified one-click join) gets the entry, if it still has that email;
+      // otherwise an account with this email whose email is verified (W.linkUser checks).
+      const asker = t.user_id ? db.prepare('SELECT id, email FROM users WHERE id=?').get(t.user_id) : null;
+      if (asker && e.email_hash === W.emailHash(asker.email) && !W.entryOfUser(e.list_key, asker.id)) db.prepare('UPDATE waitlist_entries SET user_id=?, email_enc=NULL, updated_ts=? WHERE id=?').run(asker.id, now, e.id);
+      else W.linkUser(db.prepare('SELECT id FROM users WHERE email=? AND is_system=0').get(W.decEmail(e) || '')?.id || '');
+    }
     e = W.entry(e.id);
     const origin = originOf(req);
     deliver(e, 'email.waitlist_welcome', {}, { origin });

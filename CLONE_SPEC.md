@@ -5160,9 +5160,20 @@ production switch of §33.
 a key: `perps` (signed-in only; `waiting → approved / revoked`) and `real_money_launch` (signed-in and guests;
 `pending → confirmed → unsubscribed`).
 
-- **Signed in, one click:** `POST /waitlists/real_money_launch/join` with `consent: true` and the `consent_version`
-  the page showed. The entry is confirmed at once (the account is authenticated); a welcome email and an in-app notice
-  (`waitlist_joined`) follow. A guest entry with the account's email that is not linked yet is taken over.
+- **Signed in, one click — verified email only:** `POST /waitlists/real_money_launch/join` with `consent: true` and the
+  `consent_version` the page showed. When the account's email is verified (`identity_profiles.email_verified_at`, §25)
+  the entry is confirmed at once; a welcome email and an in-app notice (`waitlist_joined`) follow, and an unlinked guest
+  entry with that email is taken over (the account has proven the inbox).
+- **Signed in, unverified email:** an account can exist with an address its owner never proved, so the join is a
+  **confirmation request** exactly like the guest form: `202 {status: "check_email", me: null, …}` whatever exists for
+  that address (no enumeration), the same per-email limit, the same confirmation link sent to the account email (consent
+  source `signed_in_unverified`). The entry stays `pending` with `user_id` empty: it is not counted, newsletters skip it
+  and the page says "check your email". The link records the requesting account (`waitlist_tokens.user_id`); confirming
+  it confirms the entry and links it to that account if the account still has that email. A guest entry with the same
+  address is never taken over: a confirmed one only triggers the "already on the list" email to the inbox owner, a
+  pending or unsubscribed one gets a new link to that inbox. **Verifying later:** verifying the account email
+  (`POST /verify_email`) links unlinked entries with that address to the account; it does not confirm a pending entry
+  (the member clicks one-click join again, now verified, or the link).
 - **Guests, double opt-in:** `POST /waitlists/real_money_launch/guest_join` (`email`, consent, attribution, a hidden
   honeypot field `website`). It is a **pre-session endpoint** (login CSRF, §22.2) and, like every `/v1` write, needs the
   signed client token (the bot challenge, §21). The answer is always `202 {status: "check_email"}`:
@@ -5190,8 +5201,10 @@ a key: `perps` (signed-in only; `waiting → approved / revoked`) and `real_mone
 - **Email at rest:** a guest's address is AES-256-GCM encrypted (`waitlist-email:v1`, bound to the row id) with a keyed
   HMAC (`waitlist-email-hash:v1`) as the dedupe and lookup key (unique per list). A member account stores no copy: the
   account email is the contact.
-- **Linking:** when a guest later signs up with the same email (the account-created hook) or confirms while an account
-  with that email exists, the entry is linked to the account and its encrypted copy is dropped.
+- **Linking:** a guest entry is linked to an account with the same email only once that account's email is verified —
+  when the account verifies it, when a member with a verified email joins with one click, or when the guest confirms
+  while such an account exists (or through the link the account itself requested); the encrypted copy is then dropped.
+  Signing up with an address never links anything by itself.
 - **Unsubscribe in every email:** each waitlist email carries `{{unsubscribe_link}}` (appended by the sender when an
   admin's override leaves it out) to `/waitlist/unsubscribe?token=…`, which unsubscribes on load and offers **Delete my
   data**; and the header pair `List-Unsubscribe: <…/v1/waitlists/one_click_unsubscribe?token=…>` +
@@ -5295,7 +5308,8 @@ survey is locked and the launch email is offered (the approval response carries 
 - Confirmation links expire after **48 hours**; unconfirmed requests are deleted a week after their last link expired.
 - **No default target N** (the admin sets it); the alert fires once per target value.
 - The public progress bar is **off** until an admin shows it.
-- Signed-in members are confirmed on one click (no second email round trip); guests confirm by email.
+- Signed-in members with a **verified** account email are confirmed on one click; unverified accounts and guests
+  confirm by email. Verifying the account email later links but does not confirm a pending entry.
 - The guest form needs a ticked consent box; signed-in members agree by clicking the join button under the wording.
 - The seeded survey questions and bands of §36.3; free text moderated before anyone reads it (nothing is public).
 - Newsletter throttle **120 emails a minute**; newsletters go to the launch list only (Perps waitlist members never
@@ -5308,9 +5322,10 @@ survey is locked and the launch email is offered (the approval response carries 
 
 ### 36.9 Residual risks
 
-- Sign-up does not prove email ownership: someone signing up with a guest's address links that guest's entry (status
-  and survey answers) to their account. Mitigation: the guest confirmed their address; answers are opinions, not money;
-  P8 can require a verified email before linking.
+- Fixed after review (2026-11-08): an unverified account could confirm any inbox and take over a guest entry with one
+  click. Now one click and linking need a verified account email. Remaining: if the inbox owner clicks a confirmation
+  link that an impostor's account requested, the entry links to that account (the email says someone asked to join, so
+  the owner chose to confirm).
 - Per-process limits and the outbox job assume one instance (RS1); at-least-once newsletter delivery.
 - The keyed hashes and encryption depend on the master key; no key rotation yet (RS4).
 - HTML email links are `#` on plain-http development origins (the CMS link check accepts https only); the text part
@@ -5320,11 +5335,13 @@ survey is locked and the launch email is offered (the approval response carries 
 
 ### 36.10 Verification
 
-- `tests/waitlists.e2e.test.js` (14 scenarios): the Perps waitlist default, the migration (once, audited, never again
+- `tests/waitlists.e2e.test.js` (15 scenarios): the unverified-email one-click join (a confirmation link instead,
+  pending, not counted, skipped by a newsletter, no takeover of a guest entry, linked on confirmation); the Perps waitlist
+  default, the migration (once, audited, never again
   after an admin "off") and the Phase 6 table moved onto the module; a one-click join from the banner with consent
   fields, the welcome email with unsubscribe link and RFC 8058 headers, the survey (all four kinds, ₦ bands, edits); a
   guest double opt-in at 390 px (outbox link, hash-only token, encryption at rest, single use, expiry); unsubscribe by
-  link and one-click POST, delete my data, linking on sign-up, export and closure; the CTAs on banner / Funds / Home at
+  link and one-click POST, delete my data, linking only after email verification, export and closure; the CTAs on banner / Funds / Home at
   390 px and the flags (live hiding, `feature_disabled`, unsubscribe still working, survey flag); the target with its
   one-time alert and the Play mode note; the public progress bar toggle; the survey editor (CMS versions, validation);
   the consent CSV behind step-up; the newsletter (template preview, test send, throttled send resumed across a restart,

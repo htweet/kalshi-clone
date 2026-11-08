@@ -569,6 +569,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     ensureProfile(u.id);
     setProfile(u.id, { email_verified_at: nowIso() });
     logEvent(u.id, 'email_verified', req, {});
+    try { ctx.waitlists?.linkUser(u.id); } catch (e) { console.error('waitlist link', e.message); } // a guest entry with this email joins the account (CLONE_SPEC.md §36.2)
     res.json({ verified: true });
   });
 

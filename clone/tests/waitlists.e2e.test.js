@@ -99,6 +99,12 @@ async function guestConfirmed(addr) {
   return r.body.manage_token;
 }
 const entryOf = (addrOrUid) => q1("SELECT * FROM waitlist_entries WHERE list_key='real_money_launch' AND (user_id=? OR user_id=(SELECT id FROM users WHERE email=?))", addrOrUid, addrOrUid);
+// Verifies an account's email through the real flow: the link of the "Confirm your email" message, then POST /verify_email.
+async function verifyEmail(addr) {
+  const link = await eventually(() => linkIn(lastMail(addr, 'Confirm your email%').body, '/verify-email?token='));
+  const r = await (await new Client(BASE, 'verify').boot()).call('POST', '/v1/verify_email', { token: tokenOf(link) });
+  assert.equal(r.status, 200, r.text);
+}
 const confirmedCount = () => q1("SELECT COUNT(*) c FROM waitlist_entries WHERE list_key='real_money_launch' AND status='confirmed'").c;
 const noHorizontalScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
@@ -168,6 +174,7 @@ let ada;
 test('signed-in join with one click from the play-mode banner: consent recorded, welcome email with one-click unsubscribe, survey with all four question types (NGN bands), edited and persisted', async () => {
   const page = await newPage();
   await uiSignUp(page, email('ada'), 'Ada Obi');
+  await verifyEmail(email('ada')); // one click needs a verified account email (an unverified one gets a confirmation link)
   ada = { uid: q1('SELECT id FROM users WHERE email=?', email('ada')).id };
   await page.waitForSelector('[data-testid=play-banner] [data-testid=waitlist-cta-banner]');
   await page.click('[data-testid=waitlist-cta-banner]');
@@ -292,6 +299,7 @@ test('guest double opt-in at 390 px: the confirmation link from the outbox, sing
 test('unsubscribe: the link in every email (one click), the RFC 8058 POST, delete my data; a guest who signs up later is linked to the account; export and closure include it', async () => {
   // Bola joins with one click (API), then unsubscribes from the welcome email's link.
   const bola = await new Client(BASE, 'bola').signUp(email('bola'), PW, 'Bola Ade');
+  await verifyEmail(email('bola'));
   assert.equal((await bola.call('POST', `${L}/join`, { consent: true, consent_version: await consentVersion(bola), source: 'funds' })).status, 201);
   const mail = await eventually(() => { const m = lastMail(email('bola'), "You're on the%"); assert.ok(m); return m; });
   const page = await newPage({ width: 390, height: 844 });
@@ -318,11 +326,15 @@ test('unsubscribe: the link in every email (one click), the RFC 8058 POST, delet
   assert.equal(q1('SELECT COUNT(*) c FROM waitlist_entries WHERE id=?', deeId).c, 0);
   assert.equal(q1('SELECT COUNT(*) c FROM waitlist_survey_answers WHERE entry_id=?', deeId).c, 0);
   assert.equal((await dc.call('POST', '/v1/waitlists/manage', { token: del })).status, 404, 'the token died with the entry');
-  // A confirmed guest later opens an account with the same email: the entry links to it (the encrypted copy is dropped).
+  // A confirmed guest later opens an account with the same email: the entry links to it once the account's email is
+  // verified (the encrypted copy is then dropped); an unverified sign-up takes nothing over.
   const eve = await guestConfirmed(email('eve'));
   const eveId = eve.split('.')[0];
   assert.ok(q1('SELECT email_enc FROM waitlist_entries WHERE id=?', eveId).email_enc);
   const eveUser = await new Client(BASE, 'eve').signUp(email('eve'), PW, 'Eve Nwosu');
+  assert.equal(q1('SELECT user_id FROM waitlist_entries WHERE id=?', eveId).user_id, null, 'not linked before the email is verified');
+  assert.equal((await eveUser.call('GET', L)).body.me, null);
+  await verifyEmail(email('eve'));
   const linked = q1('SELECT user_id, email_enc, status FROM waitlist_entries WHERE id=?', eveId);
   assert.deepEqual([linked.user_id, linked.email_enc, linked.status], [eveUser.uid, null, 'confirmed']);
   const me = (await eveUser.call('GET', L)).body.me;
@@ -338,6 +350,59 @@ test('unsubscribe: the link in every email (one click), the RFC 8058 POST, delet
   assert.equal(closed.status, 200, closed.text);
   assert.equal(q1('SELECT COUNT(*) c FROM waitlist_entries WHERE user_id=? OR id=?', eveUser.uid, eveId).c, 0);
   assert.equal(q1('SELECT COUNT(*) c FROM waitlist_survey_answers WHERE entry_id=?', eveId).c, 0);
+  assert.deepEqual(page.errors, []);
+});
+
+test('an unverified account email cannot join with one click: a confirmation link instead, pending (not counted, no newsletter), no takeover of a guest entry, linked only when confirmed', async () => {
+  // A victim confirmed as a guest and answered the survey.
+  const vic = await guestConfirmed(email('vic'));
+  const vicId = vic.split('.')[0];
+  const vg = await new Client(BASE, 'vic').boot();
+  assert.equal((await vg.call('PUT', `${L}/survey`, { token: vic, answers: { 'real_money_launch.comment': 'victim private note' } })).status, 200);
+  // An impostor signs up with the victim's address (never verified) and clicks one-click join in the browser.
+  const page = await newPage({ width: 390, height: 844 });
+  await uiSignUp(page, email('vic'), 'Not Victor');
+  const impostor = q1('SELECT id FROM users WHERE email=?', email('vic')).id;
+  await page.goto(BASE + '/waitlist');
+  await page.click('[data-testid=waitlist-join-one-click]');
+  await page.waitForSelector('[data-testid=waitlist-check-email]');
+  const v = q1('SELECT * FROM waitlist_entries WHERE id=?', vicId);
+  assert.deepEqual([v.user_id, v.status, v.consent_source], [null, 'confirmed', 'guest_form'], 'the guest entry is not taken over');
+  assert.ok(v.email_enc);
+  assert.equal(q1('SELECT COUNT(*) c FROM waitlist_entries WHERE user_id=?', impostor).c, 0);
+  const ic = await new Client(BASE, 'imp').logIn(email('vic'), PW);
+  const iv = (await ic.call('GET', L)).body;
+  assert.equal(iv.me, null); assert.deepEqual(iv.survey.answers, {});
+  assert.equal((await ic.call('PUT', `${L}/survey`, { answers: { 'real_money_launch.comment': 'overwrite' } })).status, 404);
+  assert.match(lastMail(email('vic')).subject, /already on/, 'the inbox owner is told, the impostor learns nothing');
+  assert.equal(JSON.parse(q1("SELECT value_json v FROM waitlist_survey_answers WHERE entry_id=? AND question_key='real_money_launch.comment'", vicId).v), 'victim private note');
+  // The same reply whatever exists for the address (no enumeration): an unverified account with its own address.
+  const una = await new Client(BASE, 'una').signUp(email('una'), PW, 'Una Okafor');
+  const r = await una.call('POST', `${L}/join`, { consent: true, consent_version: await consentVersion(una), source: 'home' });
+  assert.equal(r.status, 202); assert.equal(r.body.status, 'check_email'); assert.equal(r.body.me, null);
+  const ri = await ic.call('POST', `${L}/join`, { consent: true, consent_version: await consentVersion(ic) });
+  assert.deepEqual([ri.status, ri.body.status, ri.body.me], [202, 'check_email', null]);
+  const ue = q1("SELECT * FROM waitlist_entries WHERE list_key='real_money_launch' AND email_hash=(SELECT email_hash FROM waitlist_entries WHERE consent_source='signed_in_unverified' AND source='home')");
+  assert.deepEqual([ue.status, ue.user_id, ue.consent_source], ['pending', null, 'signed_in_unverified']);
+  assert.match(ue.email_enc, /^enc:v1:/);
+  assert.equal(q1('SELECT user_id FROM waitlist_tokens WHERE entry_id=? AND used_ts IS NULL', ue.id).user_id, una.uid);
+  // Pending: not counted, and a newsletter skips it.
+  const n0 = confirmedCount();
+  const nl = await adminCall('POST', '/v1/admin/waitlists/real_money_launch/newsletters', { reason: 'pending members are skipped' });
+  assert.equal(nl.status, 201, nl.text);
+  await eventually(() => assert.equal(q1('SELECT status FROM waitlist_newsletters WHERE id=?', nl.body.newsletter.id).status, 'sent'), { timeout: 30000 });
+  assert.equal(q1('SELECT status FROM waitlist_newsletter_outbox WHERE newsletter_id=? AND entry_id=?', nl.body.newsletter.id, ue.id).status, 'skipped_unconfirmed');
+  assert.equal(q1('SELECT COUNT(*) c FROM email_outbox WHERE to_email=? AND subject=?', email('una'), nl.body.newsletter.subject).c, 0);
+  assert.equal(q1('SELECT COUNT(*) c FROM waitlist_newsletter_outbox WHERE newsletter_id=? AND status=?', nl.body.newsletter.id, 'sent').c, n0);
+  // Una confirms from her inbox: confirmed, counted and linked to her account (the account that asked for the link).
+  const link = await eventually(() => linkIn(lastMail(email('una'), 'Confirm your place%').body, '/waitlist/confirm?token='));
+  const cr = await (await new Client(BASE, 'c').boot()).call('POST', '/v1/waitlists/confirm', { token: tokenOf(link) });
+  assert.equal(cr.status, 200, cr.text);
+  const done = q1('SELECT status, user_id, email_enc FROM waitlist_entries WHERE id=?', ue.id);
+  assert.deepEqual([done.status, done.user_id, done.email_enc], ['confirmed', una.uid, null]);
+  assert.equal(confirmedCount(), n0 + 1);
+  assert.equal((await una.call('GET', L)).body.me.entry_status, 'confirmed');
+  assert.equal(q1('SELECT user_id FROM waitlist_entries WHERE id=?', vicId).user_id, null, 'the victim entry is still unlinked');
   assert.deepEqual(page.errors, []);
 });
 
@@ -414,6 +479,7 @@ test('Admin › Waitlists: target with a reason (audited); reaching it alerts th
   assert.equal(alerts(), 0);
   // One more confirmed member reaches it: one in-app alert and one email to each admin.
   const fay = await new Client(BASE, 'fay').signUp(email('fay'), PW, 'Fay Bello');
+  await verifyEmail(email('fay'));
   assert.equal((await fay.call('POST', `${L}/join`, { consent: true, consent_version: await consentVersion(fay) })).status, 201);
   await eventually(() => assert.equal(alerts(), 1));
   const adminMail = await eventually(() => { const m = lastMail(ADMIN.email, '%reached its target%'); assert.ok(m); return m; });
@@ -421,6 +487,7 @@ test('Admin › Waitlists: target with a reason (audited); reaching it alerts th
   assert.match(adminMail.body, /Nothing switches automatically/);
   // Once only: another member does not alert again.
   const gus = await new Client(BASE, 'gus').signUp(email('gus'), PW, 'Gus Eze');
+  await verifyEmail(email('gus'));
   assert.equal((await gus.call('POST', `${L}/join`, { consent: true, consent_version: await consentVersion(gus) })).status, 201);
   await sleep(500);
   assert.equal(alerts(), 1);

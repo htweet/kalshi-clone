@@ -633,6 +633,8 @@ test('WebSocket channel authorization: private channels need a session; another 
 test('waitlist IDOR (Phase 7A): user B and a guest token cannot read, change or delete A\'s entry or survey answers', async () => {
   const W = '/v1/waitlists/real_money_launch';
   const ver = (await A.call('GET', W)).body.consent.version;
+  // One click needs a verified account email (an unverified one gets a confirmation link, tests/waitlists.e2e.test.js).
+  assert.equal(dbrun('UPDATE identity_profiles SET email_verified_at=? WHERE user_id=?', new Date().toISOString(), A.uid).changes, 1);
   let r = await A.call('POST', `${W}/join`, { consent: true, consent_version: ver });
   assert.equal(r.status, 201, ctxCode(r));
   const answers = { 'real_money_launch.would_trade': 'yes', 'real_money_launch.comment': 'A private thought' };
