@@ -237,7 +237,7 @@ const CORE_ROUTES = [
   // Phase 8 (CLONE_SPEC.md §38): reading one's own reach settings (locale, data saver, SMS opt-in) and the enabled
   // languages always works; switching SMS off is never blocked. Crawler files and share landings check their flag inside.
   /^\/v1\/users\/[^/]+\/reach$/, /^\/v1\/i18n\/locales$/, /^\/v1\/users\/[^/]+\/sms_notifications$/,
-  /^\/(sitemap\.xml|sitemaps\/[a-z0-9-]+\.xml|robots\.txt)$/, /^\/s\//, /^\/og\//,
+  /^\/(sitemap\.xml|sitemaps\/[a-z0-9-]+\.xml|robots\.txt)$/, /^\/s\//, /^\/og\//, /^\/hubs\/elections$/, // the removed Phase 5B hub: a redirect
 ];
 // Every mount* module wired in server/app.js → the flag that switches it (or 'core'). Checked by the enforcement test.
 const MODULE_FLAGS = {

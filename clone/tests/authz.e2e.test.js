@@ -357,8 +357,34 @@ const EXPECT = {
   'GET /v1/admin/elections/calls': perm('catalog.read'), 'POST /v1/admin/elections/calls/:id/approve': perm('resolution.write'), 'POST /v1/admin/elections/calls/:id/reject': perm('resolution.write'),
   'POST /v1/admin/elections/races/:id/call': perm('resolution.write'), 'POST /v1/admin/elections/races/:id/uncall': perm('resolution.write'),
   'GET /v1/admin/elections/:kind': perm('catalog.read'), 'POST /v1/admin/elections/:kind': perm('catalog.write'), 'PUT /v1/admin/elections/:kind/:id': perm('catalog.write'),
+  // ---- Ground rule 6 (CLONE_SPEC.md §38.1): Admin › Owner settings — every owner value, settings.write (step-up on the
+  // money / security ones, answered after the gate).
+  'GET /v1/admin/owner_settings': perm('settings.write'), 'GET /v1/admin/owner_settings/:key': perm('settings.write'), 'PUT /v1/admin/owner_settings/:key': perm('settings.write'),
+  // ---- Phase 8 (CLONE_SPEC.md §38): the referral offer, shared links and the enabled languages are public reads; a
+  // member's referrals, share links, language, data saver and SMS opt-in are their own; Admin › Growth reads with
+  // users.read, changes referral money (settings, review decisions) with users.money, revokes links and reads the SMS
+  // outbox with users.support; Admin › Content › Languages edits with content.write and switches / publishes with
+  // content.publish.
+  'GET /v1/referrals/offer': P, 'GET /v1/referrals': U, 'POST /v1/referrals/apply': U,
+  'GET /v1/share/:token': P, 'GET /v1/share/:token/copy': P,
+  'POST /v1/users/:uid/share_links': O, 'GET /v1/users/:uid/share_links': O, 'DELETE /v1/users/:uid/share_links/:id': O,
+  'GET /v1/i18n/locales': P, 'PUT /v1/users/:uid/locale': O,
+  'GET /v1/users/:uid/reach': O, 'PUT /v1/users/:uid/data_saver': O, 'PUT /v1/users/:uid/sms_notifications': O,
+  'GET /v1/admin/referrals': perm('users.read'), 'PUT /v1/admin/referrals/settings': perm('users.money'),
+  'POST /v1/admin/referrals/reviews/:id/approve': perm('users.money'), 'POST /v1/admin/referrals/reviews/:id/reject': perm('users.money'),
+  'GET /v1/admin/share_links': perm('users.read'), 'POST /v1/admin/share_links/:id/revoke': perm('users.support'), 'GET /v1/admin/sms/outbox': perm('users.support'),
+  'GET /v1/admin/i18n/locales': perm('content.write'), 'POST /v1/admin/i18n/locales': perm('content.publish'), 'PUT /v1/admin/i18n/locales/:code': perm('content.publish'),
+  'GET /v1/admin/i18n/locales/:code/texts': perm('content.write'), 'PUT /v1/admin/i18n/locales/:code/review': perm('content.publish'),
+  'POST /v1/admin/i18n/locales/:code/publish_drafts': perm('content.publish'), 'GET /v1/admin/i18n/locales/:code/export': perm('content.write'),
+  'POST /v1/admin/i18n/locales/:code/import': perm('content.write'),
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
+  // Phase 8 (CLONE_SPEC.md §38): share landings, share-card images and sitemaps are public; the removed Phase 5B hub URL
+  // redirects to the elections hub v2.
+  'GET RE:^\\/s\\/([A-Za-z0-9_.-]{1,80})$': { who: 'public', probe: '/s/authz-nope' },
+  'GET RE:^\\/og\\/(site|event\\/[A-Za-z0-9._-]{1,80}|hub\\/[a-z0-9-]{1,60}|share\\/[A-Za-z0-9_.-]{1,80})\\.png$': { who: 'public', probe: '/og/site.png' },
+  'GET /sitemap.xml': P, 'GET RE:^\\/sitemaps\\/([a-z]+)\\.xml$': { who: 'public', probe: '/sitemaps/pages.xml' },
+  'GET /hubs/elections': P,
 };
 
 // Role → permissions, mirroring server/admin.js ROLE_PERMS (asserted against the live module below).
@@ -701,6 +727,51 @@ test('elections IDOR (Phase 7B): user B cannot read, replace or delete A\'s save
   // The feed has no client write route: results, tallies and snapshots are written by the server only.
   for (const [m, p] of [['POST', '/v1/elections/races/x/results'], ['PUT', '/v1/elections/hubs/x/view'], ['POST', '/v1/elections/hubs/x/timeline']]) assert.equal((await A.call(m, p, {})).status, 404, `${m} ${p}`);
   assert.equal((await A.call('DELETE', `/v1/users/${A.uid}/election_ballot`)).status, 200);
+});
+
+test('growth IDOR (Phase 8): share links, copy-trade, referrals, language and reach settings stay with their owner', async () => {
+  // A's trade on a seeded market (the authz server is not seeded with liquidity: B makes the market A buys from).
+  const t = dbq("SELECT m.ticker, m.event_ticker FROM markets m WHERE m.status='active' AND m.ticker NOT LIKE 'PLXCOMBO%' AND m.ticker NOT LIKE 'PLXFLASH%' ORDER BY m.rowid LIMIT 1")[0];
+  for (const c of [A, B]) assert.equal((await c.call('POST', `/v1/users/${c.uid}/deposits`, { amount_dollars: 50 })).status, 201);
+  assert.equal((await B.call('POST', `/v1/users/${B.uid}/orders`, { ticker: t.ticker, side: 'no', type: 'limit', price: 60, count: 5 })).status, 201);
+  const o = await A.call('POST', `/v1/users/${A.uid}/orders`, { ticker: t.ticker, side: 'yes', type: 'limit', price: 40, count: 5 });
+  assert.equal(o.status, 201, ctxCode(o));
+  const aFill = dbq('SELECT id FROM fills WHERE user_id=? ORDER BY created_ts DESC LIMIT 1', A.uid)[0].id;
+  let r = await A.call('POST', `/v1/users/${A.uid}/share_links`, { kind: 'trade', fill_id: aFill, show_price: true, show_size: false });
+  assert.equal(r.status, 201, ctxCode(r));
+  const link = r.body.share_link;
+  // B cannot list, create on A's path, or revoke A's link (its own path answers not found: no enumeration of ids).
+  assertForbidden(await B.call('GET', `/v1/users/${A.uid}/share_links`), 'B lists A\'s links');
+  assertForbidden(await B.call('POST', `/v1/users/${A.uid}/share_links`, { kind: 'event', ticker: t.event_ticker }), 'B creates on A\'s path');
+  assertForbidden(await B.call('DELETE', `/v1/users/${A.uid}/share_links/${link.id}`), 'B revokes on A\'s path');
+  assert.equal((await B.call('DELETE', `/v1/users/${B.uid}/share_links/${link.id}`)).status, 404, 'B revokes A\'s link through its own path');
+  // B cannot share A's trade or a position it does not hold.
+  assert.equal((await B.call('POST', `/v1/users/${B.uid}/share_links`, { kind: 'trade', fill_id: aFill })).code, 'share_not_yours');
+  assert.equal((await C.call('POST', `/v1/users/${C.uid}/share_links`, { kind: 'position', ticker: t.ticker })).code, 'share_not_yours');
+  // The public view shows only what A chose: side and price, never the size, the user id or the email.
+  r = await anon.call('GET', `/v1/share/${encodeURIComponent(link.token)}`);
+  assert.equal(r.status, 200); assert.equal(r.body.share.side, 'yes'); assert.equal(r.body.share.count_fp, undefined);
+  assert.ok(!r.text.includes(A.uid) && !r.text.includes(A.user.email), 'no identity in the public share');
+  // Forged, truncated and re-signed tokens are refused before any lookup.
+  for (const bad of [`${link.id}.${'A'.repeat(22)}`, link.id, `${'B'.repeat(22)}.${link.token.split('.')[1]}`, '../../etc']) assert.equal((await anon.call('GET', `/v1/share/${encodeURIComponent(bad)}`)).status, 404, bad);
+  // The landing never redirects off-site, whatever the token.
+  for (const bad of ['%2F%2Fevil.example', `${link.token}%2F..%2F..%2F%2Fevil.example`, 'x']) {
+    const lr = await fetch(`${BASE}/s/${bad}`, { redirect: 'manual' });
+    assert.ok([302, 404].includes(lr.status), `${bad}: ${lr.status}`);
+    if (lr.status === 302) assert.match(lr.headers.get('location'), /^\/(?!\/)/, `${bad}: ${lr.headers.get('location')}`);
+  }
+  const good = await fetch(`${BASE}/s/${link.token}`, { redirect: 'manual' });
+  assert.equal(good.status, 302); assert.match(good.headers.get('location'), /^\/markets\/[^/]+\/[^/]+\/[^/?]+\?/);
+  // Referral reviews and settings are money: B (no role) and support cannot decide or change them.
+  assertForbidden(await B.call('POST', '/v1/admin/referrals/reviews/rrv_x/approve', { note: 'pay me please' }), 'B approves');
+  assertForbidden(await principals.support.call('PUT', '/v1/admin/referrals/settings', { reward_referrer_cents: 99999, reason: 'raise it' }), 'support raises rewards');
+  // Language, data saver and SMS opt-in: B cannot change A's.
+  assertForbidden(await B.call('PUT', `/v1/users/${A.uid}/locale`, { locale: 'en-NG' }), 'B sets A\'s language');
+  assertForbidden(await B.call('PUT', `/v1/users/${A.uid}/data_saver`, { enabled: true }), 'B sets A\'s data saver');
+  assertForbidden(await B.call('PUT', `/v1/users/${A.uid}/sms_notifications`, { enabled: false }), 'B turns off A\'s SMS');
+  assertForbidden(await B.call('GET', `/v1/users/${A.uid}/reach`), 'B reads A\'s reach settings');
+  assert.equal((await A.call('DELETE', `/v1/users/${A.uid}/share_links/${link.id}`)).status, 200);
+  assert.equal((await anon.call('GET', `/v1/share/${encodeURIComponent(link.token)}`)).status, 404, 'revoked');
 });
 
 test('authorization matrix: anonymous, user, other user (IDOR) and every admin role, for every route', async () => {

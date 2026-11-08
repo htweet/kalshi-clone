@@ -218,20 +218,21 @@ test('media: re-encoded uploads (EXIF and text chunks gone), polyglots and SVG r
 
 test('pages: create, schedule, publish with SEO fields, roll back; legal pages need step-up; bodies and footer links sanitised', async () => {
   const ap = await adminPage('/admin/cms/pages');
-  // A new info page from the UI.
+  // A new info page from the UI. (support/press: support/contact became a default page in Phase 8, CLONE_SPEC.md §38.8, so
+  // it would no longer be new — the scenario needs a slug that has no code default.)
   await ap.click('[data-testid=cms-new-page]');
-  await ap.fill('[data-testid=cms-page-slug]', 'support/contact');
+  await ap.fill('[data-testid=cms-page-slug]', 'support/press');
   await ap.fill('[data-testid=cms-page-title]', 'Contact support');
   await ap.fill('[data-testid=cms-page-seo-title]', 'Contact Parlance support');
   await ap.fill('[data-testid=cms-page-seo-description]', 'How to reach the Parlance support team.');
   await ap.fill('[data-testid=cms-page-body]', '<h2>Write to us</h2><p>Email <a href="mailto:help@parlance.example">help@parlance.example</a>.</p><script>window.__x=1</script><p onclick="window.__x=2">Hours: <b>9-5</b></p><a href="javascript:window.__x=3">x</a><iframe src="https://evil.example"></iframe>');
   await ap.click('[data-testid=cms-save-draft]');
-  await H.until(() => D.q("SELECT 1 FROM cms_entries WHERE type='page' AND key='support/contact' AND draft_json IS NOT NULL")[0]);
+  await H.until(() => D.q("SELECT 1 FROM cms_entries WHERE type='page' AND key='support/press' AND draft_json IS NOT NULL")[0]);
   // Drafts are not public; scheduled 1.5 s ahead, it goes live by itself.
-  assert.equal((await fetch(`${BASE}/v1/pages/support/contact`)).status, 404);
-  assert.equal((await publish('page', 'support/contact', { at: new Date(Date.now() + 1500).toISOString() })).status, 200);
-  await H.until(async () => (await fetch(`${BASE}/v1/pages/support/contact`)).status === 200, 6000);
-  const visitor = await H.newPage(browser, BASE, { path: '/support/contact' });
+  assert.equal((await fetch(`${BASE}/v1/pages/support/press`)).status, 404);
+  assert.equal((await publish('page', 'support/press', { at: new Date(Date.now() + 1500).toISOString() })).status, 200);
+  await H.until(async () => (await fetch(`${BASE}/v1/pages/support/press`)).status === 200, 6000);
+  const visitor = await H.newPage(browser, BASE, { path: '/support/press' });
   await visitor.waitForSelector('[data-testid=cms-page] h1:has-text("Contact support")');
   assert.equal(await visitor.title(), 'Contact Parlance support');
   assert.equal(await visitor.getAttribute('meta[name=description]', 'content'), 'How to reach the Parlance support team.');
@@ -239,13 +240,13 @@ test('pages: create, schedule, publish with SEO fields, roll back; legal pages n
   assert.ok(!/<script|onclick|javascript:|<iframe/i.test(body), body);
   assert.match(body, /<a href="mailto:help@parlance.example">/); assert.match(body, /<b>9-5<\/b>/);
   assert.equal(await visitor.evaluate(() => window.__x), undefined);
-  const direct = await (await fetch(`${BASE}/support/contact`)).text(); // server-rendered SEO fields on a direct load
+  const direct = await (await fetch(`${BASE}/support/press`)).text(); // server-rendered SEO fields on a direct load
   assert.match(direct, /<title>Contact Parlance support<\/title>/); assert.match(direct, /<meta name="description" content="How to reach the Parlance support team.">/);
   // A second version, then roll back to the first.
-  assert.equal((await draft('page', 'support/contact', { title: 'Contact us', section: 'info', body: '<p>New text</p>' })).status, 200);
-  assert.equal((await publish('page', 'support/contact')).status, 200);
+  assert.equal((await draft('page', 'support/press', { title: 'Contact us', section: 'info', body: '<p>New text</p>' })).status, 200);
+  assert.equal((await publish('page', 'support/press')).status, 200);
   await visitor.reload(); await visitor.waitForSelector('[data-testid=cms-page] h1:has-text("Contact us")');
-  assert.equal((await admin.call('POST', '/v1/admin/cms/page/rollback', { key: 'support/contact', version: 1, reason: 'restore the first version' })).status, 200);
+  assert.equal((await admin.call('POST', '/v1/admin/cms/page/rollback', { key: 'support/press', version: 1, reason: 'restore the first version' })).status, 200);
   await visitor.reload(); await visitor.waitForSelector('[data-testid=cms-page] h1:has-text("Contact support")');
 
   // Legal page: a stale session is asked to confirm (API: 403 step_up_required; UI: the step-up dialog).

@@ -505,14 +505,16 @@ test('hub widgets: Fed funds outlook and forecast history are computed from mark
     assert.ok(Math.abs(shownCh - 25 * ((k - c) / s)) <= 0.051, `${et}: ${shownCh} vs ${25 * ((k - c) / s)}`);
   }
   assert.ok(await page.locator('[data-testid=forecast-history][data-kind=rate_decision] svg').count());
-  // A trade on the next meeting's Cut market moves its row without a reload (the live update the Senate tiles showed before).
+  // A trade on the next meeting's Cut market refreshes the widget without a reload (the live update the Senate tiles showed
+  // before): the "Updated" time moves and the row equals the prices in the database after the trade.
   const next = meetings.sort()[0];
-  const cutCell = page.locator(`[data-testid=fed-meeting][data-event="${next}"] [data-k=cut]`);
-  const cutBefore = await cutCell.textContent();
+  const cutSel = `[data-testid=fed-meeting][data-event="${next}"] [data-k=cut]`;
+  const updatedBefore = await page.textContent('[data-updated]');
+  await page.waitForTimeout(1100); // the "Updated" stamp has a one-second resolution
   const tr = await H.call(page, 'POST', `/v1/users/${uid}/orders`, { ticker: `${next}-CUT`, side: 'yes', type: 'market', count: 200 });
   assert.equal(tr.status, 201, JSON.stringify(tr.body));
-  await page.waitForFunction(([sel, b]) => (document.querySelector(sel)?.textContent || b) !== b, [`[data-testid=fed-meeting][data-event="${next}"] [data-k=cut]`, cutBefore], { timeout: 15000 });
-  { const c = last(`${next}-CUT`); const h = last(`${next}-HOLD`); const k = last(`${next}-HIKE`); assert.equal(await cutCell.textContent(), `${Math.round((c / (c + h + k)) * 100)}%`); }
+  await page.waitForFunction((b) => (document.querySelector('[data-updated]')?.textContent || b) !== b, updatedBefore, { timeout: 15000 });
+  { const c = last(`${next}-CUT`); const h = last(`${next}-HOLD`); const k = last(`${next}-HIKE`); await page.waitForFunction(([sel, want]) => document.querySelector(sel)?.textContent === want, [cutSel, `${Math.round((c / (c + h + k)) * 100)}%`], { timeout: 5000 }); }
   // Event forecast history API: hourly points, normalised for a mutually exclusive event.
   const fh = (await H.call(page, 'GET', '/v1/series/PLXRATE/events/PLXRATE-26DEC/forecast_history?days=2')).body;
   assert.equal(fh.kind, 'rate_decision'); assert.ok(fh.points.length >= 40);
