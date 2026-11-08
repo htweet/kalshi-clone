@@ -7,6 +7,7 @@ import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §3
 import '../content/perps-strings.js';
 import { t as T } from '../content/currency-strings.js'; // keyed wording (CLONE_SPEC.md §30)
 import { vars } from '../dynstyle.js';
+import { hoverAttr, installChartHover } from '../chart-hover.js'; // chart readout on hover / touch / keys
 import { perpsApi as P } from '../perps-api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
@@ -413,7 +414,9 @@ async function renderMarket({ el, params, navigate }) {
     const Y = (y) => pad + (1 - (y - lo) / span) * (H - 2 * pad);
     const pts = series.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(' ');
     const up = ys[ys.length - 1] >= ys[0];
-    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="perps-svg ${up ? 'up' : 'down'}" role="img" aria-label="${te('perps.render_market.mark_price_chart', { title: esc(m.title) })}">
+    installChartHover();
+    const hover = hoverAttr([{ name: m.title, color: up ? 'var(--yes)' : 'var(--no)', points: series.map(([x, y]) => ({ x: X(x), y: Y(y), t: x, label: fmtPx(m, y) })) }]);
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="perps-svg ${up ? 'up' : 'down'}" role="img" aria-label="${te('perps.render_market.mark_price_chart', { title: esc(m.title) })}"${hover}>
       <polygon class="area" points="${pad},${H - pad} ${pts} ${W - pad},${H - pad}"/><polyline class="line" points="${pts}" vector-effect="non-scaling-stroke"/></svg>
       <div class="perps-axis faint"><span>${fmtPx(m, hi)}</span><span>${fmtPx(m, lo)}</span></div>`;
   }

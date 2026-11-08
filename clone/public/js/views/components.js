@@ -3,6 +3,7 @@ import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §3
 import { media } from '../content-live.js';
 import '../content/components-strings.js';
 import { vars } from '../dynstyle.js';
+import { hoverAttr, installChartHover } from '../chart-hover.js'; // pointer / touch / keyboard readout on charts
 import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, avatar, relTime, ICON, money0 as fmtMoney0, pxCents, fmtDay, fmtDateTime } from '../lib.js';
 import { scoreCols, liveSub, cardMarkets } from './scoreboard.js'; // live sports scores on cards (CLONE_SPEC §19.6)
 export { prob };
@@ -69,8 +70,10 @@ export function eventCard(ev) {
   </article>`;
 }
 
-// Multi-series chart with right-side % axis, date axis and end labels (spec §15.4).
+// Multi-series chart with right-side % axis, date axis and end labels (spec §15.4); hovering shows the values at that
+// moment (public/js/chart-hover.js).
 export function multiChart(series, { height = 260, endLabels = false, width = 700 } = {}) {
+  installChartHover();
   const pts = series.flatMap((s) => s.points);
   if (!pts.length) return `<p class="faint">${te('components.multi_chart.no_trades_yet')}</p>`;
   const W = width; const H = height; const padR = 46; const padB = 26; const padT = 10;
@@ -86,14 +89,15 @@ export function multiChart(series, { height = 260, endLabels = false, width = 70
   // End labels: name + big percentage, nudged apart vertically so they never overlap.
   const labels = endLabels ? series.filter((s) => s.points.length).map((s) => { const l = s.points[s.points.length - 1]; return { s, x: sx(l.t), y: sy(l.v), v: l.v }; }).sort((a, b) => a.y - b.y) : [];
   for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 52) labels[i].y = labels[i - 1].y + 52;
-  const labelSvg = labels.map((l) => `<text x="${Math.min(l.x - 8, W - padR - 150)}" y="${Math.max(padT + 18, l.y - 22)}" font-size="15" fill="${esc(l.s.color)}">${esc(l.s.name)}</text><text x="${Math.min(l.x - 8, W - padR - 150)}" y="${Math.max(padT + 44, l.y + 4)}" font-size="26" font-weight="700" font-family="Barlow Condensed, sans-serif" fill="${esc(l.s.color)}">${esc(l.v)}%</text>`).join('');
+  const labelSvg = labels.map((l) => `<text class="ch-end" x="${Math.min(l.x - 8, W - padR - 150)}" y="${Math.max(padT + 18, l.y - 22)}" font-size="15" fill="${esc(l.s.color)}">${esc(l.s.name)}</text><text class="ch-end" x="${Math.min(l.x - 8, W - padR - 150)}" y="${Math.max(padT + 44, l.y + 4)}" font-size="26" font-weight="700" font-family="Barlow Condensed, sans-serif" fill="${esc(l.s.color)}">${esc(l.v)}%</text>`).join('');
   const lines = series.map((s) => {
     const d = s.points.map((p, i) => `${i ? 'L' : 'M'}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(' ');
     const last = s.points[s.points.length - 1];
     if (!last) return '';
     return `<path d="${d}" fill="none" stroke="${esc(s.color)}" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="5" fill="${esc(s.color)}"/>`;
   }).join('') + labelSvg;
-  return `<svg class="chart v-h" viewBox="0 0 ${esc(W)} ${esc(H)}"${vars({ '--h': `${height}px` })} role="img" aria-label="${te('components.multi_chart.price_history')}">${grid}${days}${lines}</svg>`;
+  const hover = hoverAttr(series.map((s) => ({ name: s.name, color: s.color, points: s.points.map((p) => ({ x: sx(p.t), y: sy(p.v), t: p.t * 1000, label: `${Number(Number(p.v).toFixed(2))}%` })) })), { x0: 0, x1: W - padR - 8 });
+  return `<svg class="chart v-h" viewBox="0 0 ${esc(W)} ${esc(H)}"${vars({ '--h': `${height}px` })} role="img" aria-label="${te('components.multi_chart.price_history')}"${hover}>${grid}${days}${lines}</svg>`;
 }
 export const seriesColor = (m, i) => (m.color_code && m.color_code !== '#5b5bd6' ? m.color_code : OC_COLORS[i % OC_COLORS.length]);
 

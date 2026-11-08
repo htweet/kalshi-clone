@@ -13,6 +13,7 @@ import { socket } from '../ws.js';
 import { session } from '../store.js';
 import { esc, eventHref, toast, fmtDate as fmtD, fmtDay, fmtTime } from '../lib.js';
 import { multiChart } from './components.js';
+import { hoverAttr, installChartHover } from '../chart-hover.js'; // chart readout on hover / touch / keys
 
 const get = (u) => request('GET', u);
 const pct = (p) => `${Math.round(p * 100)}%`;
@@ -22,6 +23,7 @@ const fmtDate = (iso) => fmtD(iso);
 // Line chart for a value series ({t: seconds, v}) on its own scale (seats, basis points). SVG text uses user units.
 function valueChart(points, { fmt = (v) => String(v), height = 200, label = 'Chart', refLine = null } = {}) {
   if (points.length < 2) return `<p class="faint">${te('hubs.value_chart.not_enough_history_yet')}</p>`;
+  installChartHover();
   const W = 640; const H = height; const padR = 56; const padT = 10; const padB = 24;
   const xs = points.map((p) => p.t); const ys = points.map((p) => p.v).concat(refLine == null ? [] : [refLine]);
   const minX = Math.min(...xs); const maxX = Math.max(...xs);
@@ -35,7 +37,8 @@ function valueChart(points, { fmt = (v) => String(v), height = 200, label = 'Cha
   const ref = refLine == null ? '' : `<line x1="0" x2="${W - padR}" y1="${sy(refLine)}" y2="${sy(refLine)}" stroke="var(--text-x30)" stroke-dasharray="4 4"/>`;
   const d = points.map((p, i) => `${i ? 'L' : 'M'}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(' ');
   const last = points[points.length - 1];
-  return `<svg class="chart v-h" viewBox="0 0 ${esc(W)} ${esc(H)}"${vars({ '--h': `${H}px` })} role="img" aria-label="${esc(label)}">${grid}${days}${ref}<path d="${d}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="4.5" fill="var(--brand)"/></svg>`;
+  const hover = hoverAttr([{ name: label, color: 'var(--brand)', points: points.map((p) => ({ x: sx(p.t), y: sy(p.v), t: p.t * 1000, label: fmt(p.v) })) }], { x0: 0, x1: W - padR - 8 });
+  return `<svg class="chart v-h" viewBox="0 0 ${esc(W)} ${esc(H)}"${vars({ '--h': `${H}px` })} role="img" aria-label="${esc(label)}"${hover}>${grid}${days}${ref}<path d="${d}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${sx(last.t)}" cy="${sy(last.v)}" r="4.5" fill="var(--brand)"/></svg>`;
 }
 
 // ---------------------------------------------------------------- Senate map

@@ -126,6 +126,14 @@ test('market page: chart, order book, trades, stats and a logged-out ticket', as
   await page.waitForSelector('[data-testid=perp-chart] svg polyline');
   const pts = await page.$eval('[data-testid=perp-chart] polyline', (e) => e.getAttribute('points').split(' ').length);
   assert.ok(pts > 20, `chart has ${pts} points`);
+  // Hover readout on the mark chart: one row (the market) with a naira price, following the pointer; gone on leave.
+  const cb = await page.locator('[data-testid=perp-chart] svg[data-hover]').boundingBox();
+  await page.mouse.move(cb.x + cb.width * 0.4, cb.y + cb.height / 2);
+  await page.waitForFunction(() => { const o = document.querySelector('[data-testid=perp-chart] [data-testid=chart-hover]'); return o && !o.hidden; });
+  assert.equal(await page.locator('[data-testid=perp-chart] [data-testid=chart-hover-row]').count(), 1);
+  assert.match(await page.textContent('[data-testid=perp-chart] [data-testid=chart-hover-row] .ch-val'), /^₦[\d,]+(\.\d+)?$/);
+  await page.mouse.move(cb.x + cb.width / 2, cb.y - 80);
+  await page.waitForFunction(() => document.querySelector('[data-testid=perp-chart] [data-testid=chart-hover]').hidden);
   await page.waitForFunction(() => document.querySelectorAll('[data-testid=perp-asks] .perps-lvl').length >= 5 && document.querySelectorAll('[data-testid=perp-bids] .perps-lvl').length >= 5);
   // Best ask above best bid.
   const [ask, bid] = await page.evaluate(() => [document.querySelector('[data-testid=perp-asks] .perps-lvl:last-child span').textContent, document.querySelector('[data-testid=perp-bids] .perps-lvl span').textContent]);

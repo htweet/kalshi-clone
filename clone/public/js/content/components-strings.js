@@ -13,6 +13,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "components.event_card.vol": "{money0} vol",
   "components.event_card.outcomes": "· {value} outcomes",
   "components.multi_chart.price_history": "Price history",
+  "components.chart_hover.announce": "{time}: {values}",
   "components.line_chart.price_history_last": "Price history, last {v}%",
   "components.post_card.verified_profile": "Verified profile",
   "components.post_card.verified": "Verified",

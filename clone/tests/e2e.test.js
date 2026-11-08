@@ -265,6 +265,82 @@ test('closing a position nets YES+NO pairs back to cash', async () => {
   await page.context().close();
 });
 
+test('chart hover: a line, the time, a dot per series and a legend follow the pointer and hide on leave (mouse, touch, keyboard)', async () => {
+  const page = await newPage();
+  await page.goto(BASE + EVENT_URL);
+  const svgSel = '#chart svg.chart[data-hover]';
+  await page.waitForSelector(svgSel);
+  const box = await page.locator(svgSel).boundingBox();
+  const seriesN = await page.$eval(svgSel, (s) => JSON.parse(s.getAttribute('data-hover')).s.length);
+  assert.ok(seriesN >= 2, `${seriesN} series`);
+  const shown = () => page.evaluate(() => { const o = document.querySelector('#chart [data-testid=chart-hover]'); return !!o && !o.hidden; });
+  // The values the readout must show at a client x: each series' last point at or before that moment.
+  const expected = (cx) => page.evaluate(([sel, x]) => {
+    const svg = document.querySelector(sel); const d = JSON.parse(svg.getAttribute('data-hover'));
+    const vx = Math.min(d.X1, Math.max(d.X0, new DOMPoint(x, 0).matrixTransform(svg.getScreenCTM().inverse()).x));
+    return d.s.map((s) => { let k = 0; for (let i = 0; i < s.p.length; i++) if (s.p[i][0] <= vx) k = i; return `${s.n}|${s.p[k][3]}`; }).sort();
+  }, [svgSel, cx]);
+  const shownRows = () => page.$$eval('#chart [data-testid=chart-hover-row]', (rows) => rows.map((r) => `${r.querySelector('.ch-name').textContent}|${r.querySelector('.ch-val').textContent}`).sort());
+  const legend = () => page.$eval('#chart [data-testid=chart-hover-legend]', (l) => ({ left: l.getBoundingClientRect().left, right: l.getBoundingClientRect().right, flipped: l.classList.contains('left') }));
+  const lineX = () => page.$eval('#chart .ch-line', (l) => l.getBoundingClientRect().left);
+
+  // Mouse: at 30% of the width.
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width * 0.3, y);
+  await page.waitForFunction(() => { const o = document.querySelector('#chart [data-testid=chart-hover]'); return o && !o.hidden; });
+  assert.equal((await shownRows()).length, seriesN);
+  assert.deepEqual(await shownRows(), await expected(box.x + box.width * 0.3));
+  for (const r of await shownRows()) assert.match(r, /\|\d+(\.\d+)?%$/);
+  const t1 = await page.textContent('#chart [data-testid=chart-hover-time]');
+  assert.ok(t1.trim().length >= 4, `time "${t1}"`);
+  assert.equal(await page.$eval(svgSel, (s) => s.classList.contains('ch-on')), true, 'end labels give way to the readout');
+  assert.equal(await page.locator('#chart .ch-dot').count(), seriesN);
+  const l1 = await legend(); const x1 = await lineX();
+  assert.ok(l1.left > x1 && !l1.flipped, 'the legend sits to the right of the line');
+  // It follows the pointer.
+  await page.mouse.move(box.x + box.width * 0.6, y);
+  await page.waitForFunction((prev) => document.querySelector('#chart .ch-line').getBoundingClientRect().left > prev + 50, x1);
+  assert.deepEqual(await shownRows(), await expected(box.x + box.width * 0.6));
+  assert.notEqual(await page.textContent('#chart [data-testid=chart-hover-time]'), t1);
+  // Near the right edge the legend flips to the left of the line and stays inside the chart.
+  await page.mouse.move(box.x + box.width * 0.9, y);
+  await page.waitForFunction(() => document.querySelector('#chart [data-testid=chart-hover-legend]').classList.contains('left'));
+  const l3 = await legend();
+  assert.ok(l3.right <= (await lineX()) + 1 && l3.left >= box.x - 1, JSON.stringify(l3));
+  // Mouse out: gone, and the end labels are back.
+  await page.mouse.move(box.x + box.width / 2, box.y - 60);
+  await page.waitForFunction(() => document.querySelector('#chart [data-testid=chart-hover]').hidden);
+  assert.equal(await page.$eval(svgSel, (s) => s.classList.contains('ch-on')), false);
+  // Keyboard: focus shows the latest values; arrows step back in time; Escape hides.
+  await page.focus(svgSel);
+  assert.ok(await shown());
+  const tEnd = await page.textContent('#chart [data-testid=chart-hover-time]');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowLeft');
+  assert.notEqual(await page.textContent('#chart [data-testid=chart-hover-time]'), tEnd);
+  assert.match(await page.$eval('#chart [data-testid=chart-hover] [aria-live]', (e) => e.textContent), /%/);
+  await page.keyboard.press('Escape');
+  assert.equal(await shown(), false);
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+
+  // Touch at phone width: a tap shows it inside the chart, a tap elsewhere hides it.
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const ph = await ctx.newPage(); ph.errors = []; ph.on('pageerror', (e) => ph.errors.push(e.message));
+  await ph.goto(BASE + EVENT_URL);
+  await ph.waitForSelector(svgSel);
+  const pb = await ph.locator(svgSel).boundingBox();
+  await ph.touchscreen.tap(pb.x + pb.width * 0.5, pb.y + pb.height / 2);
+  await ph.waitForFunction(() => { const o = document.querySelector('#chart [data-testid=chart-hover]'); return o && !o.hidden; });
+  const lp = await ph.$eval('#chart [data-testid=chart-hover-legend]', (l) => { const r = l.getBoundingClientRect(); return { left: r.left, right: r.right }; });
+  assert.ok(lp.left >= 0 && lp.right <= 390, `legend within the phone screen ${JSON.stringify(lp)}`);
+  assert.ok(await ph.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'no horizontal scroll');
+  const vol = await ph.locator('#ev-vol').boundingBox(); // plain text outside the chart
+  await ph.touchscreen.tap(vol.x + vol.width / 2, vol.y + vol.height / 2);
+  await ph.waitForFunction(() => document.querySelector('#chart [data-testid=chart-hover]').hidden);
+  assert.deepEqual(ph.errors, []);
+  await ctx.close();
+});
+
 test('watchlist, recently viewed and settings persist in the DB across sessions', async () => {
   const page = await newPage();
   await logIn(page, alice.email);
