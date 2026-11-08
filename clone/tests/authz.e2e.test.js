@@ -343,6 +343,19 @@ const EXPECT = {
   'POST /v1/admin/waitlists/:list/survey/comments/:id/:action': perm('users.support'),
   'GET /v1/admin/waitlists/:list/newsletters': perm('announce'), 'POST /v1/admin/waitlists/:list/newsletters/preview': perm('announce'), 'POST /v1/admin/waitlists/:list/newsletters/test': perm('announce'),
   'POST /v1/admin/waitlists/:list/newsletters': perm('announce'), 'POST /v1/admin/waitlists/:list/newsletters/:id/cancel': perm('announce'), 'POST /v1/admin/waitlists/:list/launch_email': perm('announce'),
+  // ---- Phase 7B (CLONE_SPEC.md §37): elections hub v2. The hub, its views, results, timeline, Power Index, divisions and
+  // ballot lookups are public reads (no write route exists for the feed); a saved ballot area is the owner's; Admin ›
+  // Elections reads with catalog.read, edits the country model with catalog.write, runs the simulator with markets.ops,
+  // sets the Power Index with settings.write; calls, uncalls and two-person approvals need resolution.write.
+  'GET /v1/elections/hubs': P, 'GET /v1/elections/hubs/:slug': P, 'GET /v1/elections/hubs/:slug/view': P, 'GET /v1/elections/hubs/:slug/timeline': P,
+  'GET /v1/elections/hubs/:slug/races': P, 'GET /v1/elections/hubs/:slug/search': P, 'GET /v1/elections/races/:id': P, 'GET /v1/elections/power_index/:country': P,
+  'GET /v1/elections/countries/:code/divisions': P, 'GET /v1/elections/ballot/:division': P,
+  'GET /v1/users/:uid/election_ballot': O, 'PUT /v1/users/:uid/election_ballot': O, 'DELETE /v1/users/:uid/election_ballot': O,
+  'GET /v1/admin/elections': perm('catalog.read'), 'GET /v1/admin/elections/elections/:id/desk': perm('catalog.read'), 'PUT /v1/admin/elections/elections/:id/simulator': perm('markets.ops'),
+  'GET /v1/admin/elections/power_index/:country': perm('catalog.read'), 'PUT /v1/admin/elections/power_index/:country': perm('settings.write'),
+  'GET /v1/admin/elections/calls': perm('catalog.read'), 'POST /v1/admin/elections/calls/:id/approve': perm('resolution.write'), 'POST /v1/admin/elections/calls/:id/reject': perm('resolution.write'),
+  'POST /v1/admin/elections/races/:id/call': perm('resolution.write'), 'POST /v1/admin/elections/races/:id/uncall': perm('resolution.write'),
+  'GET /v1/admin/elections/:kind': perm('catalog.read'), 'POST /v1/admin/elections/:kind': perm('catalog.write'), 'PUT /v1/admin/elections/:kind/:id': perm('catalog.write'),
   // ---- static (regular-expression routes): probe path given explicitly
   'GET RE:^\\/[A-Za-z0-9_-]+\\.css$': { who: 'public', probe: '/fonts.css' },
 };
@@ -669,6 +682,24 @@ test('waitlist IDOR (Phase 7A): user B and a guest token cannot read, change or 
   const adminView = await principals.support.call('GET', '/v1/admin/waitlists/real_money_launch');
   assert.equal(adminView.status, 200);
   assert.ok(!adminView.text.includes(newEmail('alice')) && !adminView.text.includes('A private thought'), 'aggregates only');
+});
+
+test('elections IDOR (Phase 7B): user B cannot read, replace or delete A\'s saved ballot area; no route writes the results feed', async () => {
+  // This suite's server is not seeded with elections: a division row is enough for the saved-area probes.
+  dbrun("INSERT OR IGNORE INTO el_countries(code,name,currency,time_zone,locale,config_json,active,created_ts,updated_ts) VALUES('NG','Nigeria','NGN','Africa/Lagos','en-NG','{\"map_level\":\"state\",\"ballot_levels\":[\"state\"]}',1,0,0)");
+  dbrun("INSERT OR IGNORE INTO el_divisions(id,country,level,code,name,parent_id,data_json,sort,updated_ts) VALUES('NG-LA','NG','state','LA','Lagos',NULL,'{}',0,0),('NG-KN','NG','state','KN','Kano',NULL,'{}',0,0)");
+  srv.app.locals.elections.invalidate();
+  assert.equal((await A.call('PUT', `/v1/users/${A.uid}/election_ballot`, { division_id: 'NG-LA' })).status, 200);
+  assertForbidden(await B.call('GET', `/v1/users/${A.uid}/election_ballot`), 'B reads A');
+  assertForbidden(await B.call('PUT', `/v1/users/${A.uid}/election_ballot`, { division_id: 'NG-KN' }), 'B replaces A');
+  assertForbidden(await B.call('DELETE', `/v1/users/${A.uid}/election_ballot`), 'B deletes A');
+  // B's own save never touches A's row, and the body takes a division id only (no user id, no address).
+  assert.equal((await B.call('PUT', `/v1/users/${B.uid}/election_ballot`, { division_id: 'NG-KN', user_id: A.uid })).status, 400);
+  assert.equal((await B.call('PUT', `/v1/users/${B.uid}/election_ballot`, { division_id: 'NG-KN', address: '1 Marina Road' })).status, 400);
+  assert.equal(dbq('SELECT division_id FROM el_ballot_saved WHERE user_id=?', A.uid)[0].division_id, 'NG-LA');
+  // The feed has no client write route: results, tallies and snapshots are written by the server only.
+  for (const [m, p] of [['POST', '/v1/elections/races/x/results'], ['PUT', '/v1/elections/hubs/x/view'], ['POST', '/v1/elections/hubs/x/timeline']]) assert.equal((await A.call(m, p, {})).status, 404, `${m} ${p}`);
+  assert.equal((await A.call('DELETE', `/v1/users/${A.uid}/election_ballot`)).status, 200);
 });
 
 test('authorization matrix: anonymous, user, other user (IDOR) and every admin role, for every route', async () => {

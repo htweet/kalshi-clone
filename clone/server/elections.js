@@ -390,7 +390,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
       return { ...base, kind: kindOf(st, minPl, false), party_id: top ? top[0] : null, color: top ? party(top[0])?.color : null, pct: pctSum / here.length, label: st === ST.called ? null : called ? `${called}/${here.length}` : st === ST.none ? null : `${Math.round((pctSum / here.length) * 100)}%`,
         race_ids: here.map((x) => x.id), tooltip: { title: `${d.name} · ${office.name}`, pct_reported: pctSum / here.length, rows: [], seats: seatsRows, volume_cents: here.reduce((a, x) => a + x.volume_cents, 0), chance: null } };
     });
-    const map = callAllowed(req, 'elections.map') ? { office: office.key, cols: cfg.config.map_cols, rows: cfg.config.map_rows, states } : null;
+    const map = callAllowed(req, 'elections.results_map') ? { office: office.key, cols: cfg.config.map_cols, rows: cfg.config.map_rows, states } : null;
     // ---- ratings: map units for a national race, races otherwise
     const items = national ? states.filter((s) => s.kind !== 'none').map((s) => { const u = (compact.units[ors[0].id] || {})[s.id]; return { id: s.id, code: s.code, party_id: s.party_id, p: u ? u[3] / 1000 : 0, settled: s.kind === 'called' }; })
       : ors.map((x) => { const e = entry(x); const lp = candParty(x, e.win || e.lead); const d = cfg.divs.get(x.race.division_id); return { id: x.id, code: d ? d.code : '', party_id: lp, p: e.pl, settled: e.st === ST.called, race_id: x.id }; });

@@ -32,6 +32,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "flags.feature.developer_portal": "The developer portal",
   "flags.feature.status_page": "The status page",
   "flags.feature.waitlist.launch": "The real-money waitlist",
+  "flags.feature.elections.hub": "The elections hub",
   "flags.waitlist.banner_cta": "Join the real-money waitlist",
   "flags.waitlist.cta_overline": "Real money is coming",
   "flags.waitlist.cta_title": "Join the real-money waitlist",

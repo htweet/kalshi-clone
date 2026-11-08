@@ -24,10 +24,10 @@
 .el-search-res button { text-align: left; background: none; border: 0; padding: var(--space-2); border-radius: var(--rounded-x05); color: var(--text-x10); cursor: pointer; font-size: var(--fs-sm); line-height: var(--lh-sm); }
 .el-search-res button:hover { background: var(--fill-x30); }
 .el-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
-.el-card { padding: var(--space-4) var(--space-5); display: grid; gap: var(--space-3); min-width: 0; }
+.el-card { padding: var(--space-4) var(--space-5); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .el-card-h { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .el-card-h h2 { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); display: flex; align-items: center; gap: var(--space-2); }
-.el-card-plain { display: grid; gap: var(--space-3); }
+.el-card-plain { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 .el-card-plain h2 { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); }
 
 /* chips, avatars, badges */
@@ -145,7 +145,7 @@
 .el-ax { font-size: var(--fs-2xs); fill: var(--text-x30); }
 
 /* race detail, lists */
-.el-race { padding: var(--space-4) var(--space-5); display: grid; gap: var(--space-3); min-width: 0; }
+.el-race { padding: var(--space-4) var(--space-5); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .el-race-h { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .el-race-h h2 { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); }
 .el-table td, .el-table th { white-space: nowrap; }

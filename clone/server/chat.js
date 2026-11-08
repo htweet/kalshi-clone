@@ -317,7 +317,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
         (SELECT COUNT(*) FROM chat_mutes x WHERE x.room=r.event_ticker AND x.until_ts>?) mutes,
         (SELECT COUNT(*) FROM mod_reports p WHERE p.kind='chat' AND p.post_id=r.event_ticker AND p.status='open') reports
       FROM chat_rooms r LEFT JOIN events e ON e.ticker=r.event_ticker ORDER BY last_ts DESC NULLS LAST LIMIT 500`).all(since, now);
-    res.json({ rooms: rows.map((r) => ({ event_ticker: r.event_ticker, title: r.title || r.event_ticker, status: roomStatus(r, eventActive(r.event_ticker)), slow_mode_sec: r.slow_mode_sec, locked: !!r.locked,
+    res.json({ rooms: rows.map((r) => ({ event_ticker: r.event_ticker, title: r.title || getEvent(r.event_ticker)?.title || r.event_ticker, status: roomStatus(r, eventActive(r.event_ticker)), slow_mode_sec: r.slow_mode_sec, locked: !!r.locked,
       pinned: !!r.pinned_message_id, messages: r.n, messages_24h: r.n24, last_message_time: r.last_ts ? new Date(r.last_ts).toISOString() : null, active_mutes: r.mutes, open_reports: r.reports, online: online.get(r.event_ticker) || 0 })) });
   });
   v1.get(`${A}/rooms/:ticker`, requireMod, (req, res) => {

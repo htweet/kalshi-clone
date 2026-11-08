@@ -71,6 +71,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.group.play": "Play mode and Central Bank",
   "admin.flags.group.api": "Public API and developer portal",
   "admin.flags.group.growth": "Waitlists and newsletter",
+  "admin.flags.group.elections": "Elections hub",
   "admin.flags.label.trading": "Prediction trading",
   "admin.flags.label.trading.limit_orders": "Limit orders",
   "admin.flags.label.trading.market_orders": "Market orders",
@@ -141,6 +142,13 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.label.waitlist.launch": "Real-money launch waitlist (/waitlist, CTAs)",
   "admin.flags.label.waitlist.launch.public_count": "Public progress bar on /waitlist",
   "admin.flags.label.waitlist.launch.survey": "Waitlist opinion survey",
+  "admin.flags.label.elections.hub": "Elections hub pages",
+  "admin.flags.label.elections.results_map": "Elections results map",
+  "admin.flags.label.elections.results": "Election results, race cards and the 25% tracker",
+  "admin.flags.label.elections.timeline": "Elections timeline replay",
+  "admin.flags.label.elections.power_index": "Power Index",
+  "admin.flags.label.elections.chat": "Elections hub chat",
+  "admin.flags.label.elections.simulator": "Simulated results feed (demo and test only)",
   "admin.flags.label.newsletter": "Waitlist newsletter (sends and the outbox job)"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;

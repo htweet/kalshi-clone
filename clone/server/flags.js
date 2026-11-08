@@ -108,7 +108,9 @@ const REGISTRY = [
   // Phase 7B (CLONE_SPEC.md §37): the elections hub v2 and its widgets; the results simulator (demo and test only, off by
   // default: `npm start` outside production starts it on through the `defaults` start option).
   ['elections.hub', 'elections', null, 'both'],
-  ['elections.map', 'elections', 'elections.hub', 'both'],
+  // The map flag is not "elections.map": a key ending in .map makes /v1/admin/flags/<key> look like a source-map probe to the
+  // perimeter honeypot (server/bot.js), which answers 404 before any route runs.
+  ['elections.results_map', 'elections', 'elections.hub', 'both'],
   ['elections.results', 'elections', 'elections.hub', 'both'],
   ['elections.timeline', 'elections', 'elections.hub', 'both'],
   ['elections.power_index', 'elections', 'elections.hub', 'both'],

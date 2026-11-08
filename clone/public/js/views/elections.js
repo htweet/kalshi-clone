@@ -122,6 +122,7 @@ function wireMap(root, map, onPick) {
     tip.style.left = `${left}px`; tip.style.top = `${top}px`;
   };
   const hide = () => { tip.hidden = true; pinned = null; };
+  wrap.hideTip = hide; // a tap or click outside the map hides a pinned tooltip (render's document listener)
   wrap.addEventListener('pointerover', (e) => { if (e.pointerType !== 'mouse') return; const g = e.target.closest('[data-id]'); if (g && !pinned) show(g.dataset.id, g); });
   wrap.addEventListener('pointerout', (e) => { if (e.pointerType !== 'mouse' || pinned) return; const g = e.target.closest('[data-id]'); if (g && !g.contains(e.relatedTarget)) tip.hidden = true; });
   wrap.addEventListener('click', (e) => {
@@ -287,7 +288,7 @@ export async function render(ctx) {
     body.innerHTML = `<div class="el-grid" data-testid="el-overview" data-view>
       <section class="el-gauges" data-testid="el-gauges" data-part="gauges"></section>
       <section class="card el-card" data-testid="el-seat-card"><div class="el-card-h"><h2>${te('elections.overview.seats_title')}</h2>${pills()}</div><div data-part="seats"></div></section>
-      <section class="card el-card" data-testid="el-map" data-flag="elections.map"><div class="el-card-h"><h2>${te('elections.overview.map_title')}</h2><span class="faint" data-replay-note></span></div><div data-part="map"></div></section>
+      <section class="card el-card" data-testid="el-map" data-flag="elections.results_map"><div class="el-card-h"><h2>${te('elections.overview.map_title')}</h2><span class="faint" data-replay-note></span></div><div data-part="map"></div></section>
       <section class="card el-card" data-testid="el-ratings-card"><div class="el-card-h"><h2>${te('elections.overview.ratings_title')}</h2></div><div data-part="ratings"></div></section>
       <section class="card el-card" data-testid="el-timeline" data-flag="elections.timeline"><div class="el-card-h"><h2>${te('elections.timeline.title')}</h2></div><div data-part="timeline"></div></section>
       <section class="el-card-plain" data-testid="el-featured" data-flag="elections.results"><div class="el-card-h"><h2>${te('elections.overview.featured_title')}</h2></div><div class="el-fgrid" data-part="featured"></div></section>
@@ -311,7 +312,7 @@ export async function render(ctx) {
     body.innerHTML = `<div class="el-grid" data-testid="el-office-tab" data-office="${esc(key)}" data-view>
       <section class="el-gauges" data-part="gauges"></section>
       ${o && (o.chamber || o.races > 1) ? `<section class="card el-card" data-testid="el-seat-card"><div class="el-card-h"><h2>${te('elections.overview.seats_title')}</h2></div><div data-part="seats"></div></section>` : ''}
-      <section class="card el-card" data-testid="el-map" data-flag="elections.map"><div class="el-card-h"><h2>${te('elections.overview.map_title')}</h2></div><div data-part="map"></div></section>
+      <section class="card el-card" data-testid="el-map" data-flag="elections.results_map"><div class="el-card-h"><h2>${te('elections.overview.map_title')}</h2></div><div data-part="map"></div></section>
       <section class="card el-card" data-testid="el-ratings-card"><div class="el-card-h"><h2>${te('elections.overview.ratings_title')}</h2></div><div data-part="ratings"></div></section>
       <section data-part="race" data-flag="elections.results"></section>
       <section class="card el-card" data-testid="el-office-races"><div class="el-card-h"><h2>${te('elections.list.title')}</h2></div><div data-part="list"></div></section></div>`;
@@ -325,7 +326,7 @@ export async function render(ctx) {
     await Promise.all([viewP, listP]);
   }
   async function drawStates(my) {
-    body.innerHTML = `<div class="el-grid" data-testid="el-states-tab" data-view><section class="card el-card" data-testid="el-map" data-flag="elections.map"><div class="el-card-h"><h2>${te('elections.states.map_title')}</h2>${pills()}</div><div data-part="map"></div></section>
+    body.innerHTML = `<div class="el-grid" data-testid="el-states-tab" data-view><section class="card el-card" data-testid="el-map" data-flag="elections.results_map"><div class="el-card-h"><h2>${te('elections.states.map_title')}</h2>${pills()}</div><div data-part="map"></div></section>
       <section class="card el-card"><div class="el-card-h"><h2>${te('elections.states.title')}</h2></div><div class="el-state-grid" data-part="statelist"></div></section><div data-part="state"></div><div data-part="race"></div></div>`;
     const root = body.querySelector('[data-view]');
     await refreshView(root, S.office || offices[0]?.key);
@@ -508,6 +509,9 @@ export async function render(ctx) {
   };
   cleanups.push(socket.subscribe({ channels: ['elections'], hubs: [slug] }, (m) => { if (m.type !== 'elections') return; clearTimeout(liveT); liveT = setTimeout(refreshAll, 600); }));
   cleanups.push(() => { clearTimeout(liveT); clearTimeout(sTimer); stopPlay(); });
+  const onDoc = (e) => { for (const w of el.querySelectorAll('[data-testid=el-map-wrap]')) if (!w.contains(e.target) && w.hideTip) w.hideTip(); };
+  document.addEventListener('click', onDoc);
+  cleanups.push(() => document.removeEventListener('click', onDoc));
   // Hub chat (§20): a room of its own, a floating pill with the online count.
   if (flagOn('elections.chat') && flagOn('social.chat')) cleanups.push(mountChat({ el: el.querySelector('.el-page'), ev: { event_ticker: hub.hub.chat_room }, label: tx('elections.chat.label', { title: hub.hub.title }), pillOnline: true }));
   await drawTab();
