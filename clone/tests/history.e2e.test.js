@@ -168,7 +168,11 @@ test('filters (type, market search, date range) persist in the DB and in a new b
   assert.ok(ui.find((x) => x.type === 'deposit' && x.text.includes('+₦15,000')));
   await ph.click('[data-htype=all]');
   await ph.fill('#h-market', 'Cut');
-  await ph.waitForFunction(() => { const r = [...document.querySelectorAll('[data-testid=history-table] tr[data-hrow]')]; return r.length && r.every((e) => e.textContent.includes('Cut')); });
+  await ph.waitForFunction(() => { const r = [...document.querySelectorAll('[data-testid=history-table] tr[data-hrow]')]; return r.length && r.every((e) => e.textContent.includes('Cut')); }).catch(async (e) => {
+    const st = await ph.evaluate(() => ({ input: document.querySelector('#h-market')?.value, chips: [...document.querySelectorAll('[data-htype][aria-pressed=true]')].map((b) => b.dataset.htype), rows: [...document.querySelectorAll('[data-testid=history-table] tr[data-hrow]')].map((r) => r.textContent.replace(/\s+/g, ' ').slice(0, 90)), empty: !!document.querySelector('[data-testid=history-empty]') }));
+    console.log('DEBUG-HIST', JSON.stringify(st, null, 1));
+    throw e;
+  });
   await ph.waitForTimeout(400);
   const saved = JSON.parse(dbq("SELECT value FROM user_settings WHERE user_id=? AND key='history_filters'", uid())[0].value);
   assert.deepEqual([saved.type, saved.market], ['all', 'Cut']);
