@@ -101,6 +101,29 @@ test('frame, ☰ menu, trophy and category index; placeholder pages; earlier acc
   await page.context().close();
 });
 
+test('an open ☰ menu or bell stays open while the balance changes live (the header updates in place)', async () => {
+  const { page, api, uid } = await user('livemenu');
+  await page.click('[data-testid=account-menu]');
+  await page.waitForSelector('.hamburger-menu [data-testid=menu-settings]');
+  await page.evaluate(() => { window.__menu = document.querySelector('.hamburger-menu'); window.__btn = document.querySelector('[data-testid=account-menu]'); });
+  // A deposit pushes the new balance over the WebSocket while the menu is open.
+  assert.equal((await api.call('POST', `/v1/users/${uid}/deposits`, { amount_dollars: 25 })).status, 201);
+  await page.waitForFunction(() => /2,500/.test(document.querySelector('[data-testid=header-balance]').textContent));
+  assert.ok(await page.evaluate(() => window.__menu.isConnected && window.__btn.isConnected), 'the open menu and its button were not rebuilt');
+  await page.click('.hamburger-menu [data-testid=menu-settings]'); // still clickable
+  await page.waitForSelector('[data-testid=settings]');
+  // The bell's menu the same way.
+  await page.click('[data-testid=bell]');
+  await page.waitForSelector('.notif-menu #notif-items');
+  await page.evaluate(() => { window.__bell = document.querySelector('.notif-menu'); });
+  assert.equal((await api.call('POST', `/v1/users/${uid}/deposits`, { amount_dollars: 5 })).status, 201);
+  await page.waitForFunction(() => /3,000/.test(document.querySelector('[data-testid=header-balance]').textContent));
+  assert.ok(await page.evaluate(() => window.__bell.isConnected), 'the open notifications menu survives');
+  assert.equal(D.q('SELECT balance_cents c FROM users WHERE id=?', uid)[0].c, 3000);
+  await H.assertClean(assert, page);
+  await page.context().close();
+});
+
 test('Your activity: chips filter the timeline, CSV follows the chip, empty state, the chosen chip persists', async () => {
   const { page, api, uid } = await user('activity');
   assert.equal((await api.call('POST', `/v1/users/${uid}/deposits`, { amount_dollars: 300 })).status, 201);

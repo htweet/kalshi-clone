@@ -203,16 +203,28 @@ function notifList(items) {
     : `<div class="empty faint">${te('shell.notif_list.no_notifications_yet')}</div>`;
 }
 
+// A full rebuild (content, currency or flag changes alter labels and which buttons show).
+function rebuildAccount() { const el = document.getElementById('account-area'); if (el) el.dataset.sig = ''; renderAccount(); }
 function renderAccount() {
   const el = document.getElementById('account-area');
-  if (!session.loaded) { el.innerHTML = ''; return; }
+  if (!session.loaded) { el.dataset.sig = ''; el.innerHTML = ''; return; }
   if (!session.user) {
+    el.dataset.sig = '';
     el.innerHTML = `<a class="btn btn-pill btn-outline-brand" href="/sign-in" data-link>${te('shell.render_account.log_in')}</a><a class="btn btn-pill btn-primary" href="/sign-up" data-link>${te('shell.render_account.sign_up')}</a>${guestMenuButton()}`;
     const g = el.querySelector('#guest-btn'); // signed-out ☰, only while the app can be installed (CLONE_SPEC §31.6)
     if (g) g.onclick = (e) => { const m = toggleMenu(e.currentTarget, guestMenuHtml(), 'hamburger-menu'); if (m) wireGuestMenu(m, { close: closeMenus }); };
     return;
   }
   const nick = session.nickname || session.user.display_name;
+  // Same user, name and mode: update the balance in place. Rebuilding the area on every session change (a balance push,
+  // a profile load) would close an open bell or ☰ menu under the user's pointer.
+  const sig = JSON.stringify([session.user.id, nick, session.user.display_name, playOn(), money(0)]);
+  if (el.dataset.sig === sig && el.querySelector('[data-testid=header-balance]')) {
+    el.querySelector('[data-testid=header-balance]').textContent = money(session.balance);
+    drawBell();
+    return;
+  }
+  el.dataset.sig = sig;
   el.innerHTML = `<a class="balance-chip${playOn() ? ' play' : ''}" href="/portfolio" data-link title="${te('shell.render_account.cash_available')}"><span class="label" data-testid="header-balance-label">${playOn() ? te('flags.play.cash') : te('shell.render_account.cash')}</span><span class="value" data-testid="header-balance">${money(session.balance)}</span></a>
     <div class="menu-wrap"><button class="icon-btn" id="bell-btn" data-menu-btn aria-label="${te('shell.render_account.notifications')}" data-testid="bell">${ICON.bell}</button></div>
     <a class="icon-btn messages-btn" href="/messages" data-link data-flag="social.group_chat" aria-label="${te('shell.render_account.group_chats')}" title="${te('shell.render_account.group_chats')}" data-testid="messages-btn">${ICON.chat}</a>
@@ -309,7 +321,7 @@ renderAccount();
 // Admin › Currency & defaults: a change reaches every open page live and re-renders it (CLONE_SPEC.md §30).
 socket.subscribe({ channels: ['display_currency'] }, (m) => { if (m.type === 'display_currency' && flagOn('currency_switch')) setCurrency(m.msg); });
 let booted = false;
-onCurrency(() => { renderAccount(); if (booted) render(); });
+onCurrency(() => { rebuildAccount(); if (booted) render(); });
 // Shell markup in index.html carries catalog keys (data-t / data-t-attr="attr:key;…"): filled from the catalog at boot
 // and after every content change; the logo slot replaces the wordmark text when an admin sets one (CLONE_SPEC.md §32).
 function applyShell() {
@@ -323,10 +335,10 @@ function applyShell() {
   }
 }
 applyShell();
-initContent({ socket, onChange: () => { applyShell(); renderAccount(); if (booted) render(); } });
+initContent({ socket, onChange: () => { applyShell(); rebuildAccount(); if (booted) render(); } });
 initPwa();
 window.addEventListener('parlance:install-state', () => { if (!session.user) renderAccount(); }); // signed-out ☰ with "Install app"
 initFlags({ socket, session });
-onFlags(() => { renderPlayBanner(); renderAccount(); if (booted) render(); }); // a flag / play-mode / money-control change, live
+onFlags(() => { renderPlayBanner(); rebuildAccount(); if (booted) render(); }); // a flag / play-mode / money-control change, live
 Promise.all([session.load(), loadSite(), loadFlags()]).then(() => { booted = true; renderPlayBanner(); renderAccount(); socket.connect(); render(); });
 window.addEventListener('parlance:site-loaded', () => { if (session.loaded) renderCategoryStrip(new URL(location.href)); });

@@ -191,6 +191,29 @@ test('filters (type, market search, date range) persist in the DB and in a new b
   await p2.context().close();
 });
 
+test('a slow answer for an earlier filter never overwrites a newer one (chip, then market search)', async () => {
+  // Hold every unfiltered history request (no market) for 1.5 s, so it answers after the filtered one.
+  let held = 0;
+  await ph.route(/\/v1\/users\/[^/]+\/history(\?|$)/, async (route) => {
+    if (!new URL(route.request().url()).searchParams.get('market')) { held += 1; await new Promise((r) => setTimeout(r, 1500)); }
+    await route.continue();
+  });
+  await ph.fill('#h-market', '');
+  await ph.waitForTimeout(600);
+  await ph.click('[data-htype=trades]');
+  await ph.click('[data-htype=all]'); // unfiltered, held
+  await ph.fill('#h-market', 'Cut'); // filtered, answers first
+  await ph.waitForTimeout(2500); // the held answers arrive
+  assert.ok(held >= 2, `held ${held} unfiltered requests`);
+  const ui = await rows(ph);
+  assert.ok(ui.length && ui.every((x) => x.text.includes('Cut')), 'the market filter still shows');
+  assert.equal(await ph.inputValue('#h-market'), 'Cut');
+  await ph.unroute(/\/v1\/users\/[^/]+\/history(\?|$)/);
+  await ph.fill('#h-market', '');
+  await ph.waitForTimeout(800);
+  assert.deepEqual(ph.errors, []);
+});
+
 test('History survives a restart; 390px has no horizontal overflow', async () => {
   const first = (await allHistory(ph)).slice(0, 5).map((x) => x.id);
   await ph.context().close();

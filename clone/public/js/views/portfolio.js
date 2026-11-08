@@ -66,25 +66,29 @@ export async function render({ el, navigate, query }) {
     $('#s-reserved').textContent = money(b.reserved_dollars);
   }
 
+  // Only the latest draw renders: a slower answer for an earlier filter or tab must not overwrite a newer one.
+  let panelSeq = 0;
   async function drawPanel() {
     const p = $('#panel');
+    const my = ++panelSeq;
     if (tab === 'positions') {
-      await drawPositions(p);
+      await drawPositions(p, my);
     } else if (tab === 'orders') {
-      await drawResting(p);
+      await drawResting(p, my);
     } else if (tab === 'rfqs') {
-      await drawRfqs(p);
+      await drawRfqs(p, my);
     } else if (tab === 'quotes') {
-      await drawQuotes(p);
+      await drawQuotes(p, my);
     } else {
-      await drawHistory(p);
+      await drawHistory(p, my);
     }
   }
 
   // ---------- Positions (spec §17.11): summary, grouped holdings, sort/filter, Sell sheet ----------
-  async function drawPositions(p) {
+  async function drawPositions(p, my = panelSeq) {
     // Combos and collateral return are behind their feature flags (CLONE_SPEC.md §33).
     const [r, combos, coll] = await Promise.all([api.portfolioPositions(uid, { sort: posSort, filter: posFilter }), flagOn('combos') ? api.myCombos(uid).catch(() => ({ combos: [] })) : { combos: [] }, flagOn('trading.collateral_return') ? api.collateralReturns(uid).catch(() => null) : null]);
+    if (my !== panelSeq) return;
     const S = r.summary;
     const stat = (label, v, id, sign) => `<div><span class="label">${esc(label)}</span><strong data-testid="${esc(id)}">${sign ? signed(v) || money(0) : money(v)}</strong></div>`;
     const state = (x) => (x.state === 'open' ? `<span class="faint">${te('portfolio.render.closes', { fmt_day: esc(fmtDay(x.close_time)) })}</span>` : x.state === 'settling' ? `<span class="status-chip accepted">${te('portfolio.render.settling', { to_upper_case: esc(String(x.result).toUpperCase()) })}</span>` : `<span class="status-chip">${esc(x.market_status)}</span>`);
@@ -174,10 +178,11 @@ export async function render({ el, navigate, query }) {
     <td>${r.side ? `<strong class="c-${esc(r.side)}">${esc(r.action ? r.action.toUpperCase() + ' ' : '')}${esc(r.side.toUpperCase())}</strong>` : ''}</td>
     <td class="num">${r.quantity_fp != null ? qty(r.quantity_fp) : ''}</td><td class="num">${r.price_dollars != null ? esc(px(r.price_dollars)) : ''}</td>
     <td class="num" data-amount="${esc(r.amount_dollars ?? '')}">${signed(r.amount_dollars)}</td><td class="num">${r.fee_dollars ? signed(r.fee_dollars) : ''}</td><td><span class="status-chip ${esc(r.status)}">${esc(r.status || '')}</span></td></tr>`;
-  async function drawHistory(p) {
+  async function drawHistory(p, my = panelSeq) {
     const seg = `<div class="pf-sub"><div class="seg" role="tablist" aria-label="${te('portfolio.render.history_view')}">${HVIEWS.map(([k, l]) => `<button data-hview="${esc(k)}" ${k === 'timeline' ? '' : `data-tab="${esc(k)}"`} class="${k === hview ? 'on' : ''}">${esc(l)}</button>`).join('')}</div></div>`;
     if (hview === 'timeline') {
       const r = await api.history(uid, { ...Object.fromEntries(new URLSearchParams(histQs())), limit: 25 });
+      if (my !== panelSeq) return;
       hist.cursor = r.cursor; hist.ids = new Set(r.history.map((x) => x.id));
       p.innerHTML = `${seg}<div class="hist-filters" data-testid="history-filters"><div class="hist-chips">${HTYPES.map(([k, l]) => `<button class="chip ${k === hist.type ? 'on' : ''}" data-htype="${esc(k)}" aria-pressed="${k === hist.type}">${esc(l)}</button>`).join('')}</div>
         <div class="hist-inputs"><input type="search" id="h-market" placeholder="${te('portfolio.render.search_market')}" aria-label="${te('portfolio.render.search_market')}" value="${esc(hist.market)}"><label>${te('portfolio.render.from')} <input type="date" id="h-from" value="${esc(hist.from)}"></label><label>${te('portfolio.render.to')} <input type="date" id="h-to" value="${esc(hist.to)}"></label>
@@ -205,6 +210,7 @@ export async function render({ el, navigate, query }) {
     } else {
       p.innerHTML = seg + '<div id="hview-body"></div>';
       await drawLegacy(p.querySelector('#hview-body'), hview);
+      if (my !== panelSeq) return;
     }
     for (const b of p.querySelectorAll('[data-hview]')) {
       b.onclick = () => { hview = b.dataset.hview; session.setProp('portfolio_view', hview === 'timeline' ? 'history' : hview).catch(() => {}); drawPanel(); };
@@ -243,8 +249,9 @@ export async function render({ el, navigate, query }) {
   // ---------- Resting (spec §17.10): grouped by event / market, amend, decrease, cancel, cancel all ----------
   const fp2 = (x) => Number(x || 0).toFixed(2);
   const endOfDay = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.toISOString(); };
-  async function drawResting(p) {
+  async function drawResting(p, my = panelSeq) {
     const { orders } = await api.orders(uid, 'resting');
+    if (my !== panelSeq) return;
     if (!orders.length) { p.innerHTML = `<div class="empty" data-testid="no-orders">${te('portfolio.render.no_resting_orders')}</div>`; return; }
     const held = orders.reduce((a, o) => a + Number(o.reserved_dollars || 0), 0);
     const byEvent = new Map();
@@ -323,8 +330,9 @@ export async function render({ el, navigate, query }) {
   // ---------- RFQs (spec §17.6): yours vs other traders' ----------
   const fmtLeft = (n) => (n < 120 ? `${n}s` : n < 3600 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${Math.floor(n / 3600)}h ${Math.floor((n % 3600) / 60)}m`);
   const countdown = (iso, prefix = '') => `<span class="countdown" data-countdown="${esc(iso)}" data-prefix="${esc(prefix)}">${esc(prefix)}${fmtLeft(secsLeft(iso))}</span>`;
-  async function drawRfqs(p) {
+  async function drawRfqs(p, my = panelSeq) {
     const r = await api.rfqs(rfqScope);
+    if (my !== panelSeq) return;
     const enabled = !!r.rfq_enabled;
     const head = `<div class="pf-sub rfq-head"><div class="seg" role="tablist" aria-label="${te('portfolio.render.rfq_scope')}"><button data-rfq-scope="mine" class="${rfqScope === 'mine' ? 'on' : ''}">${te('portfolio.render.yours')}</button><button data-rfq-scope="others" class="${rfqScope === 'others' ? 'on' : ''}" data-testid="rfq-others">${te('portfolio.render.other_rfqs')}</button></div>
       <label class="book-setting"><input type="checkbox" data-testid="rfq-enabled" id="rfq-enabled" ${enabled ? 'checked' : ''}> ${te('portfolio.render.answer_rfqs_from_other_traders')}</label></div>`;
@@ -377,8 +385,9 @@ export async function render({ el, navigate, query }) {
     }
   }
   // ---------- Quotes: ones you made and ones on your RFQs ----------
-  async function drawQuotes(p) {
+  async function drawQuotes(p, my = panelSeq) {
     const { quotes } = await api.quotes();
+    if (my !== panelSeq) return;
     p.innerHTML = quotes.length ? `<table class="table" data-testid="quotes-table"><thead><tr><th>${te('portfolio.render.role')}</th><th>${te('portfolio.render.market')}</th><th class="num">${te('portfolio.render.yes_bid')}</th><th class="num">${te('portfolio.render.no_bid')}</th><th>${te('portfolio.render.size')}</th><th>${te('portfolio.render.status')}</th><th></th></tr></thead><tbody>
       ${quotes.map((q) => {
         const mine = q.role === 'maker';
