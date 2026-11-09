@@ -2,10 +2,11 @@
 # Third-party actions are pinned to full commit SHAs (the tag is in the trailing comment); Dependabot bumps them.
 name: CI
 
+# Owner decision 2026-11-09 (Actions minutes budget): CI runs only when started by hand, at most twice a day, on the
+# batched head that is about to reach `main` (`gh workflow run ci.yml --ref <branch>`). Pushes and pull requests do not
+# start it; the full suite runs locally on every change instead. The required checks above still gate `main`: a commit
+# reaches it only after a successful run on that exact commit.
 on:
-  push:
-    branches: ["**"]
-  pull_request:
   workflow_dispatch:
 
 permissions:

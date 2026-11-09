@@ -9,6 +9,7 @@ Status date: 2026-11-03. Covers everything not yet built, everything still to re
 4. **Definition of done.** Fully wired, 100% DB-persistent, end-to-end browser tests, `npm audit` clean, spec section updated with evidence and design choices, full suite green before merging to `main`.
 5. **Nigeria first, multi-country ready** (owner decision 2026-11-08, `CLONE_SPEC.md` §30.0). Parlance is mainly for Nigerians and may scale to more countries. Defaults are Nigerian (NGN, WAT, en-NG, Nigerian states and calendar); country facts (divisions, offices, seats, election rules, parties, holidays, currency, time zone) are admin-managed data keyed by country code, never hard-coded; election features assume N parties, not two. Clean room still holds: invented candidates and parties in seed data, never real politicians or their photos.
 6. **Every owner choice is an admin switch** (owner decision 2026-11-08, `CLONE_SPEC.md` §38.1). A capability is a feature flag (§33); an amount, a duration, a rate or a threshold is a validated owner setting (Admin › Owner settings). Each one ships with the recommended standard default, a CMS-managed explanation shown next to it, a reason on every change, a step-up where it touches money, security or personal data, an audit entry, and a live effect (no restart, no deploy). Design choices in the spec record the default as "owner: recommended standard, admin-switchable" and name the switch.
+7. **GitHub Actions budget** (owner decision 2026-11-09). CI starts only by hand (`workflow_dispatch`), **at most twice a day**, on the batched head that is about to reach `main`; pushes, pull requests and Dependabot do not start it. Every change still gets a clean full local `npm run test:e2e` before it is pushed; work waiting for CI is batched on one branch; `main` moves (fast-forward only) after a successful CI run on that exact commit. A failed run is fixed locally and the fix waits for the next of the day's two runs.
 
 ---
 
@@ -56,7 +57,7 @@ Size: S ≈ a day, M ≈ 2–4 days, L ≈ a week+, for one engineer with this c
 ### Phase 0 — Stabilise (S, mostly done)
 - ✅ Single-instance DB lock, busy timeout, clean shutdown; `ws` upgrade.
 - P0.1 CI on GitHub Actions: `npm ci`, `npm audit --audit-level=high`, full E2E suite headless, on every PR; required check before merge.
-- P0.2 Dependabot (npm + GitHub Actions), weekly.
+- P0.2 Dependabot (npm + GitHub Actions), monthly since 2026-11-09 (Actions minutes budget, ground rule 7).
 - P0.3 Windows dev notes in README (Git Bash paths, run from repo root vs `clone/`).
 - Exit: CI green on `main`; branch protection on `main`.
 
@@ -400,7 +401,7 @@ regulatory and provider decisions. 9A is the next build; 9B and 9C are planned h
   - **incident response runbook** (`docs/runbooks/`): severity levels, who is called, first 15 minutes, communication templates in the CMS (status page incident, email, in-app banner), forensics steps that preserve logs and backups, post-incident review;
   - **vulnerability disclosure:** `/.well-known/security.txt`, a disclosure policy page in the CMS, a safe-harbour statement;
   - **external penetration test** (owner engages a vendor; scope, rules of engagement and a test environment prepared here); findings fixed before the public launch;
-  - dependency update policy (Dependabot or Renovate, weekly, security fixes within 7 days) and a quarterly access review of admin roles.
+  - dependency update policy (Dependabot monthly — ground rule 7 — with security fixes batched into the next CI run, within 7 days) and a quarterly access review of admin roles.
 - **P9.7 Operating switches (ground rule 6):**
   - **maintenance mode** (flag): the site shows a CMS message and answers writes with `503 maintenance` with `Retry-After`; admins keep access; scheduled start and end;
   - **exchange-wide trading halt** (flag, step-up, two-person to resume): matching stops, cancels allowed, the status page and a banner say so (per-market halts already exist);
@@ -517,7 +518,7 @@ The project is complete only when **all** of the following hold:
 2. **Spec closure:** every UNKNOWN in §11 and §13–§20 is either resolved by evidence (research R1–R12) or recorded as a design choice with rationale; no "TODO" in the spec.
 3. **Logged-in views verified:** screens built against the user-supplied logged-in screenshots (R2, R3) match structure and behaviour; differences documented.
 4. **Security:** Phase 1 complete; every phase passed the §6 gate; `SECURITY.md` threat model current; external-style DAST (ZAP) clean of high/medium; dependency and secret scans clean; authz matrix covers 100% of routes.
-5. **Quality:** full E2E suite green in CI on every push; no page errors; 390px phone layout clean on every route; light and dark themes; WCAG 2.2 AA audit with no critical issues.
+5. **Quality:** full E2E suite green locally on every change and in CI on every commit that reaches `main` (ground rule 7); no page errors; 390px phone layout clean on every route; light and dark themes; WCAG 2.2 AA audit with no critical issues.
 6. **Data:** 100% DB-persistent; migrations forward-only and tested from every released schema; backup/restore drill passes. — ✅ Phase 9A (§39.3: `migrations`, `backups` suites)
 7. **Operations:** deployable from a clean checkout with one documented command; health checks, logs, metrics and alerts in place; runbooks for incidents and restore. — ✅ Phase 9A (§39.1, `docs/runbooks/`)
 8. **Documentation:** README (run, configure, admin bootstrap, Windows notes), `CLONE_SPEC.md`, `PLAN.md` progress table, `SECURITY.md`, API docs.

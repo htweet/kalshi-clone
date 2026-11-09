@@ -25,6 +25,6 @@ Production (one VM with Docker, Cloudflare in front, admin on its own subdomain)
 
 ## Checks and guardrails
 
-- CI (`.github/workflows/ci.yml`) runs on every push and pull request: `npm ci`, `npm audit --audit-level=high`, `npm run lint`, the full end-to-end suite, gitleaks secret scanning, CodeQL and an OWASP ZAP baseline scan. Make these required checks on `main` (branch protection) before merging.
+- CI (`.github/workflows/ci.yml`) runs only when started by hand (`gh workflow run ci.yml --ref <branch>`, at most twice a day to save Actions minutes; PLAN ground rule 7) and covers: `npm ci`, `npm audit --audit-level=high`, `npm run lint`, the full end-to-end suite, gitleaks secret scanning, CodeQL and an OWASP ZAP baseline scan. Make these required checks on `main` (branch protection) before merging.
 - `npm install` in `clone/` installs a pre-commit hook (`.githooks/pre-commit`: secret scan + `npm audit`).
 - `SECURITY.md` holds the vulnerability disclosure policy and the STRIDE threat model; `.claude/settings.json` keeps coding agents away from `.env*`, `clone/data/**` and key files (a guardrail, not a security boundary). Environment variables are documented in `clone/.env.example`.
