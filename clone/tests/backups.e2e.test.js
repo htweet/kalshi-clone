@@ -217,3 +217,48 @@ test('media and identity documents move to object storage and are served from th
     assert.ok(Buffer.from(await r.arrayBuffer()).equals(png), 'served from object storage');
   } finally { await srv.close(); }
 });
+
+// Regression (owner report 2026-11-09: "request timed out", the site slow after Phase 9A): on a long-running database the
+// first backup, the restore drill and the live ledger / audit-chain checks each held the request thread for seconds
+// (copy, encrypt and hash the whole file; restore and verify it), so every page waited. They now run in the operations
+// worker (server/ops-worker.js) and the copy is asynchronous. A 250 MB database is backed up, drilled and verified while
+// a client keeps asking the server; no answer may take longer than 700 ms (the old code took several seconds).
+test('a large database: backup, restore drill and live verifiers never hold up requests', async () => {
+  const dir = path.join(TMP, 'large'); const file = path.join(dir, 'large.db');
+  let srv = await start(opts(file));
+  await srv.close();
+  {
+    const d = new DatabaseSync(file);
+    d.exec('CREATE TABLE IF NOT EXISTS zz_bulk(id INTEGER PRIMARY KEY, b BLOB)');
+    const ins = d.prepare('INSERT INTO zz_bulk(b) VALUES(?)');
+    d.exec('BEGIN'); for (let i = 0; i < 2500; i++) ins.run(crypto.randomBytes(100000)); d.exec('COMMIT');
+    d.exec('PRAGMA wal_checkpoint(TRUNCATE)'); d.close();
+  }
+  assert.ok(fs.statSync(file).size > 240 * 1048576, 'the database is large');
+  srv = await start(opts(file));
+  const lat = []; let probing = true;
+  const probe = (async () => {
+    while (probing) {
+      const s = Date.now();
+      try { await fetch(`http://127.0.0.1:${srv.port}/v1/exchange/status`, { signal: AbortSignal.timeout(20000) }); } catch { /* counted as slow below */ }
+      lat.push(Date.now() - s);
+      await new Promise((r) => setTimeout(r, 40));
+    }
+  })();
+  try {
+    await new Promise((r) => setTimeout(r, 300));
+    const b = await srv.app.locals.backups.snapshot('manual', { note: 'large database regression' });
+    assert.ok(b.bytes > 240 * 1048576, 'the backup holds the whole database');
+    const drill = await srv.app.locals.ops.restoreDrill({ trigger: 'manual' });
+    assert.equal(drill.status, 'ok', JSON.stringify(drill.checks));
+    const v = await srv.app.locals.ops.verifiers({ fresh: true });
+    assert.equal(v.ok, true, JSON.stringify(v.checks));
+  } finally {
+    probing = false; await probe;
+    await srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const worst = Math.max(...lat);
+  assert.ok(worst < 700, `the slowest answer took ${worst} ms while the backup, drill and checks ran (${lat.length} requests)`);
+  assert.ok(lat.length > 20, `only ${lat.length} answers while the backup, drill and checks ran`);
+});

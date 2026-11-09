@@ -84,6 +84,9 @@ before(async () => {
   admin = await new Client(BASE, 'admin').logIn(ADMIN.email, ADMIN.password);
   EV = q1("SELECT e.ticker, e.title, e.series_ticker, s.slug FROM events e JOIN series s ON s.ticker=e.series_ticker WHERE e.series_ticker NOT IN ('PLXCOMBO') AND e.series_ticker NOT LIKE 'PLXFLASH%' AND EXISTS (SELECT 1 FROM markets m WHERE m.event_ticker=e.ticker AND m.status='active') ORDER BY e.rowid LIMIT 1");
   EV.url = `/markets/${EV.series_ticker.toLowerCase()}/${EV.slug}/${EV.ticker.toLowerCase()}`;
+  // These tests read the server-rendered body as a plain visitor, so the owner switch `ssr.visitors` (off by default,
+  // owner decision 2026-11-09) is turned on here; the default (visitors get no body, crawlers do) has its own test.
+  await setFlag('ssr.visitors', true);
 });
 after(async () => {
   try { await browser?.close(); } catch { /* ignore */ }
@@ -153,6 +156,44 @@ test('server-rendered public pages: metadata, canonical, hreflang, Open Graph / 
   assert.ok(!(await (await fetch(`${BASE}/robots.txt`)).text()).includes('Sitemap:'));
   await setFlag('ssr', true);
   assert.deepEqual(page.errors, []);
+});
+
+// Owner decision 2026-11-09: visitors are not shown the server-rendered market list (it flashed before the app took over);
+// search and link-preview crawlers still get it. The switch `ssr.visitors` (off by default) brings it back for visitors.
+test('quick-loading page: off by default for visitors (head metadata only), always for crawlers; the switch in Admin › Feature flags turns it on live', async () => {
+  const GOOGLE = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+  await setFlag('ssr.visitors', false);
+  try {
+    for (const p of ['/', '/browse', EV.url, '/category/elections/nigeria-2027', '/support/faq']) {
+      const v = await html(p);
+      assert.equal(v.status, 200, p);
+      assert.ok(!v.text.includes('data-ssr'), `${p}: no server-rendered body for a visitor`);
+      assert.ok(link(v.text, 'canonical') && meta(v.text, 'property', 'og:image'), `${p}: the head metadata stays (share cards, canonical)`);
+      const c = await html(p, { 'user-agent': GOOGLE });
+      assert.match(c.text, /<main id="view" tabindex="-1" data-ssr="1">/, `${p}: a crawler gets the body`);
+    }
+    // In the browser: the first document has an empty <main>; the app draws the home page, the market list never shows.
+    const page = await newPage();
+    const resp = await page.goto(BASE + '/');
+    assert.ok(!(await resp.text()).includes('data-testid="ssr"'), 'the served document has no market list');
+    await page.waitForSelector('main#view > *');
+    assert.equal(await page.locator('[data-testid=ssr]').count(), 0);
+    // The owner switch, from the admin UI: on, visitors get the body again.
+    const ap = await newPage();
+    await uiLogIn(ap, { email: ADMIN.email, password: ADMIN.password });
+    await ap.goto(BASE + '/admin/flags');
+    const row = ap.locator('[data-flag-key="ssr.visitors"]');
+    await row.waitFor();
+    assert.ok((await row.textContent()).includes('Show the quick-loading page to visitors'));
+    await ap.click('[data-flag-key="ssr.visitors"] [data-testid=flag-edit]');
+    await ap.waitForSelector('[data-testid=flag-form]');
+    await ap.setChecked('[data-testid=flag-form] [name=enabled]', true);
+    await ap.fill('[data-testid=flag-form] [name=reason]', 'show the quick-loading page to visitors');
+    await ap.click('[data-testid=flag-form] button[type=submit]');
+    await ap.waitForSelector('[data-flag-key="ssr.visitors"] [data-testid=flag-state][data-on="1"]');
+    await eventually(async () => /data-ssr="1"/.test((await html('/')).text));
+    assert.deepEqual([...page.errors, ...ap.errors], []);
+  } finally { await setFlag('ssr.visitors', true); }
 });
 
 test('cache poisoning: sessions, forged Host / X-Forwarded-Host, query strings, cookies and hostile paths never change what others are served', async () => {

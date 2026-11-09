@@ -426,11 +426,13 @@ test('Phase 8 switches from Admin › Feature flags, each seen live: referrals, 
   assert.equal(await visitor.locator('[data-testid=copy-trade-note]').count(), 0);
   await setFlagUi('copy_trade', true);
   // Server-rendered pages: off, the page carries no server-rendered content; on again, it does.
-  assert.match((await html('/')).text, /data-ssr="1"/);
+  // (Read as a search crawler: since 2026-11-09 visitors get the rendered body only with the `ssr.visitors` switch.)
+  const crawl = (p) => fetch(BASE + p, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)', accept: 'text/html' } }).then((r) => r.text());
+  assert.match(await crawl('/'), /data-ssr="1"/);
   await setFlagUi('ssr', false);
-  assert.doesNotMatch((await html('/')).text, /data-ssr="1"/);
+  assert.doesNotMatch(await crawl('/'), /data-ssr="1"/);
   await setFlagUi('ssr', true);
-  assert.match((await html('/')).text, /data-ssr="1"/);
+  assert.match(await crawl('/'), /data-ssr="1"/);
   // Languages: off, choosing a language is refused (English for everyone).
   await setFlagUi('i18n', false);
   assert.equal((await ada.call('PUT', `/v1/users/${ada.uid}/locale`, { locale: 'en-NG' })).code, 'feature_disabled');

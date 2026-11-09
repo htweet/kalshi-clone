@@ -161,6 +161,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.label.copy_trade": "Copy this trade",
   "admin.flags.label.ssr": "Server-rendered public pages",
   "admin.flags.label.ssr.crawlers": "Search and link-preview crawlers",
+  "admin.flags.label.ssr.visitors": "Show the quick-loading page to visitors",
   "admin.flags.label.i18n": "Languages",
   "admin.flags.label.data_saver": "Data saver",
   "admin.flags.label.sms": "SMS notifications",

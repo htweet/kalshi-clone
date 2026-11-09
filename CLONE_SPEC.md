@@ -5640,6 +5640,7 @@ New switches (Admin › Feature flags; each with its CMS explanation and recomme
 | `share_links` | on | signed share links and their landings (§38.3) |
 | `copy_trade` (child of `share_links`) | on | the copy-trade prefill (§38.3) |
 | `ssr` / `ssr.crawlers` | on / on | server rendering, share cards, sitemaps / crawler access past the browser check (§38.4) |
+| `ssr.visitors` | **off** | owner decision 2026-11-09: the server-rendered market list is sent to search and link-preview crawlers only; visitors get the head metadata (title, description, canonical, share-card tags) and the app's own loading screen. On: visitors get the list until the app has loaded (§38.4) |
 | `i18n` | on | languages other than the default (each language also has its own switch, all off) (§38.5) |
 | `data_saver` | on | the data saver mode (§38.7) |
 | `sms` | off | SMS notifications through the simulated adapter (§38.7) |
@@ -5694,7 +5695,9 @@ The second program of the reusable referral module (`server/referrals.js`, §34.
 
 - **Server rendering** (`server/seo.js`, flag `ssr`): home, all markets, categories, event pages, elections hubs, the
   rates hub, the API docs, the status page, CMS pages and help articles get their content inside `<main id="view"
-  data-ssr="1">` and full metadata in `<head>`; the SPA renders over it. Private routes (account, portfolio, funds,
+  data-ssr="1">` and full metadata in `<head>`; the SPA renders over it. Since 2026-11-09 (owner decision) the body goes
+  to search and link-preview crawlers only; visitors get the metadata and the app's loading screen unless the switch
+  `ssr.visitors` is on (§39.16). Private routes (account, portfolio, funds,
   admin, rewards, notifications, messages, watchlist, verification, waitlist manage / confirm / unsubscribe) get
   `noindex` and no content.
 - **Cache.** The fragment is cached per path (no query except an enabled `?lang`), language, display currency and
@@ -6218,7 +6221,29 @@ starts Phase 9B. The load test result recorded in Launch readiness must be withi
   from before Phase 9A has none, so migration 0001's one-time upgrades — encrypting plaintext TOTP secrets, moving the
   Phase 6 `perp_waitlist` table — run for them as they would on a real old database).
 - `scripts/container-smoke.js` and `scripts/load.js --profile smoke` in the CI `image` job.
-- Full suite: 399 scenarios across 52 files, all passing (2026-11-09).
+- Full suite: 401 scenarios across 52 files, all passing (2026-11-09, after §39.16).
+
+### 39.16 Performance fix after the owner's report (2026-11-09)
+Report: after updating to Phase 9A the owner's long-running local database answered "request timed out" and pages
+stayed on the server-rendered market list. Reproduced with a 400 MB database: the first backup held the request thread
+for **4.0 s** (copy, read, AES-GCM and two SHA-256 over the whole file, then an MD5 for the local etag), the restore drill
+and the live ledger / audit-chain checks likewise ran in one piece, and the 15-minute backups repeated the stall.
+- **Operations worker** (`server/ops-worker.js`, one `worker_threads` worker started on first use and unref'd): seals
+  snapshots, runs restore drills (restore + integrity, journal, perps, audit chain, anchor, schema) and the live
+  verifiers on a read-only connection (one snapshot transaction; `auditChain.verifyReadOnly` derives the key without
+  writing). Each task falls back to the request thread only when it cannot run there (in-memory database, injected
+  storage driver). Storage drivers expose `config()` so the worker rebuilds them (S3 only with the built-in fetch).
+- **Asynchronous I/O**: the snapshot copy (`fs.promises.copyFile`; WAL checkpoints wait while it runs, the main file being
+  stable until the next checkpoint) and the local storage driver's reads and writes; the local etag reuses the SHA-256
+  the worker computed instead of hashing the object again.
+- **Start-up**: `npm start` waits 2 minutes before the first scheduled snapshot (`ops.firstBackupDelayMs`); restore
+  drills and verifiers already run on the hourly maintenance job, not at start.
+- **Media move**: a second `moveBlobs()` call while a pass runs now waits for the pass and returns the finished status.
+- Result on the same 400 MB database: no answer above 500 ms in 170 s including the first backup (slowest 477 ms, as on
+  a fresh database); before, 4,034 ms. Home page in a browser on the production build: first visit 0.4 s, repeat 0.15 s.
+- Regression test: `backups.e2e` "a large database: backup, restore drill and live verifiers never hold up requests"
+  (250 MB; no answer may exceed 700 ms; the old code answered 6 requests in 6.5 s). `reach.e2e` "quick-loading page"
+  covers `ssr.visitors` (off: no body for visitors, full body for crawlers, the switch in Admin › Feature flags).
 
 ---
 

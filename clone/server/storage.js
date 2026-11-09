@@ -28,16 +28,18 @@ function localDriver({ dir }) {
   return {
     kind: 'local',
     describe: () => ({ driver: 'local', dir: root }),
+    config: () => ({ driver: 'local', dir: root }), // rebuilds this driver in the operations worker
     async put(key, body, { contentType = 'application/octet-stream', meta = {} } = {}) {
       const f = file(key);
       fs.mkdirSync(path.dirname(f), { recursive: true });
       const tmp = `${f}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
-      fs.writeFileSync(tmp, body, { mode: 0o600 });
-      fs.renameSync(tmp, f); // atomic: a reader never sees half an object
-      fs.writeFileSync(metaFile(key), JSON.stringify({ contentType, meta }), { mode: 0o600 });
-      return { key, size: body.length, etag: crypto.createHash('md5').update(body).digest('hex') };
+      await fs.promises.writeFile(tmp, body, { mode: 0o600 }); // asynchronous: a large backup never holds up requests
+      await fs.promises.rename(tmp, f); // atomic: a reader never sees half an object
+      await fs.promises.writeFile(metaFile(key), JSON.stringify({ contentType, meta }), { mode: 0o600 });
+      // The etag: the caller's SHA-256 when given (a large backup is already hashed in the operations worker), else MD5.
+      return { key, size: body.length, etag: meta && meta.sha256 ? meta.sha256 : crypto.createHash('md5').update(body).digest('hex') };
     },
-    async get(key) { try { return fs.readFileSync(file(key)); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } },
+    async get(key) { try { return await fs.promises.readFile(file(key)); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } },
     async head(key) {
       try {
         const st = fs.statSync(file(key));
@@ -110,6 +112,8 @@ function s3Driver({ endpoint, region = 'auto', bucket, accessKeyId, secretAccess
   return {
     kind: 's3',
     describe: () => ({ driver: 's3', endpoint: base.origin, bucket, region, prefix: pre || null }),
+    // Rebuilds this driver in the operations worker (only with the built-in fetch; an injected fetch stays on this thread).
+    config: () => (fetchImpl === globalThis.fetch ? { driver: 's3', endpoint, region, bucket, accessKeyId, secretAccessKey, prefix, pathStyle, timeoutMs } : null),
     async put(key, body, { contentType = 'application/octet-stream', meta = {} } = {}) {
       checkKey(key);
       const headers = { 'content-type': contentType, 'content-length': String(body.length), 'x-amz-meta-sha256': sha256(body) };

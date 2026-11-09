@@ -551,7 +551,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   const settingOf = (k) => ownerSettings.get(k);
   const sysAudit = ({ action, target_id, after, reason, actor = null }) => auditChain.append(db, { actor_id: actor?.id || (typeof actor === 'string' ? actor : null), actor_email: actor?.email || null, action, target_type: 'operations', target_id: String(target_id || ''), after, reason: reason || '' });
   const backupStorage = opsOptions.backupStorage || null;
-  const backups = createBackups({ db, dbFile, storage: backupStorage, keyDir, settings: settingOf, audit: sysAudit, log: (r) => logger.log(r), options: { walShipping: !!opsOptions.schedule } });
+  const backups = createBackups({ db, dbFile, storage: backupStorage, keyDir, settings: settingOf, audit: sysAudit, log: (r) => logger.log(r), options: { walShipping: !!opsOptions.schedule, firstSnapshotDelayMs: opsOptions.firstBackupDelayMs || 0 } });
   const anchors = createAnchors({ db, keyDir, storage: backupStorage, logger, settings: settingOf, audit: sysAudit });
   const keyring = createKeyring({ db, keyDir, audit: sysAudit, log: (r) => logger.log(r) });
   const alerts = createAlerts({ db, keyDir, settings: settingOf, messaging: app.locals.identity && app.locals.identity.messaging, webpush: app.locals.webpush, logger, text: (k, v) => OPS_TEXT(k, v),

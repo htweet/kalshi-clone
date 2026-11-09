@@ -23,9 +23,9 @@ const { s: SW } = require('./content/switches');
 const configGuard = require('./config-guard');
 const migrations = require('./migrations');
 const { verifyDatabase } = require('./verify');
+const opsWorker = require('./ops-worker'); // heavy checks off the request thread (performance fix 2026-11-09)
 const { restore } = require('./backups');
 const { ipAllowed } = require('./owner-settings');
-const journal = require('./journal');
 const auditChain = require('./audit-chain');
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -150,16 +150,27 @@ function mountOperations(ctx) {
     drillRunning = (async () => {
       try {
         await backups.flush();
-        const r = await restore({ storage: backupStorage, outFile: out, keyDir, force: true, keys: backups.keys });
-        const d = new DatabaseSync(out);
-        let v;
-        try {
-          const head = (() => { try { return d.prepare('SELECT MAX(chain_seq) s FROM admin_audit').get().s || 0; } catch { return 0; } })();
-          const anchor = db.prepare('SELECT * FROM ops_anchors WHERE chain_seq<=? ORDER BY seq DESC LIMIT 1').get(head) || null;
-          v = verifyDatabase(d, { keyDir, anchor });
-          v.checks.schema = { ok: (() => { try { return migrations.version(d) === migrations.LATEST; } catch { return false; } })(), version: (() => { try { return migrations.version(d); } catch { return null; } })() };
-          v.ok = Object.values(v.checks).every((c) => c.ok);
-        } finally { d.close(); }
+        let r; let v;
+        // Restoring and verifying a whole database is heavy: it runs in the operations worker (server/ops-worker.js)
+        // whenever the backup store can be rebuilt there, so requests keep flowing during a drill.
+        const storageConfig = backupStorage.config ? backupStorage.config() : null;
+        if (storageConfig && options.drillInWorker !== false) {
+          const k = backups.keys;
+          const anchorRows = db.prepare('SELECT * FROM ops_anchors ORDER BY seq DESC LIMIT 500').all();
+          const res = await opsWorker.run('drill', { storageConfig, outFile: out, keyDir, anchors: anchorRows,
+            backupKeys: { activeHex: k.active.toString('hex'), activeId: k.activeId, all: [...k.all].map(([kid, buf]) => [kid, buf.toString('hex')]) } });
+          r = res.restore; v = res.verify;
+        } else {
+          r = await restore({ storage: backupStorage, outFile: out, keyDir, force: true, keys: backups.keys });
+          const d = new DatabaseSync(out);
+          try {
+            const head = (() => { try { return d.prepare('SELECT MAX(chain_seq) s FROM admin_audit').get().s || 0; } catch { return 0; } })();
+            const anchor = db.prepare('SELECT * FROM ops_anchors WHERE chain_seq<=? ORDER BY seq DESC LIMIT 1').get(head) || null;
+            v = verifyDatabase(d, { keyDir, anchor });
+            v.checks.schema = { ok: (() => { try { return migrations.version(d) === migrations.LATEST; } catch { return false; } })(), version: (() => { try { return migrations.version(d); } catch { return null; } })() };
+            v.ok = Object.values(v.checks).every((c) => c.ok);
+          } finally { d.close(); }
+        }
         const backupRow = db.prepare('SELECT id FROM ops_backups WHERE object_key=?').get(r.snapshot.key);
         db.prepare('UPDATE ops_restore_drills SET finished_ts=?, status=?, backup_id=?, target_ts=?, segments=?, checks_json=? WHERE id=?')
           .run(now(), v.ok ? 'ok' : 'failed', backupRow?.id || r.snapshot.id || null, r.reached_ts, r.segments, JSON.stringify(v.checks), id);
@@ -186,9 +197,11 @@ function mountOperations(ctx) {
   let verifierCache = null;
   async function verifiers({ fresh = false } = {}) {
     if (!fresh && verifierCache && now() - verifierCache.ts < 10 * 60000) return verifierCache;
-    const checks = {};
-    try { const r = journal.audit(db); checks.journal = { ok: r.ok, problems: r.problems.length }; } catch (e) { checks.journal = { ok: false, error: e.message }; }
-    try { const r = auditChain.verify(db); checks.audit_chain = { ok: r.ok, checked: r.checked, problem: r.problem || null }; } catch (e) { checks.audit_chain = { ok: false, error: e.message }; }
+    // The ledger audit and the audit chain read the whole database: on a file database they run in the operations worker
+    // on a read-only connection (a consistent snapshot), so they never hold up requests.
+    const fileDb = dbFile && dbFile !== ':memory:';
+    let checks;
+    try { checks = fileDb && options.verifyInWorker !== false ? await opsWorker.run('verifyLive', { dbFile: path.resolve(dbFile), keyDir }) : opsWorker.liveChecks(db); } catch (e) { checks = opsWorker.liveChecks(db); void e; }
     try { const a = await anchors.check(); checks.anchor = { ok: a.ok || a.detail === 'no anchor yet', detail: a.detail, anchor: a.anchor }; } catch (e) { checks.anchor = { ok: false, error: e.message }; }
     verifierCache = { ts: now(), ok: Object.values(checks).every((c) => c.ok), checks, failing: Object.entries(checks).filter(([, c]) => !c.ok).map(([k]) => k) };
     return verifierCache;
@@ -376,10 +389,16 @@ function mountOperations(ctx) {
     blobState.remaining = q("SELECT COUNT(*) c FROM cms_media WHERE storage_key IS NULL AND length(data)>0") + q('SELECT COUNT(*) c FROM docv_documents WHERE storage_key IS NULL AND data IS NOT NULL');
     return { ...blobState };
   }
-  let blobAgain = false;
+  let blobAgain = false; let blobPass = null;
+  // A call while a pass runs asks for another pass and waits for the whole move (storage writes are asynchronous, so a
+  // pass can still be running when a caller asks; it gets the finished status, never a half-done one).
   async function moveBlobs() {
-    if (blobState.running) { blobAgain = true; return blobState; }
+    if (blobState.running) { blobAgain = true; return blobPass; }
     if (!mediaStorage) return blobState;
+    blobPass = movePass();
+    return blobPass;
+  }
+  async function movePass() {
     blobState.running = true;
     try {
       for (;;) {
@@ -401,7 +420,7 @@ function mountOperations(ctx) {
       }
       blobState.error = null;
     } catch (e) { blobState.error = e.message; logger.error('blob move failed', { error: e.message }); } finally { blobState.running = false; }
-    if (blobAgain) { blobAgain = false; return moveBlobs(); } // an upload arrived while this pass ran
+    if (blobAgain) { blobAgain = false; return movePass(); } // an upload arrived while this pass ran
     return blobStatus();
   }
 

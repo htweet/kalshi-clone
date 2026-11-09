@@ -112,7 +112,14 @@ function verify(db) {
   return { ok: !problem, checked: n, head_seq: n, ...(problem ? { problem } : {}) };
 }
 
+// The same check on a read-only connection (the operations worker, server/ops-worker.js): no schema change, no sealing,
+// only the key is derived.
+function verifyReadOnly(db, { keyDir } = {}) {
+  if (!ready.has(db)) { if (keyDir !== undefined) dirs.set(db, keyDir); ready.set(db, deriveKey('audit-chain:v1', { dir: dirs.get(db) })); }
+  return verify(db);
+}
+
 // After a key rotation (server/keyring.js): new rows use the new active key.
 const resetKey = (db) => { ready.delete(db); hasKeyCol.delete(db); };
 
-module.exports = { schema, init, append, verify, resetKey, head, GENESIS };
+module.exports = { schema, init, append, verify, verifyReadOnly, resetKey, head, GENESIS };

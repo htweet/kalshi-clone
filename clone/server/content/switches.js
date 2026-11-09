@@ -191,6 +191,7 @@ const STRINGS = {
   'flag.share_links': 'Signed share links for markets, events, positions and trades (WhatsApp first).',
   'flag.copy_trade': '"Copy this trade": a shared trade pre-fills the ticket. It never places an order by itself.',
   'flag.ssr': 'Server-rendered public pages, share cards (Open Graph images), sitemap.xml.',
+  'flag.ssr.visitors': 'Show the quick-loading page to visitors: the server-rendered market list appears until the app has loaded. Off (recommended): visitors see the app\'s loading screen; search engines and link previews always get the full page.',
   'flag.ssr.crawlers': 'Search and link-preview crawlers (Googlebot, WhatsApp, Facebook, X, Telegram) get the public page without the browser check. AI crawlers stay refused.',
   'flag.i18n': 'Languages: the language switcher and translated texts. Each language also has its own switch in Admin › Texts › Languages.',
   'flag.data_saver': 'Data saver mode for slow or costly networks.',

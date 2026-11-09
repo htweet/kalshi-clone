@@ -167,7 +167,8 @@ if (require.main === module) {
   if (process.env.NODE_ENV === 'production' || process.env.LOG_FORMAT) installConsole(createLogger({ level: process.env.LOG_LEVEL || 'info' }));
   start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, elections: { seed: true },
     flags: process.env.NODE_ENV === 'production' ? undefined : { defaults: { 'elections.simulator': true } }, demo: process.env.DEMO_API === '0' ? null : {}, assets: process.argv.includes('--dev') ? 'src' : (process.env.ASSETS || 'dist'),
-    ops: { schedule: process.env.BACKUPS !== 'off' }, logs: process.env.NODE_ENV === 'production' || !!process.env.LOG_FORMAT }).then((srv) => {
+    // npm start: the first backup waits 2 minutes, so start-up stays quick.
+    ops: { schedule: process.env.BACKUPS !== 'off', firstBackupDelayMs: 120000 }, logs: process.env.NODE_ENV === 'production' || !!process.env.LOG_FORMAT }).then((srv) => {
     console.log(`Parlance Exchange listening on http://localhost:${srv.port}${srv.metricsPort ? ` (metrics on ${process.env.METRICS_HOST || '127.0.0.1'}:${srv.metricsPort})` : ''}`);
     // Ctrl+C / termination: close the HTTP server and database cleanly so the DB lock is released.
     let stopping = false;

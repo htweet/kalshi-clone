@@ -135,6 +135,10 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
 
   // ---------------------------------------------------------------- the page template
   const langParam = (req) => { const l = req.query && typeof req.query.lang === 'string' ? req.query.lang : null; return l && i18n && i18n.isOn(l) ? l : null; };
+  // Who gets the server-rendered body: search and link-preview crawlers always (while `ssr` is on); visitors only with
+  // the owner switch `ssr.visitors` (off by default, owner decision 2026-11-09). Everyone gets the head metadata.
+  const isCrawler = (req) => { const ua = String(req.headers['user-agent'] || ''); return CRAWLER_UA.test(ua) && !AI_UA.test(ua); };
+  const bodyFor = (req) => isCrawler(req) || flags.jobOn('ssr.visitors');
   function fragment(req) {
     const path = req.path.length > 1 ? req.path.replace(/\/+$/, '') : req.path;
     const origin = originOf(req);
@@ -181,7 +185,7 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
     const nonce = esc(res.locals?.cspNonce || '');
     out = out.replace(/<title>[^<]*<\/title>/, () => `<title>${esc(f.title)}</title>`).replace(/<meta name="description" content="[^"]*">/, () => `<meta name="description" content="${esc(f.description)}">`);
     out = out.replace('</head>', () => `  ${f.head}\n${f.ld.map((j) => `  <script type="application/ld+json" nonce="${nonce}">${j}</script>`).join('\n')}\n</head>`);
-    out = out.replace('<main id="view" tabindex="-1"></main>', () => `<main id="view" tabindex="-1" data-ssr="1">${f.body}</main>`);
+    if (bodyFor(req)) out = out.replace('<main id="view" tabindex="-1"></main>', () => `<main id="view" tabindex="-1" data-ssr="1">${f.body}</main>`);
     // `cached` when the fragment came from the cache (owner setting ssr.cache_seconds; 0 turns the cache off), else `rendered`.
     res.setHeader('X-Parlance-SSR', fr.cached ? 'cached' : 'rendered');
     return out;

@@ -131,6 +131,7 @@ const REGISTRY = [
   ['copy_trade', 'growth', 'share_links', 'both'],
   ['ssr', 'reach', null, 'server'],
   ['ssr.crawlers', 'reach', 'ssr', 'server'],
+  ['ssr.visitors', 'reach', 'ssr', 'server', false], // owner decision 2026-11-09: visitors see the app's loading screen, not the crawler page
   ['i18n', 'reach', null, 'both'],
   ['data_saver', 'reach', null, 'both'],
   ['sms', 'reach', null, 'both', false], // simulated provider adapter: off until a real provider is contracted

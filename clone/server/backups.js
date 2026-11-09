@@ -115,6 +115,16 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   const serial = (fn) => { const p = busy.then(fn, fn); busy = p.catch(() => {}); return p; }; // one upload at a time, in order
   const stamp = (t) => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
+  // A snapshot is sealed in the operations worker (server/ops-worker.js): reading, encrypting and hashing a large
+  // database must not hold up requests. `useWorker: false` (option) keeps it on this thread.
+  const opsWorker = require('./ops-worker');
+  async function putSealed(key, sealed, meta) {
+    const body = Buffer.from(sealed.body);
+    const manifest = { ...meta, key_id: keys.activeId, plain_sha256: sealed.plain_sha256, sha256: sealed.sha256, bytes: body.length };
+    await storage.put(key, body, { contentType: 'application/octet-stream', meta: { sha256: manifest.sha256 } });
+    await storage.put(`${key}.json`, Buffer.from(JSON.stringify(manifest)), { contentType: 'application/json' });
+    return manifest;
+  }
   async function putObject(key, plain, meta) {
     const body = seal(plain, keys);
     const manifest = { ...meta, key_id: keys.activeId, plain_sha256: sha(plain), sha256: sha(body), bytes: body.length };
@@ -172,11 +182,13 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
     const seg = collectFrames();
     const p = seg ? queueSegment(seg) : null;
     const w = readWal(walFile);
-    if (w && (force || w.size > Number(S('backups.wal_checkpoint_mb', 16)) * 1048576)) checkpoint();
+    // No checkpoint while a snapshot is being copied: the copy reads the main file, which only a checkpoint changes.
+    if (w && !copying && (force || w.size > Number(S('backups.wal_checkpoint_mb', 16)) * 1048576)) checkpoint();
     return p;
   }
 
   // ---- snapshots
+  let copying = false;
   function snapshot(kind = 'interval', { note = '', actor = null } = {}) {
     if (!file || !storage) return Promise.reject(new Error('backups need a database file and a storage adapter'));
     const id = newId('bk_');
@@ -189,14 +201,20 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
       if (!checkpoint()) throw new Error('could not checkpoint the database (busy); will retry');
       const generation = shipping ? state.generation + 1 : null; // the next write opens this generation
       tmp = path.join(os.tmpdir(), `parlance-snap-${process.pid}-${id}.db`);
-      fs.copyFileSync(file, tmp); // page-for-page copy: WAL segments of later generations apply to it
+      // Page-for-page copy (WAL segments of later generations apply to it), asynchronous so requests keep flowing: the
+      // main file stays as checkpointed until the copy ends (automatic checkpoints are off; shipWal waits for it).
+      copying = true;
+      const copied = fs.promises.copyFile(file, tmp).finally(() => { copying = false; });
+      copied.catch(() => {});
       db.prepare('INSERT INTO ops_backups(id,kind,status,created_ts,schema_version,wal_generation,note) VALUES(?,?,?,?,?,?,?)').run(id, kind, 'running', t0, schemaVersion, generation, String(note).slice(0, 200));
       if (shipping) { state = { generation: state.generation, salt: '__checkpointed__', frames: 0 }; saveState(); } // next header = next generation
       const key = `snapshots/${new Date(t0).toISOString().slice(0, 10).replace(/-/g, '/')}/${stamp(t0)}-${kind}-${id}.plxb`;
+      const snapTmp = tmp;
       return serial(async () => {
         try {
-          const plain = fs.readFileSync(tmp);
-          const m = await putObject(key, plain, { type: 'snapshot', id, kind, ts: t0, schema_version: schemaVersion, wal_generation: generation });
+          await copied;
+          const sealed = await opsWorker.run('sealFile', { file: snapTmp, keyHex: keys.active.toString('hex'), keyId: keys.activeId }, { inline: options.useWorker === false });
+          const m = await putSealed(key, sealed, { type: 'snapshot', id, kind, ts: t0, schema_version: schemaVersion, wal_generation: generation });
           db.prepare("UPDATE ops_backups SET status='ok', finished_ts=?, object_key=?, bytes=?, sha256=?, plain_sha256=?, key_id=? WHERE id=?").run(now(), key, m.bytes, m.sha256, m.plain_sha256, m.key_id, id);
           log({ msg: 'backup written', kind, id, bytes: m.bytes, ms: now() - t0 });
           audit({ action: 'ops.backup', target_id: id, after: { kind, object_key: key, bytes: m.bytes, sha256: m.sha256 }, reason: note || kind, actor });
@@ -205,7 +223,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
           db.prepare("UPDATE ops_backups SET status='failed', finished_ts=?, error=? WHERE id=?").run(now(), String(e.message).slice(0, 500), id);
           log({ level: 'error', msg: 'backup failed', kind, id, error: e.message });
           throw e;
-        } finally { try { fs.unlinkSync(tmp); } catch { /* gone */ } }
+        } finally { try { fs.unlinkSync(snapTmp); } catch { /* gone */ } }
       });
     } catch (e) {
       if (tmp) { try { fs.unlinkSync(tmp); } catch { /* gone */ } }
@@ -250,6 +268,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   // ---- schedule: interval snapshots, nightly (WAT hour), WAL shipping, retention, restore drill
   const timers = [];
   let lastShip = 0; let lastPrune = 0;
+  const startedAt = now(); // scheduled snapshots wait `firstSnapshotDelayMs` after start (npm start: 2 min)
   const watHour = (t) => (new Date(t).getUTCHours() + 1) % 24; // West Africa Time = UTC+1, no daylight saving
   const watDay = (t) => new Date(t + 3600000).toISOString().slice(0, 10);
   function tick() {
@@ -259,7 +278,8 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
       if (shipping && t - lastShip >= Number(S('backups.wal_ship_seconds', 10)) * 1000) { lastShip = t; const p = shipWal(); if (p) p.catch((e) => log({ level: 'error', msg: 'wal shipping failed', error: e.message })); }
       const last = db.prepare("SELECT MAX(created_ts) t FROM ops_backups WHERE status IN ('ok','running') AND kind IN ('interval','nightly','manual','pre_production')").get().t || 0;
       const lastNightly = db.prepare("SELECT MAX(created_ts) t FROM ops_backups WHERE status IN ('ok','running') AND kind='nightly'").get().t || 0;
-      if (watHour(t) === Number(S('backups.nightly_hour_wat', 2)) && watDay(lastNightly) !== watDay(t)) snapshot('nightly').catch(() => {});
+      const settled = t - startedAt >= Number(options.firstSnapshotDelayMs || 0);
+      if (!settled) { /* start-up: the first snapshot waits */ } else if (watHour(t) === Number(S('backups.nightly_hour_wat', 2)) && watDay(lastNightly) !== watDay(t)) snapshot('nightly').catch(() => {});
       else if (t - last >= Number(S('backups.interval_minutes', 15)) * 60000) snapshot('interval').catch(() => {});
       if (t - lastPrune >= 3600000) { lastPrune = t; prune().catch((e) => log({ level: 'error', msg: 'backup retention failed', error: e.message })); }
     } catch (e) { if (!/not open|closed/i.test(e.message)) log({ level: 'error', msg: 'backup tick failed', error: e.message }); }
