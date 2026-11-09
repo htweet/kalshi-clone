@@ -9,8 +9,11 @@
 
 ```bash
 npm install && npm start      # from the repository root or from clone/; prints the URL (3000, or next free port)
-npm run test:e2e              # 378 end-to-end browser tests
+npm run test:e2e              # the end-to-end suites (browser and node level)
 ```
+
+Production (one VM with Docker, Cloudflare in front, admin on its own subdomain): `clone/README.md` › Deployment,
+`deploy/`, `docs/runbooks/`.
 
 ## Running on Windows (Git Bash or PowerShell)
 

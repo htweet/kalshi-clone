@@ -86,6 +86,7 @@ function createDocv(ctx) {
     db.prepare("UPDATE docv_documents SET data=NULL, storage_key=NULL, deleted_ts=?, delete_reason='replaced' WHERE user_id=? AND kind=? AND (data IS NOT NULL OR storage_key IS NOT NULL)").run(now, uid, kind);
     db.prepare('INSERT INTO docv_documents(id,user_id,session_id,kind,source,mime,width,height,bytes,sha256,data,created_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(id, uid, sessionId, kind, source, img.mime, img.width, img.height, img.data.length, img.sha256, sealBuf(key, `docv:${id}:${uid}`, img.data), now);
+    if (ctx.blobsChanged) ctx.blobsChanged(); // moves the sealed bytes to the object store (server/operations.js)
     return { id, kind, width: img.width, height: img.height };
   }
   async function readDocument(uid, id) {

@@ -380,6 +380,72 @@ Owner and admin guide for `../CLONE_SPEC.md` §38.
 - **Accessibility and performance** are checked by the test suite (`tests/a11y.e2e.test.js`, `tests/perf.e2e.test.js`)
   and the budget script (`npm run perf:budget`, run in CI after the build).
 
+## Deployment (Phase 9A)
+
+One VM with Docker (recommended: 4 vCPU, 8 GB RAM, SSD; any provider with a Lagos-near or European region), Cloudflare in
+front, the admin panel on its own subdomain. Everything provider-specific is configuration (`deploy/env.example`).
+Details: `CLONE_SPEC.md` §39; runbooks in `docs/runbooks/`.
+
+### First deploy
+
+```sh
+git clone https://github.com/htweet/kalshi-clone && cd kalshi-clone
+cp deploy/env.example deploy/.env        # domains, ACME email, alert email + phone webhook, SMTP; bucket when chosen
+./deploy/init-secrets.sh                  # master key ring, backup key, Grafana password → deploy/secrets/ (0600)
+#   copy deploy/secrets/keyring.json and backup.key to the owner's safe NOW (no key = no restore)
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs -f app   # first start prints the admin setup URL
+```
+
+Point the DNS `A` records of `SITE_HOST` and `ADMIN_HOST` at the VM first (Caddy needs them to obtain certificates).
+The app refuses to start in production with a message naming every missing setting (the config guard): fix and run
+`up -d` again. Then, on the admin host: create the first admin, add the owner's alert contacts (Admin › System › Alerts,
+send a test, enter its code), run a backup and a restore drill, and walk through Admin › Launch readiness.
+
+### Update
+
+```sh
+git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build app
+```
+
+Migrations run at start (recorded in `schema_migrations`; Admin › System shows the version). For a migration that
+rewrites a large table, switch on maintenance mode first (Admin › System) and off after the start.
+
+### Rollback
+
+Images are immutable: tag each release (`PARLANCE_IMAGE=parlance:<git sha>` in `deploy/.env`) and set the previous tag,
+then `up -d app`. A build refuses a database written by a newer schema (`schema_newer`): if the release you are rolling
+back from applied a migration, restore the backup taken before the upgrade instead (`docs/runbooks/restore.md`).
+
+### Restore
+
+`docs/runbooks/restore.md`: switch on read-only mode, stop the app, then
+`docker compose … run --rm --no-deps app node scripts/restore.js --to <time|now> --out /data/parlance.db --force --verify`,
+start, check Admin › System, switch read-only off. Loss window: the WAL shipping interval (10 seconds by default).
+
+### Rotate keys
+
+`docs/runbooks/rotate-keys.md`: `node scripts/keys.js rotate --file /secrets/keyring.json` (inside the app container, with
+`deploy/secrets` mounted), restart; re-encryption and verification run on their own (Admin › System › Keys).
+
+### Add Cloudflare
+
+`docs/runbooks/cloudflare.md`: proxied DNS records, Full (strict) TLS, `CLOUDFLARE_IPS` in `deploy/.env`, the origin firewall
+and authenticated origin pulls, caching only hashed assets, Bot Fight Mode off for the API and the WebSocket.
+
+### Monitoring
+
+Grafana at `https://<admin host>/grafana` (user `owner`, password in `deploy/secrets/grafana_admin_password`), dashboard
+"Parlance — overview": traffic, errors, latency, order-to-ack, fan-out, jobs, outboxes, backups, verifiers, switches, disk,
+logs and audit anchors. Prometheus rules in `deploy/prometheus/alerts.yml` alert through Alertmanager to `ALERT_EMAIL` and
+`ALERT_PHONE_WEBHOOK`; the app also alerts its own confirmed contacts. Grafana Cloud is an alternative: point promtail and
+Prometheus `remote_write` at it and drop the local Grafana / Loki services.
+
+### Load test
+
+`npm run load -- --profile smoke` (CI), `--profile full --report r.json` (2 minutes, 2,000 WebSocket clients), or against
+staging with `--base https://staging.<domain>`. Record the report in Admin › Launch readiness.
+
 ## Public trading API (Phase 7)
 
 Developer and admin guide for `../CLONE_SPEC.md` §35 (parity checklist: `../API_PARITY.md`).

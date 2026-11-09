@@ -457,6 +457,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
       }
     }
     admin.audit(req, 'cms.media_upload', 'cms.media', id, null, { mime: img.mime, width: img.width, height: img.height, bytes: img.bytes.length, name });
+    if (app.locals.ops) app.locals.ops.moveBlobs().catch(() => {}); // Phase 9A: to the object store (CLONE_SPEC.md §39.4)
     res.status(201).json({ asset: { ...asset(id), url: mediaUrl(asset(id)), variants: db.prepare('SELECT variant, width FROM cms_media WHERE parent_id=?').all(id) } });
   }));
   v1.get(`${A}/:type/entry`, can('content.write'), wrap((req, res) => {

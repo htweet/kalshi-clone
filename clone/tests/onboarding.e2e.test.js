@@ -160,13 +160,15 @@ test('happy path: phone code → name → birthday → address + SSN → verifyi
   await phone.waitForSelector('[data-testid=state-selfie]:has-text("Added")');
   await page.waitForSelector('[data-testid=docv-doclist] li[data-kind=selfie][data-uploaded="1"]', { timeout: 10000 });
   // Stored images: encrypted (no JPEG/PNG bytes at rest) and stripped of metadata and trailing bytes once decrypted.
-  const docs = D.q('SELECT id, kind, mime, data FROM docv_documents WHERE user_id=? AND data IS NOT NULL', uid);
+  // Phase 9A (CLONE_SPEC.md §39.4): the sealed bytes move from SQLite to the object store right after the upload, so each
+  // is read from wherever it is at this moment (the local object folder next to the database here); readDocument is async.
+  const docs = D.q('SELECT id, kind, mime, data, storage_key FROM docv_documents WHERE user_id=? AND (data IS NOT NULL OR storage_key IS NOT NULL)', uid);
   assert.equal(docs.length, 3);
   const identity = srv.server.listeners('request')[0].locals.identity;
   for (const d of docs) {
-    const blob = Buffer.from(d.data);
+    const blob = d.storage_key ? fs.readFileSync(path.join(TMP, 'objects', ...d.storage_key.split('/'))) : Buffer.from(d.data);
     assert.ok(!blob.includes(Buffer.from([0xff, 0xd8, 0xff])) && !blob.includes(Buffer.from('JFIF')) && !blob.includes(Buffer.from('IHDR')), `${d.kind} not stored in the clear`);
-    const plain = identity.docv.readDocument(uid, d.id).data;
+    const plain = (await identity.docv.readDocument(uid, d.id)).data;
     assert.equal(plain.subarray(0, 2).toString('hex'), 'ffd8', 'the browser re-encoded every capture to JPEG');
     for (const marker of ['GPSTESTMARKER', 'Exif', 'TRAILINGPAYLOAD', 'camera-serial']) assert.ok(!plain.includes(Buffer.from(marker)), `${d.kind}: ${marker} stripped`);
   }
@@ -176,7 +178,7 @@ test('happy path: phone code → name → birthday → address + SSN → verifyi
   await page.waitForSelector('[data-testid=ob-outcome][data-status=approved]', { timeout: 20000 });
   assert.equal(await page.textContent('[data-testid=outcome-title]'), 'You’re verified');
   // Retention: images erased at the decision (rows keep only metadata).
-  assert.equal(D.q('SELECT COUNT(*) c FROM docv_documents WHERE user_id=? AND data IS NOT NULL', uid)[0].c, 0);
+  assert.equal(D.q('SELECT COUNT(*) c FROM docv_documents WHERE user_id=? AND (data IS NOT NULL OR storage_key IS NOT NULL)', uid)[0].c, 0);
   assert.equal(D.q("SELECT COUNT(*) c FROM docv_documents WHERE user_id=? AND delete_reason='decision:approved'", uid)[0].c, 3);
   // Gating lifted.
   r = await H.call(page, 'POST', `/v1/users/${uid}/deposits`, { amount_dollars: 25 });
@@ -235,7 +237,7 @@ test('QR handoff security: single use, 10-minute expiry, bound to the desktop se
   await page.click('[data-testid=docv-close]');
   await page.waitForSelector('[data-testid=identity-banner]:not([hidden])');
   assert.equal(D.q("SELECT COUNT(*) c FROM docv_sessions WHERE user_id=? AND status='exited'", c.uid)[0].c, 1);
-  assert.deepEqual(D.q('SELECT kind FROM docv_documents WHERE user_id=? AND data IS NOT NULL', c.uid).map((x) => x.kind), ['id_front'], 'progress kept');
+  assert.deepEqual(D.q('SELECT kind FROM docv_documents WHERE user_id=? AND (data IS NOT NULL OR storage_key IS NOT NULL)', c.uid).map((x) => x.kind), ['id_front'], 'progress kept');
   await page.click('[data-testid=identity-banner-cta]');
   await page.waitForSelector('[data-testid=docv-intro]');
   await page.click('[data-testid=docv-same-device]');
@@ -256,7 +258,7 @@ test('sandbox outcomes: "Review" → admin queue (masked, audited reveal and doc
   await H.completeOnboarding(rv, BASE, H.person({ first: 'Ravel', last: 'Review' }), { expectStatus: 'review' });
   assert.match(await rv.textContent('[data-testid=outcome-title]'), /reviewing/);
   const ruid = await H.uidOf(rv);
-  assert.equal(D.q('SELECT COUNT(*) c FROM docv_documents WHERE user_id=? AND data IS NOT NULL', ruid)[0].c, 3, 'documents kept while a human reviews');
+  assert.equal(D.q('SELECT COUNT(*) c FROM docv_documents WHERE user_id=? AND (data IS NOT NULL OR storage_key IS NOT NULL)', ruid)[0].c, 3, 'documents kept while a human reviews');
   const admin = await H.newPage(browser, BASE);
   await H.logInUi(admin, BASE, ADMIN.email, ADMIN.password);
   await admin.waitForSelector('[data-testid=account-menu]');
@@ -287,7 +289,7 @@ test('sandbox outcomes: "Review" → admin queue (masked, audited reveal and doc
   const step = admin.locator('[data-testid=step-up-dialog]');
   if (await step.isVisible().catch(() => false)) { await admin.fill('[data-testid=step-up-password]', ADMIN.password); await admin.click('[data-testid=step-up-submit]'); }
   await H.until(() => D.q('SELECT status FROM identity_profiles WHERE user_id=?', ruid)[0].status === 'approved');
-  assert.equal(D.q('SELECT COUNT(*) c FROM docv_documents WHERE user_id=? AND data IS NOT NULL', ruid)[0].c, 0, 'erased after the decision');
+  assert.equal(D.q('SELECT COUNT(*) c FROM docv_documents WHERE user_id=? AND (data IS NOT NULL OR storage_key IS NOT NULL)', ruid)[0].c, 0, 'erased after the decision');
   // Reject.
   const rj = await freshUser('reject');
   await H.completeOnboarding(rj, BASE, H.person({ last: 'Reject' }), { expectStatus: 'rejected' });

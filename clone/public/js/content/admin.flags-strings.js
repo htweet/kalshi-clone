@@ -164,7 +164,14 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.label.i18n": "Languages",
   "admin.flags.label.data_saver": "Data saver",
   "admin.flags.label.sms": "SMS notifications",
-  "admin.flags.group.reach": "Reach"
+  "admin.flags.group.reach": "Reach",
+  "admin.flags.label.ops.maintenance": "Maintenance mode",
+  "admin.flags.label.ops.trading_halt": "Exchange-wide trading halt",
+  "admin.flags.label.ops.read_only": "Read-only mode",
+  "admin.flags.label.ops.traces": "Request traces",
+  "admin.flags.label.ops.backups": "Backup schedule and WAL shipping",
+  "admin.flags.label.ops.alerts": "Alert delivery",
+  "admin.flags.group.operations": "Operations"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

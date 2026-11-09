@@ -376,8 +376,10 @@ function mountOperations(ctx) {
     blobState.remaining = q("SELECT COUNT(*) c FROM cms_media WHERE storage_key IS NULL AND length(data)>0") + q('SELECT COUNT(*) c FROM docv_documents WHERE storage_key IS NULL AND data IS NOT NULL');
     return { ...blobState };
   }
+  let blobAgain = false;
   async function moveBlobs() {
-    if (!mediaStorage || blobState.running) return blobState;
+    if (blobState.running) { blobAgain = true; return blobState; }
+    if (!mediaStorage) return blobState;
     blobState.running = true;
     try {
       for (;;) {
@@ -399,6 +401,7 @@ function mountOperations(ctx) {
       }
       blobState.error = null;
     } catch (e) { blobState.error = e.message; logger.error('blob move failed', { error: e.message }); } finally { blobState.running = false; }
+    if (blobAgain) { blobAgain = false; return moveBlobs(); } // an upload arrived while this pass ran
     return blobStatus();
   }
 
@@ -414,10 +417,11 @@ function mountOperations(ctx) {
   }
 
   // ---------------------------------------------------------------- jobs
-  const timers = [];
+  const timers = []; const sweepTimers = [];
   function startJobs({ schedule = true } = {}) {
     keyring.startup();
     moveBlobs().catch(() => {});
+    if (mediaStorage) { const t = setInterval(() => { moveBlobs().catch(() => {}); }, options.blobSweepMs || 60000); t.unref(); sweepTimers.push(t); } // safety sweep
     if (!schedule) return;
     if (backups.shipping || options.backupSchedule) {
       const tick = () => { if (!flags.jobOn('ops.backups')) return; backups.tick(); obs.job('backups', true); };
@@ -438,7 +442,7 @@ function mountOperations(ctx) {
     }, options.hourlyMs || 3600000));
     for (const t of timers) t.unref();
   }
-  function stopJobs() { timers.splice(0).forEach(clearInterval); anchors.stop(); alerts.stop(); }
+  function stopJobs() { timers.splice(0).forEach(clearInterval); sweepTimers.splice(0).forEach(clearInterval); anchors.stop(); alerts.stop(); }
 
   return { lastVerifiers: () => verifierCache, switchGate, restoreDrill, readiness, assertLaunchReady, systemView, verifiers, moveBlobs, blobStatus, purgeLogs, startJobs, stopJobs, LOAD_TARGETS, OWNER_ITEMS };
 }

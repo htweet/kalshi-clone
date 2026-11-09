@@ -388,6 +388,33 @@ import, an SMS channel, and new member and admin routes.
 | D | **Expensive public pages and images** | Fragments and PNGs cached for the owner-set TTL; sitemaps bounded; share-click counting limited per address; rate tiers | ✅ / residual: per-process caches (RS1) |
 | I | **Attribution cookies** | First-party only, `SameSite=Lax`, `plx_share` `HttpOnly`, 30 days, ids validated before use; no third-party tracker is loaded; share channels are plain links built in the browser | ✅ |
 
+### 22. Production readiness on one instance (Phase 9A, `CLONE_SPEC.md` §39)
+
+New attack surface: the separate admin origin and its IP allowlist, the private metrics port, health endpoints, the
+backup store (snapshots, WAL segments, anchors) and the backup key, the object store for media and identity documents
+with signed URLs, the key ring and its rotation, the operating switches, Launch readiness, alert contacts and their
+webhook delivery, the container image and the reverse proxy.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| S / E | **A member session (or a stolen site cookie) used on the admin panel**, or an admin session reused on the site | With `ADMIN_ORIGIN` set the admin panel and `/v1/admin/*` answer only on the admin host (404 on the site); the admin host has its own `__Host-plx_admin` cookie; each session row records the origin it was created on (`sessions.origin_kind`) and is refused on the other, whatever the cookie is named | ✅ (`ops`) |
+| T / E | **Clickjacking, framing or script injection on the admin panel** | Stricter admin CSP (`frame-ancestors 'none'`, `upgrade-insecure-requests`, nonce scripts and styles only), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `no-store` | ✅ (`ops`) |
+| S / E | **Admin panel reachable from anywhere** | Optional IP allowlist (owner setting, CIDR, step-up) checked first on the admin host; a list that would lock out the caller is refused; refusals logged with the real client address | ✅ (`ops`) |
+| S | **Spoofed client IP** (`X-Forwarded-For`, `CF-Connecting-IP`) defeating rate limits, geo rules, the allowlist or the audit | `TRUST_PROXY` names only the proxy's range (never `true`; the config guard refuses it); Caddy sets the forwarded headers itself and honours `CF-Connecting-IP` only from Cloudflare's ranges | ✅ (`ops-platform`, `ops`) |
+| I | **Metrics or readiness details leaking internals** | Metrics only on `METRICS_PORT` (internal network, optional bearer token), never on the public listener (tested in the suite and the container smoke test); public `/healthz` and `/readyz` answer a status word only, rate-limited | ✅ (`ops-platform`, container smoke) |
+| I / T | **Backup theft or tampering** (the bucket, a stolen disk) | Every snapshot and WAL segment sealed with AES-256-GCM under a backup key separate from the master key and kept off the server; per-object SHA-256 in a manifest; a tampered or truncated object is refused at restore; keys never in the image or the repository | ✅ (`backups`) |
+| D | **Backups silently stopping or unrestorable** | Backup-age and drill-age alerts; restore drills in the app (weekly), in the sidecar (every 6 h) and in the suite; Launch readiness red when stale or on the server's own disk | ✅ (`backups`, `ops`) |
+| R / T | **Rewriting the database to hide admin actions** (even re-chaining the audit log) | Signed audit-chain anchors (Ed25519, public key published) shipped hourly to the logs and the backup store; the verifier compares the database with the newest stored anchor; anchor failures alert | ✅ (`ops`, `backups`) |
+| I | **Identity documents exposed by object storage** | Documents stay sealed with the member's data key in the store; the staff view is audited, needs a reason and returns a URL valid 60 s, bound to the staff session, `no-store`, sandbox CSP; S3 requests signed (SigV4) over https only; object keys checked against traversal | ✅ (`onboarding`, `backups`) |
+| I / T | **A compromised master key** | Key ring with versioned values and audit rows; rotation re-encrypts every registered column and verifies; old keys retired (verify-only); the ring comes from the environment or a secrets file, never the data folder in production (config guard) | ✅ (`ops-platform`) / residual: HMAC lookup keys not rotated |
+| E | **Unsafe production configuration** (Host-header origins, weak scrypt, demo accounts, simulators, keys on the data volume) | Config guard refuses to start and names each setting (RS7, RS8) | ✅ (`ops-platform`, container smoke) |
+| E / D | **One admin ending a trading halt or running the real-money switch alone** | Ending the halt is a two-person request; the production switch already needs two admins and now also a green Launch readiness | ✅ (`ops`) |
+| T / R | **Operating switches abused** (maintenance or read-only to block members, a halt to move markets) | `settings.write`, reason, step-up, audit, live banner and status-page notice so members always see why; staff exceptions only for maintenance | ✅ (`ops`) |
+| S / I | **Alert webhook spoofing or leaking** | Contacts encrypted at rest and shown masked; https only outside tests; a contact receives alerts only after its test code is entered; deliveries signed `HMAC-SHA256(t.body)` with a timestamp | ✅ (`ops-platform`, `ops`) |
+| I | **Personal data or secrets in logs** | The log formatter scrubs emails, phones, tokens, keys, card numbers, national ids and query strings on every line; secret-named fields replaced whole | ✅ (`ops-platform`) |
+| T / E | **Vulnerable or tampered image** | Multi-stage build, pinned base digest, non-root, read-only root, no package manager at run time, build fails on secrets in the context; Trivy (fixable high / critical fail CI), CycloneDX SBOM | ✅ (CI `image` job) |
+| I | **FIX credentials in clear text on the network** | TLS ends at the proxy's layer-4 listener; plain FIX only on the internal network (closes §35.15) | ✅ (configuration; validated by `caddy validate` without the layer-4 module) |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -396,7 +423,7 @@ import, an SMS channel, and new member and admin routes.
   and derived secrets, an in-process tokenizer instead of provider-hosted fields, three AML rule hooks rather than a
   monitoring programme. KYC, geolocation and fraud signals are simulations (Phase 3, `CLONE_SPEC.md` §25.14).
 - Phase 7 (`CLONE_SPEC.md` §35.13): rate buckets, the replay window cache's purge and WebSocket / FIX caps are per
-  process (RS1); GET requests may be replayed inside the 6 s window; FIX runs without TLS (terminate TLS in front, P9.1);
+  process (RS1); GET requests may be replayed inside the 6 s window; FIX without TLS was closed by Phase 9A (TLS at the proxy);
   the demo environment shares the process (and the machine) with production.
 - Phase 6 (`CLONE_SPEC.md` §34.14): trailing stops and liquidations act on discrete evaluations; the liquidity account
   is the only liquidation counterparty (no liquidation queue, auction or auto-deleveraging); referral fraud checks are
@@ -413,11 +440,15 @@ import, an SMS channel, and new member and admin routes.
   remotely disabled.
 
 - Phase 5D (`CLONE_SPEC.md` §33.13): the flag cache, heist rate limits and job pauses are per process (RS1); the
-  pre-production backup is a plain SQLite file in the data directory; region targeting uses the simulated location data
+  pre-production backup was a plain SQLite file in the data directory (closed by Phase 9A: an encrypted backup object); region targeting uses the simulated location data
   of Phase 3; the two-person reset relies on distinct people behind distinct admin accounts.
 
 - Phase 8 (`CLONE_SPEC.md` §38.11): the crawler exemption is user-agent based (public pages only); fragment caches,
   share-click limits and the SMS cap are per process (RS1); referral fraud signals are heuristics that hold for review;
   SMS is simulated; a manual screen-reader pass is still to do.
+
+- Phase 9A (`CLONE_SPEC.md` §39.13): capacity below the P9.5 targets on the test machine; snapshots copy the database
+  synchronously; backups share the server's disk until a bucket is configured; HMAC lookup keys stay on the ring's first
+  key across rotations; the app cannot alert that it is itself down (Prometheus + Alertmanager do); per-process state (RS1).
 
 Review this document whenever a phase passes the §6 security gate in `PLAN.md`.

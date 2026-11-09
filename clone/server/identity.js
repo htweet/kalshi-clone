@@ -273,6 +273,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     nidHash, phoneHash, logEvent, audit, requireUser, can, origin, getUser, sandbox, production, REASONS, stateFor, options, keyDir, opt, mask,
     vault: { dataKey },
     storage: () => app.locals.mediaStorage || null, // Phase 9A: identity documents in object storage (server/docv.js)
+    blobsChanged: () => { if (app.locals.ops) app.locals.ops.moveBlobs().catch(() => {}); },
   };
   const compliance = createCompliance(ctx);
   ctx.compliance = compliance;

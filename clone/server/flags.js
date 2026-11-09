@@ -260,6 +260,7 @@ const MODULE_FLAGS = {
   mountElections: 'elections.hub', // Phase 7B (CLONE_SPEC.md §37)
   mountOwnerSettings: 'core', // ground rule 6 (CLONE_SPEC.md §38.1)
   mountPredictionReferrals: 'referrals.predictions', mountShareLinks: 'share_links', mountSeo: 'ssr', mountI18n: 'i18n', mountReach: 'data_saver', // Phase 8 (§38)
+  mountOperations: 'core', // Phase 9A (§39): Admin › System, Launch readiness, operating switches (ops.* flags are the modes)
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
 const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',

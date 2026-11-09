@@ -4573,8 +4573,8 @@ limits, idempotency.
 ### 33.13 Residual risks
 
 - Per-process state: flag cache, heist rate limits and the job pauses assume one server (PLAN §10 RS1).
-- The backup is a plain SQLite file in the data directory (not encrypted beyond the column-level encryption of §25);
-  move it off the host for production.
+- ~~The backup is a plain SQLite file in the data directory~~ — closed by Phase 9A (§39.3): the pre-production backup is
+  an encrypted, checksummed snapshot in the backup store (an S3-compatible bucket in production).
 - The reset is one transaction on SQLite; a very large database would hold the write lock for its duration.
 - Region targeting uses the simulated IP table / browser location of §25 (not a real geolocation provider).
 - A rollout is by account; anonymous visitors only see a feature at 100 %.
@@ -5117,7 +5117,7 @@ All choices below are accepted as built.
 ### 35.15 Residual risks
 
 Per-process rate buckets, WebSocket / FIX caps and the replay purge (RS1); GETs replayable inside the window; FIX without
-TLS (terminate it in front, P9.1); the demo shares the process with production; group limits evaluated after fills;
+TLS (closed by Phase 9A, §39.2: TLS ends at the proxy's layer-4 listener, plain FIX only on the internal network); the demo shares the process with production; group limits evaluated after fills;
 Try-it keeps a demo key in the browser profile until "Forget this demo key".
 
 ### 35.16 Verification
@@ -5865,6 +5865,326 @@ uses the light-theme brand colours; crawler exemption by user agent (public page
   `/hubs/economics`), `cms-content` (a new-page scenario uses `support/press`, as `support/contact` is now a default
   page), `account-area` (the observed Settings sections keep their order; "Data and messages" is appended after them).
 - Full suite: 378 scenarios across 48 files.
+
+## 39. Production readiness on one instance (Phase 9A)
+
+Built on `phase-9a` (PLAN Phase 9A, P9.1–P9.8). Goal: Parlance can run in public on one server, in play mode first,
+safely and observably, with data that survives anything short of losing every copy, and with the move to real money
+gated by a checklist. Owner decision 2026-11-09 ("go with the recommendation"): one cloud VM in Docker (4 vCPU, 8 GB,
+SSD) with Cloudflare in front; `admin.` on a separate subdomain; self-hosted Prometheus / Grafana / Loki with alerts to
+the owner's phone and email; backups every 15 minutes plus continuous WAL shipping, encrypted, to an S3-compatible bucket;
+the pen-test vendor and timing are the owner's. Every provider (cloud, domain, bucket, SMTP, phone relay) is not chosen
+yet, so each is configuration with a placeholder (`deploy/env.example`, `clone/.env.example`).
+
+### 39.1 What runs where
+
+| Piece | Where | Notes |
+|---|---|---|
+| The exchange | `Dockerfile` → container `app` | Node 22 (pinned digest), non-root, read-only root, one `/data` volume, `HEALTHCHECK` |
+| TLS, HTTP/3, HSTS, request limits, FIX over TLS | `deploy/caddy` | automatic certificates; `X-Forwarded-*` set here only; layer-4 TLS for FIX on 9443 |
+| Backup verification | `backup` service (same image) | restores the store into tmpfs every 6 h and runs the verifiers |
+| Metrics, uptime and certificate probes, rules | Prometheus + blackbox (`deploy/prometheus`) | scrapes the private metrics port |
+| Alert delivery | Alertmanager (`deploy/alertmanager`) | owner email + phone through a webhook relay |
+| Logs | Loki + promtail (`deploy/loki`) | the app's lines are scrubbed JSON; 30 days |
+| Dashboards | Grafana (`deploy/grafana`), under `/grafana` on the admin host | provisioned data sources and the "Parlance — overview" dashboard |
+
+One command from a clean checkout (§8 item 7): `deploy/init-secrets.sh` once, then
+`docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`. Staging and production are two
+copies of the same compose settings (`deploy/.env` per host); staging gets a restored copy with personal data removed
+(`docs/runbooks/restore.md`). CI (`image` job) builds the image, scans it with Trivy (fixable high / critical fail the
+build), writes a CycloneDX SBOM, runs the container smoke test (`scripts/container-smoke.js`: the config guard refusal,
+`/healthz`, `/readyz`, a page, a sign-in, metrics only on the private port, non-root, no data or keys in the image) and a
+load smoke run; reports are uploaded as artefacts.
+
+### 39.2 Container and proxy
+
+- Multi-stage build: `npm ci` and the asset build in `build`; the runtime stage holds production dependencies, `server/`,
+  `public/`, `dist/` and the restore / keys / backup-verify scripts only; npm, npx, corepack and yarn are removed (the image
+  scan found advisories in npm's own bundled packages). A build guard fails if `.env`, keys or databases reached the
+  context; `.dockerignore` keeps `data/`, keys, `.env*`, tests and docs out.
+- `HOST=0.0.0.0`, `FIX_HOST=0.0.0.0` inside the container (loopback by default elsewhere); only Caddy publishes ports.
+- **Trusted proxy:** `TRUST_PROXY` names the proxy's address range (`172.30.10.0/24`, the compose network) — never
+  `true`. The client IP used by rate limits, geo rules and the audit is the proxy's `X-Forwarded-For` only when the hop
+  is trusted; Caddy in turn accepts Cloudflare's `CF-Connecting-IP` only from `CLOUDFLARE_IPS`. A forged header from
+  anywhere else is ignored (tested).
+- **FIX over TLS:** TLS ends at Caddy's layer-4 listener (9443) and is proxied to the plain FIX gateway on the internal
+  network only, closing the §35.15 "FIX without TLS" residual. API clients connect with any FIX engine that speaks TLS.
+
+### 39.3 Data durability
+
+**Versioned migrations** (`server/migrations/`): one ordered list `NNNN-name.js`, applied in order at start inside one
+IMMEDIATE transaction each, recorded in `schema_migrations` (id, name, SHA-256 checksum of the migration and of every
+module function and SQL text it runs, time, duration, app version), under a lock row (`schema_migrations_lock`).
+`0001-baseline` is the idempotent column checks and one-time upgrades Phases 0–8 spread over fourteen modules, run in
+their original order (each module keeps an exported `schema(db)` used only when a database did not go through the
+runner); `0002-operations` adds the Phase 9A tables and columns. At open, before seeding, a database recorded at a newer
+version is refused (`schema_newer`, no silent downgrade), and so is one whose applied migration changed (`schema_checksum`
+— write a new migration instead). A failing migration rolls back completely.
+
+**Tested from every released schema:** `scripts/make-schema-fixtures.js` exports `clone/` at the commit where each phase
+was complete (5D `ecb3513`, 6 `a0c0798`, 7 `a5c102b`, 7A `2bbdf85`, 7B `e001020`, 8 `af3e581`), runs that server on a fresh
+database with invented data (two traders, deposits, a matched trade, flag changes that write audit rows), and dumps it as
+gzip SQL to `tests/fixtures/schemas/` (about 320 kB each; the fixtures' master key is a public test key derived in the
+script). The suite upgrades each and runs the verifiers.
+
+**Backups** (`server/backups.js`): snapshots every `backups.interval_minutes` (15), a nightly full at
+`backups.nightly_hour_wat` (02:00 WAT), one before the production switch, and manual ones. A snapshot ships pending WAL,
+checkpoints (TRUNCATE) and copies the main file page for page, synchronously (this process is the only writer), so it sits
+exactly at the start of a WAL generation; the copy is then sealed and uploaded asynchronously. **WAL shipping**
+(Litestream-style): automatic checkpoints are off; every `backups.wal_ship_seconds` (10) the new frames up to the last
+commit are sealed and uploaded as a segment; past 16 MB the WAL is checkpointed right after shipping and the next write
+opens a new generation. **Encryption:** AES-256-GCM under the backup key (`BACKUP_KEY` / `BACKUP_KEY_FILE`, separate from
+the master key; `BACKUP_KEY_PREVIOUS` opens objects after a backup-key change); object = `PLXB1` | key id | IV |
+ciphertext | tag, with a JSON manifest (SHA-256 of plaintext and ciphertext, time, kind, generation) so a restore needs
+nothing but the store and the key. **Retention** (owner settings): interval snapshots 48 h; nightly 7 daily / 4 weekly /
+12 monthly; pre-production and manual a year; WAL older than the oldest kept snapshot deleted; every prune audited.
+
+**Point-in-time restore:** `npm run restore -- --to <time|now> --out <file> [--verify]` picks the newest snapshot at or
+before the time and applies each later WAL generation's shipped segments up to it (SQLite recovers the checksummed
+frames on open; a partial generation stops at its last shipped commit). Loss window: the shipping interval. The command
+refuses to write over a database a running server holds. **Restore drill:** Admin › System (and every
+`backups.drill_every_days`, 7) restores the newest backup into a temporary file and runs integrity, ledger / journal,
+Perps journal, audit chain (with the newest anchor) and schema version; the backup sidecar does the same from the store
+alone every 6 hours. Alerts fire past `backups.max_age_minutes` (60) and `backups.drill_max_age_days` (30).
+
+**Production-switch backup** (§33): now an encrypted, checksummed `pre_production` snapshot in the backup store, taken
+before anything changes (the approval waits for the upload); this closes the §33.13 "unencrypted backup file" residual.
+
+### 39.4 Object storage
+
+`server/storage.js`: `put / get / head / list / delete` over a local folder (default: `<data>/objects` for media and
+identity documents, `<data>/backups` for backups) or any S3-compatible service through AWS Signature V4 written with
+`node:crypto` (no SDK; https only except loopback for tests; keys checked against path traversal). `OBJECT_STORAGE` and
+`BACKUP_STORAGE` choose (`local`, `local:<folder>`, `s3` with `S3_*` / `BACKUP_S3_*`). CMS media and identity documents
+move out of SQLite right after each upload and, for existing databases, by the same job at start (the blob migration;
+progress in Admin › System): CMS media are public and served from the store at their stable `/media/<id>.<ext>` URLs;
+identity documents stay sealed with the member's data key in the store (`kyc/<user>/<doc>.sealed`). A staff view of a
+document (audited, reason required) now returns a **signed URL valid for 60 seconds and bound to the staff session**
+(`/v1/admin/kyc/blob/<token>`, `Cache-Control: no-store`, sandbox CSP) instead of an inline data URL.
+
+### 39.5 Observability
+
+- **Logs** (`server/logger.js`): one JSON object per line; request id from the trusted proxy's `X-Request-Id` (else
+  generated), echoed in the response and carried by AsyncLocalStorage into everything the request triggers; one request
+  line per request (route group, status, ms — never the query string or ids). **Scrubbing** on every line: secret-named
+  keys replaced whole; emails, phone numbers (E.164 and Nigerian 0-prefixed), bearer / basic / SigV4 credentials, JWTs,
+  PEM keys, encrypted values, long hex and base64url secrets, Luhn-valid card numbers and 11-digit NIN / BVN masked; URLs
+  lose their query strings. In production every `console.*` line goes through it. Level: owner setting `logs.level`.
+- **Health:** `/healthz` (process up) and `/readyz` (database writable, migrations at the latest version, engine ticker
+  alive, free disk above `ops.readyz_disk_free_mb`) answer `{"status": …}` only, `no-store`, rate-limited per IP; the
+  reasons are on the metrics port and in Admin › System.
+- **Metrics** on `METRICS_PORT` (bound to `METRICS_HOST`, optional `METRICS_TOKEN`), never on the public listener:
+  requests by route group / method / status class, latency histograms per group, order-to-ack, matching time, WebSocket
+  fan-out time, job age since last success, outbox depths, database and WAL size, disk free / total, memory, uptime, and
+  `parlance_status{name=…}` for backup and WAL age, verifier results, the three switches, schema version and firing alerts.
+- **Traces:** flag `ops.traces` (off); `traces.sample_pct` (10 %) of requests produce an OpenTelemetry-shaped span (W3C
+  `traceparent` honoured and returned) written to the logs, and sent as OTLP/HTTP JSON when `OTEL_EXPORTER_OTLP_ENDPOINT`
+  is set.
+- **Alerts** (`server/alerts.js`, every 30 s): backup overdue, restore drill overdue, anchor overdue, verifier failure,
+  error rate over `alerts.error_rate_pct` (5 % of ≥ 20 requests in 5 minutes), order p99 over `alerts.order_p99_ms` (100),
+  job stalled (`alerts.job_stall_minutes`, 10), disk below `alerts.disk_free_pct` (15 %), certificate expiry
+  (`TLS_CERT_FILE`, `alerts.cert_expiry_days`, 14). Sent when they start, every `alerts.repeat_minutes` (60) while firing,
+  and when resolved, to every **confirmed** contact: email (through the email provider), webhook (JSON signed
+  `X-Parlance-Signature: t=…,v1=HMAC-SHA256(t.body)` — an SMS gateway, a phone push service or a chat app), or push to a
+  staff account's app. A contact is confirmed by entering the 6-digit code its test message carried. Prometheus rules in
+  `deploy/prometheus/alerts.yml` add site down, the app not scraped, WAL shipping stalled, backup sidecar failures and
+  certificate expiry from outside.
+- **Audit-chain anchoring (RS5)** (`server/anchors.js`): every `anchors.interval_minutes` (60) the head of the admin
+  audit chain is signed with an Ed25519 key derived from the master key and shipped to the logs (`audit_anchor`) and the
+  backup store (`anchors/…json`). The public key is shown in Admin › System so anyone can check an anchor. The verifier
+  compares the database with the newest stored anchor: a database rewritten after an anchor no longer contains the
+  anchored row with the anchored hash, even if the rows behind it were re-chained.
+
+### 39.6 Separate admin origin
+
+With `ADMIN_ORIGIN` set (`https://admin.<domain>`), the admin panel and `/v1/admin/*`, `/v1/perps/admin/*`,
+`/v1/social-admin*` answer only on that host (404 on the site); a browser opening the admin host lands on `/admin`.
+The admin host has its own session cookie (`__Host-plx_admin`), and each session row records the origin it was created on
+(`sessions.origin_kind`): a member session is never valid there, nor an admin-origin session on the site, whatever the
+cookie is called. The admin host's CSP is stricter (`frame-ancestors 'none'`, `upgrade-insecure-requests`, only its own
+WebSocket), with `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and `no-store`. The optional IP allowlist (owner
+setting `admin.ip_allowlist`, CIDR list, step-up) is checked on the admin host before anything else (refusals logged); a
+list that would lock out the caller's own address is refused. Staff signing in on the site get an "Admin" link to the
+admin origin. Without `ADMIN_ORIGIN` (development, tests) everything behaves as before.
+
+### 39.7 Operating switches (ground rule 6)
+
+Feature flags whose "on" means the mode is in force (`server/flags.js` group `operations`), changed in Admin › System or
+Admin › Feature flags with a reason and a step-up, audited, live over the `feature_flags` channel, each with a CMS
+explanation and the recommended default (off):
+- `ops.maintenance` — every write on `/v1` and the Trade API answers `503 maintenance` with `Retry-After` (seconds to the
+  scheduled end, else `ops.maintenance_retry_after_sec`, 300); reads, sign-in / sign-out and step-up keep working; staff
+  keep full access; a CMS banner on every page; the status page puts every component in maintenance. The flag's
+  start / end schedule the window.
+- `ops.trading_halt` — no order placement, amend, Perps order or close, or RFQ accept / confirm on any path (`409
+  trading_halted`); the engine itself refuses while halted (`engine.tradingActive`), so FIX, the Trade API and internal
+  liquidity jobs stop too; cancels and decreases work; banner and status-page notice; the exchange status reports
+  `trading_active: false`. Switching it **off** creates a two-person request (`ops_approvals`, `202`) that another admin
+  approves (step-up) in Admin › System.
+- `ops.read_only` — for migrations and restores: every write refused (`503 read_only`), staff included, except signing in
+  / out, step-up and switching read-only itself off.
+- `ops.traces` (off), `ops.backups` and `ops.alerts` (on; jobs).
+
+**Owner settings added** (Admin › Owner settings, each with its explanation, range and step-up where marked): backups
+(interval 15 min, nightly hour 2 WAT, WAL every 10 s, interval copies 48 h, 7 / 4 / 12, alert age 60 min, drill age 30 d,
+automatic drill every 7 d — retention and schedule need step-up), logs (level `info`, security / sign-in log retention 90 d
+with step-up, traces 10 %, anchors every 60 min), alerts (thresholds above, repeat 60 min, not-ready below 500 MB free),
+operations (maintenance Retry-After 300 s, admin IP allowlist empty = everyone with step-up, key age 365 d with step-up).
+Owner settings gained two types: `enum` (the log level) and `cidrs` (the allowlist).
+
+**Log retention job** (hourly): security events, sign-in events and resolved alerts older than `logs.retention_days` are
+deleted, audited.
+
+### 39.8 Admin › System and Admin › Launch readiness
+
+**Admin › System** (`settings.write`): health checks and schema version; the operating switches with the pending
+two-person approvals; backups (store, backup key id and source, newest backup and its age, WAL shipping, recent backups
+with checksums, "Back up now"); restore drills (last success with its checks, "Run a restore drill"); keys (active, HMAC
+key, source, each key's status, age, values and fingerprint, last rotation, "Rotate"); the audit anchor (newest, its
+source and check, the public key, "Anchor now"); verifiers ("Verify now"); alerts (firing, contacts with test / confirm /
+remove, history); object storage and the blob move. The page refreshes every 4 seconds while open; a slower answer never
+overwrites a newer one.
+
+**Admin › Launch readiness** (`settings.write`) turns "are we ready?" into checks, recomputed on every view (the page
+refreshes live):
+- automatic (green / red): production configuration (the config guard's checks), TLS and HSTS (https public origin, HSTS
+  sent, an HTTPS request through the trusted proxy within 24 h), separate admin origin, backups fresh, backups off the
+  server (S3, or a folder outside the data directory), restore drill recent, alerts reach a confirmed contact, key ages,
+  audit anchor recent and matching, dependency scan clean, container image scan clean, load test within targets (the last
+  three from results recorded in the page: npm audit / Trivy summaries and `scripts/load.js` reports, each valid 30 days),
+  switches in their launch state (maintenance, read-only, halt and the results simulator off; backups and alerts on);
+- owner-ticked items with a note and a date (step-up, audited): pen test done and findings closed; terms and privacy
+  reviewed by counsel; NDPA registration and a data-protection officer; support hours and contacts; incident contacts;
+- the real-money waitlist target (Phase 7A) next to its confirmed count.
+The Phase 5D **production switch** refuses its request and its approval while any check is red or any item is open
+(`409 launch_not_ready`, the message and `blocking` list name each one). The gate is always on in production; elsewhere
+`LAUNCH_GATE=1` or the `ops.launchGate` start option turns it on (so development and the earlier suites keep their switch).
+
+### 39.9 Load and capacity
+
+`scripts/load.js` (Node only): order placement and cancels by N traders crossing on K markets (order-to-ack measured at
+the client), WebSocket fan-out to M clients (receive time minus the server's publish timestamp), live sports ticks, public
+pages (`/`, an event page, the home data), and the Trade API with Ed25519-signed requests. Self mode runs the server in its
+own process on a temporary database; `--base` targets a running server. Profiles: `smoke` (CI, every merge; fails only on
+errors, not on speed), `full` (2 minutes, 2,000 WebSocket clients, 200 orders/s target rate), `soak` (one hour, memory
+sampled). Targets (PLAN P9.5): 200 orders/s sustained with p99 order-to-ack < 50 ms; 20,000 WebSocket clients with p99
+fan-out < 250 ms; public pages p95 < 300 ms from the edge.
+
+**Measured** (LOAD_RESULTS_PLACEHOLDER)
+
+### 39.10 Security hardening
+
+- **Key rotation (RS4)** (`server/crypto.js`, `server/keyring.js`): a key ring (`SECRET_KEYRING` / `SECRET_KEYRING_FILE`,
+  or `data/secret.keyring.json` in development; the single `SECRET_KEY` / key file is the ring `{k1}`). Encrypted values
+  name their key (`enc:v2:<kid>:…`; `enc:v1:` = k1, unchanged for deployments that never rotated) and always open with
+  the key they name; new values use the active key at once (no restart). Rotate (Admin › System in development, `npm run
+  keys -- rotate --file <ring>` + restart in production) → the background job re-encrypts every registered column (TOTP
+  secrets, identity key wrapping, heist codes, the SMS outbox, mock OIDC keys, OAuth verifiers, waitlist emails, VAPID and
+  push subscriptions / outbox, alert contacts) in batches, verifies all of them, and retires the old key. Audit-chain rows
+  record the key that sealed them (`admin_audit.key_id`); new rows use the active key and every row verifies with its own.
+  Key metadata (fingerprints, never keys) in `crypto_keys`, rotations in `crypto_rotations`; a ring whose key does not
+  match the fingerprint this database knows is refused at start.
+- **Production config guard (RS7, RS8)** (`server/config-guard.js`): with `NODE_ENV=production` the server exits 78 and
+  names every failing setting: `ALLOWED_ORIGINS` (https, including `PUBLIC_ORIGIN`), `PUBLIC_ORIGIN`, `ADMIN_ORIGIN`
+  (https, different), `SCRYPT_LOG_N` ≥ 17, the master key from the environment or a secrets file outside the data folder,
+  `BACKUP_KEY` the same way (and not the master key), `DEMO_ACCOUNTS=off` (the seeded demo traders keep their history but
+  cannot sign in), no `DEMO_PASSWORD`, `DEMO_API=0`, `SPORTS=0`, Secure cookies, `TRUST_PROXY` set to ranges (never
+  `true`), no `FEATURE_FLAGS` override starting the results simulator.
+- **Secrets** come from the environment or Docker secrets files (`deploy/secrets/`, created by `deploy/init-secrets.sh`,
+  git-ignored); rotation of each is in `docs/runbooks/rotate-keys.md`.
+- **Disclosure:** `/.well-known/security.txt` (RFC 9116: contact `SECURITY_CONTACT`, policy, canonical, a 180-day expiry)
+  and the CMS page `trust/vulnerability-disclosure` (how to report, 90-day disclosure, safe harbour) linked from the footer.
+- **Runbooks** (`docs/runbooks/`): incident response (severity levels, who is called, first 15 minutes, CMS
+  communication templates, forensics, post-incident review, dependency-update policy with security fixes in 7 days, the
+  quarterly access review), restore and drills (with the staging copy), key and secret rotation, Cloudflare, and the
+  penetration-test scope with rules of engagement and the staging test environment.
+
+### 39.11 Routes, tables, flags, settings
+
+- **Public:** `GET /healthz`, `GET /readyz`, `GET /.well-known/security.txt`; `GET /v1/status` gains `notices`.
+- **Admin (`settings.write`):** `GET /v1/admin/system`; `POST /v1/admin/system/backups`, `/restore_drill`, `/anchor`,
+  `/verify`, `/keys/rotate`, `/alerts/contacts`, `/alerts/contacts/<id>/test`, `/alerts/contacts/<id>/confirm`,
+  `/alerts/run`; `DELETE /v1/admin/system/alerts/contacts/<id>`; `GET /v1/admin/ops/approvals`,
+  `POST /v1/admin/ops/approvals/<id>/approve|reject`; `GET /v1/admin/launch_readiness`,
+  `PUT /v1/admin/launch_readiness/items/<key>`, `POST /v1/admin/launch_readiness/evidence`.
+  `GET /v1/admin/kyc/blob/<token>` (`users.support`, signed, 60 s, bound to the staff session).
+- **Private port:** `/metrics`, `/readyz` (with reasons), `/healthz`.
+- **Tables:** `schema_migrations`, `schema_migrations_lock`, `ops_backups`, `ops_wal_segments`, `ops_restore_drills`,
+  `ops_anchors`, `ops_alerts`, `ops_alert_contacts`, `ops_approvals`, `ops_launch_items`, `ops_evidence`, `crypto_keys`,
+  `crypto_rotations`; columns `sessions.origin_kind`, `admin_audit.key_id`, `cms_media.storage_key`,
+  `docv_documents.storage_key`.
+- **Flags:** `ops.maintenance`, `ops.trading_halt`, `ops.read_only`, `ops.traces` (off), `ops.backups`, `ops.alerts` (on).
+- **Environment:** `ADMIN_ORIGIN`, `HOST`, `FIX_HOST`, `SECRET_KEYRING(_FILE)`, `BACKUP_KEY(_FILE|_PREVIOUS)`,
+  `OBJECT_STORAGE`, `BACKUP_STORAGE`, `S3_*`, `BACKUP_S3_*`, `BACKUPS`, `DEMO_ACCOUNTS`, `LOG_FORMAT`, `LOG_LEVEL`,
+  `METRICS_PORT|HOST|TOKEN`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `TLS_CERT_FILE`, `SECURITY_CONTACT`, `LAUNCH_GATE`
+  (documented in `clone/.env.example`).
+
+### 39.12 Design choices (owner: recommended standard, admin-switchable)
+
+- Owner decisions 2026-11-09 (recommended standard): one VM in Docker behind Cloudflare; `admin.` subdomain; self-hosted
+  Prometheus / Grafana / Loki; backups every 15 minutes + WAL shipping, encrypted, S3-compatible bucket; pen test by the
+  owner's vendor. The domain, cloud provider, bucket provider, SMTP and phone relay are configuration placeholders.
+- SQLite stays (single writer, one well-sized server); PostgreSQL and several instances are Phase 9B, started by the
+  capacity signal (§39.9).
+- Backups are full page copies plus WAL rather than logical dumps, so point-in-time restore is exact; a snapshot briefly
+  blocks the event loop while the file is copied (measured below 100 ms for the 4.5 MB seed database; it grows with the
+  database — see residual risks).
+- Keyed lookup hashes stay on the ring's `hmac` key across rotations (they are compared, not decrypted; changing them
+  needs a re-hash from plaintext).
+- The launch gate is enforced in production only by default, so play-mode development and the earlier suites keep the
+  Phase 5D switch unchanged.
+- Signed short-lived URLs only for private objects (identity documents); public CMS media keep their stable URLs.
+- Every switch and value above is admin-switchable with its recommended default (ground rule 6).
+
+### 39.13 Residual risks
+
+- **Capacity:** measured below the P9.5 targets on the test machine (§39.9): per-request CPU in the single Node process
+  is the bottleneck. Profile-guided work on the order path (fewer per-request writes: session time accounting, rate-bucket
+  and idempotency rows) is the first step; Phase 9B starts if that is not enough.
+- A snapshot copies the database synchronously; on a multi-gigabyte database this pauses requests for the copy's
+  duration. Mitigation then: larger interval, or the SQLite online-backup API with a WAL position barrier (9B moves to
+  managed PostgreSQL PITR anyway).
+- Backups and their key are only as off-site as configured: with the default local folder they share the server's disk
+  (Launch readiness stays red until a bucket or another disk is set).
+- WAL shipping assumes the server is the only writer (the instance lock guarantees it for servers; an operator writing
+  with another SQLite connection could trigger a checkpoint that skips frames — restore still works to the last shipped
+  commit before it).
+- Retired keys stay in the ring while audit rows or lookup hashes need them; HMAC lookup keys are not rotated (above).
+- The admin IP allowlist relies on the proxy chain being trusted correctly (`TRUST_PROXY`, `CLOUDFLARE_IPS`).
+- Alerts from the app cannot report the app being down; that depends on Prometheus + blackbox + Alertmanager running.
+- Rate limits, alert evaluation and the flag cache remain per process (RS1, Phase 9B).
+- The layer-4 Caddy module and the full compose stack were validated by configuration checks here, not run end to end
+  with real certificates; the first deploy follows README › Deployment step by step.
+
+### 39.14 Not built
+
+- Grafana Cloud as an alternative is documented (README), not configured.
+- Running the whole E2E suite against the built container in CI (P9.1 bullet) is reduced to the container smoke test plus
+  the load smoke; the E2E suites start their own in-process servers.
+- No real S3, SMTP or phone-relay provider was contacted (no network in tests; providers not chosen).
+
+### 39.15 Verification
+
+- `tests/ops.e2e.test.js` (7 scenarios, Chromium behind a TLS-terminating proxy, production-like settings): admin origin
+  separation (404 on the site, own cookie, stricter CSP, sessions not valid across origins, the staff link, the IP
+  allowlist with lock-out protection); maintenance across the site and the API (banner live, 503 + Retry-After, reads,
+  sign-in, staff writes, status page, a scheduled window); the trading halt (banner, 409 on orders, cancels, engine,
+  exchange status, status page) and its two-person resume in the UI; read-only mode; Admin › System (backup now, restore
+  drill with every check, key age, anchor shipped to the store, migration version, a webhook alert contact tested and
+  confirmed with its code); Launch readiness checks green and red live, evidence and owner items in the UI, the production
+  switch refused naming the open items and then allowed and executed with an encrypted pre-production backup; a restart.
+- `tests/migrations.e2e.test.js` (3): every phase fixture upgraded and verified; fresh vs upgraded schema; refusals
+  (newer, edited, locked) and rollback.
+- `tests/backups.e2e.test.js` (5): backup / destroy / one-command restore with verification, point in time, encryption and
+  checksums, previous backup key, retention, the fake-S3 adapter with SigV4 checked on every request and a backup + restore
+  through it, the media blob move and serving.
+- `tests/ops-platform.e2e.test.js` (6): log scrubbing, config guard refusals (also the real process exiting 78), trusted
+  proxy rules, key rotation round trips (admin and offline, restart), health and metrics endpoints, the webhook alert
+  adapter with its signature and a firing / resolved rule.
+- `tests/authz.e2e.test.js`: every new route classified; `tests/flags.e2e.test.js`: the new flags, labels and module.
+- Existing tests changed: `onboarding` (the staff document view is a signed URL now, and documents are read from the
+  object store once moved); `playmode` (the pre-production backup is an encrypted object that opens with the backup key).
+- `scripts/container-smoke.js` and `scripts/load.js --profile smoke` in the CI `image` job.
 
 ---
 
