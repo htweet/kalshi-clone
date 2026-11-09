@@ -17,6 +17,7 @@ const { nowIso, newId, token, ApiError, E } = require('./util');
 const pw = require('./passwords');
 const kc = require('./crypto');
 const auditChain = require('./audit-chain');
+const { ensureSchema } = require('./migrations/schema-guard');
 const { totp, b32encode } = require('./features');
 const { ROLE_PERMS } = require('./admin');
 
@@ -106,6 +107,34 @@ const invalidCredentials = () => new ApiError(401, 'invalid_credentials', 'incor
 const lockedError = () => new ApiError(403, 'account_locked', 'this account is locked', 'contact support to restore access');
 const policyError = (bad) => new ApiError(400, bad.code, 'password does not meet the requirements', bad.message);
 
+// Schema and the one-time upgrades of earlier builds (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db, { keyDir } = {}) {
+  db.exec(SCHEMA);
+  const cols = (t) => new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
+  const sc = cols('sessions');
+  for (const [c, def] of [['sid', 'TEXT'], ['token_hashed', 'INTEGER NOT NULL DEFAULT 0'], ['last_seen_ms', 'INTEGER NOT NULL DEFAULT 0'], ['idle_ms', 'INTEGER NOT NULL DEFAULT 0'],
+    ['ip_prefix', "TEXT NOT NULL DEFAULT ''"], ['device', "TEXT NOT NULL DEFAULT ''"], ['auth_at', 'INTEGER NOT NULL DEFAULT 0'], ['totp_at', 'INTEGER NOT NULL DEFAULT 0'], ['privileged', 'INTEGER NOT NULL DEFAULT 0']]) {
+    if (!sc.has(c)) db.exec(`ALTER TABLE sessions ADD COLUMN ${c} ${def}`);
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_sid ON sessions(sid); CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)');
+  // RS3: the last accepted TOTP time step per user; a code for that step (or an earlier one) is never accepted again.
+  if (!cols('mfa').has('last_step')) db.exec('ALTER TABLE mfa ADD COLUMN last_step INTEGER NOT NULL DEFAULT 0');
+  const hasTable = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t);
+  const enc = kc.deriveKey('field-encryption:v1', { dir: keyDir });
+  tx(db, () => {
+    // Session tokens were stored in plaintext by earlier builds: replace each by its SHA-256 (cookies keep working).
+    for (const s of db.prepare('SELECT s.token, s.user_id, u.is_admin FROM sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hashed=0').all()) {
+      const priv = s.is_admin || (hasTable('admin_roles') && db.prepare('SELECT 1 FROM admin_roles WHERE user_id=?').get(s.user_id));
+      db.prepare('UPDATE sessions SET token=?, sid=?, token_hashed=1, last_seen_ms=?, idle_ms=?, privileged=? WHERE token=?')
+        .run(kc.sha256hex(s.token), `ses_${token(12)}`, Date.now(), priv ? DEFAULTS.adminIdleMs : DEFAULTS.idleMs, priv ? 1 : 0, s.token);
+    }
+    // TOTP secrets were stored in plaintext: encrypt in place (AES-256-GCM, bound to the user id).
+    for (const m of db.prepare('SELECT user_id, secret FROM mfa').all()) {
+      if (!kc.isEncrypted(m.secret)) db.prepare('UPDATE mfa SET secret=? WHERE user_id=?').run(kc.encrypt(m.secret, `mfa.secret:${m.user_id}`, enc), m.user_id);
+    }
+  });
+}
+
 function createAuth({ db, engine, options = {}, keyDir }) {
   const opt = { ...DEFAULTS, ...Object.fromEntries(Object.entries(options || {}).filter(([, v]) => v !== undefined)) };
   const keys = { enc: kc.deriveKey('field-encryption:v1', { dir: keyDir }), csrf: kc.deriveKey('login-csrf:v1', { dir: keyDir }), pow: kc.deriveKey('login-pow:v1', { dir: keyDir }) };
@@ -118,31 +147,12 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   let rolesOf = (u) => (u && u.is_admin ? ['admin'] : []);
   let publicUser = (u) => ({ user_id: u.id, email: u.email, display_name: u.display_name, is_admin: !!u.is_admin, created_at: u.created_at });
 
-  // ------------------------------------------------------------------ schema + idempotent migrations
-  db.exec(SCHEMA);
-  const cols = (t) => new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
-  const sc = cols('sessions');
-  for (const [c, def] of [['sid', 'TEXT'], ['token_hashed', 'INTEGER NOT NULL DEFAULT 0'], ['last_seen_ms', 'INTEGER NOT NULL DEFAULT 0'], ['idle_ms', 'INTEGER NOT NULL DEFAULT 0'],
-    ['ip_prefix', "TEXT NOT NULL DEFAULT ''"], ['device', "TEXT NOT NULL DEFAULT ''"], ['auth_at', 'INTEGER NOT NULL DEFAULT 0'], ['totp_at', 'INTEGER NOT NULL DEFAULT 0'], ['privileged', 'INTEGER NOT NULL DEFAULT 0']]) {
-    if (!sc.has(c)) db.exec(`ALTER TABLE sessions ADD COLUMN ${c} ${def}`);
-  }
-  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_sid ON sessions(sid); CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)');
-  // RS3: the last accepted TOTP time step per user; a code for that step (or an earlier one) is never accepted again.
-  if (!cols('mfa').has('last_step')) db.exec('ALTER TABLE mfa ADD COLUMN last_step INTEGER NOT NULL DEFAULT 0');
+  // ------------------------------------------------------------------ schema (migration 0001, server/migrations)
+  ensureSchema(db, schema, { keyDir });
   const hasTable = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t);
   const isPrivileged = (u) => !!u.is_admin || (hasTable('admin_roles') && !!db.prepare('SELECT 1 FROM admin_roles WHERE user_id=? LIMIT 1').get(u.id));
   tx(db, () => {
-    // Session tokens were stored in plaintext by earlier builds: replace each by its SHA-256 (cookies keep working).
-    for (const s of db.prepare('SELECT s.token, s.user_id, u.is_admin FROM sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hashed=0').all()) {
-      const priv = s.is_admin || (hasTable('admin_roles') && db.prepare('SELECT 1 FROM admin_roles WHERE user_id=?').get(s.user_id));
-      db.prepare('UPDATE sessions SET token=?, sid=?, token_hashed=1, last_seen_ms=?, idle_ms=?, privileged=? WHERE token=?')
-        .run(kc.sha256hex(s.token), `ses_${token(12)}`, Date.now(), priv ? opt.adminIdleMs : opt.idleMs, priv ? 1 : 0, s.token);
-    }
-    // TOTP secrets were stored in plaintext: encrypt in place (AES-256-GCM, bound to the user id).
-    for (const m of db.prepare('SELECT user_id, secret FROM mfa').all()) {
-      if (!kc.isEncrypted(m.secret)) db.prepare('UPDATE mfa SET secret=? WHERE user_id=?').run(kc.encrypt(m.secret, `mfa.secret:${m.user_id}`, keys.enc), m.user_id);
-    }
-    // MFA challenge tokens are now stored hashed (64 hex); drop any short-lived plaintext ones.
+    // MFA challenge tokens are stored hashed (64 hex); auth events are kept 400 days.
     db.prepare('DELETE FROM mfa_challenges WHERE length(token)<>64').run();
     db.prepare('DELETE FROM auth_events WHERE ts<?').run(Date.now() - 400 * DAY);
   });
@@ -215,15 +225,20 @@ function createAuth({ db, engine, options = {}, keyDir }) {
 
   // ------------------------------------------------------------------ cookies
   const secureFor = (req) => (opt.secureCookies != null ? !!opt.secureCookies : process.env.NODE_ENV === 'production' || process.env.SECURE_COOKIES === '1' || !!req.secure);
-  // __Host- requires Secure, so plain-http localhost uses the unprefixed names.
-  const names = (secure) => (secure ? { session: '__Host-plx_session', pre: '__Host-plx_pre' } : { session: 'plx_session', pre: 'plx_pre' });
+  // __Host- requires Secure, so plain-http localhost uses the unprefixed names. On the separate admin origin (Phase 9A,
+  // CLONE_SPEC.md §39.6) the session cookie has its own name, and the session row records the origin it was created on:
+  // a member session is never valid on the admin origin, nor an admin-origin session on the site.
+  const kindOf = (req) => (req && hooks.originKind ? hooks.originKind(req) : 'site');
+  const names = (secure, kind = 'site') => (kind === 'admin'
+    ? (secure ? { session: '__Host-plx_admin', pre: '__Host-plx_pre' } : { session: 'plx_admin', pre: 'plx_pre' })
+    : (secure ? { session: '__Host-plx_session', pre: '__Host-plx_pre' } : { session: 'plx_session', pre: 'plx_pre' }));
   function cookie(res, req, name, value, { maxAgeSec, sameSite = 'Lax' }) {
     const secure = secureFor(req);
-    res.append('Set-Cookie', `${names(secure)[name]}=${value}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`);
+    res.append('Set-Cookie', `${names(secure, kindOf(req))[name]}=${value}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`);
   }
-  function rawSessionToken(cookieHeader) {
+  function rawSessionToken(cookieHeader, kind = 'site') {
     const c = parseCookies(cookieHeader);
-    return c['__Host-plx_session'] || c.plx_session || null;
+    return kind === 'admin' ? c['__Host-plx_admin'] || c.plx_admin || null : c['__Host-plx_session'] || c.plx_session || null;
   }
 
   // ------------------------------------------------------------------ sessions
@@ -236,6 +251,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
       logEvent(s.user_id, 'session_expired', null, { session: s.sid, reason: Date.parse(s.expires_at) <= now ? 'absolute' : 'idle' });
       return null;
     }
+    if (hooks.originKind && (s.origin_kind || 'site') !== (o.kind || 'site')) return null; // wrong origin (admin vs site)
     const u = getUser(s.user_id);
     if (!u || isLocked(u.id)) return null;
     // RS10: only user-initiated activity extends the idle window. The SPA reports the seconds since the last real user
@@ -246,7 +262,8 @@ function createAuth({ db, engine, options = {}, keyDir }) {
     return { session: s, user: u };
   }
   const fromRaw = (raw, o) => (raw && raw.length <= 128 ? check(db.prepare('SELECT * FROM sessions WHERE token=?').get(kc.sha256hex(raw)), o) : null);
-  const fromCookieHeader = (h, o) => fromRaw(rawSessionToken(h), o);
+  const fromCookieHeader = (h, o = {}) => fromRaw(rawSessionToken(h, o.kind || 'site'), o);
+  const fromRequest = (req, o = {}) => fromCookieHeader(req.headers.cookie, { ...o, kind: kindOf(req) });
   const sessionAlive = (sid) => !!check(db.prepare('SELECT * FROM sessions WHERE sid=?').get(sid), { touch: false });
 
   function setSessionCookie(res, req, raw, privileged) {
@@ -255,13 +272,14 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   // New session (log in, sign up, MFA completion, admin setup). The session the request arrived with, if any,
   // is deleted first so a planted cookie can never be upgraded (session fixation).
   function createSession(req, res, user, { totpVerified = false } = {}) {
-    const old = rawSessionToken(req.headers.cookie);
+    const old = rawSessionToken(req.headers.cookie, kindOf(req));
     if (old) db.prepare('DELETE FROM sessions WHERE token=?').run(kc.sha256hex(old));
     const raw = token(32); const csrf = token(18); const sid = `ses_${token(12)}`; const now = Date.now();
     const privileged = isPrivileged(user);
     db.prepare('INSERT INTO sessions(token,user_id,csrf_token,created_at,expires_at,sid,token_hashed,last_seen_ms,idle_ms,ip_prefix,device,auth_at,totp_at,privileged) VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?)')
       .run(kc.sha256hex(raw), user.id, csrf, new Date(now).toISOString(), new Date(now + opt.absoluteMs).toISOString(), sid, now, privileged ? opt.adminIdleMs : opt.idleMs,
         ipPrefix(ipOf(req)), deviceOf(req.get('user-agent')), now, totpVerified ? now : 0, privileged ? 1 : 0);
+    if (hooks.originKind) db.prepare('UPDATE sessions SET origin_kind=? WHERE sid=?').run(kindOf(req), sid);
     setSessionCookie(res, req, raw, privileged);
     cookie(res, req, 'pre', '', { maxAgeSec: 0 }); // the login-CSRF cookie has done its job
     res.setHeader('X-Csrf-Token', csrf);
@@ -306,7 +324,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
 
   function attach(req, res, next) {
     const idle = req.headers['x-plx-idle'];
-    req.auth = fromCookieHeader(req.headers.cookie, idle != null ? { idleSec: Number(idle) } : {});
+    req.auth = fromRequest(req, idle != null ? { idleSec: Number(idle) } : {});
     // The public Trade API (/trade-api, CLONE_SPEC.md §35) never takes a session cookie as a credential — only signed
     // API-key requests (server/api-keys.js) — so a cookie there carries no authority and needs no CSRF token.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !/^\/trade-api(\/|$)/.test(req.path)) {
@@ -879,7 +897,7 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   }
 
   return {
-    attach, guard, mountRoutes, bootstrap, events, fromCookieHeader, sessionAlive, revokeAll, logEvent, usableAdminExists,
+    attach, guard, mountRoutes, bootstrap, events, fromCookieHeader, fromRequest, sessionAlive, revokeAll, logEvent, usableAdminExists,
     initAuditChain: () => auditChain.init(db, { keyDir }), options: opt,
     // Identity-module hooks (Phase 3, CLONE_SPEC §25): mailer, step-up methods, pre-session paths, shared checks.
     hooks, assertFresh, markStepUp, checkPassword, clearSessionCookie, alertUser, isLocked, mfaEnabled,
@@ -887,4 +905,4 @@ function createAuth({ db, engine, options = {}, keyDir }) {
   };
 }
 
-module.exports = { createAuth, parseCookies, deviceOf, ipPrefix, StepUpError };
+module.exports = { schema, SCHEMA, createAuth, parseCookies, deviceOf, ipPrefix, StepUpError };

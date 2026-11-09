@@ -11,6 +11,7 @@ const CS = require('./content/currency-strings'); // keyed user-facing wording (
 const fs = require('node:fs');
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, usd, UNITS, E, ApiError, slugify } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const { marketVo, scalarVo } = require('./serialize');
 const { STRUCTURES } = require('./pricing'); // Phase 5A price grids (CLONE_SPEC.md §28.1)
 const { CATEGORIES } = require('./features');
@@ -173,7 +174,8 @@ const IMPORT_COLUMNS = ['event_ticker', 'market_ticker', 'yes_sub_title', 'no_su
 
 const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
 
-function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rollingWindowSec = 900 }) {
+// Schema and its additive columns (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
   { // Phase 5A draft-market columns (price grid, scalar bounds); additive.
     const have = new Set(db.prepare('PRAGMA table_info(cms_draft_markets)').all().map((c) => c.name));
@@ -184,6 +186,10 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (!promoCols.has('series_tickers')) db.exec("ALTER TABLE cms_promos ADD COLUMN series_tickers TEXT NOT NULL DEFAULT '[]'");
     if (!promoCols.has('categories')) db.exec("ALTER TABLE cms_promos ADD COLUMN categories TEXT NOT NULL DEFAULT '[]'");
     if (!promoCols.has('hide_logged_out')) db.exec('ALTER TABLE cms_promos ADD COLUMN hide_logged_out INTEGER NOT NULL DEFAULT 0'); }
+}
+
+function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rollingWindowSec = 900 }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const startedAt = Date.now();
   const getEvent = (t) => db.prepare('SELECT * FROM events WHERE ticker=?').get(t);
   const getSeries = (t) => db.prepare('SELECT * FROM series WHERE ticker=?').get(t);
@@ -1612,4 +1618,4 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   return { decorateEvent, rolesOf, asUser, requote, can, rollingWindowSec: persistedRollingWindow, audit, deskRow, executeResolve, validateResolve, hooks, setting, putSetting, getMarket };
 }
 
-module.exports = { mountAdmin, ROLE_PERMS, PERMS, parseCsv, IMPORT_COLUMNS };
+module.exports = { schema, SCHEMA, mountAdmin, ROLE_PERMS, PERMS, parseCsv, IMPORT_COLUMNS };

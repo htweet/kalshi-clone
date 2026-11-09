@@ -19,6 +19,7 @@
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { newId } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS referral_codes (code TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, program TEXT NOT NULL, created_ts INTEGER NOT NULL);
@@ -47,11 +48,16 @@ const newCode = (len = 10) => [...crypto.randomBytes(len)].map((b) => ALPHABET[b
 
 class ReferralError extends Error { constructor(code, status = 409) { super(code); this.code = code; this.status = status; } }
 
-function createReferrals({ db, now = () => Date.now(), epoch = () => '' }) {
+// Schema and its additive columns (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
   { const have = new Set(db.prepare('PRAGMA table_info(referrals)').all().map((c) => c.name)); // Phase 8 columns, additive
     if (!have.has('source')) db.exec("ALTER TABLE referrals ADD COLUMN source TEXT NOT NULL DEFAULT 'code'");
     if (!have.has('ip_hash')) db.exec('ALTER TABLE referrals ADD COLUMN ip_hash TEXT'); }
+}
+
+function createReferrals({ db, now = () => Date.now(), epoch = () => '' }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const programs = new Map(); // key -> { defaults, payout, eligible, notify }
   const register = (key, def) => programs.set(key, { ...def, defaults: { ...BASE_DEFAULTS, ...(def.defaults || {}) } });
   const prog = (key) => { const p = programs.get(key); if (!p) throw new Error(`unknown referral program ${key}`); return p; };
@@ -213,4 +219,4 @@ function createReferrals({ db, now = () => Date.now(), epoch = () => '' }) {
   return { register, settings, codeFor, apply, progress, expire, summary, adminList, voidPlay, pending, decideReview, reviews, SPEC, ReferralError };
 }
 
-module.exports = { createReferrals, ReferralError, SPEC, BASE_DEFAULTS, newCode };
+module.exports = { schema, SCHEMA, createReferrals, ReferralError, SPEC, BASE_DEFAULTS, newCode };

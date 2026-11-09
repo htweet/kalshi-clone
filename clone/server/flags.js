@@ -134,6 +134,16 @@ const REGISTRY = [
   ['i18n', 'reach', null, 'both'],
   ['data_saver', 'reach', null, 'both'],
   ['sms', 'reach', null, 'both', false], // simulated provider adapter: off until a real provider is contracted
+  // Phase 9A (CLONE_SPEC.md §39.7): operating switches. These are modes, so "on" means the mode is in force: maintenance
+  // (writes answered 503 maintenance, staff keep access, scheduled by the flag's start / end), the exchange-wide trading
+  // halt (resuming needs a second admin), read-only (every write refused, for migrations and restores), traces; the
+  // backup schedule and alert delivery are jobs that stay on. No key may end in ".map" (perimeter honeypot).
+  ['ops.maintenance', 'operations', null, 'both', false],
+  ['ops.trading_halt', 'operations', null, 'both', false],
+  ['ops.read_only', 'operations', null, 'both', false],
+  ['ops.traces', 'operations', null, 'server', false],
+  ['ops.backups', 'operations', null, 'server'],
+  ['ops.alerts', 'operations', null, 'server'],
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -255,7 +265,8 @@ const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.ref
   'api.keys', 'api.ws', 'api.fix', // Phase 7: key expiry sweep, public WebSocket sessions, the FIX acceptor
   'newsletter', // Phase 7A: the waitlist newsletter outbox
   'elections.simulator', // Phase 7B: the simulated results feed
-  'referrals.predictions', 'sms']; // Phase 8: referral expiry sweep, the SMS notification outbox
+  'referrals.predictions', 'sms', // Phase 8: referral expiry sweep, the SMS notification outbox
+  'ops.backups', 'ops.alerts']; // Phase 9A: backup schedule and WAL shipping, alert evaluation and delivery
 
 // One-time, audited flag migrations for databases that existed before a default changed. Each runs once per database
 // (a meta marker), so a later admin "off" is never switched back on; a new database starts with the new default (or the
@@ -444,8 +455,13 @@ function createFlags({ db, engine, options = {} }) {
     return { before, after: state.get(key) };
   }
 
+  // Change guards (Phase 9A): fn(key, before, after, req, reason) → null, or a body to answer 202 with instead of saving
+  // (the trading-halt resume becomes a two-person request, server/operations.js).
+  const changeGuards = [];
+  const guardChange = (key, before, after, req, reason) => { for (const g of changeGuards) { const r = g(key, before, after, req, reason); if (r) return r; } return null; };
   return {
     REGISTRY, FLAGS, GROUPS, ROUTE_RULES, CORE_ROUTES, MODULE_FLAGS, JOB_FLAGS, LISTS, EXTRA_ROLES, existingDb: existing, defaultsOption: defaults,
+    changeGuards, guardChange,
     on, jobOn, evaluate, globalState, bundle, bundleExtras, gate, gates, disabledError, save, reload, state, ctx, listeners, overrides, bucket, changed: emitChange,
     get version() { return version; },
   };
@@ -546,6 +562,8 @@ function mountFlags({ v1, db, flags, admin, auth, identity }) {
     auth.assertFresh(req, 'feature_flag_change'); // step-up (CLONE_SPEC.md §22.6)
     const was = flags.state.get(k);
     const action = next.kill === true && !was.kill ? 'kill' : next.kill === false && was.kill ? 'unkill' : 'update';
+    const deferred = flags.guardChange(k, was, merged, req, reason);
+    if (deferred) return res.status(202).json(deferred);
     const r = flags.save(k, next, { action, reason, actor: req.auth.user });
     admin.audit(req, `flags.${action}`, 'feature_flag', k, r.before, r.after, reason);
     res.json({ flag: flagVo(k) });
@@ -556,6 +574,8 @@ function mountFlags({ v1, db, flags, admin, auth, identity }) {
     if (!flags.FLAGS.has(k)) throw E.notFound();
     const reason = reasonOf(req.body);
     auth.assertFresh(req, 'feature_flag_change');
+    const deferred = flags.guardChange(k, flags.state.get(k), { ...flags.state.get(k), kill: true }, req, reason);
+    if (deferred) return res.status(202).json(deferred);
     const r = flags.save(k, { kill: true }, { action: 'kill', reason, actor: req.auth.user });
     admin.audit(req, 'flags.kill', 'feature_flag', k, r.before, r.after, reason);
     res.json({ flag: flagVo(k) });

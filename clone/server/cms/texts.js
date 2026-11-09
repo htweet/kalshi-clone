@@ -51,6 +51,7 @@ function serverModules() {
   out.push(['elections', require('../content/elections').STRINGS]); // elections hub v2 (CLONE_SPEC.md §37)
   out.push(['switches', require('../content/switches').STRINGS]); // ground rule 6: switch and setting explanations (CLONE_SPEC.md §38.1)
   out.push(['growth', require('../content/growth').STRINGS]); // Phase 8: referrals, share links, SEO, languages, SMS (CLONE_SPEC.md §38)
+  out.push(['ops', require('../content/ops').STRINGS]); // Phase 9A: operating switches, Admin › System, Launch readiness, alerts (CLONE_SPEC.md §39)
   return out;
 }
 

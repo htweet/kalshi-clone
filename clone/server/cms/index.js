@@ -29,7 +29,7 @@ const { CATEGORIES } = require('../features');
 
 const MEDIA_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cms_media (id TEXT PRIMARY KEY, parent_id TEXT, variant TEXT NOT NULL DEFAULT 'original', mime TEXT NOT NULL, ext TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
-  bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, data BLOB NOT NULL, original_name TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TEXT NOT NULL);
+  bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, data BLOB NOT NULL, original_name TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TEXT NOT NULL, storage_key TEXT);
 CREATE INDEX IF NOT EXISTS idx_cms_media_parent ON cms_media(parent_id);
 `;
 // Usage slots. square: the upload must be square; icons: PWA / favicon sizes generated from the one upload.
@@ -347,10 +347,16 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     });
     // Brand colours (a stylesheet: a <link> cannot send the /v1 client token, so it lives outside /v1).
     target.get('/content-theme.css', (req, res) => { const body = themeCss(false); sendCached(req, res, 'text/css; charset=utf-8', { body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"` }); });
-    target.get(/^\/media\/([a-z0-9_]+)\.(png|jpg)$/, (req, res, next) => {
+    target.get(/^\/media\/([a-z0-9_]+)\.(png|jpg)$/, async (req, res, next) => {
       const m = /^\/media\/([a-z0-9_]+)\.(png|jpg)$/.exec(req.path);
-      const r = db.prepare('SELECT mime, ext, data, sha256 FROM cms_media WHERE id=?').get(m[1]);
+      const r = db.prepare('SELECT mime, ext, data, sha256, storage_key FROM cms_media WHERE id=?').get(m[1]);
       if (!r || r.ext !== m[2]) return next();
+      // Phase 9A (CLONE_SPEC.md §39.4): bytes in the object store once moved there (local folder or S3-compatible bucket).
+      if (r.storage_key) {
+        const st = app.locals.mediaStorage;
+        try { r.data = st ? await st.get(r.storage_key) : null; } catch { r.data = null; }
+        if (!r.data) return next();
+      }
       res.setHeader('Content-Type', r.mime);
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");

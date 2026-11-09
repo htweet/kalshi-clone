@@ -22,6 +22,7 @@
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { newId, nowIso, dollars, ApiError, E } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const kc = require('./crypto');
 const journal = require('./journal');
 const C = require('./currency');
@@ -70,10 +71,15 @@ function drawCode(digits, rng) {
   return out;
 }
 
-function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, options = {} }) {
+// Schema and its additive columns (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
   // Phase 6 (CLONE_SPEC.md §34.7): a queued payout can name a destination other than predictions cash (Perps collateral).
   if (!db.prepare('PRAGMA table_info(cb_payout_queue)').all().some((c) => c.name === 'dest_json')) db.exec('ALTER TABLE cb_payout_queue ADD COLUMN dest_json TEXT');
+}
+
+function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, options = {} }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const destinations = {}; // kind -> ({ user_id, amount_cents, mode, ref, memo, dest }, contra) => void (server/perps-ops.js: 'perps')
   journal.init(db);
   const production = process.env.NODE_ENV === 'production';
@@ -371,4 +377,4 @@ function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, op
   };
 }
 
-module.exports = { mountCentralBank, feedback, drawCode, VAULT, FUNDING };
+module.exports = { schema, SCHEMA, mountCentralBank, feedback, drawCode, VAULT, FUNDING };

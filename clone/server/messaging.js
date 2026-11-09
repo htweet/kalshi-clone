@@ -12,6 +12,7 @@
 const net = require('node:net');
 const tls = require('node:tls');
 const { newId, nowIso, ApiError } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const kc = require('./crypto');
 
 const SCHEMA = `
@@ -93,8 +94,17 @@ function smtpSend({ url, from, to, subject, text, html = null, headers = {}, tim
   });
 }
 
-function createMessaging({ db, keyDir, options = {} }) {
+// Schema and its additive columns (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
+  // HTML alternative (CMS email templates, CLONE_SPEC.md §32.5): an additive column; the dev mailbox shows it as source.
+  if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'html')) db.exec('ALTER TABLE email_outbox ADD COLUMN html TEXT');
+  // Extra headers (List-Unsubscribe / List-Unsubscribe-Post on waitlist mail, CLONE_SPEC.md §36): stored for the dev outbox.
+  if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'headers')) db.exec('ALTER TABLE email_outbox ADD COLUMN headers TEXT');
+}
+
+function createMessaging({ db, keyDir, options = {} }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const production = process.env.NODE_ENV === 'production';
   const smtpUrl = options.smtpUrl ?? process.env.SMTP_URL ?? '';
   const mailFrom = options.mailFrom ?? process.env.MAIL_FROM ?? 'no-reply@parlance.local';
@@ -105,10 +115,6 @@ function createMessaging({ db, keyDir, options = {} }) {
   const devOutbox = options.devOutbox ?? !production; // /dev/mailbox and the dev SMS outbox
   const encKey = kc.deriveKey('field-encryption:v1', { dir: keyDir });
 
-  // HTML alternative (CMS email templates, CLONE_SPEC.md §32.5): an additive column; the dev mailbox shows it as source.
-  if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'html')) db.exec('ALTER TABLE email_outbox ADD COLUMN html TEXT');
-  // Extra headers (List-Unsubscribe / List-Unsubscribe-Post on waitlist mail, CLONE_SPEC.md §36): stored for the dev outbox.
-  if (!db.prepare('PRAGMA table_info(email_outbox)').all().some((c) => c.name === 'headers')) db.exec('ALTER TABLE email_outbox ADD COLUMN headers TEXT');
   const HEADER_OK = new Set(['List-Unsubscribe', 'List-Unsubscribe-Post']);
   const cleanHeaders = (h) => Object.fromEntries(Object.entries(h || {}).filter(([k]) => HEADER_OK.has(k)).map(([k, v]) => [k, clean(v, 900)]));
   // Email. Never throws for delivery problems (a failed alert must not fail the request); returns {ok, transport}.
@@ -179,4 +185,4 @@ function createMessaging({ db, keyDir, options = {} }) {
   return { sendEmail, sendSms, mountDevRoutes, purge, info: () => ({ email: emailTransport, sms: smsTransport, dev_outbox: devOutbox }) };
 }
 
-module.exports = { createMessaging, smtpSend };
+module.exports = { schema, SCHEMA, createMessaging, smtpSend };

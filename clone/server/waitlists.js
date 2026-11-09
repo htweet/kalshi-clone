@@ -28,6 +28,7 @@
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { newId, nowIso, ApiError, E } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const kc = require('./crypto');
 const C = require('./currency');
 const templates = require('./cms/templates');
@@ -80,11 +81,16 @@ const INSTANCES = new WeakMap();
 let hookInstalled = false;
 
 // ------------------------------------------------------------------------------------------------ storage
-function createWaitlists({ db, keyDir }) {
+// Schema and its additive columns / one-time upgrades (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
   migratePerps(db);
   // The account that asked for a confirmation link (an unverified one-click join): confirming links that account.
   if (!db.prepare('PRAGMA table_info(waitlist_tokens)').all().some((c) => c.name === 'user_id')) db.exec('ALTER TABLE waitlist_tokens ADD COLUMN user_id TEXT');
+}
+
+function createWaitlists({ db, keyDir }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const keys = {
     enc: kc.deriveKey('waitlist-email:v1', { dir: keyDir }),
     hash: kc.deriveKey('waitlist-email-hash:v1', { dir: keyDir }),
@@ -886,4 +892,4 @@ function mountWaitlists({ v1, app, db, engine, auth, admin, flags, feat, cms, se
   return { questions, settings, confirmedCount, checkTarget, pump, launchSummary, previewCounts };
 }
 
-module.exports = { createWaitlists, mountWaitlists, LISTS, LAUNCH, migratePerps };
+module.exports = { schema, SCHEMA, createWaitlists, mountWaitlists, LISTS, LAUNCH, migratePerps };

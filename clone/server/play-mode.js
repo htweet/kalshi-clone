@@ -16,17 +16,17 @@
 //
 // Switch to production: preview (exact counts and totals) → request (settings.write, step-up, reason, typed RESET) →
 // a second admin approves (step-up, typed RESET; the two-person rule of CLONE_SPEC.md §28.7) → a database snapshot is
-// written (VACUUM INTO the data directory) → one transaction cancels every customer order, voids open RFQs, archives and
+// written (Phase 9A: an encrypted backup object through server/backups.js, CLONE_SPEC.md §39.3; it was a plain VACUUM INTO
+// copy in the data directory before) → one transaction cancels every customer order, voids open RFQs, archives and
 // zeroes balances, positions, perps accounts, collateral advances and the vault, ends the bonus and the heist, and
 // starts the real-money epoch. Accounts, markets and content are kept. Idempotent (the approval executes once).
 //
 // Money controls (play and production): the site-wide deposit / withdrawal switches are the payments.deposits /
 // payments.withdrawals flags; per user, deposits and/or withdrawals can be revoked with a reason the user sees (CMS
 // template), enforced by the gate on every rail and in server/payments.js, live over WebSocket and audited.
-const fs = require('node:fs');
-const path = require('node:path');
 const { tx } = require('./db');
 const { newId, nowIso, dollars, ApiError, E } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const journal = require('./journal');
 const C = require('./currency');
 const { s } = require('./content/playmode');
@@ -79,10 +79,15 @@ function installMarkers(db) {
   }
 }
 
-function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, centralBank, keyDir, options = {} }) {
+// Schema and its additive columns / one-time upgrades (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
   if (!db.prepare('PRAGMA table_info(pm_archive_perps)').all().some((c) => c.name === 'subaccount')) db.exec('ALTER TABLE pm_archive_perps ADD COLUMN subaccount INTEGER NOT NULL DEFAULT 0'); // Phase 6 (§34.12)
   installMarkers(db);
+}
+
+function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, centralBank, keyDir, options = {} }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const metaGet = (k) => db.prepare('SELECT value FROM meta WHERE key=?').get(k)?.value;
   const metaSet = (k, v) => db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));
   const mode = () => metaGet('money_mode') || 'real';
@@ -276,21 +281,16 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
   }
 
   // ---------------------------------------------------------------- the switch to production
-  function backup(batch) {
-    if (!keyDir) throw new ApiError(500, 'backup_failed', s('play.backup_failed'), 'no data directory (in-memory database)');
-    const dir = path.join(keyDir, 'backups');
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const file = path.join(dir, `parlance-pre-production-${batch}.db`);
-    try { db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`); } catch (e) { throw new ApiError(500, 'backup_failed', s('play.backup_failed'), e.message); }
-    try { fs.chmodSync(file, 0o600); } catch { /* best effort */ }
-    if (!fs.existsSync(file) || fs.statSync(file).size === 0) throw new ApiError(500, 'backup_failed', s('play.backup_failed'));
-    return file;
+  // The encrypted pre-production backup (closes the §33.13 residual): sealed with the backup key, checksummed, stored
+  // through the backup storage adapter. Resolves with the object key once it is safely stored.
+  async function backup(batch) {
+    const B = app && app.locals.backups;
+    if (!keyDir || !B || !B.storage) throw new ApiError(500, 'backup_failed', s('play.backup_failed'), 'no backup storage (in-memory database)');
+    try { const r = await B.snapshot('pre_production', { note: `production switch ${batch}` }); return r.object_key; } catch (e) { throw new ApiError(500, 'backup_failed', s('play.backup_failed'), e.message); }
   }
-  function executeReset(a, approver) {
+  function executeReset(a, approver, batch, file) {
     if (!isOn()) throw new ApiError(409, 'play_mode_off', s('play.not_on'));
-    const batch = newId('rb_');
-    const RESET = `reset:${batch}`;
-    const file = backup(batch); // before anything changes
+    const RESET = `reset:${batch}`; // `file`: the backup taken before anything changes
     const fromEpoch = epoch();
     const touchedMarkets = new Map(); // ticker -> book before
     const touchedUsers = new Set();
@@ -372,7 +372,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
       metaSet('money_mode', 'real'); metaSet('money_epoch', batch);
       if (engine.perpsOps) engine.perpsOps.reopenAfterReset(); // the liquidity float, in the real-money epoch
       db.prepare('INSERT INTO pm_reset_batches(id,approval_id,from_epoch,requested_by,approved_by,reason,backup_file,counts_json,totals_json,created_ts) VALUES(?,?,?,?,?,?,?,?,?,?)')
-        .run(batch, a.id, fromEpoch, a.requested_by, approver.id, a.reason, path.basename(file), JSON.stringify(counts), JSON.stringify(totals), Date.now());
+        .run(batch, a.id, fromEpoch, a.requested_by, approver.id, a.reason, file, JSON.stringify(counts), JSON.stringify(totals), Date.now());
       db.prepare("UPDATE pm_approvals SET status='executed', decided_by=?, decided_ts=?, batch_id=? WHERE id=? AND status='pending'").run(approver.id, Date.now(), batch, a.id);
       db.prepare('INSERT INTO pm_events(id,action,epoch,reason,actor_id,actor_email,ts) VALUES(?,?,?,?,?,?,?)').run(newId('pme_'), 'production', batch, a.reason, approver.id, approver.email, Date.now());
     });
@@ -388,7 +388,7 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     try { engine.apiOps?.afterReset(); } catch (e) { console.error('reset api', e.message); } // FIX sessions are logged out
     try { engine.waitlistOps?.afterProductionSwitch(batch); } catch (e) { console.error('reset waitlists', e.message); } // survey locked; launch email offered (§36)
     try { engine.electionsOps?.afterProductionSwitch(batch); } catch (e) { console.error('reset elections', e.message); } // simulator off; election data kept (§37)
-    return { batch_id: batch, backup_file: path.basename(file), counts, totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k.replace(/_cents$/, '_dollars').replace(/_cc$/, '_cc'), k.endsWith('_cc') ? v : dollars(v)])) };
+    return { batch_id: batch, backup_file: file, counts, totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k.replace(/_cents$/, '_dollars').replace(/_cc$/, '_cc'), k.endsWith('_cc') ? v : dollars(v)])) };
   }
 
   // ---------------------------------------------------------------- routes
@@ -458,11 +458,14 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     changed();
     res.json(stateVo());
   });
-  v1.post('/admin/play_mode/production_switch', can('settings.write'), (req, res) => {
+  // Phase 9A (CLONE_SPEC.md §39.8): Launch readiness gates the switch (refused with every red check and open owner item).
+  const launchGate = async () => { if (app && app.locals.launchReadiness) await app.locals.launchReadiness.assertLaunchReady(); };
+  v1.post('/admin/play_mode/production_switch', can('settings.write'), async (req, res) => {
     const b = req.body || {};
     if (b.confirm !== 'RESET') throw new ApiError(400, 'confirm_reset_required', s('play.confirm_reset'), 'confirm: type RESET');
     const reason = reasonOf(b);
     if (!isOn()) throw new ApiError(409, 'play_mode_off', s('play.not_on'));
+    await launchGate();
     expireApprovals();
     if (db.prepare("SELECT 1 FROM pm_approvals WHERE status='pending'").get()) throw new ApiError(409, 'approval_pending', s('play.pending_exists'));
     auth.assertFresh(req, 'production_switch');
@@ -485,12 +488,23 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
     if (a.status !== 'pending') throw E.conflict('approval_closed', `this request is ${a.status}`);
     return a;
   };
-  v1.post('/admin/play_mode/approvals/:id/approve', can('settings.write'), (req, res) => {
+  let switching = false; // one execution at a time while the backup uploads
+  v1.post('/admin/play_mode/approvals/:id/approve', can('settings.write'), async (req, res) => {
     const a = pendingApproval(req.params.id);
     if (a.requested_by === req.auth.user.id) throw E.conflict('same_admin', 'a different admin must approve this request', 'the two-person rule needs a second admin');
     if ((req.body || {}).confirm !== 'RESET') throw new ApiError(400, 'confirm_reset_required', s('play.confirm_reset'), 'confirm: type RESET');
     auth.assertFresh(req, 'production_switch');
-    const out = executeReset(a, req.auth.user);
+    if (!isOn()) throw new ApiError(409, 'play_mode_off', s('play.not_on'));
+    await launchGate();
+    if (switching) throw E.conflict('approval_closed', 'the switch is already running');
+    switching = true;
+    let out;
+    try {
+      const batch = newId('rb_');
+      const file = await backup(batch); // encrypted backup first; nothing has changed yet
+      pendingApproval(req.params.id); // still pending after the await
+      out = executeReset(a, req.auth.user, batch, file);
+    } finally { switching = false; }
     admin.audit(req, 'play_mode.production_switch', 'settings', 'play_mode', { on: true, epoch: JSON.parse(a.preview_json).epoch, approval_id: a.id, requested_by: emailOf(a.requested_by) }, { on: false, ...out }, a.reason);
     res.json({ result: { ...out, launch_email: engine.waitlistOps ? engine.waitlistOps.launchSummary().launch_email : null }, ...stateVo() });
   });
@@ -551,4 +565,4 @@ function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, cen
   return { isOn, mode, epoch, settings, realMoney, preview, assertMoney, controlsVo, executeReset, grantBonus, playDeposit };
 }
 
-module.exports = { mountPlayMode, installMarkers, MINT };
+module.exports = { schema, SCHEMA, mountPlayMode, installMarkers, MINT };

@@ -19,6 +19,7 @@
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { nowIso, newId, token, ApiError, E, dollars } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const kc = require('./crypto');
 const pw = require('./passwords');
 const auditChain = require('./audit-chain');
@@ -101,9 +102,14 @@ const mask = {
 };
 const lastOf = (n) => n.slice(n.length >= 9 ? -4 : -2);
 
-function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, keyDir, options = {} }) {
+// Schema and its additive columns (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
   if (!new Set(db.prepare('PRAGMA table_info(identity_profiles)').all().map((c) => c.name)).has('kyc_stage')) db.exec("ALTER TABLE identity_profiles ADD COLUMN kyc_stage TEXT NOT NULL DEFAULT 'data'");
+}
+
+function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, keyDir, options = {} }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const production = process.env.NODE_ENV === 'production';
   const opt = { ...DEFAULTS, ...(options.timings || {}) };
   const phoneOpt = { ...(options.phone || {}) };
@@ -266,6 +272,7 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
     db, engine, auth, admin, security, notify: (...a) => notify(...a), messaging, settings, saveSettings, enforced, profile, ensureProfile, setProfile, statusOf, open, seal,
     nidHash, phoneHash, logEvent, audit, requireUser, can, origin, getUser, sandbox, production, REASONS, stateFor, options, keyDir, opt, mask,
     vault: { dataKey },
+    storage: () => app.locals.mediaStorage || null, // Phase 9A: identity documents in object storage (server/docv.js)
   };
   const compliance = createCompliance(ctx);
   ctx.compliance = compliance;
@@ -907,4 +914,4 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
   };
 }
 
-module.exports = { mountIdentity, REASONS, DEFAULT_SETTINGS };
+module.exports = { schema, SCHEMA, mountIdentity, REASONS, DEFAULT_SETTINGS };

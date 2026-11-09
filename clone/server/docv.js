@@ -12,8 +12,10 @@
 //     capture session — an HttpOnly SameSite=Strict cookie scoped to /v1/docv plus a CSRF value it sends as
 //     X-Docv-Csrf. The capture session also ends when the desktop session ends.
 // Uploads: JSON {kind, image: base64}; type-sniffed, metadata stripped and checked by server/images.js, then encrypted
-// with the user's identity data key (AES-256-GCM, bound to the document id and user) into SQLite. There is no URL that
-// serves an image: staff view one through an audited, reason-required call (support and admin roles).
+// with the user's identity data key (AES-256-GCM, bound to the document id and user). Phase 9A (CLONE_SPEC.md §39.4): the
+// sealed bytes move from SQLite to the object store (key kyc/<user>/<doc>.sealed; still encrypted at rest there). Staff
+// view one through an audited, reason-required call (support and admin roles) that returns a signed URL valid for 60
+// seconds, bound to the staff session, served with no-store and a sandbox CSP; nothing else serves an image.
 // Retention: images are erased when a final decision is made (approved / rejected) or the user must start over, on
 // account closure (the data key is destroyed), and by the retention job for abandoned uploads.
 const crypto = require('node:crypto');
@@ -28,7 +30,7 @@ CREATE TABLE IF NOT EXISTS docv_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT 
   uploads INTEGER NOT NULL DEFAULT 0, created_ts INTEGER NOT NULL, updated_ts INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_docv_sessions_user ON docv_sessions(user_id, created_ts);
 CREATE TABLE IF NOT EXISTS docv_documents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_id TEXT, kind TEXT NOT NULL, source TEXT NOT NULL, mime TEXT NOT NULL,
-  width INTEGER NOT NULL, height INTEGER NOT NULL, bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, data BLOB, created_ts INTEGER NOT NULL, deleted_ts INTEGER, delete_reason TEXT);
+  width INTEGER NOT NULL, height INTEGER NOT NULL, bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, data BLOB, created_ts INTEGER NOT NULL, deleted_ts INTEGER, delete_reason TEXT, storage_key TEXT);
 CREATE INDEX IF NOT EXISTS idx_docv_documents_user ON docv_documents(user_id, kind);
 `;
 const KINDS = ['id_front', 'id_back', 'selfie'];
@@ -57,6 +59,9 @@ function openBuf(key, aad, blob) {
 
 function createDocv(ctx) {
   const { db, auth, kyc, profile, statusOf, setProfile, logEvent, audit, can, requireUser, origin, vault, security } = ctx;
+  const storage = typeof ctx.storage === 'function' ? ctx.storage : () => ctx.storage || null;
+  const urlKey = kc.deriveKey('docv-signed-url:v1', { dir: ctx.keyDir });
+  const URL_TTL_MS = 60000;
   db.exec(SCHEMA);
   const secure = (req) => process.env.NODE_ENV === 'production' || !!req.secure;
   const setCookie = (req, res, value, maxAgeSec) => res.append('Set-Cookie', `${COOKIE}=${value}; Path=/v1/docv; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSec}${secure(req) ? '; Secure' : ''}`);
@@ -77,24 +82,30 @@ function createDocv(ctx) {
     const key = vault.dataKey(uid, true);
     const now = Date.now();
     // A new photo of the same kind replaces the previous one (erased, not just hidden).
-    db.prepare("UPDATE docv_documents SET data=NULL, deleted_ts=?, delete_reason='replaced' WHERE user_id=? AND kind=? AND data IS NOT NULL").run(now, uid, kind);
+    dropObjects(db.prepare('SELECT storage_key k FROM docv_documents WHERE user_id=? AND kind=? AND storage_key IS NOT NULL').all(uid, kind).map((r) => r.k));
+    db.prepare("UPDATE docv_documents SET data=NULL, storage_key=NULL, deleted_ts=?, delete_reason='replaced' WHERE user_id=? AND kind=? AND (data IS NOT NULL OR storage_key IS NOT NULL)").run(now, uid, kind);
     db.prepare('INSERT INTO docv_documents(id,user_id,session_id,kind,source,mime,width,height,bytes,sha256,data,created_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(id, uid, sessionId, kind, source, img.mime, img.width, img.height, img.data.length, img.sha256, sealBuf(key, `docv:${id}:${uid}`, img.data), now);
     return { id, kind, width: img.width, height: img.height };
   }
-  function readDocument(uid, id) {
+  async function readDocument(uid, id) {
     const d = db.prepare('SELECT * FROM docv_documents WHERE id=? AND user_id=?').get(id, uid);
-    if (!d || !d.data) return null;
+    if (!d || (!d.data && !d.storage_key)) return null;
     const key = vault.dataKey(uid, false);
     if (!key) return null;
-    return { mime: d.mime, data: openBuf(key, `docv:${id}:${uid}`, d.data) };
+    const sealed = d.storage_key ? (storage() ? await storage().get(d.storage_key) : null) : d.data;
+    if (!sealed) return null;
+    return { mime: d.mime, data: openBuf(key, `docv:${id}:${uid}`, sealed) };
   }
-  const documentsMeta = (uid) => db.prepare('SELECT id, kind, source, mime, width, height, bytes, created_ts FROM docv_documents WHERE user_id=? AND data IS NOT NULL ORDER BY created_ts').all(uid)
+  // Stored objects of erased documents are deleted from the store too (best effort; the data key is the real lock).
+  const dropObjects = (keys) => { const st = storage(); if (st) for (const k of keys) st.delete(k).catch(() => {}); };
+  const documentsMeta = (uid) => db.prepare('SELECT id, kind, source, mime, width, height, bytes, created_ts FROM docv_documents WHERE user_id=? AND (data IS NOT NULL OR storage_key IS NOT NULL) ORDER BY created_ts').all(uid)
     .map((d) => ({ id: d.id, kind: d.kind, label: KIND_LABEL[d.kind], source: d.source, mime: d.mime, width: d.width, height: d.height, bytes: d.bytes, uploaded_time: new Date(d.created_ts).toISOString() }));
   const uploadedKinds = (uid) => [...new Set(documentsMeta(uid).map((d) => d.kind))];
   function eraseDocuments(uid, reason) {
     const now = Date.now();
-    const n = db.prepare('UPDATE docv_documents SET data=NULL, deleted_ts=?, delete_reason=? WHERE user_id=? AND data IS NOT NULL').run(now, reason, uid).changes;
+    dropObjects(db.prepare('SELECT storage_key k FROM docv_documents WHERE user_id=? AND storage_key IS NOT NULL').all(uid).map((r) => r.k));
+    const n = db.prepare('UPDATE docv_documents SET data=NULL, storage_key=NULL, deleted_ts=?, delete_reason=? WHERE user_id=? AND (data IS NOT NULL OR storage_key IS NOT NULL)').run(now, reason, uid).changes;
     db.prepare("UPDATE docv_sessions SET status='closed', capture_hash=NULL, csrf_hash=NULL, updated_ts=? WHERE user_id=? AND status IN ('created','claimed')").run(now, uid);
     if (n) logEvent(uid, 'documents_erased', null, { count: n, reason });
     return n;
@@ -228,29 +239,47 @@ function createDocv(ctx) {
     v1.get('/admin/kyc/:userId/documents', can('users.read'), (req, res) => {
       const u = db.prepare('SELECT id FROM users WHERE id=? OR email=?').get(String(req.params.userId), String(req.params.userId).toLowerCase());
       if (!u) throw E.notFound();
-      res.json({ documents: documentsMeta(u.id), erased: db.prepare('SELECT kind, deleted_ts, delete_reason FROM docv_documents WHERE user_id=? AND data IS NULL ORDER BY deleted_ts DESC LIMIT 20').all(u.id)
+      res.json({ documents: documentsMeta(u.id), erased: db.prepare('SELECT kind, deleted_ts, delete_reason FROM docv_documents WHERE user_id=? AND data IS NULL AND storage_key IS NULL ORDER BY deleted_ts DESC LIMIT 20').all(u.id)
         .map((d) => ({ kind: d.kind, erased_time: new Date(d.deleted_ts).toISOString(), reason: d.delete_reason })) });
     });
-    v1.post('/admin/kyc/:userId/documents/:docId/view', can('users.support'), (req, res) => {
+    v1.post('/admin/kyc/:userId/documents/:docId/view', can('users.support'), async (req, res) => {
       const b = check(req.body, { reason: { type: 'string', maxLen: 500, required: true } }, { unknown: 'reject' });
       const reason = b.reason.trim();
       if (reason.length < 5) throw new ApiError(400, 'validation_failed', 'validation failed', 'reason: give a reason of at least 5 characters (recorded in the audit log)');
       const u = db.prepare('SELECT id FROM users WHERE id=? OR email=?').get(String(req.params.userId), String(req.params.userId).toLowerCase());
       if (!u) throw E.notFound();
       const meta = db.prepare('SELECT kind FROM docv_documents WHERE id=? AND user_id=?').get(String(req.params.docId), u.id);
-      const doc = meta && readDocument(u.id, String(req.params.docId));
+      const doc = meta && await readDocument(u.id, String(req.params.docId));
       if (!doc) throw E.notFound();
       audit(req, 'kyc.document_view', u.id, null, { document: String(req.params.docId), kind: meta.kind }, reason); // never the image
       logEvent(u.id, 'identity_viewed_by_staff', req, { field: `document:${meta.kind}` });
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ kind: meta.kind, mime: doc.mime, data_url: `data:${doc.mime};base64,${doc.data.toString('base64')}` });
+      // A short-lived URL bound to this staff session: exp . user . doc . signature (HMAC), valid for one minute.
+      const exp = Date.now() + URL_TTL_MS;
+      const body = `${exp}.${u.id}.${String(req.params.docId)}`;
+      const sig = crypto.createHmac('sha256', urlKey).update(`${body}.${req.auth.session.sid}`).digest('base64url');
+      res.json({ kind: meta.kind, mime: doc.mime, url: `/v1/admin/kyc/blob/${Buffer.from(body).toString('base64url')}.${sig}`, expires_time: new Date(exp).toISOString() });
+    });
+    v1.get('/admin/kyc/blob/:token', can('users.support'), async (req, res) => {
+      const [b64, sig] = String(req.params.token).split('.');
+      let body = '';
+      try { body = Buffer.from(b64 || '', 'base64url').toString('utf8'); } catch { body = ''; }
+      const [exp, uid, docId] = body.split('.');
+      const want = crypto.createHmac('sha256', urlKey).update(`${body}.${req.auth.session.sid}`).digest('base64url');
+      if (!sig || !kc.safeEqual(sig, want) || !(Number(exp) > Date.now())) throw new ApiError(403, 'link_expired', 'this document link has expired', 'open the document again from the review');
+      const doc = await readDocument(uid, docId);
+      if (!doc) throw E.notFound();
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+      res.setHeader('Content-Disposition', 'inline');
+      res.type(doc.mime).send(doc.data);
     });
   }
 
   // Abandoned uploads (never submitted, or the account left onboarding) are erased after `days`.
   function purge(days) {
     const cut = Date.now() - days * 86400000;
-    for (const r of db.prepare("SELECT DISTINCT d.user_id FROM docv_documents d LEFT JOIN identity_profiles p ON p.user_id=d.user_id WHERE d.data IS NOT NULL AND d.created_ts<? AND COALESCE(p.status,'') NOT IN ('review','pending')").all(cut)) eraseDocuments(r.user_id, 'retention');
+    for (const r of db.prepare("SELECT DISTINCT d.user_id FROM docv_documents d LEFT JOIN identity_profiles p ON p.user_id=d.user_id WHERE (d.data IS NOT NULL OR d.storage_key IS NOT NULL) AND d.created_ts<? AND COALESCE(p.status,'') NOT IN ('review','pending')").all(cut)) eraseDocuments(r.user_id, 'retention');
     db.prepare('DELETE FROM docv_sessions WHERE updated_ts<?').run(Date.now() - 30 * 86400000);
   }
 

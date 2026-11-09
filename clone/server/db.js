@@ -401,6 +401,9 @@ function open(file) {
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec(SCHEMA);
     migrate(db);
+    // Versioned migrations (server/migrations): refuse a database written by a newer build, or whose applied migrations
+    // were edited, before anything (the seed included) writes to it. The pending ones run in createApp (server/app.js).
+    require('./migrations').assertKnown(db);
   } catch (e) {
     try { db?.close(); } catch { /* ignore */ }
     if (release) release();
@@ -430,4 +433,4 @@ function tx(db, fn) {
   }
 }
 
-module.exports = { open, tx, migrate, QTY_UNITS_KEY };
+module.exports = { open, tx, migrate, migratePhase5a, SCHEMA, QTY_UNITS_KEY };

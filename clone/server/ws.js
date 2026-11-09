@@ -11,7 +11,7 @@ const { ccToDollars } = require('./pricing');
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives', 'display_currency', 'content', 'feature_flags', 'central_bank', 'elections']);
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments', 'incentive_rewards']);
 
-function attachWs(server, { engine, auth, security, upgrade = null }) {
+function attachWs(server, { engine, auth, security, upgrade = null, onFanout = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 }); // inbound frame cap (clients only send small commands)
   const clients = new Set();
 
@@ -28,7 +28,7 @@ function attachWs(server, { engine, auth, security, upgrade = null }) {
     let userId = null; let sessionId = null;
     // Same validity rules as HTTP (hashed token, idle + absolute expiry, account lock; server/auth.js), and the CSRF
     // token in the query must match the session (spec §7.2).
-    const a = auth.fromCookieHeader(req.headers.cookie, { touch: false }); // a (re)connect is not user activity (RS10)
+    const a = auth.fromRequest(req, { touch: false }); // a (re)connect is not user activity (RS10); admin-origin sessions only on the admin origin (§39.6)
     if (a && a.session.csrf_token === url.searchParams.get('csrfToken')) { userId = a.user.id; sessionId = a.session.sid; }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, userId, sessionId));
   });
@@ -90,6 +90,10 @@ function attachWs(server, { engine, auth, security, upgrade = null }) {
     send(c, { type: 'orderbook_snapshot', sid, seq: sub.seq, msg: { market_ticker: ticker, yes_dollars: lv(b.yes), no_dollars: lv(b.no) } });
   }
   function publish(channel, ticker, type, msg, onlyUser) {
+    const t0 = onFanout && !onlyUser ? process.hrtime.bigint() : null; // fan-out time metric (CLONE_SPEC.md §39.5)
+    try { publishAll(channel, ticker, type, msg, onlyUser); } finally { if (t0 != null) onFanout(Number(process.hrtime.bigint() - t0) / 1e9, channel); }
+  }
+  function publishAll(channel, ticker, type, msg, onlyUser) {
     for (const c of clients) {
       if (onlyUser && c.userId !== onlyUser) continue;
       for (const [sid, s] of c.subs) {

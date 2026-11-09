@@ -19,6 +19,7 @@
 // Jobs are rows in `kyc_jobs`, processed by an in-process worker; a restart resumes queued and interrupted jobs.
 // Without a provider in production, both stages go to the manual review queue.
 const { nowIso, newId, ApiError, E } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const { check } = require('./validate');
 
 const SCHEMA = `
@@ -51,11 +52,16 @@ function sandboxProvider() {
 
 const ADMIN_REASONS = ['identity_mismatch', 'duplicate_account', 'unsupported_region', 'fraud_suspected', 'age_requirement', 'data_mismatch', 'documents_unreadable', 'other'];
 
-function createKyc(ctx) {
-  const { db, profile, setProfile, open, logEvent, audit, can, notify, settings, sandbox, REASONS, auth, opt } = ctx;
+// Schema and its additive columns (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
   const jc = new Set(db.prepare('PRAGMA table_info(kyc_jobs)').all().map((c) => c.name));
   if (!jc.has('stage')) db.exec("ALTER TABLE kyc_jobs ADD COLUMN stage TEXT NOT NULL DEFAULT 'data'");
+}
+
+function createKyc(ctx) {
+  const { db, profile, setProfile, open, logEvent, audit, can, notify, settings, sandbox, REASONS, auth, opt } = ctx;
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   const ko = ctx.options.kyc || {};
   const provider = ko.provider || (sandbox ? sandboxProvider() : null);
   const delayMs = ko.delayMs ?? 1500; // simulated provider latency: the "Verifying info…" screen is visible
@@ -219,4 +225,4 @@ function createKyc(ctx) {
   };
 }
 
-module.exports = { createKyc, sandboxProvider };
+module.exports = { schema, SCHEMA, createKyc, sandboxProvider };

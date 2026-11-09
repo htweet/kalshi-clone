@@ -59,6 +59,14 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
   const trust = parseTrust(options.trustProxy ?? process.env.TRUST_PROXY);
   if (trust !== false) app.set('trust proxy', trust);
   const configured = (options.allowedOrigins || String(process.env.ALLOWED_ORIGINS || '').split(',')).map((s) => normOrigin(String(s).trim())).filter(Boolean);
+  // Phase 9A (CLONE_SPEC.md §39.6): the public origin and the separate admin origin. With ADMIN_ORIGIN set, the admin panel
+  // and /v1/admin/* answer only on that host (its own session cookie, a stricter CSP, the optional IP allowlist) and the
+  // public host answers 404 there.
+  const publicOrigin = normOrigin(options.publicOrigin ?? process.env.PUBLIC_ORIGIN ?? '') || null;
+  const adminOrigin = normOrigin(options.adminOrigin ?? process.env.ADMIN_ORIGIN ?? '') || null;
+  const adminHost = adminOrigin ? new URL(adminOrigin).host.toLowerCase() : null;
+  if (adminOrigin) configured.push(adminOrigin);
+  if (publicOrigin) configured.push(publicOrigin);
   const allowed = new Set(configured);
   const assets = options.assets === 'dist' ? 'dist' : 'src';
   const dataDir = options.dataDir || (() => {
@@ -75,6 +83,9 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
   };
   const clientIp = (req) => asExpress(req).ip || req.socket?.remoteAddress || 'unknown';
   const isSecure = (req) => production || !!asExpress(req).secure;
+  const isHttps = (req) => !!asExpress(req).secure; // what the request really used (through a trusted proxy: X-Forwarded-Proto)
+  const hostKind = (req) => (adminHost && String(asExpress(req).headers.host || '').toLowerCase() === adminHost ? 'admin' : 'site');
+  const ADMIN_PATHS = /^\/(admin(\/|$)|v1\/admin(\/|$)|v1\/perps\/admin(\/|$)|v1\/social-admin(\/|$))/;
   const selfOrigin = (req) => { const r = asExpress(req); const host = r.headers.host; return host && HOST_OK.test(host) ? `${r.protocol}://${host}`.toLowerCase() : null; };
   const originAllowed = (req, origin) => { const o = normOrigin(origin); return !!o && (allowed.has(o) || o === selfOrigin(req)); };
   // Sec-Fetch-* metadata is only sent to potentially trustworthy origins (https, localhost).
@@ -86,6 +97,12 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
   function siteCsp(req, nonce) {
     const so = selfOrigin(req);
     const host = so ? so.replace(/^https?:\/\//, '') : null;
+    // The admin origin's policy is stricter: never framed, no data: or blob: beyond images, upgrade to https.
+    if (hostKind(req) === 'admin') {
+      return ["default-src 'self'", `script-src 'self' 'nonce-${nonce}'`, `style-src 'self' 'nonce-${nonce}'`, "img-src 'self' data:", "font-src 'self'",
+        `connect-src 'self'${host ? ` wss://${host}${isHttps(req) ? '' : ` ws://${host}`}` : ''}`, "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'", "object-src 'none'",
+        "manifest-src 'self'", "worker-src 'self'", ...(isHttps(req) ? ['upgrade-insecure-requests'] : []), 'report-uri /v1/csp-report', 'report-to csp'].join('; ');
+    }
     return [
       "default-src 'self'",
       `script-src 'self' 'nonce-${nonce}'`,
@@ -198,6 +215,18 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
       // robots.txt; Phase 8 (server/seo.js, CLONE_SPEC.md §38.4) adds the Sitemap line while server rendering is on.
       if (p === '/robots.txt' && SAFE.has(req.method)) { let tail = ''; try { tail = app.locals.robotsTail ? app.locals.robotsTail(req) : ''; } catch { tail = ''; } res.setHeader('Cache-Control', 'public, max-age=3600'); return res.type('text/plain').send(ROBOTS + tail); }
       if (bot.isHoneypot(p)) { bot.record('honeypot', req); return notFound(res); }
+      // Separate admin origin (Phase 9A): admin paths only there; the admin host checks the IP allowlist first.
+      if (adminHost) {
+        if (hostKind(req) === 'admin') {
+          if (app.locals.adminIpAllowed && !app.locals.adminIpAllowed(req)) { bot.record('admin_ip_refused', req); res.status(403).setHeader('Cache-Control', 'no-store'); return res.type('text/plain').send('Forbidden'); }
+          res.setHeader('X-Frame-Options', 'DENY');
+          res.setHeader('Referrer-Policy', 'no-referrer');
+          if (!/^\/(assets|js|fonts|icons|media)\//.test(p) && !/\.(css|woff2)$/.test(p)) res.setHeader('Cache-Control', 'no-store');
+          if (SAFE.has(req.method) && p === '/') { res.setHeader('Cache-Control', 'no-store'); return res.redirect(302, '/admin'); }
+        } else if (ADMIN_PATHS.test(p)) {
+          return /^\/v1\//.test(p) ? res.status(404).json(new ApiError(404, 'not_found', 'not found').toJSON()) : notFound(res);
+        }
+      }
       if (req.method === 'POST' && p === '/v1/csp-report') return cspReport(req, res);
       if (req.method === 'POST' && p === '/v1/bot/challenge') return run([bot.preSessionLimit('auth'), smallJson], req, res, (err) => (err ? next(err) : bot.verifyChallenge(req, res)));
       if (req.method === 'POST' && p === '/v1/client_token') return run([bot.preSessionLimit('anonymous'), smallJson], req, res, (err) => (err ? next(err) : bot.bootstrapClientToken(req, res, parseCookies)));
@@ -327,6 +356,7 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
 
   return {
     early, apiGuard, mountStatic, mountAdminRoutes, checkUpgrade, bot, assets, selfOrigin, clientIp, production, // selfOrigin/clientIp: WebAuthn origin, geo IP (Phase 3)
+    publicOrigin, adminOrigin, hostKind: adminHost ? hostKind : null, isHttps, hsts: production || trust !== false, trustProxy: trust, // Phase 9A (CLONE_SPEC.md §39.6)
     settings: () => bot.settings(), validate: (patch) => bot.validate(patch), save: (out, by, at) => bot.save(out, by, at),
     close: () => bot.close(),
   };

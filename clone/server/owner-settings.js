@@ -29,7 +29,58 @@ const REGISTRY = [
   ['ssr.cache_seconds', 'reach', 'int', 60, { min: 0, max: 3600, unit: 'seconds', where: '/admin/owner_settings' }],
   ['data_saver.default_on', 'reach', 'bool', false, { pub: true, where: '/admin/owner_settings' }],
   ['sms.per_user_per_day', 'reach', 'int', 10, { min: 1, max: 100, unit: 'count', stepUp: true, where: '/admin/owner_settings' }],
+  // Phase 9A (CLONE_SPEC.md §39.7): backups, observability, alert thresholds, admin access. Backup settings touch personal
+  // data (what is kept, for how long) and the allowlist touches security: both need a step-up.
+  ['backups.interval_minutes', 'backups', 'int', 15, { min: 5, max: 1440, unit: 'minutes', stepUp: true, where: '/admin/system' }],
+  ['backups.nightly_hour_wat', 'backups', 'int', 2, { min: 0, max: 23, unit: 'hour', stepUp: true, where: '/admin/system' }],
+  ['backups.wal_ship_seconds', 'backups', 'int', 10, { min: 1, max: 300, unit: 'seconds', stepUp: true, where: '/admin/system' }],
+  ['backups.keep_interval_hours', 'backups', 'int', 48, { min: 1, max: 720, unit: 'hours', stepUp: true, where: '/admin/system' }],
+  ['backups.retention_daily', 'backups', 'int', 7, { min: 1, max: 90, unit: 'count', stepUp: true, where: '/admin/system' }],
+  ['backups.retention_weekly', 'backups', 'int', 4, { min: 0, max: 52, unit: 'count', stepUp: true, where: '/admin/system' }],
+  ['backups.retention_monthly', 'backups', 'int', 12, { min: 0, max: 120, unit: 'count', stepUp: true, where: '/admin/system' }],
+  ['backups.max_age_minutes', 'backups', 'int', 60, { min: 5, max: 1440, unit: 'minutes', where: '/admin/system' }],
+  ['backups.drill_max_age_days', 'backups', 'int', 30, { min: 1, max: 365, unit: 'days', where: '/admin/system' }],
+  ['backups.drill_every_days', 'backups', 'int', 7, { min: 0, max: 90, unit: 'days', where: '/admin/system' }],
+  ['logs.level', 'observability', 'enum', 'info', { values: ['debug', 'info', 'warn', 'error'], where: '/admin/system' }],
+  ['logs.retention_days', 'observability', 'int', 90, { min: 7, max: 730, unit: 'days', stepUp: true, where: '/admin/system' }],
+  ['traces.sample_pct', 'observability', 'int', 10, { min: 1, max: 100, unit: 'percent', where: '/admin/system' }],
+  ['anchors.interval_minutes', 'observability', 'int', 60, { min: 5, max: 1440, unit: 'minutes', where: '/admin/system' }],
+  ['alerts.error_rate_pct', 'alerts', 'int', 5, { min: 1, max: 100, unit: 'percent', where: '/admin/system' }],
+  ['alerts.order_p99_ms', 'alerts', 'int', 100, { min: 5, max: 10000, unit: 'ms', where: '/admin/system' }],
+  ['alerts.job_stall_minutes', 'alerts', 'int', 10, { min: 1, max: 1440, unit: 'minutes', where: '/admin/system' }],
+  ['alerts.disk_free_pct', 'alerts', 'int', 15, { min: 1, max: 90, unit: 'percent', where: '/admin/system' }],
+  ['alerts.cert_expiry_days', 'alerts', 'int', 14, { min: 1, max: 90, unit: 'days', where: '/admin/system' }],
+  ['alerts.repeat_minutes', 'alerts', 'int', 60, { min: 5, max: 1440, unit: 'minutes', where: '/admin/system' }],
+  ['ops.readyz_disk_free_mb', 'alerts', 'int', 500, { min: 50, max: 100000, unit: 'mb', where: '/admin/system' }],
+  ['ops.maintenance_retry_after_sec', 'operations', 'int', 300, { min: 10, max: 86400, unit: 'seconds', where: '/admin/system' }],
+  ['admin.ip_allowlist', 'operations', 'cidrs', '', { stepUp: true, where: '/admin/system' }],
+  ['keys.max_age_days', 'operations', 'int', 365, { min: 30, max: 1825, unit: 'days', stepUp: true, where: '/admin/system' }],
 ];
+// Comma-separated IP addresses / CIDR ranges ("" = no restriction), normalised; null when any entry is invalid.
+const net = require('node:net');
+function normCidrs(raw) {
+  if (typeof raw !== 'string' || raw.length > 2000) return null;
+  const parts = raw.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length > 50) return null;
+  for (const p of parts) {
+    const [ip, bits] = p.split('/');
+    const fam = net.isIP(ip);
+    if (!fam) return null;
+    if (bits !== undefined && !(/^\d{1,3}$/.test(bits) && Number(bits) <= (fam === 4 ? 32 : 128))) return null;
+  }
+  return parts.join(', ');
+}
+// Whether `ip` is in the list (empty list = everyone). IPv4-mapped IPv6 addresses are compared as IPv4.
+function ipAllowed(list, ip) {
+  const parts = String(list || '').split(/[\s,]+/).filter(Boolean);
+  if (!parts.length) return true;
+  const addr = String(ip || '').replace(/^::ffff:/, '');
+  const fam = net.isIP(addr);
+  if (!fam) return false;
+  const bl = new net.BlockList();
+  for (const p of parts) { const [a, b] = p.split('/'); const f = net.isIP(a) === 6 ? 'ipv6' : 'ipv4'; if (b === undefined) bl.addAddress(a, f); else bl.addSubnet(a, Number(b), f); }
+  return bl.check(addr, fam === 6 ? 'ipv6' : 'ipv4');
+}
 const DEFS = new Map(REGISTRY.map(([key, group, type, def, o = {}]) => [key, { key, group, type, default: def, ...o }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
 const SKEY = (k) => `owner:${k}`;
@@ -61,6 +112,12 @@ function createOwnerSettings({ db, engine, overrides = {} }) {
     if (d.type === 'bool') {
       if (typeof raw !== 'boolean') throw fieldErr({ value: 'must be true or false' });
       v = raw;
+    } else if (d.type === 'enum') {
+      if (!d.values.includes(raw)) throw fieldErr({ value: `must be one of ${d.values.join(', ')}` });
+      v = raw;
+    } else if (d.type === 'cidrs') {
+      v = normCidrs(raw);
+      if (v == null) throw fieldErr({ value: 'must be IP addresses or CIDR ranges separated by commas (empty = everyone)' });
     } else {
       const n = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw;
       if (!Number.isInteger(n) || n < d.min || n > d.max) throw fieldErr({ value: `must be a whole number from ${d.min} to ${d.max}` });
@@ -91,7 +148,7 @@ function createOwnerSettings({ db, engine, overrides = {} }) {
   const all = () => Object.fromEntries([...DEFS.keys()].map((k) => [k, get(k)]));
   const publicValues = () => Object.fromEntries([...DEFS.values()].filter((d) => d.pub).map((d) => [d.key, get(d.key)]));
   void engine;
-  return { REGISTRY, DEFS, GROUPS, get, set, all, validate, isDefault, publicValues, listeners, overrides };
+  return { REGISTRY, DEFS, GROUPS, get, set, all, validate, isDefault, publicValues, listeners, overrides, requestChecks: {} };
 }
 
 // Admin routes (settings.write): list with explanations, change with a reason (+ step-up where marked), history.
@@ -99,12 +156,12 @@ function mountOwnerSettings({ v1, db, os, admin, auth, flags }) {
   const can = admin.can;
   const label = (k) => SW(`setting.${k}.label`);
   const help = (k) => SW(`setting.${k}.help`);
-  const valueText = (d, v) => (d.type === 'bool' ? SW(v ? 'value.on' : 'value.off') : String(v));
+  const valueText = (d, v) => (d.type === 'bool' ? SW(v ? 'value.on' : 'value.off') : d.type === 'cidrs' && !v ? SW('value.everyone') : String(v));
   const vo = (d) => {
     const v = os.get(d.key);
     const cap = d.cap ? d.cap() : null;
     return { key: d.key, group: d.group, group_label: SW(`group.${d.group}`), type: d.type, value: v, default: d.default, is_default: os.isDefault(d.key) && !Object.prototype.hasOwnProperty.call(os.overrides, d.key),
-      min: d.min ?? null, max: cap != null && d.max != null ? Math.min(d.max, cap) : d.max ?? null, unit: d.unit || null, env_cap: cap, step_up: !!d.stepUp, where: d.where || null,
+      min: d.min ?? null, max: cap != null && d.max != null ? Math.min(d.max, cap) : d.max ?? null, unit: d.unit || null, env_cap: cap, step_up: !!d.stepUp, where: d.where || null, values: d.values || null,
       label: label(d.key), help: help(d.key), recommended: SW('recommended', { value: valueText(d, d.default) }), override: Object.prototype.hasOwnProperty.call(os.overrides, d.key) };
   };
   const history = (key) => db.prepare("SELECT ts, actor_email, before_json, after_json, reason FROM admin_audit WHERE action='owner_settings.update' AND target_id=? ORDER BY ts DESC LIMIT 50").all(key)
@@ -131,6 +188,7 @@ function mountOwnerSettings({ v1, db, os, admin, auth, flags }) {
       throw e;
     }
     const value = os.validate(key, b.value, os.all());
+    if (os.requestChecks[key]) os.requestChecks[key](value, req); // e.g. the admin allowlist must keep the caller in (§39.6)
     if (d.stepUp) auth.assertFresh(req, 'owner_setting_change'); // money / security / personal data (CLONE_SPEC.md §22.6)
     const before = os.get(key);
     os.set(key, value, req.auth.user.id);
@@ -141,4 +199,4 @@ function mountOwnerSettings({ v1, db, os, admin, auth, flags }) {
   flags.bundleExtras.push(() => ({ owner_settings: os.publicValues() }));
 }
 
-module.exports = { createOwnerSettings, mountOwnerSettings, REGISTRY, DEFS };
+module.exports = { createOwnerSettings, mountOwnerSettings, REGISTRY, DEFS, normCidrs, ipAllowed };

@@ -14,6 +14,7 @@ const { s: PS } = require('./content/perps'); // keyed Perps wording (CLONE_SPEC
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, toUnits, E, ApiError, encCursor, decCursor } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const PL = require('./perps-ledger');
 const R = require('./perps-risk');
 const journal = require('./journal');
@@ -191,8 +192,61 @@ function fillMath(st, { side, n, p, lev, feeRate, sys, shrink = true }) {
   return { q, cost, margin, avail, closing, open, rel, lock, fee, paid, dust, realizedUcc };
 }
 
-function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => {}, options = {} }) {
+// Schema and its additive columns / one-time upgrades (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
+  PL.init(db);
+  const hasTable = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t);
+  const meta = (k, def) => db.prepare('SELECT value FROM perp_meta WHERE key=?').get(k)?.value ?? def;
+  const setMeta = (k, v) => db.prepare('INSERT INTO perp_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));
+  // Schema migrations of Phases 5-6 (idempotent, forward-only).
+  const cols = (t) => new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
+  const add = (t, c, def) => { if (!cols(t).has(c)) { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`); return true; } return false; };
+  if (add('perp_markets', 'fractional_trading_enabled', 'INTEGER NOT NULL DEFAULT 1')) db.prepare("UPDATE perp_markets SET fractional_trading_enabled=0 WHERE ticker='PLXUS10YPERP'").run();
+  for (const c of [['subaccount', 'INTEGER NOT NULL DEFAULT 0'], ['order_group_id', 'TEXT'], ['amended_from', 'TEXT'], ['cancel_reason', 'TEXT']]) add('perp_orders', ...c);
+  add('perp_fills', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
+  add('perp_funding_payments', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
+  add('perp_liquidations', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
+  add('perp_liquidations', 'margin_mode', "TEXT NOT NULL DEFAULT 'isolated'");
+  for (const c of [['subaccount', 'INTEGER NOT NULL DEFAULT 0'], ['trail_cc', 'INTEGER'], ['trail_bps', 'INTEGER'], ['watermark_cc', 'INTEGER'], ['stop_cc', 'INTEGER'], ['fired_mark_cc', 'INTEGER']]) add('perp_exit_triggers', ...c);
+  add('perp_transfers', 'from_subaccount', 'INTEGER');
+  add('perp_transfers', 'to_subaccount', 'INTEGER');
+  add('perp_ledger', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
+  // Positions gain a subaccount in the key and an integer cost basis: the table is rebuilt once.
+  if (!cols('perp_positions').has('subaccount')) {
+    tx(db, () => {
+      db.exec(`CREATE TABLE perp_positions_v2 (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, subaccount INTEGER NOT NULL DEFAULT 0, ticker TEXT NOT NULL REFERENCES perp_markets(ticker),
+        qty INTEGER NOT NULL DEFAULT 0, entry_cc REAL NOT NULL DEFAULT 0, cost_ucc INTEGER NOT NULL DEFAULT 0, margin_cc INTEGER NOT NULL DEFAULT 0, leverage REAL NOT NULL DEFAULT 1,
+        fees_cc INTEGER NOT NULL DEFAULT 0, realized_cc INTEGER NOT NULL DEFAULT 0, funding_cc INTEGER NOT NULL DEFAULT 0,
+        opened_ts INTEGER, updated_ts INTEGER NOT NULL, PRIMARY KEY (user_id, subaccount, ticker));
+        INSERT INTO perp_positions_v2(user_id,subaccount,ticker,qty,entry_cc,cost_ucc,margin_cc,leverage,fees_cc,realized_cc,funding_cc,opened_ts,updated_ts)
+          SELECT user_id,0,ticker,qty,entry_cc,0,margin_cc,leverage,fees_cc,realized_cc,funding_cc,opened_ts,updated_ts FROM perp_positions;
+        DROP TABLE perp_positions;
+        ALTER TABLE perp_positions_v2 RENAME TO perp_positions;`);
+    });
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_perp_positions_ticker ON perp_positions(ticker, qty);
+    CREATE INDEX IF NOT EXISTS idx_perp_orders_group ON perp_orders(order_group_id, status);`);
+  // Quantities become units (hundredths of a contract, CLONE_SPEC.md §16.1): every count column x100, once.
+  if (!meta('units_v1')) {
+    tx(db, () => {
+      if (db.prepare('SELECT 1 FROM perp_markets LIMIT 1').get()) {
+        db.exec(`UPDATE perp_orders SET initial_count=initial_count*100, remaining_count=remaining_count*100, filled_count=filled_count*100, fill_cost_cc=fill_cost_cc*100;
+          UPDATE perp_trades SET count=count*100; UPDATE perp_fills SET count=count*100; UPDATE perp_positions SET qty=qty*100;
+          UPDATE perp_funding_payments SET qty=qty*100; UPDATE perp_liquidations SET count=count*100;
+          UPDATE perp_exit_triggers SET count=count*100, filled_count=filled_count*100;`);
+        if (hasTable('pm_archive_perps')) db.exec('UPDATE pm_archive_perps SET qty=qty*100');
+        if (hasTable('pm_archive_orders')) db.exec("UPDATE pm_archive_orders SET remaining_count=remaining_count*100 WHERE kind='perp_order'");
+        db.exec('UPDATE perp_positions SET cost_ucc=CAST(ROUND(ABS(qty)*entry_cc) AS INTEGER) WHERE qty<>0');
+      }
+      setMeta('units_v1', nowIso());
+    });
+  }
+}
+
+function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => {}, options = {} }) {
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
   PL.init(db);
   const fundingOverride = Number(options.fundingIntervalMs || process.env.PERPS_FUNDING_INTERVAL_MS || 0) || 0;
   const lpId = () => db.prepare("SELECT id FROM users WHERE email='liquidity@parlance.local'").get()?.id;
@@ -200,52 +254,6 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
   const meta = (k, def) => db.prepare('SELECT value FROM perp_meta WHERE key=?').get(k)?.value ?? def;
   const setMeta = (k, v) => db.prepare('INSERT INTO perp_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));
 
-  // ---------------------------------------------------------------- schema migrations (idempotent, forward-only)
-  (function migrateSchema() {
-    const cols = (t) => new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
-    const add = (t, c, def) => { if (!cols(t).has(c)) { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`); return true; } return false; };
-    if (add('perp_markets', 'fractional_trading_enabled', 'INTEGER NOT NULL DEFAULT 1')) db.prepare("UPDATE perp_markets SET fractional_trading_enabled=0 WHERE ticker='PLXUS10YPERP'").run();
-    for (const c of [['subaccount', 'INTEGER NOT NULL DEFAULT 0'], ['order_group_id', 'TEXT'], ['amended_from', 'TEXT'], ['cancel_reason', 'TEXT']]) add('perp_orders', ...c);
-    add('perp_fills', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
-    add('perp_funding_payments', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
-    add('perp_liquidations', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
-    add('perp_liquidations', 'margin_mode', "TEXT NOT NULL DEFAULT 'isolated'");
-    for (const c of [['subaccount', 'INTEGER NOT NULL DEFAULT 0'], ['trail_cc', 'INTEGER'], ['trail_bps', 'INTEGER'], ['watermark_cc', 'INTEGER'], ['stop_cc', 'INTEGER'], ['fired_mark_cc', 'INTEGER']]) add('perp_exit_triggers', ...c);
-    add('perp_transfers', 'from_subaccount', 'INTEGER');
-    add('perp_transfers', 'to_subaccount', 'INTEGER');
-    add('perp_ledger', 'subaccount', 'INTEGER NOT NULL DEFAULT 0');
-    // Positions gain a subaccount in the key and an integer cost basis: the table is rebuilt once.
-    if (!cols('perp_positions').has('subaccount')) {
-      tx(db, () => {
-        db.exec(`CREATE TABLE perp_positions_v2 (
-          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, subaccount INTEGER NOT NULL DEFAULT 0, ticker TEXT NOT NULL REFERENCES perp_markets(ticker),
-          qty INTEGER NOT NULL DEFAULT 0, entry_cc REAL NOT NULL DEFAULT 0, cost_ucc INTEGER NOT NULL DEFAULT 0, margin_cc INTEGER NOT NULL DEFAULT 0, leverage REAL NOT NULL DEFAULT 1,
-          fees_cc INTEGER NOT NULL DEFAULT 0, realized_cc INTEGER NOT NULL DEFAULT 0, funding_cc INTEGER NOT NULL DEFAULT 0,
-          opened_ts INTEGER, updated_ts INTEGER NOT NULL, PRIMARY KEY (user_id, subaccount, ticker));
-          INSERT INTO perp_positions_v2(user_id,subaccount,ticker,qty,entry_cc,cost_ucc,margin_cc,leverage,fees_cc,realized_cc,funding_cc,opened_ts,updated_ts)
-            SELECT user_id,0,ticker,qty,entry_cc,0,margin_cc,leverage,fees_cc,realized_cc,funding_cc,opened_ts,updated_ts FROM perp_positions;
-          DROP TABLE perp_positions;
-          ALTER TABLE perp_positions_v2 RENAME TO perp_positions;`);
-      });
-    }
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_perp_positions_ticker ON perp_positions(ticker, qty);
-      CREATE INDEX IF NOT EXISTS idx_perp_orders_group ON perp_orders(order_group_id, status);`);
-    // Quantities become units (hundredths of a contract, CLONE_SPEC.md §16.1): every count column x100, once.
-    if (!meta('units_v1')) {
-      tx(db, () => {
-        if (db.prepare('SELECT 1 FROM perp_markets LIMIT 1').get()) {
-          db.exec(`UPDATE perp_orders SET initial_count=initial_count*100, remaining_count=remaining_count*100, filled_count=filled_count*100, fill_cost_cc=fill_cost_cc*100;
-            UPDATE perp_trades SET count=count*100; UPDATE perp_fills SET count=count*100; UPDATE perp_positions SET qty=qty*100;
-            UPDATE perp_funding_payments SET qty=qty*100; UPDATE perp_liquidations SET count=count*100;
-            UPDATE perp_exit_triggers SET count=count*100, filled_count=filled_count*100;`);
-          if (hasTable('pm_archive_perps')) db.exec('UPDATE pm_archive_perps SET qty=qty*100');
-          if (hasTable('pm_archive_orders')) db.exec("UPDATE pm_archive_orders SET remaining_count=remaining_count*100 WHERE kind='perp_order'");
-          db.exec('UPDATE perp_positions SET cost_ucc=CAST(ROUND(ABS(qty)*entry_cc) AS INTEGER) WHERE qty<>0');
-        }
-        setMeta('units_v1', nowIso());
-      });
-    }
-  })();
 
   // ---------------------------------------------------------------- seeding (idempotent)
   function seedMarkets() {
@@ -1841,4 +1849,4 @@ function installAuditHook() {
   });
 }
 
-module.exports = { mountPerps, MARKETS, fillMath };
+module.exports = { schema, SCHEMA, mountPerps, MARKETS, fillMath };

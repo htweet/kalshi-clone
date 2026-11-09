@@ -47,6 +47,18 @@ const { mountShareLinks } = require('./share-links'); // Phase 8 P8.2: signed sh
 const { mountSeo } = require('./seo'); // Phase 8 P8.3: server-rendered public pages, share cards, sitemaps (§38.4)
 const { mountI18n } = require('./i18n'); // Phase 8 P8.4: languages on the CMS text catalog (§38.5)
 const { mountReach } = require('./reach'); // Phase 8 P8.6: data saver, SMS notifications (§38.7)
+// Phase 9A (CLONE_SPEC.md §39): versioned migrations, logs / metrics / health, backups, anchors, alerts, key rotation,
+// operating switches, Admin › System and Launch readiness.
+const migrations = require('./migrations');
+const { createLogger } = require('./logger');
+const { createObservability } = require('./observability');
+const { createBackups } = require('./backups');
+const { createAnchors } = require('./anchors');
+const { createAlerts } = require('./alerts');
+const { createKeyring } = require('./keyring');
+const { mountOperations } = require('./operations');
+const auditChain = require('./audit-chain');
+const { s: OPS_TEXT } = require('./content/ops');
 
 // Session cookie name on plain-http localhost; over HTTPS / in production it is __Host-plx_session (server/auth.js).
 const SESSION_COOKIE = 'plx_session';
@@ -65,9 +77,22 @@ function parseCookies(header) {
 
 // Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope (ParamError / intParam, server/trade-api.js).
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, elections: electionsOptions = {}, owner: ownerOptions = {}, growth: growthOptions = {}, seo: seoOptions = {}, reach: reachOptions = {}, env = 'main' }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, elections: electionsOptions = {}, owner: ownerOptions = {}, growth: growthOptions = {}, seo: seoOptions = {}, reach: reachOptions = {}, env = 'main', dbFile = null, ops: opsOptions = {}, logger: loggerOption = null }) {
+  // Phase 9A: structured logs (quiet unless the caller passes a logger: the CLI does), then the versioned migrations
+  // (server/migrations: 0001 baseline of Phases 0-8, then the numbered ones) before any module touches its tables.
+  let ownerSettingsRef = null; let flagsRef = null;
+  const logger = loggerOption || createLogger({ level: () => (ownerSettingsRef ? ownerSettingsRef.get('logs.level') : 'info'), out: { write() {} }, err: { write() {} } });
+  const appliedMigrations = migrations.run(db, { keyDir, log: (r) => logger.log(r) });
   journal.migrate(db); // opening balances for databases (or seeded accounts) that predate the journal
   const app = express();
+  app.locals.logger = logger;
+  app.locals.migrationsApplied = appliedMigrations;
+  app.locals.mediaStorage = opsOptions.mediaStorage || null; // CMS media and identity documents (server/storage.js)
+  // Request ids, request logs and metrics for every request; /healthz and /readyz after the perimeter headers.
+  const obs = createObservability({ db, engine, logger, trustProxy: (securityOptions && securityOptions.trustProxy) ?? process.env.TRUST_PROXY, settings: (k) => (ownerSettingsRef ? ownerSettingsRef.get(k) : undefined),
+    flagsOn: (k) => !!(flagsRef && flagsRef.globalState(k).on), options: { logRequests: !!loggerOption, otlpEndpoint: opsOptions.otlpEndpoint } });
+  app.locals.obs = obs;
+  app.use(obs.middleware);
   app.set('trust proxy', false);
   app.disable('x-powered-by');
   // Perimeter (server/security.js, CLONE_SPEC §21): headers + CSP nonce, CORS, honeypots, robots.txt, CSP reports,
@@ -75,6 +100,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   const security = createSecurity({ app, db, rate, parseCookies, options: { ...(securityOptions || {}), dataDir: keyDir } });
   app.locals.security = security;
   app.use(security.early);
+  obs.mountHealth(app, security.clientIp); // /healthz, /readyz: unauthenticated, rate-limited, nothing revealed (§39.5)
   // Demo environment proxy (server/dev-portal.js): streams /demo-api/trade-api/* to the demo server unparsed, cookies stripped.
   app.use('/demo-api', (req, res, next) => (app.locals.portal ? app.locals.portal.demoProxy(req, res, next) : next(E.notFound())));
   app.use(jsonBody()); // JSON bodies with per-route size limits (server/validate.js, PLAN P1.8)
@@ -111,12 +137,13 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Sessions, login CSRF, step-up, login hardening, two-factor, first-admin setup (server/auth.js, CLONE_SPEC §22).
   const auth = createAuth({ db, engine, options: authOptions, keyDir });
   app.locals.auth = auth;
+  if (security.hostKind) auth.hooks.originKind = security.hostKind; // separate admin origin (CLONE_SPEC.md §39.6)
   // Feature flags (server/flags.js, CLONE_SPEC.md §33): evaluated per request; modules ask engine.flags.on()/jobOn().
   const flags = createFlags({ db, engine, options: flagsOptions || {} });
-  app.locals.flags = flags; engine.flags = flags;
+  app.locals.flags = flags; engine.flags = flags; flagsRef = flags;
   // Owner settings (ground rule 6, CLONE_SPEC.md §38.1): validated values every module reads live (engine.ownerSettings).
   const ownerSettings = createOwnerSettings({ db, engine, overrides: ownerOptions.overrides || {} });
-  app.locals.ownerSettings = ownerSettings; engine.ownerSettings = ownerSettings;
+  app.locals.ownerSettings = ownerSettings; engine.ownerSettings = ownerSettings; ownerSettingsRef = ownerSettings;
   // Waitlist storage (server/waitlists.js, CLONE_SPEC.md §36): the Perps list and the real-money launch list share it.
   const waitlists = createWaitlists({ db, keyDir });
   app.locals.waitlists = waitlists;
@@ -520,6 +547,38 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     res.json({ trading_active: engine.tradingActive });
   });
 
+  // ---------------------------------------------------------------- Phase 9A operations (CLONE_SPEC.md §39)
+  const settingOf = (k) => ownerSettings.get(k);
+  const sysAudit = ({ action, target_id, after, reason, actor = null }) => auditChain.append(db, { actor_id: actor?.id || (typeof actor === 'string' ? actor : null), actor_email: actor?.email || null, action, target_type: 'operations', target_id: String(target_id || ''), after, reason: reason || '' });
+  const backupStorage = opsOptions.backupStorage || null;
+  const backups = createBackups({ db, dbFile, storage: backupStorage, keyDir, settings: settingOf, audit: sysAudit, log: (r) => logger.log(r), options: { walShipping: !!opsOptions.schedule } });
+  const anchors = createAnchors({ db, keyDir, storage: backupStorage, logger, settings: settingOf, audit: sysAudit });
+  const keyring = createKeyring({ db, keyDir, audit: sysAudit, log: (r) => logger.log(r) });
+  const alerts = createAlerts({ db, keyDir, settings: settingOf, messaging: app.locals.identity && app.locals.identity.messaging, webpush: app.locals.webpush, logger, text: (k, v) => OPS_TEXT(k, v),
+    allowHosts: opsOptions.alertLoopback ? () => true : null,
+    signals: {
+      backup: () => (flags.jobOn('ops.backups') ? backups.status() : null),
+      drill: () => (backupStorage ? db.prepare("SELECT * FROM ops_restore_drills WHERE status='ok' ORDER BY finished_ts DESC LIMIT 1").get() || null : undefined),
+      anchor: () => db.prepare('SELECT * FROM ops_anchors ORDER BY seq DESC LIMIT 1').get() || null,
+      verifiers: () => (app.locals.ops && app.locals.ops.lastVerifiers ? app.locals.ops.lastVerifiers() : null),
+      http: () => obs.window(5),
+      orderP99: () => obs.orderAck.quantile({}, 0.99),
+      jobs: () => [...obs.jobs].filter(([n]) => ['backups', 'anchors', 'alerts'].includes(n)).map(([name, j]) => ({ name, age_sec: j.last_ok_ts ? (Date.now() - j.last_ok_ts) / 1000 : 0 })),
+      disk: () => obs.diskFree(),
+    } });
+  app.locals.backups = backups; app.locals.anchors = anchors; app.locals.alerts = alerts; app.locals.keyring = keyring;
+  app.locals.ops = mountOperations({ v1, app, db, engine, auth, admin, flags, ownerSettings, security, keyDir, dbFile, mediaStorage: app.locals.mediaStorage, backups, backupStorage, obs, logger, anchors, alerts, keyring, options: opsOptions });
+  obs.extra.push((set) => {
+    const b = backups.status();
+    if (b.last_backup) set({ name: 'backup_age_seconds' }, b.last_backup.age_sec);
+    if (b.last_wal_segment) set({ name: 'wal_segment_age_seconds' }, b.last_wal_segment.age_sec);
+    const v = app.locals.ops.lastVerifiers();
+    if (v) for (const [k, c] of Object.entries(v.checks)) set({ name: `verifier_ok_${k}` }, c.ok ? 1 : 0);
+    for (const k of ['ops.maintenance', 'ops.trading_halt', 'ops.read_only']) set({ name: `switch_${k.slice(4)}` }, flags.globalState(k).on ? 1 : 0);
+    set({ name: 'schema_version' }, migrations.version(db));
+    set({ name: 'alerts_firing' }, alerts.firing().length);
+  });
+
   // Internal dispatch for the public API and FIX (server/trade-api.js): the same gates as a web request, then the router.
   tradeApi.setChain([auth.guard, flags.gate, feat.sessionMiddleware, v1]);
   app.locals.routers = [['/trade-api/v2', v2], ['/v1', v1]]; // mount table for route enumeration (tests/authz.e2e.test.js)
@@ -536,10 +595,11 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
 
   // Error envelopes (spec §5.4). Express needs the four-argument signature to treat this as the error handler.
   app.use((err, req, res, next) => {
-    if (err instanceof ApiError) return res.status(err.status).json(err.toJSON());
+    if (err instanceof ApiError) { if (err.retryAfter) res.setHeader('Retry-After', err.retryAfter); return res.status(err.status).json(err.toJSON()); }
     if (err instanceof ParamError) return res.status(400).json({ msg: err.message });
     if (err && err.type === 'entity.parse.failed') return res.status(400).json(E.badRequest('malformed JSON body').toJSON());
-    console.error(err);
+    logger.error('unhandled error', { error: err, request_id: req.id, method: req.method, route: obs.routeGroup(req.path) });
+    if (!loggerOption) console.error(err);
     res.status(500).json({ error: { code: 'internal_server_error', message: 'internal server error' } });
   });
 

@@ -9,6 +9,7 @@ const C = require('./currency'); // display currency formatting (CLONE_SPEC.md �
 const crypto = require('node:crypto');
 const { tx } = require('./db');
 const { nowIso, newId, dollars, ufp, ustr, toUnits, UNITS, E, ApiError } = require('./util');
+const { ensureSchema } = require('./migrations/schema-guard');
 const { feeSequence, takerPrincipalCc } = require('./engine');
 const P = require('./pricing'); // Phase 5A: combos trade and quote on a finer grid (G12, CLONE_SPEC.md §28.8)
 const { marketVo } = require('./serialize');
@@ -69,18 +70,9 @@ function unitsForCost(cents, pcc, fractional) {
   return Math.max(0, u);
 }
 
-function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrading, options = {} }) {
-  const opt = { ...DEFAULTS, ...(options || {}) };
+// Schema and its additive columns / one-time upgrades (part of migration 0001, server/migrations/0001-baseline.js).
+function schema(db) {
   db.exec(SCHEMA);
-  if (!db.prepare('SELECT 1 FROM series WHERE ticker=?').get(COMBO_SERIES)) {
-    db.prepare('INSERT INTO series(ticker,title,slug,category,tags,frequency,fee_type,fee_multiplier,settlement_sources,rules) VALUES(?,?,?,?,?,?,?,?,?,?)')
-      .run(COMBO_SERIES, 'Combos', 'combos', 'Combos', JSON.stringify(['Combos']), 'one_off', 'quadratic', 1,
-        JSON.stringify([{ name: 'Settlement of each leg market', url: 'https://example.org/resolution' }]),
-        'A combo resolves YES only if every selected leg resolves to its chosen side. It resolves NO as soon as any leg resolves against its chosen side.');
-  }
-  let salt = db.prepare("SELECT value FROM meta WHERE key='comms_salt'").get()?.value;
-  if (!salt) { salt = crypto.randomBytes(16).toString('hex'); db.prepare("INSERT INTO meta(key,value) VALUES('comms_salt',?)").run(salt); }
-  const commsId = (uid) => crypto.createHash('sha256').update(salt + uid).digest('hex').slice(0, 24); // pseudonymous (getting_started_rfqs.md)
   // G3 (PLAN §7, CLONE_SPEC.md §24.10): obscure_creator_id on RFQs; partial-size quotes and rest_remainder on quotes.
   { const has = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
     if (!has('rfqs', 'obscure_creator_id')) db.exec('ALTER TABLE rfqs ADD COLUMN obscure_creator_id INTEGER NOT NULL DEFAULT 0');
@@ -91,6 +83,20 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
     if (!has('rfq_quotes', 'confirm_window_ms')) { db.exec('ALTER TABLE rfq_quotes ADD COLUMN confirm_window_ms INTEGER'); db.exec('ALTER TABLE rfq_quotes ADD COLUMN hvm INTEGER NOT NULL DEFAULT 0'); }
     db.exec('UPDATE rfq_quotes SET yes_bid_cc = yes_bid_cents * 100, no_bid_cc = no_bid_cents * 100 WHERE yes_bid_cc IS NULL');
     db.exec(`UPDATE markets SET price_level_structure='${COMBO_GRID}' WHERE mve_collection_ticker IS NOT NULL AND price_level_structure='linear_cent'`); }
+}
+
+function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrading, options = {} }) {
+  const opt = { ...DEFAULTS, ...(options || {}) };
+  ensureSchema(db, schema); // migration 0001 (server/migrations)
+  if (!db.prepare('SELECT 1 FROM series WHERE ticker=?').get(COMBO_SERIES)) {
+    db.prepare('INSERT INTO series(ticker,title,slug,category,tags,frequency,fee_type,fee_multiplier,settlement_sources,rules) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run(COMBO_SERIES, 'Combos', 'combos', 'Combos', JSON.stringify(['Combos']), 'one_off', 'quadratic', 1,
+        JSON.stringify([{ name: 'Settlement of each leg market', url: 'https://example.org/resolution' }]),
+        'A combo resolves YES only if every selected leg resolves to its chosen side. It resolves NO as soon as any leg resolves against its chosen side.');
+  }
+  let salt = db.prepare("SELECT value FROM meta WHERE key='comms_salt'").get()?.value;
+  if (!salt) { salt = crypto.randomBytes(16).toString('hex'); db.prepare("INSERT INTO meta(key,value) VALUES('comms_salt',?)").run(salt); }
+  const commsId = (uid) => crypto.createHash('sha256').update(salt + uid).digest('hex').slice(0, 24); // pseudonymous (getting_started_rfqs.md)
   // Docs: other users see the empty-input SHA-256 placeholder until the RFQ executes; the creator always sees the real id.
   const OBSCURED_ID = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
   const rfqCreatorId = (r, viewer, revealed = r.status === 'executed') => (r.obscure_creator_id && viewer !== r.user_id && !revealed ? OBSCURED_ID : commsId(r.user_id));
@@ -590,4 +596,4 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   return { pump, createCombo, normalizeLegs, unitsForCost };
 }
 
-module.exports = { mountCombos, COMBO_SERIES, unitsForCost };
+module.exports = { schema, SCHEMA, mountCombos, COMBO_SERIES, unitsForCost };
