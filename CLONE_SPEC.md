@@ -6218,6 +6218,7 @@ starts Phase 9B. The load test result recorded in Launch readiness must be withi
   from before Phase 9A has none, so migration 0001's one-time upgrades — encrypting plaintext TOTP secrets, moving the
   Phase 6 `perp_waitlist` table — run for them as they would on a real old database).
 - `scripts/container-smoke.js` and `scripts/load.js --profile smoke` in the CI `image` job.
+- Full suite: 399 scenarios across 52 files, all passing (2026-11-09).
 
 ---
 
