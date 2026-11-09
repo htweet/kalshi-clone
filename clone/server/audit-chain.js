@@ -15,6 +15,7 @@ const { ensureSchema } = require('./migrations/schema-guard');
 const GENESIS = '0'.repeat(64);
 const HEAD_KEY = 'audit_chain_head';
 const ready = new WeakMap(); // db -> key (active)
+const dirs = new WeakMap(); // db -> the key directory given at the first init (later calls omit it)
 const hasKeyCol = new WeakMap(); // db -> admin_audit.key_id exists (migration 0002)
 const keyCol = (db) => { if (!hasKeyCol.has(db)) hasKeyCol.set(db, db.prepare('PRAGMA table_info(admin_audit)').all().some((c) => c.name === 'key_id')); return hasKeyCol.get(db); };
 // The key a row was sealed with (NULL = k1, the only key before rotation existed).
@@ -37,8 +38,9 @@ function schema(db) {
 // chained row are sealed: a row whose hash was cleared in the middle of the chain stays unsealed and fails
 // verification instead of being silently re-chained.
 function init(db, { keyDir } = {}) {
+  if (keyDir !== undefined && !dirs.has(db)) dirs.set(db, keyDir);
   if (ready.has(db)) return ready.get(db);
-  const key = deriveKey('audit-chain:v1', { dir: keyDir });
+  const key = deriveKey('audit-chain:v1', { dir: dirs.get(db) });
   ensureSchema(db, schema);
   ready.set(db, key);
   const lastChained = db.prepare('SELECT rowid r FROM admin_audit WHERE chain_seq IS NOT NULL ORDER BY chain_seq DESC LIMIT 1').get();

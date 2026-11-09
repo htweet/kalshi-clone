@@ -1,0 +1,66 @@
+# Alert rules (PLAN P9.4; CLONE_SPEC.md §39.5). The app evaluates the same signals itself and alerts its confirmed
+# contacts (Admin › System › Alerts); these rules add what a process cannot see about itself (site down, certificate
+# expiry from outside, the app not answering scrapes). Thresholds match the owner-setting defaults; change both together.
+groups:
+  - name: parlance
+    rules:
+      - alert: SiteDown
+        expr: probe_success{job="site"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.instance }} is not answering /healthz", runbook: "docs/runbooks/incident-response.md" }
+      - alert: AppNotScraped
+        expr: up{job="parlance"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "The app's metrics port does not answer" }
+      - alert: ErrorRateHigh
+        expr: sum(rate(parlance_http_requests_total{code="5xx"}[5m])) / clamp_min(sum(rate(parlance_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "More than 5% of requests fail with a server error" }
+      - alert: OrderLatencyHigh
+        expr: histogram_quantile(0.99, sum(rate(parlance_order_ack_seconds_bucket[5m])) by (le)) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "p99 order-to-ack above 100 ms" }
+      - alert: JobStalled
+        expr: parlance_job_last_success_age_seconds{job=~"backups|anchors|alerts"} > 600
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "Background job {{ $labels.job }} has not succeeded for 10 minutes" }
+      - alert: BackupOverdue
+        expr: parlance_status{name="backup_age_seconds"} > 3600
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "The newest backup is older than 1 hour", runbook: "docs/runbooks/restore.md" }
+      - alert: WalShippingStalled
+        expr: parlance_status{name="wal_segment_age_seconds"} > 900
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "No database changes shipped to the backup store for 15 minutes (only an idle site ships nothing)" }
+      - alert: BackupVerifyFailed
+        expr: parlance_backup_verify_ok == 0 or (time() - parlance_backup_verify_last_success_timestamp_seconds) > 86400
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "The backup sidecar could not restore and verify the newest backup" }
+      - alert: VerifierFailure
+        expr: min(parlance_status{name=~"verifier_ok_.*"}) == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Ledger, journal or audit-chain verification failed", runbook: "docs/runbooks/incident-response.md" }
+      - alert: DiskFilling
+        expr: parlance_disk_free_bytes / parlance_disk_total_bytes < 0.15
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "Less than 15% free on the data volume" }
+      - alert: CertificateExpiring
+        expr: (probe_ssl_earliest_cert_expiry{job="site"} - time()) / 86400 < 14
+        for: 1h
+        labels: { severity: critical }
+        annotations: { summary: "TLS certificate of {{ $labels.instance }} expires within 14 days (renewal failed)" }
+      - alert: TradingHalted
+        expr: parlance_status{name="switch_trading_halt"} == 1
+        for: 1m
+        labels: { severity: warning }
+        annotations: { summary: "The exchange-wide trading halt is on" }

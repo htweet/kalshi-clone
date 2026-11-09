@@ -1,0 +1,14 @@
+# Promtail: ships the containers' JSON log files to Loki. The app's records are parsed so level, msg, request_id and
+# route are labels / fields; audit-chain anchors (msg "audit_anchor") land here too, outside the database (RS5).
+server: { http_listen_port: 9080, grpc_listen_port: 0 }
+positions: { filename: /tmp/positions.yaml }
+clients: [{ url: "http://loki:3100/loki/api/v1/push" }]
+scrape_configs:
+  - job_name: containers
+    static_configs:
+      - targets: [localhost]
+        labels: { job: docker, __path__: /var/lib/docker/containers/*/*-json.log }
+    pipeline_stages:
+      - docker: {}
+      - json: { expressions: { level: level, msg: msg, request_id: request_id, route: route } }
+      - labels: { level: "", msg: "" }

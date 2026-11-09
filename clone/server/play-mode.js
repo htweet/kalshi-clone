@@ -86,7 +86,7 @@ function schema(db) {
   installMarkers(db);
 }
 
-function mountPlayMode({ v1, db, engine, auth, admin, flags, feat, payments, centralBank, keyDir, options = {} }) {
+function mountPlayMode({ v1, app = null, db, engine, auth, admin, flags, feat, payments, centralBank, keyDir, options = {} }) {
   ensureSchema(db, schema); // migration 0001 (server/migrations)
   const metaGet = (k) => db.prepare('SELECT value FROM meta WHERE key=?').get(k)?.value;
   const metaSet = (k, v) => db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));

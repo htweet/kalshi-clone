@@ -1,0 +1,29 @@
+# Prometheus (self-hosted, owner decision 2026-11-09; CLONE_SPEC.md §39.5). Scrapes the app's private metrics port, the
+# backup sidecar, and blackbox probes of the public site (site down, certificate expiry). Rules in alerts.yml.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels: { deployment: parlance }
+
+rule_files: [/etc/prometheus/alerts.yml]
+
+alerting:
+  alertmanagers:
+    - static_configs: [{ targets: ["alertmanager:9093"] }]
+
+scrape_configs:
+  - job_name: parlance
+    static_configs: [{ targets: ["app:9464"] }]
+    # With METRICS_TOKEN set on the app: authorization: { credentials_file: /etc/prometheus/metrics_token }
+  - job_name: backup_verify
+    static_configs: [{ targets: ["backup:9465"] }]
+  - job_name: site
+    metrics_path: /probe
+    params: { module: [https_2xx] }
+    static_configs:
+      # Edit to the real host names (the same values as SITE_HOST / ADMIN_HOST in deploy/.env).
+      - targets: ["https://example.ng/healthz", "https://admin.example.ng/healthz"]
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: "blackbox:9115" }

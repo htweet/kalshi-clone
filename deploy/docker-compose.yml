@@ -1,0 +1,190 @@
+# Parlance Exchange on one VM (PLAN Phase 9A, owner decision 2026-11-09: one cloud VM in Docker, 4 vCPU / 8 GB / SSD,
+# Cloudflare in front; CLONE_SPEC.md §39.2). One command from a clean checkout (README "Deployment"):
+#
+#   cp deploy/env.example deploy/.env      # then fill in the domains, alert contacts and (when chosen) the bucket
+#   ./deploy/init-secrets.sh                # master key ring + backup key into deploy/secrets/ (outside the data volume)
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#
+# Staging and production are two copies of this file's settings (deploy/.env per host); staging gets a copy of
+# production with personal data removed (docs/runbooks/restore.md, "staging copy").
+#
+# Services: app (the exchange), caddy (TLS, HTTP/3, HSTS, request limits, X-Forwarded-* set here only; FIX over TLS on
+# 9443 through the layer-4 module), backup (independent restore-and-verify of the backup store), prometheus +
+# blackbox (metrics, uptime and certificate probes, alert rules), alertmanager (email and phone through a webhook),
+# loki + promtail (logs), grafana (dashboards, provisioned). Only caddy publishes ports; everything else is on the
+# internal network. Images are pinned by digest.
+name: parlance
+
+x-app-env: &app-env
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: "3000"
+  DB_FILE: /data/parlance.db
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in deploy/.env}
+  ADMIN_ORIGIN: ${ADMIN_ORIGIN:?set ADMIN_ORIGIN in deploy/.env}
+  ALLOWED_ORIGINS: ${PUBLIC_ORIGIN},${ADMIN_ORIGIN}
+  # Only the proxy on the internal network may set X-Forwarded-For / -Proto (the client IP of rate limits, geo and audit).
+  TRUST_PROXY: ${TRUST_PROXY:-172.30.10.0/24}
+  SCRYPT_LOG_N: "17"
+  SECRET_KEYRING_FILE: /run/secrets/parlance_keyring
+  BACKUP_KEY_FILE: /run/secrets/parlance_backup_key
+  DEMO_ACCOUNTS: "off"
+  DEMO_API: "0"
+  SPORTS: "0"
+  METRICS_PORT: "9464"
+  METRICS_HOST: 0.0.0.0
+  FIX_HOST: 0.0.0.0
+  FIX_PORT: "9878"
+  OBJECT_STORAGE: ${OBJECT_STORAGE:-local:/data/objects}
+  BACKUP_STORAGE: ${BACKUP_STORAGE:-local:/backups}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  S3_REGION: ${S3_REGION:-auto}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+  BACKUP_S3_REGION: ${BACKUP_S3_REGION:-auto}
+  BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+  BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+  BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+  SMTP_URL: ${SMTP_URL:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  SECURITY_CONTACT: ${SECURITY_CONTACT:-}
+  TLS_CERT_FILE: ${TLS_CERT_FILE:-}
+
+services:
+  app:
+    build: { context: .., dockerfile: Dockerfile }
+    image: ${PARLANCE_IMAGE:-parlance:local}
+    restart: unless-stopped
+    environment: *app-env
+    secrets: [parlance_keyring, parlance_backup_key]
+    volumes:
+      - data:/data
+      # The local backup store is a separate volume (point it at another disk, or set BACKUP_STORAGE=s3).
+      - backups:/backups
+    read_only: true
+    tmpfs: ["/tmp:rw,size=512m"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [edge]
+    expose: ["3000", "9464", "9878"]
+    stop_grace_period: 20s
+    logging: { driver: json-file, options: { max-size: 50m, max-file: "5" } }
+
+  caddy:
+    build: { context: ./caddy }   # caddy 2.10 + the layer-4 module (FIX over TLS), pinned in deploy/caddy/Dockerfile
+    image: parlance-caddy:local
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      SITE_HOST: ${SITE_HOST:?set SITE_HOST (the public host name) in deploy/.env}
+      ADMIN_HOST: ${ADMIN_HOST:?set ADMIN_HOST (the admin host name) in deploy/.env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      CLOUDFLARE_IPS: ${CLOUDFLARE_IPS:-127.0.0.1/32}
+    ports: ["80:80", "443:443", "443:443/udp", "9443:9443"]
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge: { ipv4_address: 172.30.10.2 }
+    logging: { driver: json-file, options: { max-size: 20m, max-file: "3" } }
+
+  backup:
+    image: ${PARLANCE_IMAGE:-parlance:local}
+    restart: unless-stopped
+    command: ["node", "scripts/backup-verify.js"]
+    environment:
+      <<: *app-env
+      BACKUP_VERIFY_HOURS: ${BACKUP_VERIFY_HOURS:-6}
+    secrets: [parlance_keyring, parlance_backup_key]
+    volumes: ["backups:/backups:ro"]
+    read_only: true
+    tmpfs: ["/tmp:rw,size=2g"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [edge]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle=false"]
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus:/prometheus
+    networks: [edge]
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0@sha256:a50c4c0eda297baa1678cd4dc4712a67fdea713b832d43ce7fcc5f9bea05094d
+    restart: unless-stopped
+    volumes: ["./prometheus/blackbox.yml:/etc/blackbox_exporter/config.yml:ro"]
+    networks: [edge]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    restart: unless-stopped
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--config.expand-env=true"]
+    environment:
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      ALERT_SMTP_HOST: ${ALERT_SMTP_HOST:-}
+      ALERT_SMTP_FROM: ${ALERT_SMTP_FROM:-}
+      ALERT_SMTP_USER: ${ALERT_SMTP_USER:-}
+      ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+      ALERT_PHONE_WEBHOOK: ${ALERT_PHONE_WEBHOOK:-http://127.0.0.1:9/disabled}
+    volumes: ["./alertmanager:/etc/alertmanager:ro", "alertmanager:/alertmanager"]
+    networks: [edge]
+
+  loki:
+    image: grafana/loki:3.5.3@sha256:3165cecce301ce5b9b6e3530284b080934a05cd5cafac3d3d82edcb887b45ecd
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes: ["./loki/loki.yml:/etc/loki/loki.yml:ro", "loki:/loki"]
+    networks: [edge]
+
+  promtail:
+    image: grafana/promtail:3.5.3@sha256:698c3357886c886bb9a862da36062e130c20bf359d956148e67ee36141ef6f17
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./loki/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks: [edge]
+
+  grafana:
+    image: grafana/grafana:12.1.1@sha256:a1701c2180249361737a99a01bc770db39381640e4d631825d38ff4535efa47d
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-owner}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_SERVER_ROOT_URL: ${ADMIN_ORIGIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    secrets: [grafana_admin_password]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana:/var/lib/grafana
+    networks: [edge]
+
+networks:
+  edge:
+    ipam: { config: [{ subnet: 172.30.10.0/24 }] }
+
+volumes:
+  data: {}
+  backups: {}
+  caddy_data: {}
+  caddy_config: {}
+  prometheus: {}
+  alertmanager: {}
+  loki: {}
+  grafana: {}
+
+secrets:
+  parlance_keyring: { file: ./secrets/keyring.json }
+  parlance_backup_key: { file: ./secrets/backup.key }
+  grafana_admin_password: { file: ./secrets/grafana_admin_password }

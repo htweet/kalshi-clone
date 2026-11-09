@@ -47,14 +47,14 @@ function ringFromJson(text, source, file = null) {
 }
 
 // Where the ring for `dir` comes from (no secrets in the answer).
-function ringSource({ dir } = {}) {
-  if (process.env.SECRET_KEYRING) return { kind: 'env_keyring' };
-  if (process.env.SECRET_KEYRING_FILE) return { kind: 'keyring_file', file: path.resolve(process.env.SECRET_KEYRING_FILE) };
+function ringSource({ dir, env = process.env } = {}) {
+  if (env.SECRET_KEYRING) return { kind: 'env_keyring' };
+  if (env.SECRET_KEYRING_FILE) return { kind: 'keyring_file', file: path.resolve(env.SECRET_KEYRING_FILE) };
   const local = path.join(path.resolve(dir || DEFAULT_DIR), 'secret.keyring.json');
   if (fs.existsSync(local)) return { kind: 'keyring_file', file: local, inDataDir: true };
-  if (process.env.SECRET_KEY) return { kind: 'env' };
-  const file = path.resolve(process.env.SECRET_KEY_FILE || path.join(dir || DEFAULT_DIR, 'secret.key'));
-  return { kind: 'key_file', file, inDataDir: !process.env.SECRET_KEY_FILE };
+  if (env.SECRET_KEY) return { kind: 'env' };
+  const file = path.resolve(env.SECRET_KEY_FILE || path.join(dir || DEFAULT_DIR, 'secret.key'));
+  return { kind: 'key_file', file, inDataDir: !env.SECRET_KEY_FILE };
 }
 
 function keyring(opts = {}) {

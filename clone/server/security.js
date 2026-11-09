@@ -222,7 +222,7 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
           res.setHeader('X-Frame-Options', 'DENY');
           res.setHeader('Referrer-Policy', 'no-referrer');
           if (!/^\/(assets|js|fonts|icons|media)\//.test(p) && !/\.(css|woff2)$/.test(p)) res.setHeader('Cache-Control', 'no-store');
-          if (SAFE.has(req.method) && p === '/') { res.setHeader('Cache-Control', 'no-store'); return res.redirect(302, '/admin'); }
+          if (SAFE.has(req.method) && p === '/' && req.headers['sec-fetch-dest'] === 'document') { res.setHeader('Cache-Control', 'no-store'); return res.redirect(302, '/admin'); } // a browser opening the admin host lands on the panel
         } else if (ADMIN_PATHS.test(p)) {
           return /^\/v1\//.test(p) ? res.status(404).json(new ApiError(404, 'not_found', 'not found').toJSON()) : notFound(res);
         }

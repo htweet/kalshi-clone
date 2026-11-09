@@ -420,10 +420,16 @@ test('switch to production: preview, two admins, typed RESET, backup, everything
   await a2.waitForSelector('[data-testid=play-status][data-on="0"]', { timeout: 15000 });
   const batch = dbq('SELECT * FROM pm_reset_batches')[0];
   assert.ok(batch && batch.approval_id === ap0.id);
-  // Backup snapshot in the data directory, taken before the reset.
-  const backup = path.join(TMP, 'backups', batch.backup_file);
+  // Backup snapshot taken before the reset. Phase 9A (CLONE_SPEC.md §39.3, closing the §33.13 residual): an encrypted,
+  // checksummed object in the backup store (here the default local folder next to the database), no longer a plain
+  // SQLite copy; it opens with the backup key and holds the play balances.
+  const backup = path.join(TMP, 'backups', ...batch.backup_file.split('/'));
   assert.ok(fs.existsSync(backup) && fs.statSync(backup).size > 0, 'backup written');
-  const snap = new DatabaseSync(backup);
+  const sealed = fs.readFileSync(backup);
+  assert.ok(!sealed.includes(Buffer.from('SQLite format 3')), 'the backup is encrypted at rest');
+  const plainFile = path.join(TMP, 'pre-production-check.db');
+  fs.writeFileSync(plainFile, require('../server/backups').open(sealed, require('../server/backups').backupKeys({ dir: TMP })));
+  const snap = new DatabaseSync(plainFile);
   assert.ok(snap.prepare('SELECT balance_cents FROM users WHERE id=?').get(uid).balance_cents > 0, 'the snapshot holds the play balances');
   snap.close();
   // Every customer balance is zero, positions and perps closed, customer orders canceled, archives written.

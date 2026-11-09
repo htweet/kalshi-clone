@@ -80,7 +80,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   configGuard.enforce({ dataDir, options: { secureCookies: auth && auth.secureCookies } }); // NODE_ENV=production only; names each failing setting
   if (assets === 'dist') await require('../scripts/build').ensureBuilt();
   const srvRef = {};
-  const logger = logs ? createLogger({ level: () => (srvRef.app ? srvRef.app.locals.ownerSettings.get('logs.level') : 'info') }) : null;
+  const logger = logs && typeof logs === 'object' ? logs : logs ? createLogger({ level: () => (srvRef.app ? srvRef.app.locals.ownerSettings.get('logs.level') : 'info') }) : null; // `logs`: true or a logger
   const db = open(dbFile);
   seed(db, { demoPassword, quiet });
   // Production (DEMO_ACCOUNTS=off, required by the config guard): the seeded demo traders keep their market history but can

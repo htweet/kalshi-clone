@@ -29,3 +29,7 @@ clone/playwright-report/
 report_json.json
 report_html.html
 report_md.md
+
+# ---- Phase 9A deployment (deploy/): secrets and the per-host settings never leave the server
+deploy/secrets/
+deploy/.env

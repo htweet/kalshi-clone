@@ -385,6 +385,19 @@ const EXPECT = {
   'GET RE:^\\/og\\/(site|event\\/[A-Za-z0-9._-]{1,80}|hub\\/[a-z0-9-]{1,60}|share\\/[A-Za-z0-9_.-]{1,80})\\.png$': { who: 'public', probe: '/og/site.png' },
   'GET /sitemap.xml': P, 'GET RE:^\\/sitemaps\\/([a-z]+)\\.xml$': { who: 'public', probe: '/sitemaps/pages.xml' },
   'GET /hubs/elections': P,
+  // ---- Phase 9A (CLONE_SPEC.md §39): health endpoints and the disclosure contact are public (rate-limited, nothing
+  // revealed); Admin › System, the operating-switch approvals and Launch readiness need settings.write (money / security
+  // actions also a step-up, answered after the gate); a signed identity-document URL needs users.support and the
+  // signing staff session (the token itself is checked after the gate: 403 link_expired for a forged one).
+  'GET /healthz': P, 'GET /readyz': P, 'GET /.well-known/security.txt': P,
+  'GET /v1/admin/kyc/blob/:token': perm('users.support'),
+  'GET /v1/admin/ops/approvals': perm('settings.write'), 'POST /v1/admin/ops/approvals/:id/approve': perm('settings.write'), 'POST /v1/admin/ops/approvals/:id/reject': perm('settings.write'),
+  'GET /v1/admin/system': perm('settings.write'), 'POST /v1/admin/system/backups': perm('settings.write'), 'POST /v1/admin/system/restore_drill': perm('settings.write'),
+  'POST /v1/admin/system/anchor': perm('settings.write'), 'POST /v1/admin/system/verify': perm('settings.write'), 'POST /v1/admin/system/keys/rotate': perm('settings.write'),
+  'POST /v1/admin/system/alerts/contacts': perm('settings.write'), 'POST /v1/admin/system/alerts/contacts/:id/test': perm('settings.write'),
+  'POST /v1/admin/system/alerts/contacts/:id/confirm': perm('settings.write'), 'DELETE /v1/admin/system/alerts/contacts/:id': perm('settings.write'),
+  'POST /v1/admin/system/alerts/run': perm('settings.write'),
+  'GET /v1/admin/launch_readiness': perm('settings.write'), 'PUT /v1/admin/launch_readiness/items/:key': perm('settings.write'), 'POST /v1/admin/launch_readiness/evidence': perm('settings.write'),
 };
 
 // Role → permissions, mirroring server/admin.js ROLE_PERMS (asserted against the live module below).

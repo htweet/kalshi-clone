@@ -274,7 +274,10 @@ test('sandbox outcomes: "Review" → admin queue (masked, audited reveal and doc
   await admin.fill('[data-testid=confirm-reason]', 'Checking the ID photo during manual review');
   await admin.click('[data-testid=confirm-ok]');
   await admin.waitForSelector('[data-testid=document-image]');
-  assert.match(await admin.getAttribute('[data-testid=document-image]', 'src'), /^data:image\/jpeg;base64,/);
+  // Phase 9A (CLONE_SPEC.md §39.4): the image comes from a signed URL valid for one minute and only for this staff
+  // session (it was an inline data: URL before the documents moved to object storage); the browser loads it.
+  assert.match(await admin.getAttribute('[data-testid=document-image]', 'src'), /^\/v1\/admin\/kyc\/blob\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  await admin.waitForFunction(() => { const i = document.querySelector('[data-testid=document-image]'); return i && i.complete && i.naturalWidth > 0; });
   const audits = D.q("SELECT action, reason, before_json, after_json FROM admin_audit WHERE target_id=? AND action IN ('identity.unmask','kyc.document_view') ORDER BY chain_seq", ruid);
   assert.deepEqual(audits.map((a) => a.action), ['identity.unmask', 'kyc.document_view']);
   assert.ok(audits.every((a) => a.reason.length > 5 && !JSON.stringify(a).includes('Ravel')), 'audited with a reason, never the value');

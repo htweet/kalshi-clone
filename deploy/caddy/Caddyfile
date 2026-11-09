@@ -1,0 +1,68 @@
+# TLS reverse proxy in front of Parlance (PLAN P9.1, CLONE_SPEC.md §39.2, §39.6).
+#  - automatic certificates (Let's Encrypt / ZeroSSL) for the public and the admin host, HTTP/3, HSTS;
+#  - X-Forwarded-For / -Proto are set here only: incoming copies are discarded unless the hop is a trusted proxy
+#    (Cloudflare's ranges in CLOUDFLARE_IPS once the site is proxied, docs/runbooks/cloudflare.md); the app trusts only
+#    this container's address (TRUST_PROXY);
+#  - request size limits, a request id for every request, /metrics never proxied;
+#  - FIX over TLS on :9443 (layer-4 module): TLS ends here, plain FIX only on the internal network (closes §35.15).
+{
+	email {$ACME_EMAIL}
+	servers {
+		trusted_proxies static {$CLOUDFLARE_IPS}
+		client_ip_headers CF-Connecting-IP X-Forwarded-For
+		protocols h1 h2 h3
+	}
+	layer4 {
+		:9443 {
+			route {
+				tls
+				proxy app:9878
+			}
+		}
+	}
+}
+
+(parlance) {
+	encode zstd gzip
+	request_body {
+		max_size 2MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+	reverse_proxy app:3000 {
+		header_up X-Request-Id {http.request.uuid}
+		health_uri /readyz
+		health_interval 10s
+		health_timeout 3s
+		fail_duration 10s
+		transport http {
+			read_timeout 60s
+			write_timeout 60s
+		}
+	}
+}
+
+{$SITE_HOST} {
+	import parlance
+	# Authenticated origin pulls (optional, docs/runbooks/cloudflare.md): only Cloudflare's client certificate gets in.
+	# tls {
+	# 	client_auth {
+	# 		mode require_and_verify
+	# 		trust_pool file /etc/caddy/cloudflare-origin-pull-ca.pem
+	# 	}
+	# }
+}
+
+{$ADMIN_HOST} {
+	# Grafana is served under the admin host (its own sign-in); the admin panel itself is the app.
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+	handle {
+		import parlance
+	}
+}

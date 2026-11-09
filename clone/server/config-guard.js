@@ -22,7 +22,7 @@ function checks({ env = process.env, dataDir, options = {} } = {}) {
   const logN = Number(env.SCRYPT_LOG_N || 16);
   add('SCRYPT_LOG_N', Number.isInteger(logN) && logN >= 17, 'SCRYPT_LOG_N must be 17 or more (RS7: scrypt cost at least 2^17 in production).');
   let ring = null;
-  try { ring = crypto.ringSource({ dir: dataDir }); } catch { ring = null; }
+  try { ring = crypto.ringSource({ dir: dataDir, env }); } catch { ring = null; }
   const keyOk = ring && (ring.kind === 'env' || ring.kind === 'env_keyring' || (ring.kind === 'keyring_file' && !inside(ring.file, dataDir)) || (ring.kind === 'key_file' && env.SECRET_KEY_FILE && !inside(ring.file, dataDir)));
   add('SECRET_KEY', keyOk, 'The master key must come from SECRET_KEY / SECRET_KEYRING or a secrets file (SECRET_KEY_FILE / SECRET_KEYRING_FILE) outside the data folder, not the generated data/secret.key.');
   const backupKeyOk = !!env.BACKUP_KEY || (!!env.BACKUP_KEY_FILE && !inside(env.BACKUP_KEY_FILE, dataDir));

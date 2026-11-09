@@ -105,7 +105,7 @@ async function renderSystem({ el }) {
   });
   el.addEventListener('click', async (e) => {
     const t = e.target.closest('button');
-    if (!t || t.type === 'submit') return;
+    if (!t || t.closest('form')) return; // buttons inside a form (the confirm-code form) submit it
     const act = t.dataset.act;
     if (act === 'refresh') return busy(async () => {});
     if (act === 'backup') { const c = await confirmAction({ title: tx('admin.sysops.backups.now'), reason: true, confirm: tx('admin.sysops.backups.now') }); if (c) busy(async () => { await post('/system/backups', { reason: c.reason }); toast(tx('admin.sysops.backups.done')); }); return; }

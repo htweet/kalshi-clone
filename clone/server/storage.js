@@ -67,7 +67,7 @@ function localDriver({ dir }) {
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const hmac = (k, s) => crypto.createHmac('sha256', k).update(s).digest();
 // RFC 3986 encoding as SigV4 wants it (every byte except unreserved; "/" kept in paths).
-const enc = (s, keepSlash = false) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`).replace(keepSlash ? /%2F/g : /$^/, '/');
+const enc = (s, keepSlash = false) => { const e = encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`); return keepSlash ? e.replace(/%2F/g, '/') : e; };
 
 // Signs a request (AWS Signature Version 4, service s3). Exported for the fake server in the tests, which recomputes it.
 function signV4({ method, url, headers, body, accessKeyId, secretAccessKey, region, service = 's3', now = new Date() }) {

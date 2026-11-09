@@ -1,4 +1,4 @@
-# CI (PLAN P0.1, P1.13, §6 security gate). Required checks on `main`: test, secrets, codeql, zap.
+# CI (PLAN P0.1, P1.13, §6 security gate, P9.1). Required checks on `main`: test, image, secrets, codeql, zap.
 # Third-party actions are pinned to full commit SHAs (the tag is in the trailing comment); Dependabot bumps them.
 name: CI
 
@@ -70,6 +70,60 @@ jobs:
             clone/test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  image:
+    # PLAN P9.1 / P9.5 (CLONE_SPEC.md §39.2, §39.9): the production image is built, scanned (Trivy: fixable high or critical
+    # findings fail the build), described (CycloneDX SBOM), smoke-tested the way production runs it (read-only, non-root,
+    # NODE_ENV=production: the config guard, /healthz, /readyz, a page, a sign-in, metrics only on the private port), and a
+    # short load test runs against a fresh server. Tools run from images pinned by digest (no third-party actions).
+    name: Container image (build, Trivy, SBOM, smoke, load smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TRIVY_IMAGE: aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: clone/package-lock.json
+      - name: Install dependencies (for the smoke and load scripts)
+        working-directory: clone
+        run: npm ci
+        env:
+          SKIP_GIT_HOOKS: "1"
+      - name: Build the image
+        run: docker build -t parlance:ci .
+      - name: Trivy vulnerability scan (fail on fixable high / critical)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$RUNNER_TEMP:/out" "$TRIVY_IMAGE" image \
+            --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --format table parlance:ci
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$RUNNER_TEMP:/out" "$TRIVY_IMAGE" image \
+            --format json --output /out/trivy.json parlance:ci
+      - name: CycloneDX SBOM
+        run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$RUNNER_TEMP:/out" "$TRIVY_IMAGE" image --format cyclonedx --output /out/sbom.cdx.json parlance:ci
+      - name: Container smoke test
+        working-directory: clone
+        run: node --no-warnings scripts/container-smoke.js parlance:ci
+      - name: Load smoke (orders, cancels, WebSocket fan-out, pages, signed Trade API)
+        working-directory: clone
+        run: |
+          npm run build
+          node --no-warnings scripts/load.js --profile smoke --report "$RUNNER_TEMP/load-smoke.json"
+      - name: Upload SBOM, scan and load report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/sbom.cdx.json
+            ${{ runner.temp }}/trivy.json
+            ${{ runner.temp }}/load-smoke.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   secrets:
     name: Secret scanning (gitleaks)
