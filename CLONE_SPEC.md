@@ -6187,6 +6187,11 @@ starts Phase 9B. The load test result recorded in Launch readiness must be withi
 - Running the whole E2E suite against the built container in CI (P9.1 bullet) is reduced to the container smoke test plus
   the load smoke; the E2E suites start their own in-process servers.
 - No real S3, SMTP or phone-relay provider was contacted (no network in tests; providers not chosen).
+- Data retention per data class (P9.2): only the security and sign-in logs (and resolved alerts) got a retention owner
+  setting and job (`logs.retention_days`, audited). Chat history, waitlist guests (already purged by the Phase 7A setting
+  for unconfirmed entries) and closed accounts' personal data after a legal hold (closure today destroys the member's data
+  key at once, §25) have no new settings; a legal-hold period needs the 9C regulatory decision first.
+- The one-hour soak run (P9.5) was not run; memory was flat across the shorter runs.
 
 ### 39.15 Verification
 
@@ -6208,7 +6213,10 @@ starts Phase 9B. The load test result recorded in Launch readiness must be withi
   adapter with its signature and a firing / resolved rule.
 - `tests/authz.e2e.test.js`: every new route classified; `tests/flags.e2e.test.js`: the new flags, labels and module.
 - Existing tests changed: `onboarding` (the staff document view is a signed URL now, and documents are read from the
-  object store once moved); `playmode` (the pre-production backup is an encrypted object that opens with the backup key).
+  object store once moved); `playmode` (the pre-production backup is an encrypted object that opens with the backup key);
+  `auth-security` and `waitlists` (their simulated "old build" databases now also drop `schema_migrations`, as a database
+  from before Phase 9A has none, so migration 0001's one-time upgrades — encrypting plaintext TOTP secrets, moving the
+  Phase 6 `perp_waitlist` table — run for them as they would on a real old database).
 - `scripts/container-smoke.js` and `scripts/load.js --profile smoke` in the CI `image` job.
 
 ---

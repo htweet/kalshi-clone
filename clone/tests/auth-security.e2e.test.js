@@ -605,6 +605,9 @@ test('restart: hashed sessions, counters, events and encrypted TOTP persist; pla
   dbrun("DELETE FROM auth_throttle WHERE key LIKE 'ip:%'"); // isolate the account counter from earlier tests' per-IP failures
   const legacySecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
   dbrun("INSERT INTO mfa(user_id,secret,enabled,created_at) VALUES(?,?,1,?)", uid(U.p.email), legacySecret, new Date().toISOString());
+  // An old build's database also predates versioned migrations (Phase 9A, CLONE_SPEC.md §39.3): the one-time upgrades of
+  // migration 0001 (which encrypt plaintext TOTP secrets) run for it at the next start.
+  dbrun('DROP TABLE IF EXISTS schema_migrations');
   const eventsBefore = dbq('SELECT COUNT(*) c FROM auth_events')[0].c;
   srv = await start({ ...OPTS, auth: { ...AUTH, idleMs: 2500, ipThreshold: 4 } });
 

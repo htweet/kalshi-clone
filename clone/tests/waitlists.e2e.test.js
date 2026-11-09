@@ -151,6 +151,9 @@ test('Perps waitlist: on by default for a new database; an existing database is 
   dbrun(file, 'CREATE TABLE perp_waitlist (user_id TEXT PRIMARY KEY, status TEXT NOT NULL, joined_ts INTEGER NOT NULL, decided_ts INTEGER, decided_by TEXT, note TEXT)');
   dbrun(file, "DELETE FROM waitlist_entries WHERE list_key='perps'");
   dbrun(file, "INSERT INTO perp_waitlist(user_id,status,joined_ts,decided_ts,note) VALUES(?, 'approved', 1700000000000, 1700000001000, 'grandfathered')", legacy.uid);
+  // A database from before Phase 7A also predates versioned migrations (Phase 9A, CLONE_SPEC.md §39.3): migration 0001,
+  // which moves the Phase 6 table onto the waitlist module, runs for it at the next start.
+  dbrun(file, 'DROP TABLE IF EXISTS schema_migrations');
   let s2 = await start(base(port, file));
   try {
     const d = (sql, ...a) => dbq(file, sql, ...a);
