@@ -7,7 +7,8 @@ import '../content/account-menu-strings.js';
 import { session, applyTheme } from '../store.js';
 import { idApi } from '../identity-api.js';
 import { esc, toast, money, catSlug, catLabel, ICON } from '../lib.js';
-import { installMenuItem, installApp, installMode } from '../pwa.js'; // "Install app" (CLONE_SPEC.md §31)
+import { installMenuItem, installApp, installMode } from '../pwa.js';
+import { adminHref } from '../flags.js'; // the separate admin origin (CLONE_SPEC.md §39.6) // "Install app" (CLONE_SPEC.md §31)
 import { t } from '../content/pwa-strings.js';
 
 // [href, label, testid, feature flag (CLONE_SPEC.md §33)]
@@ -31,7 +32,7 @@ export function menuHtml() {
     ${ITEMS.map(([href, label, id, flag]) => `<a href="${esc(href)}" data-link data-testid="${esc(id)}"${flag ? ` data-flag="${esc(flag)}"` : ''}>${esc(label)}</a>`).join('')}
     <a href="/portfolio" data-link>${te('account-menu.menu_html.portfolio')}</a>
     <a href="/funds" data-link data-testid="menu-transfers">${te('account-menu.menu_html.deposit_withdraw')}</a>
-    ${staff ? `<a href="/admin" data-link data-testid="admin-link">${te('account-menu.menu_html.admin')}</a>` : ''}
+    ${staff ? (adminHref() === '/admin' ? `<a href="/admin" data-link data-testid="admin-link">${te('account-menu.menu_html.admin')}</a>` : `<a href="${esc(adminHref())}" rel="noopener" data-testid="admin-link">${te('account-menu.menu_html.admin')}</a>`) : ''}
     <hr>
     ${GROUPS.map(([key, label, links]) => `<details class="menu-group" data-testid="menu-group-${esc(key)}"><summary>${esc(label)}</summary>${links.map(([slug, l]) => `<a href="/${esc(key)}/${esc(slug)}" data-link>${esc(l)}</a>`).join('')}</details>`).join('')}
     <hr>

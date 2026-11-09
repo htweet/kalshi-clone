@@ -114,7 +114,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
   const sessions = new Map(); // id -> Session
   let server = null; let boundPort = null; let starting = null;
   const wantPort = options.port != null ? Number(options.port) : process.env.FIX_PORT != null ? Number(process.env.FIX_PORT) : 0;
-  const host = options.host || '127.0.0.1';
+  const host = options.host || process.env.FIX_HOST || '127.0.0.1'; // FIX_HOST=0.0.0.0 in the container: TLS ends at the proxy (deploy/)
   const record = (kind, detail) => { try { security?.bot.record(kind, null, detail); } catch { /* best effort */ } };
   const logEv = (sess, event, detail = {}) => { try { db.prepare('INSERT INTO fix_session_log(id,session_key,key_id,user_id,event,detail,ts) VALUES(?,?,?,?,?,?,?)').run(newId('fxl_'), sess.sessionKey || '-', sess.key?.id || null, sess.user?.id || null, event, JSON.stringify(detail), Date.now()); } catch { /* closing */ } };
   const stateOf = (k) => db.prepare('SELECT * FROM fix_session_state WHERE session_key=?').get(k);

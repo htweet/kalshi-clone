@@ -50,6 +50,9 @@ export const SECTIONS = [
   // Phase 8 (CLONE_SPEC.md §38): ground rule 6's Owner settings, and Growth (referrals, review queue, share links, SMS).
   ['owner_settings', ts('admin.sections.owner_settings'), 'settings.write', './admin/owner-settings.js'],
   ['growth', ts('admin.sections.growth'), 'users.read', './admin/growth.js'],
+  // Phase 9A (CLONE_SPEC.md §39): System (backups, drills, keys, anchor, alerts, switches) and Launch readiness.
+  ['system', ts('admin.sections.system'), 'settings.write', './admin/system-ops.js'],
+  ['launch', ts('admin.sections.launch_readiness'), 'settings.write', './admin/system-ops.js'],
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -62,6 +65,7 @@ const LOADERS = {
   './admin/cms.js': () => import('./admin/cms.js'), './admin/flags.js': () => import('./admin/flags.js'), './admin/playmode.js': () => import('./admin/playmode.js'),
   './admin/api-keys.js': () => import('./admin/api-keys.js'), './admin/waitlists.js': () => import('./admin/waitlists.js'),
   './admin/elections.js': () => import('./admin/elections.js'), './admin/owner-settings.js': () => import('./admin/owner-settings.js'), './admin/growth.js': () => import('./admin/growth.js'),
+  './admin/system-ops.js': () => import('./admin/system-ops.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.

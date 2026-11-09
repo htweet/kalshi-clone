@@ -85,7 +85,7 @@ async function openUser(who, perms, reload) {
         img.className = 'adm-doc-img';
         img.alt = tx('admin.compliance.open_user.shown_to_staff_audited', { kind: v.kind });
         img.dataset.testid = 'document-image';
-        img.src = v.data_url; // a data: URL built by the server from the decrypted image (img-src 'self' data:)
+        img.src = v.url; // a signed URL valid for one minute and only for this staff session (CLONE_SPEC.md §39.4)
         b.closest('li').querySelector('[data-doc-img]').replaceChildren(img);
         b.remove();
       } catch (ex) { toast(ex.message, 'error'); }

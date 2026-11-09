@@ -147,3 +147,8 @@
 .adm-wl-bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--fs-sm); line-height: var(--lh-sm); }
 .adm-wl-bars li { display: grid; grid-template-columns: minmax(0, 1fr) 48px; gap: var(--space-1) var(--space-2); align-items: center; }
 .adm-wl-bars .wl-bar { grid-column: 1 / 3; }
+
+/* Operating switches (Phase 9A, CLONE_SPEC.md §39.7): maintenance, trading halt, read-only notices. */
+.ops-banner { background: color-mix(in srgb, var(--warn) 22%, var(--surface-x20)); border-bottom: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); color: var(--text-x10); }
+.ops-banner .container { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; padding: var(--space-2) var(--gutter); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.ops-chip { display: inline-flex; align-items: center; height: 22px; padding: 0 var(--space-2); border-radius: var(--rounded-pill); background: var(--warn); color: #1a1300; font-size: var(--fs-2xs); line-height: var(--lh-2xs); font-weight: var(--fw-bold); letter-spacing: var(--ls-caps); text-transform: uppercase; white-space: nowrap; }

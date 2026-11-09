@@ -7,7 +7,7 @@ import { t as tx, te } from '../../i18n.js';
 import '../../content/admin.owner-strings.js';
 import { esc, get, put, toast, dialog, formHtml, wireForm, section, badge, fmtTime } from './ui.js';
 
-const valueText = (s, v) => (s.type === 'bool' ? tx(v ? 'admin.owner.on' : 'admin.owner.off') : tx(`admin.owner.unit.${s.unit || 'count'}`, { value: v }));
+const valueText = (s, v) => (s.type === 'bool' ? tx(v ? 'admin.owner.on' : 'admin.owner.off') : s.type === 'cidrs' ? (v ? String(v) : tx('admin.owner.everyone')) : s.type === 'enum' ? String(v) : tx(`admin.owner.unit.${s.unit || 'count'}`, { value: v }));
 
 export async function render({ el }) {
   let data = await get('/owner_settings');
@@ -39,13 +39,15 @@ async function edit(key, done) {
   const { setting: s, history } = await get(`/owner_settings/${encodeURIComponent(key)}`);
   const fields = [
     s.type === 'bool' ? { name: 'value', label: s.label, type: 'checkbox', value: !!s.value }
-      : { name: 'value', label: `${s.label} (${tx(`admin.owner.unit_name.${s.unit || 'count'}`)})`, type: 'number', value: s.value, required: true, hint: tx('admin.owner.range', { min: s.min, max: s.max }) },
+      : s.type === 'enum' ? { name: 'value', label: s.label, type: 'select', value: s.value, options: s.values, required: true } // Phase 9A: e.g. the log level
+        : s.type === 'cidrs' ? { name: 'value', label: s.label, value: s.value, hint: tx('admin.owner.cidrs_hint') } // Phase 9A: the admin IP allowlist
+          : { name: 'value', label: `${s.label} (${tx(`admin.owner.unit_name.${s.unit || 'count'}`)})`, type: 'number', value: s.value, required: true, hint: tx('admin.owner.range', { min: s.min, max: s.max }) },
     { name: 'reason', label: tx('admin.owner.reason'), required: true, span: true },
   ];
   const hist = history.length ? `<ul class="adm-hist" data-testid="owner-history">${history.map((h) => `<li data-testid="owner-history-row">${te('admin.owner.history_row', { from: esc(String(h.before?.value)), to: esc(String(h.after?.value)), who: esc(h.actor_email || '—'), time: esc(fmtTime(h.time)) })}<div class="faint">${esc(h.reason)}</div></li>`).join('')}</ul>` : `<p class="faint">${te('admin.owner.no_history')}</p>`;
   const d = dialog(`<h3>${esc(s.label)}</h3><p>${esc(s.help)}</p><p class="faint">${te('admin.owner.recommended', { value: esc(valueText(s, s.default)) })}</p>${formHtml(fields, { submit: tx('admin.owner.save'), id: 'own', testid: 'owner-form' })}<h4>${te('admin.owner.history')}</h4>${hist}`, { wide: true, testid: 'owner-dialog' });
   wireForm(d.querySelector('form'), fields, async (v) => {
-    await put(`/owner_settings/${encodeURIComponent(key)}`, { value: s.type === 'bool' ? !!v.value : Number(v.value), reason: v.reason });
+    await put(`/owner_settings/${encodeURIComponent(key)}`, { value: s.type === 'bool' ? !!v.value : s.type === 'enum' || s.type === 'cidrs' ? String(v.value || '') : Number(v.value), reason: v.reason });
     toast(tx('admin.owner.saved', { label: s.label }));
     d.close();
     await done();

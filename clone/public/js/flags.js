@@ -12,7 +12,7 @@ import './content/flags-strings.js';
 import { request } from './api.js';
 import { esc } from './lib.js';
 
-export const flagState = { flags: {}, play_mode: { on: false }, money: null, owner: {}, version: 0, loaded: false };
+export const flagState = { flags: {}, play_mode: { on: false }, money: null, owner: {}, operations: {}, version: 0, loaded: false };
 export const flagOn = (key) => flagState.flags[key] !== false;
 export const playOn = () => !!flagState.play_mode?.on;
 // Public owner settings (ground rule 6, CLONE_SPEC.md §38.1) ride in the bundle, e.g. the data saver default.
@@ -60,6 +60,7 @@ export async function loadFlags() {
     const r = await request('GET', '/v1/feature_flags');
     flagState.flags = r.flags || {}; flagState.version = r.version || 0;
     flagState.play_mode = r.play_mode || { on: false }; flagState.money = r.money || null; flagState.owner = r.owner_settings || {};
+    flagState.operations = r.operations || {}; // Phase 9A: maintenance end time, the admin origin (CLONE_SPEC.md §39)
     clearTimeout(timer);
     // A scheduled start or end changes the evaluation without an admin action: refetch at that moment.
     if (r.next_change_time) { const ms = Date.parse(r.next_change_time) - Date.now(); if (ms > 0 && ms < 2 ** 31 - 1) timer = setTimeout(() => refresh(), ms + 250); }
@@ -86,6 +87,21 @@ export function renderPlayBanner() {
   const wl = ` <a href="/waitlist?src=banner" data-link data-flag="waitlist.launch waitlist.launch.cta_play" data-testid="waitlist-cta-banner">${te('flags.waitlist.banner_cta')}</a>`; // Phase 7A (§36)
   document.querySelector('header.topbar')?.insertAdjacentHTML('afterend', `<div class="play-banner" role="status" data-testid="play-banner"><div class="container"><span class="play-chip">${te('flags.play.label')}</span> <span>${te('flags.play.banner')}</span>${heist}${wl}</div></div>`);
 }
+// Operating switches (Phase 9A, CLONE_SPEC.md §39.7): maintenance, the exchange-wide trading halt and read-only mode show
+// a CMS-managed notice on every page while they are in force. These flags are modes, so only an explicit true counts.
+export const opsOn = (key) => flagState.flags[key] === true;
+export function renderOpsBanner() {
+  document.querySelectorAll('.ops-banner').forEach((b) => b.remove());
+  const ends = flagState.operations?.maintenance_ends_time;
+  const msgs = [];
+  if (opsOn('ops.maintenance')) msgs.push(['maintenance', ends ? te('flags.ops.maintenance_until', { time: esc(new Date(ends).toLocaleString()) }) : te('flags.ops.maintenance')]);
+  if (opsOn('ops.read_only')) msgs.push(['read-only', te('flags.ops.read_only')]);
+  if (opsOn('ops.trading_halt')) msgs.push(['halt', te('flags.ops.trading_halt')]);
+  if (!msgs.length) return;
+  document.querySelector('header.topbar')?.insertAdjacentHTML('afterend', msgs.map(([k, m]) => `<div class="ops-banner" role="status" data-testid="ops-banner-${k}"><div class="container"><span class="ops-chip">${te('flags.ops.label')}</span> <span>${m}</span></div></div>`).join(''));
+}
+// The admin panel's address: its own origin when one is configured (CLONE_SPEC.md §39.6), else /admin on this site.
+export const adminHref = () => (flagState.operations?.admin_origin ? `${flagState.operations.admin_origin}/admin` : '/admin');
 // "Join the real-money waitlist" card on Funds and Home (CLONE_SPEC.md §36). Ground rule 6 switches (§38.1): shown while
 // play mode is on when `waitlist.launch.cta_play` is on (default on), outside play mode when `.cta_production` is on (off).
 const ctaFlag = () => (playOn() ? 'waitlist.launch.cta_play' : 'waitlist.launch.cta_production');

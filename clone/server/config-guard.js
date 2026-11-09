@@ -37,7 +37,6 @@ function checks({ env = process.env, dataDir, options = {} } = {}) {
   add('TRUST_PROXY', !!trust && trust !== 'true' && trust !== '*', 'TRUST_PROXY must name the reverse proxy / CDN address ranges (e.g. "loopback, 172.18.0.0/16"), never "true": the client IP must not come from a header a visitor can forge.');
   const ff = String(env.FEATURE_FLAGS || '');
   add('FEATURE_FLAGS', !/elections\.simulator\s*=\s*(on|1|true)/i.test(ff), 'FEATURE_FLAGS must not switch the elections results simulator on in production.');
-  add('BACKUP_STORAGE', !!env.BACKUP_STORAGE && env.BACKUP_STORAGE !== 'local' && !(env.BACKUP_STORAGE.startsWith('local:') && inside(env.BACKUP_STORAGE.slice(6), dataDir)), 'BACKUP_STORAGE must point off the data volume: s3 (an S3-compatible bucket) or local:<folder> on another disk.');
   return out;
 }
 

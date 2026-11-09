@@ -42,7 +42,12 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "flags.play.banner_link": "Try the Vault Heist",
   "flags.play.label": "Play money",
   "flags.play.cash": "Play cash",
-  "flags.money.revoked_reason": "Reason: {reason}"
+  "flags.money.revoked_reason": "Reason: {reason}",
+  "flags.ops.maintenance": "Parlance is down for scheduled maintenance. You can still browse; changes are paused until it ends.",
+  "flags.ops.maintenance_until": "Parlance is down for scheduled maintenance until {time}. You can still browse; changes are paused until then.",
+  "flags.ops.trading_halt": "Trading is halted across the exchange. You can still cancel resting orders.",
+  "flags.ops.read_only": "Parlance is read-only for a short while. You can browse, but changes are not possible right now.",
+  "flags.ops.label": "Notice"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

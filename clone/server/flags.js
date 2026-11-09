@@ -248,6 +248,7 @@ const CORE_ROUTES = [
   // languages always works; switching SMS off is never blocked. Crawler files and share landings check their flag inside.
   /^\/v1\/users\/[^/]+\/reach$/, /^\/v1\/i18n\/locales$/, /^\/v1\/users\/[^/]+\/sms_notifications$/,
   /^\/(sitemap\.xml|sitemaps\/[a-z0-9-]+\.xml|robots\.txt)$/, /^\/s\//, /^\/og\//, /^\/hubs\/elections$/, // the removed Phase 5B hub: a redirect
+  /^\/(healthz|readyz)$/, /^\/\.well-known\/security\.txt$/, // Phase 9A (CLONE_SPEC.md §39): health endpoints and the disclosure contact
 ];
 // Every mount* module wired in server/app.js → the flag that switches it (or 'core'). Checked by the enforcement test.
 const MODULE_FLAGS = {

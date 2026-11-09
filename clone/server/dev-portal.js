@@ -87,6 +87,12 @@ function mountDeveloperPortal({ app, v1, db, engine, flags, admin, auth, apiKeys
     };
     const open = incidents().filter((i) => i.status !== 'resolved');
     for (const i of open) for (const c of i.components) if (base[c] !== 'disabled' && (WORST[i.impact] || 0) > (WORST[base[c]] || 0)) base[c] = i.impact;
+    // Phase 9A operating switches (CLONE_SPEC.md §39.7): maintenance / read-only put every live component in maintenance;
+    // a trading halt degrades the trading interfaces.
+    const ops = app.locals.opsStatus ? app.locals.opsStatus() : {};
+    const worsen = (c, st) => { if (base[c] !== 'disabled' && (WORST[st] || 0) > (WORST[base[c]] || 0)) base[c] = st; };
+    if (ops.maintenance || ops.read_only) for (const c of COMPONENTS) worsen(c, 'maintenance');
+    if (ops.trading_halted) for (const c of ['api', 'websocket', 'fix', 'web']) worsen(c, 'degraded');
     return COMPONENTS.map((id) => ({ id, name: s(`status.component.${id}`), status: base[id], ...(id === 'fix' && fix && fix.listening() ? { port: fix.port() } : {}) }));
   }
   v1.get('/status', (req, res) => {
@@ -95,7 +101,10 @@ function mountDeveloperPortal({ app, v1, db, engine, flags, admin, auth, apiKeys
     const live = comps.filter((c) => c.status !== 'disabled');
     const worst = live.reduce((a, c) => (WORST[c.status] > WORST[a] ? c.status : a), 'operational');
     const cutoff = Date.now() - 90 * 86400000;
-    res.json({ status: worst, components: comps, incidents: incidents().filter((i) => i.status !== 'resolved' || Date.parse(i.resolved_time || i.started_time) >= cutoff).slice(0, 50), updated_time: nowIso() });
+    const ops = app.locals.opsStatus ? app.locals.opsStatus() : {};
+    const OPS = require('./content/ops').s;
+    const notices = [...(ops.maintenance ? [{ kind: 'maintenance', message: OPS('error.maintenance') }] : []), ...(ops.read_only ? [{ kind: 'read_only', message: OPS('error.read_only') }] : []), ...(ops.trading_halted ? [{ kind: 'trading_halt', message: OPS('error.trading_halted') }] : [])];
+    res.json({ status: worst, components: comps, notices, incidents: incidents().filter((i) => i.status !== 'resolved' || Date.parse(i.resolved_time || i.started_time) >= cutoff).slice(0, 50), updated_time: nowIso() });
   });
 
   // ---------------------------------------------------------------- portal data

@@ -65,4 +65,5 @@
 .status-dot.s-degraded { background: var(--warn); }
 .status-dot.s-outage { background: var(--no); }
 .status-incident { padding: var(--space-4); }
+.status-notice { padding: var(--space-4); border-left: 3px solid var(--warn); margin-bottom: var(--space-3); }
 .status-incident h3 { margin: 0 0 var(--space-2); }
