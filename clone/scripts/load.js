@@ -41,6 +41,8 @@ function parse(argv) {
 }
 const pct = (arr, q) => { if (!arr.length) return null; const s = [...arr].sort((a, b) => a - b); return Math.round(s[Math.min(s.length - 1, Math.floor(q * s.length))] * 10) / 10; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let child = null; // the self-mode server process, stopped on any exit
+process.on('exit', () => { if (child && child.exitCode == null) child.kill('SIGTERM'); });
 const PW = `Benue-Harbor-${crypto.randomBytes(4).toString("hex")}-Quill`;
 
 async function main() {
@@ -52,7 +54,7 @@ async function main() {
     // Self mode: the server runs in its own process (as in production), the load generator in this one.
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-load-'));
     dbFile = path.join(tmp, 'load.db');
-    srv = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1')], { stdio: ['ignore', 'pipe', 'inherit'] });
+    srv = child = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1')], { stdio: ['ignore', 'pipe', 'inherit'] });
     const port = await new Promise((resolve, reject) => {
       let buf = '';
       srv.stdout.on('data', (d) => { buf += d; const m = /PORT (\d+)/.exec(buf); if (m) resolve(Number(m[1])); });
@@ -60,8 +62,8 @@ async function main() {
     });
     base = `http://127.0.0.1:${port}`;
   }
-  const q = (sql, ...x) => { const d = new DatabaseSync(dbFile); try { return d.prepare(sql).all(...x); } finally { d.close(); } };
-  const run = (sql, ...x) => { const d = new DatabaseSync(dbFile); try { return d.prepare(sql).run(...x); } finally { d.close(); } };
+  const q = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).all(...x); } finally { d.close(); } };
+  const run = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).run(...x); } finally { d.close(); } };
   const stamp = Date.now();
   const log = (...m) => { if (!a.quiet) console.error('[load]', ...m); };
   log(`profile ${a.profile || 'smoke'} against ${base}: ${prof.traders} traders, ${prof.markets} markets, ${prof.ws} WebSocket clients, ${prof.rate} orders/s for ${prof.duration} s`);
@@ -216,4 +218,4 @@ async function serve(dbFile, assets, sportsSpeed) {
 
 const argv = process.argv.slice(2);
 if (argv[0] === '--serve') serve(argv[1], argv[3] || 'dist', argv[5] || '1').catch((e) => { console.error(e); process.exit(1); });
-else main().catch((e) => { console.error(`load failed: ${e.stack || e.message}`); process.exit(1); });
+else main().catch((e) => { console.error(`load failed: ${e.stack || e.message}`); if (child) child.kill('SIGTERM'); process.exit(1); });

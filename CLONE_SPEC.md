@@ -6070,7 +6070,33 @@ errors, not on speed), `full` (2 minutes, 2,000 WebSocket clients, 200 orders/s 
 sampled). Targets (PLAN P9.5): 200 orders/s sustained with p99 order-to-ack < 50 ms; 20,000 WebSocket clients with p99
 fan-out < 250 ms; public pages p95 < 300 ms from the edge.
 
-**Measured** (LOAD_RESULTS_PLACEHOLDER)
+**Measured** on the development VM of this build — 4 vCPU Intel Xeon @ 2.1 GHz, 16 GB RAM, Linux 6.18, Node 22.23.4 —
+with the server and the load generator on the same machine (two processes; at 2,000 sockets the generator itself used
+up to 1.3 GB and most of a core, so client-side latencies include its own queueing), sports simulation off, `dist`
+assets, 2026-11-09:
+
+| Run | Load | Orders/s achieved | Order-to-ack p50 / p99 | WS fan-out p99 | Public pages p95 | Signed API p99 |
+|---|---|---|---|---|---|---|
+| sequential | one order at a time, nothing else | — | 10 ms / 31–40 ms | — | — | — |
+| light | 20 traders, 30 orders/s, 200 WS, 4 page workers, 30 s | 30 | 23 ms / 97 ms | 8 ms | 51 ms | 91 ms |
+| smoke | 8 traders, 60 orders/s target, 50 WS, 12 s | 57–58 (saturated) | 180–240 ms / 5.4–9 s | 4 ms | 310–490 ms | 480–560 ms |
+| full | 40 traders, 200 orders/s target, 2,000 WS, 16 page workers, 60 s | 17.8 (saturated) | 836 ms / 70 s | 203 ms | 1.1 s | 32 s |
+
+Server memory stayed at ~195 MB in every run (no growth over the runs; the one-hour soak was not run in this build).
+**The P9.5 targets are not met on this machine:** one Node process does roughly 10 ms of CPU work per order (gates,
+session and rate accounting, idempotency rows, matching, journal, notifications, fan-out), so the ceiling is about
+60 orders/s with light fan-out and it falls sharply when every trade is fanned out to thousands of sockets (4.5 million
+WebSocket messages in the full run). The fan-out target (p99 < 250 ms) held at 2,000 clients, not yet tried at 20,000.
+
+**Capacity plan.** The recommended VM (4 vCPU, 8 GB, SSD) is CPU-bound on one core; more cores do not help a single
+process. For a play-mode launch with a few thousand members online and occasional trading (tens of orders per second)
+it has headroom; for the real-money targets (200 orders/s with 2× headroom = 400 orders/s capacity) the order path must
+get about 7× cheaper per order, in this order: (1) profile-guided work on the order path — fewer synchronous writes per
+request (session time accounting, rate buckets, idempotency rows batched), statement reuse; (2) move WebSocket fan-out
+off the matching process (a fan-out worker, then the 9B shared pub/sub) and coalesce ticker updates per 100 ms;
+(3) re-measure on the production VM through Cloudflare. **9B signal:** sustained > 30 orders/s for 15 minutes, order p99
+above the 100 ms alert threshold on more than one day a week, or more than 2,000 concurrent WebSocket clients — any one
+starts Phase 9B. The load test result recorded in Launch readiness must be within targets before real money.
 
 ### 39.10 Security hardening
 
@@ -6127,8 +6153,7 @@ fan-out < 250 ms; public pages p95 < 300 ms from the edge.
 - SQLite stays (single writer, one well-sized server); PostgreSQL and several instances are Phase 9B, started by the
   capacity signal (§39.9).
 - Backups are full page copies plus WAL rather than logical dumps, so point-in-time restore is exact; a snapshot briefly
-  blocks the event loop while the file is copied (measured below 100 ms for the 4.5 MB seed database; it grows with the
-  database — see residual risks).
+  blocks the event loop while the file is copied (proportional to the database size — see residual risks).
 - Keyed lookup hashes stay on the ring's `hmac` key across rotations (they are compared, not decrypted; changing them
   needs a re-hash from plaintext).
 - The launch gate is enforced in production only by default, so play-mode development and the earlier suites keep the
@@ -6138,9 +6163,9 @@ fan-out < 250 ms; public pages p95 < 300 ms from the edge.
 
 ### 39.13 Residual risks
 
-- **Capacity:** measured below the P9.5 targets on the test machine (§39.9): per-request CPU in the single Node process
-  is the bottleneck. Profile-guided work on the order path (fewer per-request writes: session time accounting, rate-bucket
-  and idempotency rows) is the first step; Phase 9B starts if that is not enough.
+- **Capacity:** measured below the P9.5 targets on the test machine (§39.9: ~60 orders/s ceiling, fan-out to 2,000
+  sockets within target): per-request CPU in the single Node process is the bottleneck. The capacity plan in §39.9 says
+  what comes first and the signal that starts Phase 9B; the one-hour soak was not run in this build.
 - A snapshot copies the database synchronously; on a multi-gigabyte database this pauses requests for the copy's
   duration. Mitigation then: larger interval, or the SQLite online-backup API with a WAL position barrier (9B moves to
   managed PostgreSQL PITR anyway).
