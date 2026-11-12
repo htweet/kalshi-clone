@@ -122,7 +122,7 @@ services:
     networks: [edge]
 
   alertmanager:
-    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
     restart: unless-stopped
     command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--config.expand-env=true"]
     environment:
