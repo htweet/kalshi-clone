@@ -14,7 +14,9 @@ FROM ${NODE_IMAGE} AS build
 WORKDIR /src/clone
 ENV SKIP_GIT_HOOKS=1 NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false
 COPY clone/package.json clone/package-lock.json ./
-RUN npm ci --ignore-scripts
+# An optional build secret `ca` (a CA bundle) is trusted for this one step only: local CI behind an intercepting proxy
+# (scripts/ci-local.sh) passes it; CI and production builds do not, and nothing of it stays in any layer.
+RUN --mount=type=secret,id=ca,required=false sh -c 'if [ -s /run/secrets/ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/ca; fi; npm ci --ignore-scripts'
 COPY clone/ ./
 # Guard: secrets and data never reach the image, whatever the build context held.
 RUN if find . -path ./node_modules -prune -o \( -name '.env' -o -name '.env.*' ! -name '.env.example' -o -name '*.key' -o -name '*.pem' -o -name '*.db' -o -name '*.db-wal' -o -name 'secret.keyring.json' \) -print | grep -q .; then echo 'refusing to build: secrets or data files in the build context' >&2; exit 1; fi \
