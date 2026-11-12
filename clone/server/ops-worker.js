@@ -14,18 +14,16 @@ const { Worker, isMainThread, parentPort } = require('node:worker_threads');
 
 // ------------------------------------------------------------------------------------------------ the tasks
 const tasks = {
-  // Reads a snapshot copy and seals it: { body (ArrayBuffer, transferred), plain_sha256, sha256 }.
-  sealFile({ file, keyHex, keyId }) {
-    const fs = require('node:fs');
-    const crypto = require('node:crypto');
-    const { seal } = require('./backups');
-    const plain = fs.readFileSync(file);
-    const keys = { active: Buffer.from(keyHex, 'hex'), activeId: keyId };
-    const body = seal(plain, keys);
-    const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
-    const out = { plain_sha256: sha(plain), sha256: sha(body), bytes: body.length };
-    const ab = body.byteOffset === 0 && body.byteLength === body.buffer.byteLength ? body.buffer : body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
-    return { ...out, body: ab, transfer: [ab] };
+  // Seals a database file into `out` as a stream (PLXB2, server/backups.js): { plain_sha256, sha256, bytes }. Memory stays
+  // at about one chunk whatever the database size (CLONE_SPEC.md §39.17).
+  sealFile({ file, out, keyHex, keyId }) {
+    const { sealFile } = require('./backups');
+    return sealFile(file, out, { active: Buffer.from(keyHex, 'hex'), activeId: keyId });
+  },
+  // Streams a file into the store rebuilt from its config (local: a rename; S3: a streamed PUT or a multipart upload).
+  async putFile({ storageConfig, key, src, opts }) {
+    const r = await require('./storage').create(storageConfig).putFile(key, src, opts);
+    return { size: r.size, etag: r.etag };
   },
   // Restore the newest snapshot (+ WAL) into outFile and verify it.
   async drill({ storageConfig, outFile, keyDir, backupKeys, anchors }) {
@@ -47,6 +45,15 @@ const tasks = {
       return { restore: r, verify: v };
     } finally { d.close(); }
   },
+  // The ledger audit (journal + the database's module checks + pending payouts) on a read-only snapshot
+  // (server/ledger-audit.js, CLONE_SPEC.md §39.17).
+  ledgerAudit({ dbFile, checks, payments }) {
+    return readSnapshot(dbFile, (d) => require('./ledger-audit').auditWith(d, { checks, payments }));
+  },
+  // Admin › Perps ops › Ledger.
+  perpsLedger({ dbFile }) {
+    return readSnapshot(dbFile, (d) => require('./ledger-audit').perpsLedger(d));
+  },
   // The live verifiers on a read-only connection to the server's database file.
   verifyLive({ dbFile, keyDir }) {
     const { DatabaseSync } = require('node:sqlite');
@@ -58,6 +65,16 @@ const tasks = {
     } finally { try { d.exec('COMMIT'); } catch { /* read-only snapshot */ } d.close(); }
   },
 };
+// A read-only connection inside one read transaction: every query sees the same WAL snapshot while the server writes.
+function readSnapshot(dbFile, fn) {
+  const { DatabaseSync } = require('node:sqlite');
+  const d = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    d.exec('PRAGMA busy_timeout = 5000');
+    d.exec('BEGIN');
+    return fn(d);
+  } finally { try { d.exec('COMMIT'); } catch { /* read-only snapshot */ } d.close(); }
+}
 function liveChecks(db, { keyDir, readOnly = false } = {}) {
   const journal = require('./journal');
   const auditChain = require('./audit-chain');

@@ -29,12 +29,15 @@ const REGISTRY = [
   ['ssr.cache_seconds', 'reach', 'int', 60, { min: 0, max: 3600, unit: 'seconds', where: '/admin/owner_settings' }],
   ['data_saver.default_on', 'reach', 'bool', false, { pub: true, where: '/admin/owner_settings' }],
   ['sms.per_user_per_day', 'reach', 'int', 10, { min: 1, max: 100, unit: 'count', stepUp: true, where: '/admin/owner_settings' }],
+  // Database growth fix (CLONE_SPEC.md §39.17): the built-in liquidity accounts' write rate (server/sim-activity.js).
+  ['simulation.activity', 'simulation', 'enum', 'low', { values: ['off', 'low', 'normal'], where: '/admin/owner_settings' }],
   // Phase 9A (CLONE_SPEC.md §39.7): backups, observability, alert thresholds, admin access. Backup settings touch personal
   // data (what is kept, for how long) and the allowlist touches security: both need a step-up.
   ['backups.interval_minutes', 'backups', 'int', 15, { min: 5, max: 1440, unit: 'minutes', stepUp: true, where: '/admin/system' }],
   ['backups.nightly_hour_wat', 'backups', 'int', 2, { min: 0, max: 23, unit: 'hour', stepUp: true, where: '/admin/system' }],
   ['backups.wal_ship_seconds', 'backups', 'int', 10, { min: 1, max: 300, unit: 'seconds', stepUp: true, where: '/admin/system' }],
   ['backups.keep_interval_hours', 'backups', 'int', 48, { min: 1, max: 720, unit: 'hours', stepUp: true, where: '/admin/system' }],
+  ['backups.keep_interval_count', 'backups', 'int', 8, { min: 1, max: 1000, unit: 'count', stepUp: true, where: '/admin/system' }], // CLONE_SPEC.md §39.17
   ['backups.retention_daily', 'backups', 'int', 7, { min: 1, max: 90, unit: 'count', stepUp: true, where: '/admin/system' }],
   ['backups.retention_weekly', 'backups', 'int', 4, { min: 0, max: 52, unit: 'count', stepUp: true, where: '/admin/system' }],
   ['backups.retention_monthly', 'backups', 'int', 12, { min: 0, max: 120, unit: 'count', stepUp: true, where: '/admin/system' }],

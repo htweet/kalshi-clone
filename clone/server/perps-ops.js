@@ -398,10 +398,11 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
     res.json(referrals.adminList('perps'));
   });
   // The perps journal: its audit (also part of the main ledger audit) and account totals.
-  v1.get(`${A}/ledger`, can('perps.ops'), (req, res) => {
-    const sums = new Map(db.prepare('SELECT account, SUM(amount_cents) s FROM journal_postings GROUP BY account').all().map((r) => [r.account, r.s]));
-    const a = PL.audit(db, { mainGot: (x) => sums.get(x) || 0 });
-    res.json({ ok: a.ok, problems: a.problems.slice(0, 50), entries: a.entries, totals_dollars: Object.fromEntries(Object.entries(a.totals).map(([k, v]) => [k, (v / 10000).toFixed(4)])), insurance_dollars: (PL.balanceOf(db, PL.H.insurance) / 10000).toFixed(4), backstop_dollars: (PL.balanceOf(db, PL.H.backstop) / 10000).toFixed(4), fees_dollars: (PL.balanceOf(db, PL.H.fees) / 10000).toFixed(4) });
+  // The audit reads whole tables: it runs in the operations worker on a read-only snapshot (server/ledger-audit.js,
+  // CLONE_SPEC.md §39.17); the bridge check reads the main journal's perps:collateral sum (indexed).
+  v1.get(`${A}/ledger`, can('perps.ops'), async (req, res) => {
+    const { audit: a, insurance_cc: ins, backstop_cc: back, fees_cc: fees } = await require('./ledger-audit').runPerpsLedger(db);
+    res.json({ ok: a.ok, problems: a.problems.slice(0, 50), entries: a.entries, totals_dollars: Object.fromEntries(Object.entries(a.totals).map(([k, v]) => [k, (v / 10000).toFixed(4)])), insurance_dollars: (ins / 10000).toFixed(4), backstop_dollars: (back / 10000).toFixed(4), fees_dollars: (fees / 10000).toFixed(4) });
   });
 
   // ---------------------------------------------------------------- the switch to production (server/play-mode.js)

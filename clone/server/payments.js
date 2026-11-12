@@ -766,8 +766,9 @@ function mountPayments({ v1, db, engine, auth, identity, security, feat, keyDir,
   });
 
   // ------------------------------------------------------------------ admin, reconciliation, ledger audit, jobs
-  const pendingPayouts = (rail) => db.prepare("SELECT COALESCE(SUM(amount_cents-fee_cents),0) c FROM payment_transactions WHERE rail=? AND direction='withdrawal' AND status='processing'").get(rail).c;
-  const adminApi = mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, saveSettings, D, AML_ACTIONS, RULE_TEXT, txnVo, pendingPayouts, demoEnabled, sandboxOn, expireCredits, options });
+  // The ledger audit's expected payouts:<rail> balances come from server/ledger-audit.js (pendingPayouts), which also
+  // runs the audit in the operations worker (CLONE_SPEC.md §39.17).
+  const adminApi = mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, saveSettings, D, AML_ACTIONS, RULE_TEXT, txnVo, demoEnabled, sandboxOn, expireCredits, options });
 
   sandbox.start();
   return {

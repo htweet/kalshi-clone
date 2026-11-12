@@ -409,6 +409,7 @@ function open(file) {
     if (release) release();
     throw e;
   }
+  if (file !== ':memory:') db.__file = path.resolve(file); // the operations worker opens its own read-only connection to it
   if (release) {
     const close = db.close.bind(db);
     db.close = () => { try { close(); } finally { release(); } };

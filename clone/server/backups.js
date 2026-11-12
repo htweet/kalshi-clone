@@ -3,16 +3,27 @@
 //
 // Encryption: every object (snapshot or WAL segment) is sealed with AES-256-GCM under the BACKUP key, which is separate
 // from the master key (BACKUP_KEY / BACKUP_KEY_FILE; a dev default `<data>/backup.key`, refused in production by the
-// config guard). Object format: "PLXB1" | key-id length (1 byte) | key id (ASCII, 16 hex of SHA-256(key)) | IV (12) |
-// ciphertext | GCM tag (16). The previous key (BACKUP_KEY_PREVIOUS) still opens older objects after a rotation.
+// config guard). Two object formats (SECURITY.md › Backups):
+//   PLXB1 (WAL segments; snapshots before 2026-11-13): "PLXB1" | key-id length (1 byte) | key id (ASCII, 16 hex of
+//         SHA-256(key)) | IV (12) | ciphertext | GCM tag (16) — one GCM message.
+//   PLXB2 (snapshots since the database growth fix, CLONE_SPEC.md §39.17): chunked AES-256-GCM, sealed and opened as a
+//         stream so memory stays bounded whatever the database size: "PLXB2" | key-id length (1) | key id | chunk size
+//         (4, big-endian) | nonce prefix (8, random per object) | chunks. Chunk i = the ciphertext of up to `chunk size`
+//         plaintext bytes | its GCM tag (16), under IV = nonce prefix | i (4, big-endian) and AAD = the header bytes | i (4)
+//         | final flag (1). Every chunk but the last holds exactly `chunk size` bytes; the last one (possibly empty) carries
+//         the final flag, so a truncated, reordered, spliced or re-headed object fails authentication.
+// Both formats always open (PLXB1 too as a stream, its tag read first). The previous key (BACKUP_KEY_PREVIOUS) still
+// opens older objects after a rotation.
 // Every object also carries the SHA-256 of its plaintext and of its ciphertext in a sidecar manifest (JSON, no secrets)
 // so a restore can list and check backups with no database at all.
 //
 // Snapshots ("interval" every N minutes, "nightly" once a day at the owner-set hour, "pre_production" before the play →
-// real-money switch, "manual"): ship pending WAL frames, checkpoint (TRUNCATE) so the main file holds every committed
-// page and the WAL is empty, then copy the main file page for page. All of it runs synchronously, so no write of this
-// process (the only writer: server/db.js instance lock) can slip in between; the copy is then sealed and uploaded
-// asynchronously from a temporary file. A snapshot therefore sits exactly at the start of a WAL generation.
+// real-money switch, "pre_compaction" before `npm run db:compact`, "manual"): ship pending WAL frames and checkpoint
+// (TRUNCATE) so the main file holds every committed page and the WAL is empty — synchronously, so no write of this process
+// (the only writer: server/db.js instance lock) can slip in between. The operations worker then reads the main file as a
+// stream, seals it (PLXB2) into a staging file and uploads that as a stream. Checkpoints wait while the main file is read
+// (new writes go to the WAL), so a snapshot sits exactly at the start of a WAL generation; no plaintext copy is written
+// and memory stays bounded whatever the database size (CLONE_SPEC.md §39.17).
 //
 // WAL shipping (Litestream-style): automatic checkpoints are switched off on the server's connection; every few seconds
 // the new frames of the -wal file, up to the last commit frame, are sealed and uploaded as a segment of the current
@@ -22,12 +33,15 @@
 // recovers on open (checksummed frames; a partial generation stops cleanly at its last shipped commit). Loss window: the
 // shipping interval (default 10 s).
 //
-// Retention (owner settings): interval snapshots for `backups.keep_interval_hours`; nightly snapshots 7 daily / 4 weekly /
-// 12 monthly; WAL segments older than the oldest retained snapshot are deleted. Every deletion is recorded.
+// Retention (owner settings): interval snapshots for `backups.keep_interval_hours` and at most the newest
+// `backups.keep_interval_count` of them (a large database cannot fill a laptop's disk); nightly snapshots 7 daily / 4 weekly
+// / 12 monthly; WAL segments older than the oldest retained snapshot are deleted. Every deletion is recorded.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { Transform, Writable, Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const { DatabaseSync } = require('node:sqlite');
 const { newId } = require('./util');
 
@@ -71,7 +85,14 @@ function seal(plain, keys) {
   const kid = Buffer.from(keys.activeId, 'ascii');
   return Buffer.concat([MAGIC, Buffer.from([kid.length]), kid, iv, ct, c.getAuthTag()]);
 }
+// Opens a whole object held in memory (PLXB1, or a PLXB2 object read into a buffer).
 function open(buf, keys) {
+  if (buf && buf.length >= MAGIC2.length && buf.subarray(0, MAGIC2.length).equals(MAGIC2)) {
+    const dec = chunkDecoder(keys);
+    const out = dec.write(buf);
+    out.push(dec.end());
+    return Buffer.concat(out);
+  }
   if (!buf || buf.length < MAGIC.length + 1 + 12 + 16 || !buf.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('not a Parlance backup object');
   const n = buf[MAGIC.length];
   const kid = buf.subarray(MAGIC.length + 1, MAGIC.length + 1 + n).toString('ascii');
@@ -84,6 +105,148 @@ function open(buf, keys) {
   return Buffer.concat([d.update(buf.subarray(at + 12, buf.length - 16)), d.final()]);
 }
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+
+// ---- PLXB2: chunked AES-256-GCM as streams (format above).
+const MAGIC2 = Buffer.from('PLXB2');
+const CHUNK = 1 << 20; // 1 MiB of plaintext per chunk
+const TAG = 16;
+const ivOf = (prefix, i) => { const iv = Buffer.alloc(12); prefix.copy(iv, 0); iv.writeUInt32BE(i, 8); return iv; };
+const aadOf = (header, i, final) => { const t = Buffer.alloc(5); t.writeUInt32BE(i, 0); t[4] = final ? 1 : 0; return Buffer.concat([header, t]); };
+function createSealStream(keys, { chunkSize = CHUNK } = {}) {
+  const kid = Buffer.from(keys.activeId, 'ascii');
+  const size = Buffer.alloc(4); size.writeUInt32BE(chunkSize, 0);
+  const header = Buffer.concat([MAGIC2, Buffer.from([kid.length]), kid, size, crypto.randomBytes(8)]);
+  const prefix = header.subarray(header.length - 8);
+  let i = 0; let pending = []; let have = 0; let started = false;
+  const chunk = (plain, final) => {
+    if (i >= 0xffffffff) throw new Error('backup object too large');
+    const c = crypto.createCipheriv('aes-256-gcm', keys.active, ivOf(prefix, i));
+    c.setAAD(aadOf(header, i, final));
+    const out = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
+    i += 1;
+    return out;
+  };
+  return new Transform({
+    transform(data, enc, cb) {
+      try {
+        if (!started) { started = true; this.push(header); }
+        pending.push(data); have += data.length;
+        if (have >= chunkSize) {
+          let all = pending.length === 1 ? pending[0] : Buffer.concat(pending);
+          while (all.length >= chunkSize) { this.push(chunk(all.subarray(0, chunkSize), false)); all = all.subarray(chunkSize); }
+          pending = all.length ? [Buffer.from(all)] : []; have = all.length;
+        }
+        cb();
+      } catch (e) { cb(e); }
+    },
+    flush(cb) {
+      try {
+        if (!started) { started = true; this.push(header); }
+        this.push(chunk(Buffer.concat(pending), true));
+        cb();
+      } catch (e) { cb(e); }
+    },
+  });
+}
+// PLXB2 decoder: write(bytes) → plaintext buffers ready so far; end() → the last plaintext. Throws on a wrong key, any
+// altered byte, reordering, truncation or trailing data.
+function chunkDecoder(keys) {
+  let header = null; let key = null; let chunkSize = 0; let prefix = null;
+  let buf = Buffer.alloc(0); let i = 0;
+  const open1 = (body, final) => {
+    const d = crypto.createDecipheriv('aes-256-gcm', key, ivOf(prefix, i));
+    d.setAAD(aadOf(header, i, final));
+    d.setAuthTag(body.subarray(body.length - TAG));
+    const out = Buffer.concat([d.update(body.subarray(0, body.length - TAG)), d.final()]);
+    i += 1;
+    return out;
+  };
+  return {
+    write(data) {
+      const out = [];
+      buf = buf.length ? Buffer.concat([buf, data]) : data;
+      if (!header) {
+        if (buf.length < MAGIC2.length + 1) return out;
+        if (!buf.subarray(0, MAGIC2.length).equals(MAGIC2)) throw new Error('not a Parlance backup object');
+        const n = buf[MAGIC2.length];
+        const hl = MAGIC2.length + 1 + n + 4 + 8;
+        if (buf.length < hl) return out;
+        header = Buffer.from(buf.subarray(0, hl));
+        const kid = header.subarray(MAGIC2.length + 1, MAGIC2.length + 1 + n).toString('ascii');
+        key = keys.all.get(kid);
+        if (!key) throw new Error(`backup object sealed with key ${kid}, which is not configured (set BACKUP_KEY or BACKUP_KEY_PREVIOUS)`);
+        chunkSize = header.readUInt32BE(MAGIC2.length + 1 + n);
+        if (!(chunkSize > 0 && chunkSize <= 64 << 20)) throw new Error('backup object header is damaged');
+        prefix = header.subarray(hl - 8);
+        buf = buf.subarray(hl);
+      }
+      // A full chunk is opened only once more bytes follow it: the last chunk is the one marked final.
+      while (buf.length > chunkSize + TAG) { out.push(open1(buf.subarray(0, chunkSize + TAG), false)); buf = buf.subarray(chunkSize + TAG); }
+      if (buf.length) buf = Buffer.from(buf);
+      return out;
+    },
+    end() {
+      if (!header || buf.length < TAG || buf.length >= chunkSize + TAG) throw new Error('backup object is truncated');
+      return open1(buf, true);
+    },
+  };
+}
+function createOpenStream(keys) {
+  const dec = chunkDecoder(keys);
+  return new Transform({
+    transform(data, enc, cb) { try { for (const b of dec.write(data)) this.push(b); cb(); } catch (e) { cb(e); } },
+    flush(cb) { try { this.push(dec.end()); cb(); } catch (e) { cb(e); } },
+  });
+}
+// A pass-through that hashes (SHA-256) and counts what flows through it.
+function hashTap() {
+  const h = crypto.createHash('sha256'); let n = 0;
+  const t = new Transform({ transform(d, e, cb) { h.update(d); n += d.length; cb(null, d); } });
+  t.result = () => ({ sha256: h.digest('hex'), bytes: n });
+  return t;
+}
+const sink = () => new Writable({ write(d, e, cb) { cb(); } });
+// Seals a file into another as PLXB2 → { plain_sha256, sha256, bytes (sealed), plain_bytes }. Memory: about one chunk.
+async function sealFile(inFile, outFile, keys, { chunkSize = CHUNK } = {}) {
+  const plain = hashTap(); const sealed = hashTap();
+  await pipeline(fs.createReadStream(inFile, { highWaterMark: chunkSize }), plain, createSealStream(keys, { chunkSize }), sealed, fs.createWriteStream(outFile, { mode: 0o600 }));
+  const p = plain.result(); const c = sealed.result();
+  return { plain_sha256: p.sha256, sha256: c.sha256, bytes: c.bytes, plain_bytes: p.bytes };
+}
+// SHA-256 and size of a file, streamed.
+async function hashFile(file) { const t = hashTap(); await pipeline(fs.createReadStream(file, { highWaterMark: CHUNK }), t, sink()); return t.result(); }
+// Opens a sealed object file (PLXB1 or PLXB2) into outFile as a stream → { plain_sha256, bytes }. Plaintext reaches
+// outFile before authentication completes, so callers write to a temporary name and rename it afterwards; on failure
+// the partial file is removed.
+async function openFile(inFile, outFile, keys) {
+  const size = (await fs.promises.stat(inFile)).size;
+  const head = Buffer.alloc(Math.min(size, 64));
+  const fd = await fs.promises.open(inFile, 'r');
+  try { await fd.read(head, 0, head.length, 0); } finally { await fd.close(); }
+  const plain = hashTap();
+  try {
+    if (head.subarray(0, MAGIC2.length).equals(MAGIC2)) {
+      await pipeline(fs.createReadStream(inFile, { highWaterMark: CHUNK }), createOpenStream(keys), plain, fs.createWriteStream(outFile, { mode: 0o600 }));
+    } else {
+      // PLXB1: one GCM message whose tag is the last 16 bytes; the tag is set first and the ciphertext streams through.
+      if (size < MAGIC.length + 1 + 12 + 16 || !head.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('not a Parlance backup object');
+      const n = head[MAGIC.length];
+      const kid = head.subarray(MAGIC.length + 1, MAGIC.length + 1 + n).toString('ascii');
+      const key = keys.all.get(kid);
+      if (!key) throw new Error(`backup object sealed with key ${kid}, which is not configured (set BACKUP_KEY or BACKUP_KEY_PREVIOUS)`);
+      const at = MAGIC.length + 1 + n;
+      const iv = Buffer.alloc(12); const tag = Buffer.alloc(16);
+      const f = await fs.promises.open(inFile, 'r');
+      try { await f.read(iv, 0, 12, at); await f.read(tag, 0, 16, size - 16); } finally { await f.close(); }
+      const d = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      d.setAAD(MAGIC); d.setAuthTag(tag);
+      const body = at + 12 < size - 16 ? fs.createReadStream(inFile, { start: at + 12, end: size - 17, highWaterMark: CHUNK }) : Readable.from([]);
+      await pipeline(body, d, plain, fs.createWriteStream(outFile, { mode: 0o600 }));
+    }
+  } catch (e) { try { fs.unlinkSync(outFile); } catch { /* none */ } throw e; }
+  const r = plain.result();
+  return { plain_sha256: r.sha256, bytes: r.bytes };
+}
 
 // ------------------------------------------------------------------------------------------------ WAL file reading
 function readWal(walFile) {
@@ -115,15 +278,28 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   const serial = (fn) => { const p = busy.then(fn, fn); busy = p.catch(() => {}); return p; }; // one upload at a time, in order
   const stamp = (t) => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
-  // A snapshot is sealed in the operations worker (server/ops-worker.js): reading, encrypting and hashing a large
-  // database must not hold up requests. `useWorker: false` (option) keeps it on this thread.
+  // A snapshot is sealed and uploaded in the operations worker (server/ops-worker.js) as a stream: reading, encrypting,
+  // hashing and uploading a large database must neither hold up requests nor hold the database in memory. The worker
+  // rebuilds the storage driver from its config; an injected driver (tests) or `useWorker: false` keeps the streaming
+  // on this thread.
   const opsWorker = require('./ops-worker');
-  async function putSealed(key, sealed, meta) {
-    const body = Buffer.from(sealed.body);
-    const manifest = { ...meta, key_id: keys.activeId, plain_sha256: sealed.plain_sha256, sha256: sealed.sha256, bytes: body.length };
-    await storage.put(key, body, { contentType: 'application/octet-stream', meta: { sha256: manifest.sha256 } });
-    await storage.put(`${key}.json`, Buffer.from(JSON.stringify(manifest)), { contentType: 'application/json' });
-    return manifest;
+  // `release()` is called once the main file has been read (sealed into the staging file), before the upload.
+  async function sealSnapshot(key, meta, release) {
+    const cfg = storage.config ? storage.config() : null;
+    const inWorker = !!cfg && options.useWorker !== false;
+    // Local store: staged beside the object, moved in with a rename (no second copy). Elsewhere: a temporary file.
+    const staging = storage.stagingFile ? storage.stagingFile(key) : path.join(os.tmpdir(), `parlance-snap-${process.pid}-${newId('s')}.plxb`);
+    try {
+      const sealed = inWorker ? await opsWorker.run('sealFile', { file, out: staging, keyHex: keys.active.toString('hex'), keyId: keys.activeId }) : await sealFile(file, staging, keys);
+      release();
+      const putOpts = { contentType: 'application/octet-stream', meta: { sha256: sealed.sha256 }, move: true };
+      if (inWorker) await opsWorker.run('putFile', { storageConfig: cfg, key, src: staging, opts: putOpts });
+      else if (typeof storage.putFile === 'function') await storage.putFile(key, staging, putOpts);
+      else await storage.put(key, await fs.promises.readFile(staging), putOpts); // an injected driver without streaming (tests)
+      const manifest = { ...meta, key_id: keys.activeId, plain_sha256: sealed.plain_sha256, sha256: sealed.sha256, bytes: sealed.bytes };
+      await storage.put(`${key}.json`, Buffer.from(JSON.stringify(manifest)), { contentType: 'application/json' });
+      return manifest;
+    } finally { await fs.promises.unlink(staging).catch(() => {}); }
   }
   async function putObject(key, plain, meta) {
     const body = seal(plain, keys);
@@ -173,9 +349,15 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   }
   // Checkpoint (TRUNCATE) once everything is collected: the main file then holds every committed page and the next
   // write starts a new generation. Returns true when the WAL is empty.
+  // Never waits: a TRUNCATE checkpoint calls the busy handler until every reader has moved past the WAL, and the
+  // operations worker's read snapshot (ledger audit, verifiers) can last seconds — with the connection's 5 s busy timeout
+  // that held the request thread. Busy now means "try again at the next tick".
   function checkpoint() {
-    const r = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
-    return r && r.busy === 0;
+    db.exec('PRAGMA busy_timeout = 0');
+    try {
+      const r = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+      return r && r.busy === 0;
+    } finally { db.exec('PRAGMA busy_timeout = 5000'); }
   }
   function shipWal({ force = false } = {}) {
     if (!shipping) return null;
@@ -188,45 +370,47 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   }
 
   // ---- snapshots
-  let copying = false;
-  function snapshot(kind = 'interval', { note = '', actor = null } = {}) {
+  // `copying`: the main file is being read for a snapshot — no checkpoint may change it until the read ends.
+  let copying = false; let current = null;
+  function snapshot(kind = 'interval', opts = {}) {
     if (!file || !storage) return Promise.reject(new Error('backups need a database file and a storage adapter'));
+    // One snapshot reads the main file at a time; a second request starts when the first has finished reading.
+    if (copying && current) return current.then(() => snapshot(kind, opts), () => snapshot(kind, opts));
+    const { note = '', actor = null } = opts;
     const id = newId('bk_');
     const t0 = now();
     const schemaVersion = (() => { try { return require('./migrations').version(db); } catch { return null; } })();
-    let tmp;
     try {
       const seg = shipping ? collectFrames() : null;
       if (seg) queueSegment(seg);
       if (!checkpoint()) throw new Error('could not checkpoint the database (busy); will retry');
       const generation = shipping ? state.generation + 1 : null; // the next write opens this generation
-      tmp = path.join(os.tmpdir(), `parlance-snap-${process.pid}-${id}.db`);
-      // Page-for-page copy (WAL segments of later generations apply to it), asynchronous so requests keep flowing: the
-      // main file stays as checkpointed until the copy ends (automatic checkpoints are off; shipWal waits for it).
+      // From here the main file is read as it was checkpointed (WAL segments of later generations apply to it): automatic
+      // checkpoints stay off (always off while WAL shipping runs; switched off here otherwise) and shipWal waits.
       copying = true;
-      const copied = fs.promises.copyFile(file, tmp).finally(() => { copying = false; });
-      copied.catch(() => {});
+      if (!shipping) db.exec('PRAGMA wal_autocheckpoint = 0');
+      const release = () => { if (!copying) return; copying = false; if (!shipping) { try { db.exec('PRAGMA wal_autocheckpoint = 1000'); } catch { /* closed */ } } };
       db.prepare('INSERT INTO ops_backups(id,kind,status,created_ts,schema_version,wal_generation,note) VALUES(?,?,?,?,?,?,?)').run(id, kind, 'running', t0, schemaVersion, generation, String(note).slice(0, 200));
       if (shipping) { state = { generation: state.generation, salt: '__checkpointed__', frames: 0 }; saveState(); } // next header = next generation
       const key = `snapshots/${new Date(t0).toISOString().slice(0, 10).replace(/-/g, '/')}/${stamp(t0)}-${kind}-${id}.plxb`;
-      const snapTmp = tmp;
-      return serial(async () => {
+      const p = serial(async () => {
         try {
-          await copied;
-          const sealed = await opsWorker.run('sealFile', { file: snapTmp, keyHex: keys.active.toString('hex'), keyId: keys.activeId }, { inline: options.useWorker === false });
-          const m = await putSealed(key, sealed, { type: 'snapshot', id, kind, ts: t0, schema_version: schemaVersion, wal_generation: generation });
+          const m = await sealSnapshot(key, { type: 'snapshot', id, kind, ts: t0, schema_version: schemaVersion, wal_generation: generation }, release);
           db.prepare("UPDATE ops_backups SET status='ok', finished_ts=?, object_key=?, bytes=?, sha256=?, plain_sha256=?, key_id=? WHERE id=?").run(now(), key, m.bytes, m.sha256, m.plain_sha256, m.key_id, id);
           log({ msg: 'backup written', kind, id, bytes: m.bytes, ms: now() - t0 });
           audit({ action: 'ops.backup', target_id: id, after: { kind, object_key: key, bytes: m.bytes, sha256: m.sha256 }, reason: note || kind, actor });
           return { id, kind, object_key: key, bytes: m.bytes, sha256: m.sha256, created_ts: t0 };
         } catch (e) {
+          release();
           db.prepare("UPDATE ops_backups SET status='failed', finished_ts=?, error=? WHERE id=?").run(now(), String(e.message).slice(0, 500), id);
           log({ level: 'error', msg: 'backup failed', kind, id, error: e.message });
           throw e;
-        } finally { try { fs.unlinkSync(snapTmp); } catch { /* gone */ } }
+        }
       });
+      current = p.catch(() => {});
+      return p;
     } catch (e) {
-      if (tmp) { try { fs.unlinkSync(tmp); } catch { /* gone */ } }
+      if (copying) { copying = false; if (!shipping) { try { db.exec('PRAGMA wal_autocheckpoint = 1000'); } catch { /* closed */ } } }
       try { db.prepare("INSERT INTO ops_backups(id,kind,status,created_ts,finished_ts,error) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status='failed', error=excluded.error").run(id, kind, 'failed', t0, now(), String(e.message).slice(0, 500)); } catch { /* closed */ }
       return Promise.reject(e);
     }
@@ -238,8 +422,15 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
     const ok = db.prepare("SELECT * FROM ops_backups WHERE status='ok' AND deleted_ts IS NULL ORDER BY created_ts DESC").all();
     const keep = new Set();
     const intervalCut = t - Number(S('backups.keep_interval_hours', 48)) * 3600000;
-    for (const b of ok) if (b.kind !== 'nightly' && b.created_ts >= intervalCut) keep.add(b.id);
-    for (const b of ok.filter((x) => x.kind === 'pre_production' || x.kind === 'manual')) if (b.created_ts >= t - 365 * dayMs) keep.add(b.id); // kept a year
+    // Interval snapshots: within the hours window and among the newest `keep_interval_count` (newest first).
+    const maxInterval = Number(S('backups.keep_interval_count', 8));
+    let intervals = 0;
+    for (const b of ok) {
+      if (b.kind === 'nightly' || b.created_ts < intervalCut) continue;
+      if (b.kind === 'interval') { intervals += 1; if (intervals > maxInterval) continue; }
+      keep.add(b.id);
+    }
+    for (const b of ok.filter((x) => x.kind === 'pre_production' || x.kind === 'manual' || x.kind === 'pre_compaction')) if (b.created_ts >= t - 365 * dayMs) keep.add(b.id); // kept a year
     const nightly = ok.filter((b) => b.kind === 'nightly');
     const pick = (n, bucketOf) => { const seen = new Set(); for (const b of nightly) { const k = bucketOf(new Date(b.created_ts)); if (seen.has(k)) continue; seen.add(k); if (seen.size > n) break; keep.add(b.id); } };
     pick(Number(S('backups.retention_daily', 7)), (d) => d.toISOString().slice(0, 10));
@@ -336,8 +527,23 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
     return plain;
   };
   const tmp = `${outFile}.restore-${process.pid}`;
-  for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) { try { fs.unlinkSync(f); } catch { /* none */ } }
-  fs.writeFileSync(tmp, await getChecked(snap), { mode: 0o600 });
+  for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`, `${tmp}.obj`]) { try { fs.unlinkSync(f); } catch { /* none */ } }
+  // The snapshot as a stream (memory bounded whatever its size): the local store's own file, else a download into a
+  // temporary file; its checksum is checked first, then it is decrypted into the restore file.
+  {
+    let src = storage.pathOf ? storage.pathOf(snap.key) : null; let fetched = null;
+    if (!src || !fs.existsSync(src)) {
+      fetched = `${tmp}.obj`;
+      if (typeof storage.getFile === 'function') { if (!(await storage.getFile(snap.key, fetched))) throw new Error(`object ${snap.key} is missing`); }
+      else { const body = await storage.get(snap.key); if (!body) throw new Error(`object ${snap.key} is missing`); fs.writeFileSync(fetched, body, { mode: 0o600 }); } // an injected driver (tests)
+      src = fetched;
+    }
+    try {
+      if ((await hashFile(src)).sha256 !== snap.sha256) throw new Error(`object ${snap.key} is corrupt (checksum mismatch)`);
+      const r = await openFile(src, tmp, k);
+      if (r.plain_sha256 !== snap.plain_sha256) { try { fs.unlinkSync(tmp); } catch { /* none */ } throw new Error(`object ${snap.key} decrypted to unexpected content`); }
+    } finally { if (fetched) { try { fs.unlinkSync(fetched); } catch { /* none */ } } }
+  }
   log({ msg: 'snapshot restored', key: snap.key, ts: snap.ts });
   // WAL generations after the snapshot, each from its first frame, segments contiguous, shipped at or before the target.
   const segs = manifests.filter((m) => m.type === 'wal' && snap.wal_generation != null && m.generation >= snap.wal_generation && m.ts <= targetTs)
@@ -347,19 +553,22 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
   let applied = 0; let reached = snap.ts; let generations = 0;
   for (const [gen, list] of [...byGen].sort((a, b) => a[0] - b[0])) {
     if (list[0].first_frame !== 0) { log({ level: 'warn', msg: 'wal generation incomplete, stopping', generation: gen }); break; }
-    const parts = []; let expect = 0; let header = null;
-    for (const s of list) {
-      if (s.first_frame !== expect) break; // a gap: stop at the last contiguous segment
-      const plain = await getChecked(s);
-      const nl = plain.indexOf(10);
-      const meta = JSON.parse(plain.subarray(0, nl).toString('utf8'));
-      let body = plain.subarray(nl + 1);
-      if (meta.first_frame === 0) { header = body.subarray(0, WAL_HEADER); body = body.subarray(WAL_HEADER); }
-      parts.push(body);
-      expect += meta.frames; applied += 1; reached = Math.max(reached, meta.ts);
-    }
+    // The generation's WAL file, written segment by segment (one segment in memory at a time).
+    let expect = 0; let header = null; let fd = null;
+    try {
+      for (const s of list) {
+        if (s.first_frame !== expect) break; // a gap: stop at the last contiguous segment
+        const plain = await getChecked(s);
+        const nl = plain.indexOf(10);
+        const meta = JSON.parse(plain.subarray(0, nl).toString('utf8'));
+        let body = plain.subarray(nl + 1);
+        if (meta.first_frame === 0) { header = body.subarray(0, WAL_HEADER); body = body.subarray(WAL_HEADER); fd = fs.openSync(`${tmp}-wal`, 'w', 0o600); fs.writeSync(fd, header); }
+        if (fd == null) break;
+        fs.writeSync(fd, body);
+        expect += meta.frames; applied += 1; reached = Math.max(reached, meta.ts);
+      }
+    } finally { if (fd != null) fs.closeSync(fd); }
     if (!header) break;
-    fs.writeFileSync(`${tmp}-wal`, Buffer.concat([header, ...parts]), { mode: 0o600 });
     const d = new DatabaseSync(tmp); // recovery replays the valid, committed frames of the WAL
     try { d.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } finally { d.close(); }
     generations += 1;
@@ -372,4 +581,4 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
   return { snapshot: { key: snap.key, time: new Date(snap.ts).toISOString(), id: snap.id }, generations, segments: applied, target_ts: targetTs, reached_ts: reached };
 }
 
-module.exports = { createBackups, restore, backupKeys, seal, open, keyId, readWal };
+module.exports = { createBackups, restore, backupKeys, seal, open, keyId, readWal, sealFile, openFile, hashFile, createSealStream, createOpenStream, CHUNK };

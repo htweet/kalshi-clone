@@ -406,19 +406,32 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     res.json({ fills: rows.map(fillVo) });
   });
   v1.get('/users/:uid/settlement_history', requireUser, (req, res) => {
-    const rows = db.prepare('SELECT s.*, m.title FROM settlements s JOIN markets m ON m.ticker=s.market_ticker WHERE s.user_id=? ORDER BY s.created_at DESC').all(req.auth.user.id);
+    const rows = db.prepare('SELECT s.*, m.title FROM settlements s JOIN markets m ON m.ticker=s.market_ticker WHERE s.user_id=? ORDER BY s.created_at DESC LIMIT 500').all(req.auth.user.id); // the newest 500, like fills (CLONE_SPEC.md §39.17)
     res.json({ settlements: rows.map((s) => ({ ticker: s.market_ticker, market_title: s.title, market_result: s.result, yes_count_fp: ufp(s.yes_count), no_count_fp: ufp(s.no_count), revenue_dollars: dollars(s.effective_payout_cents ?? s.payout_cents), cost_dollars: dollars(s.cost_cents), settled_time: s.created_at,
       settlement_value_dollars: P.ccToDollars(s.settlement_value_cc), original_revenue_dollars: dollars(s.payout_cents), corrected_time: s.corrected_at || null })) }); // G6 corrections (CLONE_SPEC.md §28.7)
   });
-  const ledgerRows = (uid) => db.prepare('SELECT * FROM ledger WHERE user_id=? ORDER BY created_at DESC, rowid DESC').all(uid);
-  v1.get('/users/:uid/transactions', requireUser, (req, res) => res.json({ transactions: ledgerRows(req.auth.user.id).map((l) => ({ id: l.id, kind: l.kind, amount_dollars: dollars(l.amount_cents), ref: l.ref, memo: l.memo, created_time: l.created_at })) }));
+  // Newest first and bounded (database growth fix, CLONE_SPEC.md §39.17): the Transactions view shows the newest 500,
+  // like the fill history (the History timeline pages through everything); the CSV export walks the whole ledger in
+  // keyset pages of 2,000 rows and lets other requests run between pages.
+  const ledgerPage = (uid, after, n) => (after
+    ? db.prepare('SELECT rowid r, * FROM ledger WHERE user_id=? AND (created_at<? OR (created_at=? AND rowid<?)) ORDER BY created_at DESC, rowid DESC LIMIT ?').all(uid, after.created_at, after.created_at, after.r, n)
+    : db.prepare('SELECT rowid r, * FROM ledger WHERE user_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(uid, n));
+  v1.get('/users/:uid/transactions', requireUser, (req, res) => res.json({ transactions: ledgerPage(req.auth.user.id, null, 500).map((l) => ({ id: l.id, kind: l.kind, amount_dollars: dollars(l.amount_cents), ref: l.ref, memo: l.memo, created_time: l.created_at })) }));
   // File format (spec §9, U8 design choice): CSV of ledger entries.
-  v1.get('/users/:uid/transactions.csv', requireUser, (req, res) => {
+  v1.get('/users/:uid/transactions.csv', requireUser, async (req, res) => {
     const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-    const lines = [`time,type,${C.csvCol('amount', 'amount_usd')},reference,memo`, ...ledgerRows(req.auth.user.id).map((l) => [l.created_at, l.kind, C.csvCents(l.amount_cents), l.ref || '', l.memo].map(esc).join(','))];
+    const uid = req.auth.user.id;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="parlance-transactions.csv"');
-    res.send(lines.join('\n') + '\n');
+    res.write(`time,type,${C.csvCol('amount', 'amount_usd')},reference,memo\n`);
+    for (let after = null; ;) {
+      const page = ledgerPage(uid, after, 2000);
+      if (page.length) res.write(`${page.map((l) => [l.created_at, l.kind, C.csvCents(l.amount_cents), l.ref || '', l.memo].map(esc).join(',')).join('\n')}\n`);
+      if (page.length < 2000) break;
+      after = page[page.length - 1];
+      await new Promise((r) => setImmediate(r));
+    }
+    res.end();
   });
 
   // Watchlist (U14: server-persisted).

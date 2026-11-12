@@ -12,6 +12,7 @@ const C = require('./currency'); // display currency formatting (CLONE_SPEC.md �
 const { tx } = require('./db');
 const { nowIso, newId, hashPassword, slugify, E } = require('./util');
 const Lines = require('./sports-lines'); // spreads and totals (Phase 5B, PLAN P5.2)
+const { createActivity } = require('./sim-activity'); // simulated trading activity owner setting (CLONE_SPEC.md §39.17)
 
 // Engine quantity unit: integer hundredths of a contract (engine.UNITS = 100) or whole contracts (1).
 const UNITS = require('./engine').UNITS || 1;
@@ -845,6 +846,8 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   const PRINT = 1 * UNITS; // reference print at the fair price when the probability moves
   const LINE_SIMS = Math.max(20, Number(options.lineSims ?? 120)); // Monte Carlo paths per spread/total price
   const LINES_MS = Number(options.linesMs ?? 4000); // re-price spreads/totals at most this often per game (real ms)
+  // Simulated trading activity (owner setting, live): how often the liquidity accounts re-quote and print.
+  const activity = createActivity({ level: () => (engine.ownerSettings ? engine.ownerSettings.get('simulation.activity') : 'low') });
   db.exec(SCHEMA);
 
   // A full reset (`npm run seed`) wipes `meta`; our rows then point at deleted events, so start over.
@@ -1004,10 +1007,13 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
 
   // Re-quote the liquidity account around the live fair price: cancel, print one reference trade at the fair
   // price (system flow account vs liquidity account), then rest a bid one cent below and an offer one cent above.
+  // How often: the owner setting `simulation.activity` (server/sim-activity.js, CLONE_SPEC.md §39.17): off / low / normal.
+  // Forced quotes (a new fixture's opening quotes) always run; at "off" they carry no reference trade.
   function requote(mk, p, now, force = false, table = 'sports_markets') {
     const f = clamp(Math.round(p * 100), 2, 98);
     if (!force && mk.quoted_cents === f) return;
     if (!force && mk.quoted_ts && now - mk.quoted_ts < requoteMs) return;
+    if (!force && !activity.allow(mk.quoted_cents, mk.quoted_ts, f, now)) return;
     const lp = LP();
     const m = db.prepare('SELECT status FROM markets WHERE ticker=?').get(mk.market_ticker);
     if (!lp || !m || m.status !== 'active' || !engine.tradingActive) return;
@@ -1015,7 +1021,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
     const cancelOwn = (uid) => { for (const o of db.prepare("SELECT id FROM orders WHERE market_ticker=? AND status='resting' AND user_id=?").all(t, uid)) engine.cancelOrder(uid, o.id, 'requote'); };
     const attempt = (fn) => { try { fn(); } catch (e) { if (process.env.SPORTS_DEBUG) console.error('requote', t, e.message); } };
     attempt(() => { cancelOwn(lp); cancelOwn(FLOW); });
-    if (mk.quoted_cents !== f) {
+    if (mk.quoted_cents !== f && activity.level() !== 'off') {
       attempt(() => engine.placeOrder(FLOW, { ticker: t, side: 'no', price: 100 - f, count: PRINT, source: 'liquidity' }));
       attempt(() => engine.placeOrder(lp, { ticker: t, side: 'yes', price: f, count: PRINT, time_in_force: 'ioc', source: 'liquidity' }));
       attempt(() => cancelOwn(FLOW));

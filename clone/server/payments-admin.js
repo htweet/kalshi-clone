@@ -7,6 +7,7 @@
 const { tx } = require('./db');
 const { newId, dollars, ApiError, E } = require('./util');
 const journal = require('./journal');
+const LA = require('./ledger-audit'); // the ledger audit in the operations worker (CLONE_SPEC.md §39.17)
 const auditChain = require('./audit-chain');
 const { check } = require('./validate');
 
@@ -29,7 +30,7 @@ const AGREES = {
 };
 const KIND_TEXT = { missing_in_ledger: 'Provider record with no matching transaction', missing_at_provider: 'Transaction the provider has no record of', amount_mismatch: 'Amounts differ', status_mismatch: 'Statuses disagree', ledger_mismatch: 'Ledger postings differ from the transaction' };
 
-function mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, saveSettings, D, AML_ACTIONS, RULE_TEXT, txnVo, pendingPayouts, demoEnabled, sandboxOn, expireCredits, options = {} }) {
+function mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, saveSettings, D, AML_ACTIONS, RULE_TEXT, txnVo, demoEnabled, sandboxOn, expireCredits, options = {} }) {
   db.exec(RECON_SCHEMA);
   const can = admin.can;
   const A = '/admin/payments';
@@ -37,11 +38,20 @@ function mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, sa
   const reasonOf = (b) => { const r = String(b.reason || '').trim(); if (r.length < 3) throw new ApiError(400, 'validation_failed', 'validation failed', 'reason: a reason of 3-500 characters is required'); return r; };
 
   // ------------------------------------------------------------------ ledger audit
-  function runAudit(trigger = 'job') {
-    const r = journal.audit(db, { pendingPayouts });
-    const id = journal.recordAudit(db, r, trigger);
-    if (!r.ok && trigger === 'job' && !options.quiet) console.error(`ledger audit: ${r.problems.length} problem(s) — see Admin › Payments › Ledger audit`);
-    return { id, ...r };
+  // The audit reads every journal posting: it runs in the operations worker on a read-only snapshot (server/ledger-audit.js,
+  // CLONE_SPEC.md §39.17) and only its result is recorded here, on the request thread. A scheduled run never overlaps the
+  // previous one.
+  let jobRun = null;
+  async function runAudit(trigger = 'job') {
+    if (trigger === 'job' && jobRun) return jobRun;
+    const p = (async () => {
+      const r = await LA.runAudit(db, { payments: true });
+      const id = journal.recordAudit(db, r, trigger);
+      if (!r.ok && trigger === 'job' && !options.quiet) console.error(`ledger audit: ${r.problems.length} problem(s) — see Admin › Payments › Ledger audit`);
+      return { id, ...r };
+    })();
+    if (trigger === 'job') { jobRun = p; p.finally(() => { jobRun = null; }).catch(() => {}); }
+    return p;
   }
 
   // ------------------------------------------------------------------ reconciliation
@@ -180,13 +190,13 @@ function mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, sa
     res.json({ case: caseVo(db.prepare('SELECT * FROM aml_cases WHERE id=?').get(c.id)) });
   });
 
-  v1.get(`${A}/ledger_audit`, can('users.read'), (req, res) => {
-    const live = journal.audit(db, { pendingPayouts });
+  v1.get(`${A}/ledger_audit`, can('users.read'), async (req, res) => {
+    const live = await LA.runAudit(db, { payments: true });
     const history = db.prepare('SELECT * FROM ledger_audits ORDER BY ts DESC LIMIT 20').all().map((r) => ({ id: r.id, time: new Date(r.ts).toISOString(), ok: !!r.ok, entries: r.entries, problems: JSON.parse(r.problems).length, trigger: r.trigger }));
     res.json({ live: { ...live, totals: Object.fromEntries(Object.entries(live.totals).map(([k, v]) => [k, dollars(v)])) }, history });
   });
-  v1.post(`${A}/ledger_audit/run`, can('users.money'), (req, res) => {
-    const r = runAudit('manual');
+  v1.post(`${A}/ledger_audit/run`, can('users.money'), async (req, res) => {
+    const r = await runAudit('manual');
     audit(req, 'payments.ledger_audit', 'payments', r.id, null, { ok: r.ok, entries: r.entries, problems: r.problems.length }, 'manual ledger audit');
     res.json({ id: r.id, ok: r.ok, entries: r.entries, problems: r.problems, accounts_checked: r.accounts_checked });
   });
@@ -250,7 +260,8 @@ function mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, sa
 
   // ------------------------------------------------------------------ jobs
   const timers = [];
-  const every = (ms, fn) => { if (!(ms > 0)) return; const t = setInterval(() => { try { fn(); } catch (e) { if (!/not open|closed/i.test(e.message)) console.error('payments job', e.message); } }, ms); t.unref?.(); timers.push(t); };
+  const report = (e) => { if (!/not open|closed/i.test(e.message)) console.error('payments job', e.message); };
+  const every = (ms, fn) => { if (!(ms > 0)) return; const t = setInterval(() => { try { const p = fn(); if (p && p.catch) p.catch(report); } catch (e) { report(e); } }, ms); t.unref?.(); timers.push(t); };
   every(options.auditIntervalMs ?? 10 * MIN, () => runAudit('job'));
   every(options.reconIntervalMs ?? 15 * MIN, () => reconcile({ trigger: 'job' }));
   every(options.creditPollMs ?? MIN, () => expireCredits());

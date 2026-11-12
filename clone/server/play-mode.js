@@ -547,19 +547,12 @@ function mountPlayMode({ v1, app = null, db, engine, auth, admin, flags, feat, p
   });
 
   // ---------------------------------------------------------------- ledger audit checks (server/journal.js hooks)
-  function auditChecks(dbx, got) {
-    const problems = [];
-    // Every entry of the current epoch carries the current money mode: play and real money never mix.
-    const ep = epoch(); const md = mode();
-    const mixed = dbx.prepare('SELECT COUNT(*) c FROM journal_entries WHERE money_epoch=? AND money_mode<>?').get(ep, md).c
-      + (hasTable(dbx, 'perp_journal_entries') ? dbx.prepare('SELECT COUNT(*) c FROM perp_journal_entries WHERE money_epoch=? AND money_mode<>?').get(ep, md).c : 0);
-    if (mixed) problems.push({ check: 'money_mode_mixed', expected_cents: 0, actual_cents: mixed, detail: `entries of epoch ${ep} written in another money mode` });
-    // A real-money epoch holds no play-money postings.
-    if (md === 'real') { const minted = dbx.prepare("SELECT COALESCE(SUM(p.amount_cents),0) c FROM journal_postings p JOIN journal_entries e ON e.id=p.entry_id WHERE e.money_epoch=? AND p.account=?").get(ep, MINT).c; if (minted) problems.push({ check: 'play_money_in_real_epoch', account: MINT, expected_cents: 0, actual_cents: minted, detail: 'play money minted during a real-money epoch' }); }
-    if (got('bank:vault') < 0) problems.push({ check: 'vault_non_negative', account: 'bank:vault', expected_cents: 0, actual_cents: got('bank:vault'), detail: 'the Central Bank vault is overdrawn' });
-    return problems;
-  }
+  // Every entry of the current epoch carries the current money mode (play and real money never mix), a real-money epoch
+  // holds no play-money postings, the vault is never overdrawn. A plain function of the database (server/ledger-audit.js)
+  // so the operations worker runs the same check.
+  const auditChecks = (dbx, got) => require('./ledger-audit').playModeChecks(dbx, got);
   INSTANCES.set(db, { grantBonus, auditChecks });
+  journal.enableCheck(db, 'play_mode');
   installSharedHooks();
 
   return { isOn, mode, epoch, settings, realMoney, preview, assertMoney, controlsVo, executeReset, grantBonus, playDeposit };

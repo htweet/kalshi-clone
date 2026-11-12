@@ -203,9 +203,19 @@ function migrate(db) {
   });
 }
 
+// Module checks a database has (server/perps.js, server/play-mode.js enable theirs when mounted on it): the operations
+// worker runs the same list on its own read-only connection (server/ledger-audit.js), so its audit equals this one.
+const enabled = new WeakMap();
+function enableCheck(db, name) { if (!enabled.has(db)) enabled.set(db, new Set()); enabled.get(db).add(name); }
+const enabledChecks = (db) => [...(enabled.get(db) || [])];
+// Sum of one account's postings (indexed; the audit's GROUP BY gives the same number for every account at once).
+const postingSum = (db, account) => { init(db); return db.prepare('SELECT COALESCE(SUM(amount_cents),0) s FROM journal_postings WHERE account=?').get(account).s; };
+
 // Ledger audit. Returns {ok, entries, problems:[{check, account?, expected_cents, actual_cents, detail}], totals}.
-// `pendingPayouts(rail)` (from server/payments.js) gives the expected payouts:<rail> balance.
-function audit(db, { pendingPayouts = null } = {}) {
+// `pendingPayouts(rail)` (from server/payments.js) gives the expected payouts:<rail> balance. `hooks: false` skips the
+// in-process module hooks and `extraChecks` runs explicit ones instead (the operations worker, server/ledger-audit.js).
+// On a large database this reads every posting: callers on the request thread go through server/ledger-audit.js.
+function audit(db, { pendingPayouts = null, hooks: useHooks = true, extraChecks = [] } = {}) {
   init(db);
   const problems = [];
   const entries = db.prepare('SELECT COUNT(*) c FROM journal_entries').get().c;
@@ -242,7 +252,7 @@ function audit(db, { pendingPayouts = null } = {}) {
   // A9: collateral returned early is an advance against guaranteed settlement payouts (collateral_returns).
   if (hasTable(db, 'collateral_returns')) cmp('collateral_advance', 'house:collateral_advance', -db.prepare('SELECT COALESCE(SUM(amount_cents),0) c FROM collateral_returns').get().c, 'collateral returned early vs outstanding advances');
   // Phase 5D (CLONE_SPEC.md §33): money-mode isolation and the Central Bank vault (server/play-mode.js).
-  for (const fn of hooks.auditChecks || []) { try { problems.push(...fn(db, got)); } catch (e) { problems.push({ check: 'audit_hook', detail: e.message }); } }
+  for (const fn of [...(useHooks ? hooks.auditChecks || [] : []), ...extraChecks]) { try { problems.push(...fn(db, got)); } catch (e) { problems.push({ check: 'audit_hook', detail: e.message }); } }
   if (got('house:suspense') !== 0) problems.push({ check: 'suspense', account: 'house:suspense', expected_cents: 0, actual_cents: got('house:suspense'), detail: 'money posted to the suspense account (an unmapped ledger kind)' });
   const totals = {};
   for (const [a, s] of sums) {
@@ -263,4 +273,4 @@ function recordAudit(db, result, trigger = 'job') {
   return id;
 }
 
-module.exports = { init, post, onCredit, onLedgerOnly, onReserve, onHoldReleased, openUser, migrate, audit, recordAudit, balanceOf, contraFor, creditAllocation, hooks, accounts: { cash, credits, reserved, held } };
+module.exports = { init, post, onCredit, onLedgerOnly, onReserve, onHoldReleased, openUser, migrate, audit, recordAudit, balanceOf, contraFor, creditAllocation, hooks, enableCheck, enabledChecks, postingSum, accounts: { cash, credits, reserved, held } };

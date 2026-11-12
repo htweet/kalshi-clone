@@ -19,7 +19,10 @@ const DB_FILE = path.join(TMP, 'sports.db');
 const PORT = 4620 + Math.floor(Math.random() * 40);
 const BASE = `http://127.0.0.1:${PORT}`;
 const SPEED = 10; // game seconds per real second (tennis and cricket stay live for the whole file)
-const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, sports: { speed: SPEED } };
+// This file checks per-move re-quoting (the YES price tracks the win probability within 3 points, the last print is the
+// quoted fair price): that is the "normal" simulated-activity level; the recommended default since the database growth
+// fix (CLONE_SPEC.md §39.17) is "low", which re-quotes on 2¢ moves within an exchange-wide budget.
+const OPTS = { port: PORT, dbFile: DB_FILE, tickMs: 250, sports: { speed: SPEED }, owner: { overrides: { 'simulation.activity': 'normal' } } };
 const PW = 'correct-horse-9';
 const fan = { email: `fan.${Date.now()}@example.test`, name: 'Sam Supporter' };
 

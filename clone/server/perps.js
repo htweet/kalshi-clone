@@ -1832,6 +1832,7 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
   engine.perps = api;
   INSTANCES.set(db, api);
   installAuditHook();
+  journal.enableCheck(db, 'perps'); // the worker's ledger audit includes the Perps check for this database
   return api;
 }
 
@@ -1842,11 +1843,8 @@ let auditHooked = false;
 function installAuditHook() {
   if (auditHooked) return;
   auditHooked = true;
-  journal.hooks.auditChecks.push((db, got) => {
-    if (!INSTANCES.has(db)) return [];
-    const r = PL.audit(db, { mainGot: got });
-    return r.problems.map((p) => ({ ...p, expected_cents: p.expected_cc != null ? p.expected_cc / 100 : p.expected_ucc != null ? p.expected_ucc / 10000 : 0, actual_cents: p.actual_cc != null ? p.actual_cc / 100 : p.actual_ucc != null ? p.actual_ucc / 10000 : 0 }));
-  });
+  // The check itself is a plain function of the database (server/ledger-audit.js) so the operations worker runs the same.
+  journal.hooks.auditChecks.push((db, got) => (INSTANCES.has(db) ? require('./ledger-audit').perpsChecks(db, got) : []));
 }
 
 module.exports = { schema, SCHEMA, mountPerps, MARKETS, fillMath };

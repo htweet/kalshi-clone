@@ -4,13 +4,27 @@
 //   s3     any S3-compatible service (AWS S3, Cloudflare R2, Backblaze B2, MinIO, Wasabi, DigitalOcean Spaces, …) over
 //          HTTPS with AWS Signature Version 4, implemented here with node:crypto and fetch (no SDK).
 // Interface: put(key, Buffer, {contentType, meta}) · get(key) → Buffer|null · head(key) → {size, etag, meta}|null ·
-// list(prefix) → [{key, size, mtime}] (sorted by key) · delete(key) · describe() (no secrets) · kind.
+// list(prefix) → [{key, size, mtime}] (sorted by key) · delete(key) · describe() (no secrets) · kind; and, for objects too
+// large to hold in memory (database snapshots, CLONE_SPEC.md §39.17): putFile(key, path, {contentType, meta, move}) streams
+// a file in (S3: one streamed PUT signed with the file's SHA-256 up to the part size, else a multipart upload of
+// part-size pieces), getFile(key, path) → {size}|null streams an object out, and the local driver's pathOf(key) /
+// stagingFile(key) let a backup be written next to its final place and moved in with a rename.
 // Keys are relative paths of [A-Za-z0-9._/-] segments; "..", empty segments and leading "/" are refused, so a key can
 // never escape the folder or address another bucket. Nothing in the app depends on the provider: the provider is
 // configuration (OBJECT_STORAGE / BACKUP_STORAGE and the S3_* / BACKUP_S3_* variables, documented in .env.example).
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { Readable, Writable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+
+// Hash of a file, streamed (memory: one read buffer).
+async function hashFileWith(file, algo) {
+  const h = crypto.createHash(algo);
+  await pipeline(fs.createReadStream(file, { highWaterMark: 1 << 20 }), new Writable({ write(d, e, cb) { h.update(d); cb(); } }));
+  return h.digest('hex');
+}
+const rand = () => crypto.randomBytes(4).toString('hex');
 
 class StorageError extends Error { constructor(message, status) { super(message); this.status = status; } }
 const KEY_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
@@ -40,6 +54,28 @@ function localDriver({ dir }) {
       return { key, size: body.length, etag: meta && meta.sha256 ? meta.sha256 : crypto.createHash('md5').update(body).digest('hex') };
     },
     async get(key) { try { return await fs.promises.readFile(file(key)); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } },
+    // Large objects: a staging file beside the object (same file system, skipped by list()), moved in with a rename.
+    pathOf: (key) => file(key),
+    stagingFile(key) { const f = file(key); fs.mkdirSync(path.dirname(f), { recursive: true }); return `${f}.tmp-${process.pid}-${rand()}`; },
+    async putFile(key, src, { contentType = 'application/octet-stream', meta = {}, move = false } = {}) {
+      const f = file(key);
+      await fs.promises.mkdir(path.dirname(f), { recursive: true });
+      const size = (await fs.promises.stat(src)).size;
+      let moved = false;
+      if (move) { try { await fs.promises.rename(src, f); moved = true; } catch (e) { if (e.code !== 'EXDEV') throw e; } }
+      if (!moved) {
+        const tmp = `${f}.tmp-${process.pid}-${rand()}`;
+        await fs.promises.copyFile(src, tmp);
+        await fs.promises.rename(tmp, f); // atomic: a reader never sees half an object
+        if (move) await fs.promises.unlink(src).catch(() => {});
+      }
+      await fs.promises.writeFile(metaFile(key), JSON.stringify({ contentType, meta }), { mode: 0o600 });
+      return { key, size, etag: meta && meta.sha256 ? meta.sha256 : await hashFileWith(f, 'md5') };
+    },
+    async getFile(key, dest) {
+      try { await fs.promises.copyFile(file(key), dest); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+      return { size: (await fs.promises.stat(dest)).size };
+    },
     async head(key) {
       try {
         const st = fs.statSync(file(key));
@@ -72,11 +108,12 @@ const hmac = (k, s) => crypto.createHmac('sha256', k).update(s).digest();
 const enc = (s, keepSlash = false) => { const e = encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`); return keepSlash ? e.replace(/%2F/g, '/') : e; };
 
 // Signs a request (AWS Signature Version 4, service s3). Exported for the fake server in the tests, which recomputes it.
-function signV4({ method, url, headers, body, accessKeyId, secretAccessKey, region, service = 's3', now = new Date() }) {
+// `payloadHash`: the body's SHA-256 when the body is streamed (computed beforehand); otherwise it is hashed here.
+function signV4({ method, url, headers, body, accessKeyId, secretAccessKey, region, service = 's3', now = new Date(), payloadHash: givenHash = null }) {
   const u = new URL(url);
   const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const day = amzDate.slice(0, 8);
-  const payloadHash = sha256(body || Buffer.alloc(0));
+  const payloadHash = givenHash || sha256(body || Buffer.alloc(0));
   const h = { ...headers, host: u.host, 'x-amz-date': amzDate, 'x-amz-content-sha256': payloadHash };
   const names = Object.keys(h).map((k) => k.toLowerCase()).sort();
   const lower = Object.fromEntries(Object.entries(h).map(([k, v]) => [k.toLowerCase(), String(v).trim().replace(/\s+/g, ' ')]));
@@ -89,7 +126,9 @@ function signV4({ method, url, headers, body, accessKeyId, secretAccessKey, regi
   return { ...h, authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${names.join(';')}, Signature=${signature}` };
 }
 
-function s3Driver({ endpoint, region = 'auto', bucket, accessKeyId, secretAccessKey, prefix = '', pathStyle = true, timeoutMs = 30000, fetchImpl = fetch }) {
+// `partSize`: files above it go up as a multipart upload of parts this size (S3 wants at least 5 MiB; 16 MiB keeps memory
+// low and a 5 GB single-PUT limit far away).
+function s3Driver({ endpoint, region = 'auto', bucket, accessKeyId, secretAccessKey, prefix = '', pathStyle = true, timeoutMs = 30000, fetchImpl = fetch, partSize = 16 * 1048576 }) {
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) throw new Error('S3 storage needs an endpoint, a bucket, an access key id and a secret access key');
   const base = new URL(endpoint);
   if (base.protocol !== 'https:' && !/^(127\.0\.0\.1|localhost|\[::1\])$/.test(base.hostname)) throw new Error('S3 storage endpoints must use https (plain http only on loopback, for tests)');
@@ -98,22 +137,24 @@ function s3Driver({ endpoint, region = 'auto', bucket, accessKeyId, secretAccess
     const objectPath = key == null ? '' : `/${enc(pre + key, true)}`;
     return pathStyle ? `${base.origin}/${enc(bucket)}${objectPath}${q}` : `${base.protocol}//${bucket}.${base.host}${objectPath || '/'}${q}`;
   };
-  async function request(method, key, { body, headers = {}, query = '' } = {}) {
+  // `stream` (with `payloadHash`): a function returning the body as a Node stream (a large file), sent with its length.
+  async function request(method, key, { body, headers = {}, query = '', stream = null, payloadHash = null, timeout = timeoutMs } = {}) {
     const url = urlOf(key, query);
-    const signed = signV4({ method, url, headers, body, accessKeyId, secretAccessKey, region });
+    const signed = signV4({ method, url, headers, body: stream ? null : body, payloadHash: stream ? payloadHash : null, accessKeyId, secretAccessKey, region });
     delete signed.host; // fetch sets it
     const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), timeoutMs);
+    const t = setTimeout(() => ac.abort(), timeout);
     try {
-      return await fetchImpl(url, { method, headers: signed, body: body && body.length ? body : undefined, signal: ac.signal });
+      return await fetchImpl(url, { method, headers: signed, body: stream ? stream() : body && body.length ? body : undefined, signal: ac.signal, ...(stream ? { duplex: 'half' } : {}) });
     } finally { clearTimeout(t); }
   }
+  const metaHeaders = (meta) => Object.fromEntries(Object.entries(meta || {}).map(([k, v]) => [`x-amz-meta-${String(k).toLowerCase().replace(/[^a-z0-9-]/g, '-')}`, String(v).replace(/[^\x20-\x7e]/g, '?').slice(0, 256)]));
   const fail = async (r, what) => { const text = await r.text().catch(() => ''); const code = /<Code>([^<]+)<\/Code>/.exec(text)?.[1] || r.status; throw new StorageError(`S3 ${what} failed: ${code}`, r.status); };
   return {
     kind: 's3',
     describe: () => ({ driver: 's3', endpoint: base.origin, bucket, region, prefix: pre || null }),
     // Rebuilds this driver in the operations worker (only with the built-in fetch; an injected fetch stays on this thread).
-    config: () => (fetchImpl === globalThis.fetch ? { driver: 's3', endpoint, region, bucket, accessKeyId, secretAccessKey, prefix, pathStyle, timeoutMs } : null),
+    config: () => (fetchImpl === globalThis.fetch ? { driver: 's3', endpoint, region, bucket, accessKeyId, secretAccessKey, prefix, pathStyle, timeoutMs, partSize } : null),
     async put(key, body, { contentType = 'application/octet-stream', meta = {} } = {}) {
       checkKey(key);
       const headers = { 'content-type': contentType, 'content-length': String(body.length), 'x-amz-meta-sha256': sha256(body) };
@@ -129,6 +170,56 @@ function s3Driver({ endpoint, region = 'auto', bucket, accessKeyId, secretAccess
       if (r.status === 404) { await r.arrayBuffer().catch(() => null); return null; }
       if (!r.ok) await fail(r, 'get');
       return Buffer.from(await r.arrayBuffer());
+    },
+    // A file of any size: one streamed PUT signed with the file's SHA-256 (the caller's meta.sha256 when given), or a
+    // multipart upload of `partSize` pieces (each read, hashed and signed on its own; the upload is aborted on failure).
+    async putFile(key, src, { contentType = 'application/octet-stream', meta = {}, move = false } = {}) {
+      checkKey(key);
+      const size = (await fs.promises.stat(src)).size;
+      const sum = meta && /^[0-9a-f]{64}$/.test(String(meta.sha256 || '')) ? meta.sha256 : await hashFileWith(src, 'sha256');
+      const mh = { ...metaHeaders(meta), 'x-amz-meta-sha256': sum };
+      let etag = '';
+      if (size <= partSize) {
+        const r = await request('PUT', key, { stream: () => fs.createReadStream(src), payloadHash: sum, headers: { 'content-type': contentType, 'content-length': String(size), ...mh }, timeout: Math.max(timeoutMs, 600000) });
+        if (!r.ok) await fail(r, 'put');
+        await r.arrayBuffer().catch(() => null);
+        etag = (r.headers.get('etag') || '').replace(/"/g, '');
+      } else {
+        const init = await request('POST', key, { query: '?uploads', headers: { 'content-type': contentType, ...mh } });
+        if (!init.ok) await fail(init, 'multipart start');
+        const uploadId = /<UploadId>([^<]+)<\/UploadId>/.exec(await init.text())?.[1];
+        if (!uploadId) throw new StorageError('S3 multipart start failed: no upload id', 502);
+        const parts = [];
+        const fd = await fs.promises.open(src, 'r');
+        try {
+          for (let n = 1, off = 0; off < size; n += 1, off += partSize) {
+            const len = Math.min(partSize, size - off);
+            const b = Buffer.alloc(len);
+            await fd.read(b, 0, len, off);
+            const r = await request('PUT', key, { body: b, query: `?partNumber=${n}&uploadId=${enc(uploadId)}`, headers: { 'content-length': String(len) }, timeout: Math.max(timeoutMs, 600000) });
+            if (!r.ok) await fail(r, 'multipart part');
+            await r.arrayBuffer().catch(() => null);
+            parts.push(`<Part><PartNumber>${n}</PartNumber><ETag>${String(r.headers.get('etag') || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')}</ETag></Part>`);
+          }
+          const done = await request('POST', key, { body: Buffer.from(`<CompleteMultipartUpload>${parts.join('')}</CompleteMultipartUpload>`), query: `?uploadId=${enc(uploadId)}`, headers: { 'content-type': 'application/xml' } });
+          const text = await done.text();
+          if (!done.ok || /<Error>/.test(text)) throw new StorageError(`S3 multipart complete failed: ${/<Code>([^<]+)<\/Code>/.exec(text)?.[1] || done.status}`, done.status);
+          etag = (/<ETag>([^<]+)<\/ETag>/.exec(text)?.[1] || '').replace(/&quot;|"/g, '');
+        } catch (e) {
+          await request('DELETE', key, { query: `?uploadId=${enc(uploadId)}` }).then((r) => r.arrayBuffer()).catch(() => null);
+          throw e;
+        } finally { await fd.close(); }
+      }
+      if (move) await fs.promises.unlink(src).catch(() => {});
+      return { key, size, etag };
+    },
+    async getFile(key, dest) {
+      checkKey(key);
+      const r = await request('GET', key);
+      if (r.status === 404) { await r.arrayBuffer().catch(() => null); return null; }
+      if (!r.ok) await fail(r, 'get');
+      await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(dest, { mode: 0o600 }));
+      return { size: (await fs.promises.stat(dest)).size };
     },
     async head(key) {
       checkKey(key);
