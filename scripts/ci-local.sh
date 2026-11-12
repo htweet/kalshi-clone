@@ -29,7 +29,7 @@ for a in "$@"; do
   esac
 done
 TRIVY_IMAGE="aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436"
-GITLEAKS_IMAGE="${GITLEAKS_IMAGE:-ghcr.io/gitleaks/gitleaks:v8.24.3}"
+GITLEAKS_IMAGE="${GITLEAKS_IMAGE:-ghcr.io/gitleaks/gitleaks:v8.30.1}" # the version CI pins (GITLEAKS_VERSION)
 ZAP_IMAGE="${ZAP_IMAGE:-ghcr.io/zaproxy/zaproxy:stable}"
 ZAP_PORT="${ZAP_PORT:-3998}"
 CA="${CI_LOCAL_CA:-}"
@@ -75,7 +75,10 @@ if [ "$docker_ok" = 1 ]; then
   stage "image: CycloneDX SBOM" docker run --rm "${run_net[@]}" -v /var/run/docker.sock:/var/run/docker.sock -v "$OUT:/out" "$TRIVY_IMAGE" image --format cyclonedx --output /out/sbom.cdx.json parlance:ci-local
   stage "image: container smoke" node --no-warnings scripts/container-smoke.js parlance:ci-local
   stage "image: load smoke" node --no-warnings scripts/load.js --profile smoke --report "$OUT/load-smoke.json"
-  stage "secrets: gitleaks (full history)" docker run --rm "${run_net[@]}" -v "$ROOT:/repo:ro" "$GITLEAKS_IMAGE" detect --source /repo --redact --no-banner
+  # The repository and its git directory are mounted at their own paths (a worktree's history lives in the main checkout).
+  GIT_COMMON="$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd)"
+  stage "secrets: gitleaks (full history)" docker run --rm "${run_net[@]}" -v "$ROOT:$ROOT:ro" -v "$GIT_COMMON:$GIT_COMMON:ro" \
+    -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' "$GITLEAKS_IMAGE" git "$ROOT" --config "$ROOT/.gitleaks.toml" --redact --no-banner --exit-code 1
   # ZAP baseline against a fresh server (sports simulation off), gated by the reviewed rules file.
   zap() {
     local db; db="$(mktemp -d)/zap.db"
