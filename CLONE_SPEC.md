@@ -6241,6 +6241,11 @@ and the live ledger / audit-chain checks likewise ran in one piece, and the 15-m
 - **Media move**: a second `moveBlobs()` call while a pass runs now waits for the pass and returns the finished status.
 - Result on the same 400 MB database: no answer above 500 ms in 170 s including the first backup (slowest 477 ms, as on
   a fresh database); before, 4,034 ms. Home page in a browser on the production build: first visit 0.4 s, repeat 0.15 s.
+- **Owner decision 2026-11-12** (asked with the measurements): keep the market list hidden from visitors by default.
+  On the 3G phone profile of `perf.e2e` (4× CPU, 1.44 Mbit/s, 562 ms round trip, first visit) the Largest Contentful
+  Paint is 1.7–1.9 s with `ssr.visitors` on and 4.3–6.8 s in the default (home 6.8 s, event and browse 4.3 s); on
+  broadband the difference is under half a second. `perf.e2e` keeps the 2.5 s budget for the switch on and holds the
+  default to an owner-accepted 8 s ceiling, so a regression in either mode still fails.
 - Regression test: `backups.e2e` "a large database: backup, restore drill and live verifiers never hold up requests"
   (250 MB; no answer may exceed 700 ms; the old code answered 6 requests in 6.5 s). `reach.e2e` "quick-loading page"
   covers `ssr.visitors` (off: no body for visitors, full body for crawlers, the switch in Admin › Feature flags).

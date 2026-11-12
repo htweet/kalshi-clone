@@ -5,7 +5,9 @@
 //   • scripts and stylesheets are served pre-compressed (Brotli, else gzip) to browsers that accept it, with
 //     `Vary: Accept-Encoding`; `q=0` and no Accept-Encoding get the plain file;
 //   • a low-end Android phone on 3G (390 px, 4× CPU slowdown, 1.44 Mbit/s down, 562 ms round trip, cold cache): the
-//     Largest Contentful Paint of the home, an event and the browse page stays within 2.5 s; the slowest interaction
+//     Largest Contentful Paint of the home, an event and the browse page stays within 2.5 s with the quick-loading page
+//     for visitors on (switch `ssr.visitors`), and within the owner-accepted 8 s in the default (off: owner decision
+//     2026-11-12, visitors see the app's loading screen instead of the plain market list); the slowest interaction
 //     (INP) on the event page — switching tabs, picking a side, typing an amount — stays within 200 ms.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,7 +20,10 @@ const { start } = require('../server/index.js');
 const budget = require('../scripts/perf-budget.js');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-perf-'));
-const LCP_MS = 2500; // "good" Largest Contentful Paint
+const LCP_MS = 2500; // "good" Largest Contentful Paint (with the quick-loading page for visitors on)
+// Owner decision 2026-11-12: visitors do not see the server-rendered market list (switch `ssr.visitors` off by default),
+// accepting a slower first paint on 3G (measured 6.8 s on this profile). The ceiling below still catches regressions.
+const LCP_DEFAULT_MS = 8000;
 const INP_MS = 200; // "good" Interaction to Next Paint
 const PHONE_3G = { offline: false, latency: 562.5, downloadThroughput: ((1.6 * 1024 * 1024) / 8) * 0.9, uploadThroughput: ((750 * 1024) / 8) * 0.9 };
 let srv; let browser; let BASE; let EV;
@@ -85,21 +90,31 @@ test('budgets: the compressed bundle stays within scripts/perf-budget.js; assets
   for (const p of [`/assets/${manifest.entry.js}.br`, `/assets/${manifest.entry.js}.gz`, '/assets/..%2Fmanifest.json', '/assets/%2e%2e/manifest.json']) assert.equal((await get(p, 'br')).status, 404, p);
 });
 
-test('a low-end Android phone on 3G: LCP within 2.5 s on the home, an event and the browse page', async (t) => {
-  for (const p of ['/', EV, '/browse']) {
+test('a low-end Android phone on 3G: LCP within 2.5 s with the quick-loading page on, within the owner-accepted 8 s in the default', async (t) => {
+  const flags = srv.app.locals.flags;
+  const setVisitors = (on) => flags.save('ssr.visitors', { enabled: on }, { action: 'update', reason: 'perf e2e: 3G first paint with and without the quick-loading page', actor: null });
+  try {
+    for (const [mode, limit] of [['quick-loading page on', LCP_MS], ['default (off)', LCP_DEFAULT_MS]]) {
+      setVisitors(mode !== 'default (off)');
+      for (const p of ['/', EV, '/browse']) await lcpOf(t, p, mode, limit);
+    }
+  } finally { setVisitors(false); }
+});
+async function lcpOf(t, p, mode, limit) {
+  {
     const page = await phone();
     await page.goto(BASE + p, { waitUntil: 'load', timeout: 120000 });
     // The app took over from the server-rendered content (it replaces the .ssr block in <main>).
     await page.waitForFunction(() => { const m = document.querySelector('main#view'); return m && m.children.length && !m.querySelector(':scope > .ssr'); }, null, { timeout: 60000 });
     await page.waitForTimeout(1500);
     const perf = await page.evaluate(() => window.__perf);
-    t.diagnostic(`${p}: LCP ${Math.round(perf.lcp)} ms (${perf.lcpNode})`);
-    assert.ok(perf.lcp > 0, `${p}: an LCP entry was recorded`);
-    assert.ok(perf.lcp <= LCP_MS, `${p}: LCP ${Math.round(perf.lcp)} ms (element ${perf.lcpNode}) exceeds ${LCP_MS} ms`);
+    t.diagnostic(`${mode} ${p}: LCP ${Math.round(perf.lcp)} ms (${perf.lcpNode})`);
+    assert.ok(perf.lcp > 0, `${mode} ${p}: an LCP entry was recorded`);
+    assert.ok(perf.lcp <= limit, `${mode} ${p}: LCP ${Math.round(perf.lcp)} ms (element ${perf.lcpNode}) exceeds ${limit} ms`);
     assert.deepEqual(page.errors, []);
     await page.context().close();
   }
-});
+}
 
 test('a low-end Android phone on 3G: INP within 200 ms on the event page (tabs, side, amount)', async (t) => {
   const page = await phone();
