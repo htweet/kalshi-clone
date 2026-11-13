@@ -381,7 +381,7 @@ item 2). Where this spec still says UNKNOWN elsewhere, the same paragraph names 
 | Item | Resolution (design choice unless noted) | Where |
 |---|---|---|
 | U1 logged-in header | balance, portfolio link, notifications bell, account menu (☰) with avatar / initials | §13.16 (A3), §25 |
-| U2 odds / multiplier | chance = last trade price (bid/ask midpoint before the first trade); multiplier = 1 / price | §2 (Home cards) |
+| U2 odds / multiplier | chance = last trade price, falling back to the bid/ask midpoint; multiplier = 1 / YES ask, 2 decimals | §2 (Home cards) |
 | U3 fee coefficient | quadratic taker fee, coefficient editable at runtime (default from the public fee docs) | §16, §21.9 (G7) |
 | U4 password-login path | `POST /v1/log_in` with login CSRF and step-up | §22 |
 | U5 sign-up branches | email → password → phone code → name → birthday → address; KYC sandbox after | §25 |
