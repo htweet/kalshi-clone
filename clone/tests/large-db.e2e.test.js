@@ -99,20 +99,22 @@ test('a database over 2 GiB: backup and restore stream with bounded memory; a ba
   amplify(file, { orders: 20_000, entries: 40_000, fills: 10_000, trades: 5_000, ledger: 10_000, padMb: 2150, padZero: true });
   const size = fs.statSync(file).size;
   assert.ok(size > 2 * 1073741824, `the database is over 2 GiB (${size} bytes)`);
-  const plainSha = await new Promise((res, rej) => { const h = crypto.createHash('sha256'); fs.createReadStream(file).on('data', (x) => h.update(x)).on('end', () => res(h.digest('hex'))).on('error', rej); });
+  const shaOf = (f) => new Promise((res, rej) => { const h = crypto.createHash('sha256'); fs.createReadStream(f).on('data', (x) => h.update(x)).on('end', () => res(h.digest('hex'))).on('error', rej); });
   srv = await start(opts(file));
   global.gc?.();
   const base0 = process.memoryUsage().rss;
   let peak = base0; const sampler = setInterval(() => { peak = Math.max(peak, process.memoryUsage().rss); }, 50);
-  let b;
+  let b; let manifest;
   try {
     b = await srv.app.locals.backups.snapshot('manual', { note: 'over 2 GiB' });
     assert.ok(b.bytes > size, 'sealed: the whole database plus the chunk tags');
     const raw = fs.openSync(path.join(dir, 'backups', ...b.object_key.split('/')), 'r');
     const head = Buffer.alloc(5); fs.readSync(raw, head, 0, 5, 0); fs.closeSync(raw);
     assert.equal(head.toString(), 'PLXB2', 'the chunked, streamed format');
-    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'backups', ...`${b.object_key}.json`.split('/')), 'utf8'));
-    assert.equal(manifest.plain_sha256, plainSha, 'the manifest holds the plaintext checksum of the database as it was');
+    manifest = JSON.parse(fs.readFileSync(path.join(dir, 'backups', ...`${b.object_key}.json`.split('/')), 'utf8'));
+    assert.match(manifest.plain_sha256, /^[0-9a-f]{64}$/, 'the manifest holds the plaintext checksum');
+    // (Not compared with the file before start: the server writes as it starts — migrations check, key ring, jobs — and
+    // the snapshot is taken after a checkpoint. The round trip below compares the restored bytes with the manifest.)
   } finally { clearInterval(sampler); await srv.close(); }
   const grew = (peak - base0) / 1048576;
   assert.ok(grew < 400, `memory grew by ${grew.toFixed(0)} MB while a ${(size / 1073741824).toFixed(2)} GiB database was backed up`);
@@ -123,6 +125,7 @@ test('a database over 2 GiB: backup and restore stream with bounded memory; a ba
   const s2 = setInterval(() => { peak = Math.max(peak, process.memoryUsage().rss); }, 50);
   try { await restore({ storage: storageLib.localDriver({ dir: path.join(dir, 'backups') }), outFile: out, keyDir: dir }); } finally { clearInterval(s2); }
   assert.ok((peak - base1) / 1048576 < 400, `memory grew by ${((peak - base1) / 1048576).toFixed(0)} MB during the restore`);
+  assert.equal(await shaOf(out), manifest.plain_sha256, 'the restored database is byte for byte the backed-up one');
   const rd = new DatabaseSync(out);
   try {
     assert.equal(rd.prepare('PRAGMA quick_check').get().quick_check, 'ok');

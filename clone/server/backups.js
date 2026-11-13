@@ -419,7 +419,8 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   // ---- retention (owner settings); returns what was deleted
   async function prune() {
     const t = now();
-    const ok = db.prepare("SELECT * FROM ops_backups WHERE status='ok' AND deleted_ts IS NULL ORDER BY created_ts DESC").all();
+    // Newest first; the row order breaks a tie of equal times, so which backups are kept never depends on chance.
+    const ok = db.prepare("SELECT * FROM ops_backups WHERE status='ok' AND deleted_ts IS NULL ORDER BY created_ts DESC, rowid DESC").all();
     const keep = new Set();
     const intervalCut = t - Number(S('backups.keep_interval_hours', 48)) * 3600000;
     // Interval snapshots: within the hours window and among the newest `keep_interval_count` (newest first).

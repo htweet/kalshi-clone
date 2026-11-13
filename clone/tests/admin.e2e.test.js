@@ -670,6 +670,29 @@ test('audit log records every admin mutation with before/after and filters by ac
   assert.deepEqual(page.errors, []);
 });
 
+// Regression (lead review 2026-11-13; a full-suite run under load): on Admin › Perps the Halt / Resume / Leverage / Fund
+// buttons are drawn before the extra panels load (margin tiers, risk, APY, waitlist, referrals and the Perps ledger, which
+// now runs in the operations worker), but their click handler used to be attached only after all of them: a click in that
+// window did nothing. With the ledger held back, a click on Halt must open the confirmation at once.
+test('Admin › Perps: the market buttons work while the slower panels are still loading', async () => {
+  const page = adminPage;
+  let held = 0;
+  await page.route(/\/v1\/admin\/perps_ops\/ledger/, async (route) => { held += 1; await new Promise((r) => setTimeout(r, 4000)); await route.continue().catch(() => {}); });
+  try {
+    await page.goto(BASE + '/admin/perps');
+    const halt = page.locator('[data-testid=perps-ops] [data-halt]').first();
+    await halt.waitFor();
+    assert.equal(await page.locator('[data-testid=pops-ledger-status]').count(), 0, 'the ledger panel is still loading');
+    await halt.click();
+    await page.locator('[data-testid=confirm-dialog]').waitFor({ timeout: 2000 });
+    await page.locator('[data-testid=confirm-dialog] button[value=cancel]').click();
+    await page.waitForSelector('[data-testid=confirm-dialog]', { state: 'detached' });
+    assert.ok(held >= 1, 'the ledger request was held');
+  } finally { await page.unroute(/\/v1\/admin\/perps_ops\/ledger/); }
+  await page.waitForSelector('[data-testid=pops-ledger-status]', { timeout: 15000 });
+  assert.deepEqual(page.errors || [], []);
+});
+
 test('mobile 390px: admin and CMS-driven pages have no horizontal overflow in dark and light themes', async () => {
   const page = await newPage({ width: 390, height: 844 });
   const overflows = [];

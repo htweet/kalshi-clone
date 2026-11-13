@@ -155,7 +155,8 @@ test('retention: 7 daily, 4 weekly, 12 monthly nightly backups and the interval 
     assert.ok(db.prepare("SELECT 1 FROM admin_audit WHERE action='ops.backup_prune'").get(), 'audited');
     // By count as well (owner setting backups.keep_interval_count, 8): twelve interval snapshots in the last two hours
     // keep the newest eight (a large database cannot fill the disk; CLONE_SPEC.md §39.17).
-    for (let i = 0; i < 12; i++) await put(`ic${i}`, 'interval', now - i * 10 * 60000, 3000 + i);
+    // (Each one strictly newer than everything above: the first part's newest, iv0, was taken at `now` too.)
+    for (let i = 0; i < 12; i++) await put(`ic${i}`, 'interval', now + 60000 - i * 1000, 3000 + i);
     await B.prune();
     const recent = db.prepare("SELECT id FROM ops_backups WHERE deleted_ts IS NULL AND status='ok' AND kind='interval' ORDER BY created_ts DESC").all().map((r) => r.id);
     assert.deepEqual(recent, ['ic0', 'ic1', 'ic2', 'ic3', 'ic4', 'ic5', 'ic6', 'ic7'], 'the newest 8 interval snapshots are kept');

@@ -6400,6 +6400,20 @@ kept for durability); `db:compact` needs the server stopped and free disk about 
 compaction does not shrink trades or fills (they are the price history); history written at "normal" before the
 compaction remains until it is older than `--days`.
 
+### 39.17a Fixes from the combined run (2026-11-13)
+The first full local CI run of the combined batch (database growth + performance pass + dependency batch) passed every
+stage except 4 of 409 end-to-end scenarios; each cause is fixed:
+- **Admin › Perps buttons dead while panels loaded** (a real bug, shown by the halt test timing out under load): the
+  Halt / Resume / Leverage / Fund click handler was attached only after the six extra panels (now including the Perps
+  ledger in the operations worker) had loaded. It is attached before anything is awaited; `admin.e2e` holds the ledger
+  request back and clicks Halt at once (fails on the old code). The audit-log scenario after it failed only because the
+  halt never happened.
+- **Interval backups kept by count**: two snapshots with the same time were ordered by chance; `prune` now breaks ties by
+  row order, and the retention scenario gives its new snapshots distinct times.
+- **The 2 GiB backup scenario** compared the manifest checksum with the file before the server started (the server writes
+  as it starts); it now checks the round trip: the restored database is byte for byte the backed-up one.
+- Full suite: 410 scenarios across 55 files.
+
 ### 39.18 Performance pass on the request path (2026-11-13)
 A CPU profile of the server under `scripts/load.js --profile smoke` (60 orders/s, 50 WebSocket clients) put the largest
 single cost in the transaction helper `tx` (`server/db.js`): SQLite ran with its default `synchronous = FULL`, so every

@@ -93,8 +93,8 @@ async function renderPerps(el) {
       { key: 'next_funding_time', label: tx('admin.ops.render_perps.next_funding'), render: (r) => esc(fmtTime(r.next_funding_time)) },
       { key: '_a', label: '', sort: false, render: (r) => `<span class="adm-actions">${r.status === 'active' ? `<button class="btn btn-sm" data-halt="${esc(r.ticker)}">${te('admin.ops.render_perps.halt')}</button>` : `<button class="btn btn-sm btn-primary" data-resume="${esc(r.ticker)}">${te('admin.ops.render_perps.resume')}</button>`}<button class="btn btn-sm" data-lev="${esc(r.ticker)}">${te('admin.ops.render_perps.leverage')}</button><button class="btn btn-sm" data-fund="${esc(r.ticker)}">${te('admin.ops.render_perps.run_funding')}</button></span>` }] });
   const load = async () => { const r = await get('/perps'); rows = r.markets; t.setRows(rows); if (!r.available) el.querySelector('#pp').insertAdjacentHTML('beforeend', `<p class="faint">${te('admin.ops.render_perps.perps_are_not_installed')}</p>`); };
-  await load();
-  await renderPerpsOps(el.querySelector('#pp-extra'));
+  // The buttons work as soon as they are drawn: the handler is attached before anything is awaited (the extra panels below
+  // load slowly on a large database, and a click that came in before them used to do nothing).
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -113,4 +113,6 @@ async function renderPerps(el) {
       await load();
     } catch (ex) { toast(ex.message, 'error'); }
   });
+  await load();
+  await renderPerpsOps(el.querySelector('#pp-extra'));
 }

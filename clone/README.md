@@ -11,7 +11,7 @@ npm start            # http://localhost:3000, or the next free port if 3000 is t
 npm run dev          # same, but serves the unbundled sources from public/ (no build step)
 npm run build        # build dist/: content-hashed, minified JS/CSS + fonts, no source maps (scripts/build.js)
 npm run seed         # wipe and re-seed the database
-npm run test:e2e     # 401 end-to-end browser scenarios across 52 files (Playwright + node:test)
+npm run test:e2e     # 410 end-to-end browser scenarios across 55 files (Playwright + node:test)
 ```
 
 **If it won't start.** The server prints `Could not start Parlance Exchange: …` with the reason:
