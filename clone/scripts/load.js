@@ -39,7 +39,22 @@ function parse(argv) {
   for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) { const k = argv[i].slice(2); o[k] = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : true; }
   return o;
 }
-const pct = (arr, q) => { if (!arr.length) return null; const s = [...arr].sort((a, b) => a - b); return Math.round(s[Math.min(s.length - 1, Math.floor(q * s.length))] * 10) / 10; };
+// Latency samples go into a fixed-size histogram (0.1 ms buckets below 100 ms, 1 ms below 10 s, 100 ms above), so memory
+// stays flat however long a run is: a one-hour soak with 500 WebSocket clients records hundreds of millions of samples.
+class Hist {
+  constructor() { this.counts = new Map(); this.n = 0; }
+  key(v) { return v < 100 ? Math.round(v * 10) / 10 : v < 10000 ? Math.round(v) : Math.round(v / 100) * 100; }
+  push(v) { if (!Number.isFinite(v)) return; const k = this.key(v); this.counts.set(k, (this.counts.get(k) || 0) + 1); this.n += 1; }
+  get length() { return this.n; }
+  quantile(q) {
+    if (!this.n) return null;
+    const keys = [...this.counts.keys()].sort((a, b) => a - b);
+    const want = Math.min(this.n - 1, Math.floor(q * this.n)); let seen = 0;
+    for (const k of keys) { seen += this.counts.get(k); if (seen > want) return k; }
+    return keys[keys.length - 1];
+  }
+}
+const pct = (h, q) => { const v = h.quantile(q); return v == null ? null : Math.round(v * 10) / 10; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let child = null; // the self-mode server process, stopped on any exit
 process.on('exit', () => { if (child && child.exitCode == null) child.kill('SIGTERM'); });
@@ -82,7 +97,7 @@ async function main() {
   if (!markets.length) throw new Error('no open markets to trade');
 
   // ---- WebSocket clients (fan-out)
-  const fanout = []; let wsMessages = 0; let liveTicks = 0;
+  const fanout = new Hist(); let wsMessages = 0; let liveTicks = 0;
   const sockets = [];
   const viewer = await new Client(base, 'viewer').boot();
   for (let i = 0; i < prof.ws; i++) {
@@ -111,10 +126,13 @@ async function main() {
   }
 
   // ---- run
-  const orderLat = []; const pageLat = []; const apiLat = []; const errors = {};
+  const orderLat = new Hist(); const pageLat = new Hist(); const apiLat = new Hist(); const errors = {};
   let orders = 0; let cancels = 0; let fills = 0;
   const mem = [process.memoryUsage().rss];
-  const memTimer = setInterval(() => mem.push(process.memoryUsage().rss), 10000);
+  // The server's memory too (its own process): the soak's question is whether it grows over the hour.
+  const serverRss = () => { try { return Math.round(Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${srv.pid}/status`, 'utf8'))[1]) / 1024); } catch { return null; } };
+  const srvMem = [];
+  const memTimer = setInterval(() => { mem.push(process.memoryUsage().rss); if (srv) { const r = serverRss(); if (r != null) srvMem.push(r); } }, 10000);
   const t0 = Date.now(); const end = t0 + prof.duration * 1000;
   const err = (k) => { errors[k] = (errors[k] || 0) + 1; };
   // Order generator: a token bucket at the target rate spread over the traders; every other order crosses the last one.
@@ -184,7 +202,7 @@ async function main() {
     orders_per_sec: Math.round((orders / elapsed) * 10) / 10, orders, cancels, orders_with_fills: fills, order_p50_ms: pct(orderLat, 0.5), order_p99_ms: pct(orderLat, 0.99),
     ws_clients: sockets.length, ws_messages: wsMessages, ws_fanout_p50_ms: pct(fanout, 0.5), ws_fanout_p99_ms: pct(fanout, 0.99), live_ticks_per_sec: Math.round((liveTicks / elapsed) * 10) / 10,
     page_p50_ms: pct(pageLat, 0.5), page_p95_ms: pct(pageLat, 0.95), pages: pageLat.length, api_p50_ms: pct(apiLat, 0.5), api_p99_ms: pct(apiLat, 0.99), api_requests: apiLat.length,
-    errors, client_rss_mb: mem.map((x) => Math.round(x / 1048576)),
+    errors, client_rss_mb: mem.map((x) => Math.round(x / 1048576)), server_rss_mb: srvMem,
   };
   if (srv) {
     try { results.server_rss_mb_end = Math.round(Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${srv.pid}/status`, 'utf8'))[1]) / 1024); } catch { /* not Linux */ }
