@@ -89,6 +89,7 @@ async function main() {
   const traders = [];
   for (let i = 0; i < prof.traders; i++) {
     const c = await new Client(base, `t${i}`).signUp(`trader${i}.${stamp}@example.test`, PW, `Load Trader ${i}`);
+    c.autoRefresh = true; // renew the signed client token when it expires (an hour-long soak outlives it)
     if (dbFile) run("UPDATE identity_profiles SET status='approved' WHERE user_id=?", c.uid);
     const r = await c.call('POST', `/v1/users/${c.uid}/deposits`, { amount_dollars: 100000 }, { 'idempotency-key': crypto.randomUUID() });
     if (r.status !== 201) throw new Error(`deposit failed: ${r.status} ${r.text}`);

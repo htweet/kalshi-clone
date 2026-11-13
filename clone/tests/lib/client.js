@@ -33,7 +33,9 @@ class Client {
     if (rotated) this.csrf = rotated;
   }
 
-  async call(method, p, body, headers = {}) {
+  // autoRefresh (load generation, off by default): a write refused with client_token_invalid fetches a new client token
+  // and is retried once, as the SPA does (public/js/api.js); tests of expired or forged tokens keep seeing the refusal.
+  async call(method, p, body, headers = {}, retried = false) {
     const h = { 'user-agent': UA, accept: 'application/json', ...headers };
     const cookie = this.cookieHeader();
     if (cookie) h.cookie = cookie;
@@ -52,7 +54,13 @@ class Client {
     let json = null;
     try { json = JSON.parse(text); } catch { /* not JSON */ }
     if (json && typeof json.csrf_token === 'string') this.csrf = json.csrf_token;
-    return { status: r.status, body: json, text, headers: r.headers, code: json && json.error ? json.error.code : null };
+    const code = json && json.error ? json.error.code : null;
+    if (this.autoRefresh && !retried && code === 'client_token_invalid' && !('x-client-token' in headers) && p !== '/v1/client_token') {
+      if (!this.renewing) this.renewing = this.boot().finally(() => { this.renewing = null; }); // one renewal for concurrent refusals
+      await this.renewing;
+      return this.call(method, p, body, headers, true);
+    }
+    return { status: r.status, body: json, text, headers: r.headers, code };
   }
 
   // What the SPA does on page load: boot proof -> client token; login CSRF token for the sign-in form.
