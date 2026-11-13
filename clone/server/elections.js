@@ -135,7 +135,7 @@ function mountElections({ v1, db, engine, auth, admin, flags, feat, chat, option
   const lastCc = db.prepare('SELECT yes_price_cc p FROM trades WHERE market_ticker=? ORDER BY created_ts DESC, rowid DESC LIMIT 1');
   const bestBid = db.prepare("SELECT MAX(price_cc) p FROM orders WHERE market_ticker=? AND status='resting' AND side=?");
   const mktRow = db.prepare('SELECT ticker, event_ticker, status, result, yes_sub_title FROM markets WHERE ticker=?');
-  const volCents = db.prepare('SELECT COALESCE(SUM(count*yes_price_cc),0) v FROM trades WHERE market_ticker=?');
+  const volCents = db.prepare('SELECT COALESCE((SELECT dollar_volume_cc FROM market_volume WHERE market_ticker=?),0) v'); // running total (migration 0004)
   function marketInfo(t) {
     const m = mktRow.get(t);
     if (!m) return null;

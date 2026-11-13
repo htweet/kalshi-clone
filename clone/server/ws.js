@@ -93,14 +93,20 @@ function attachWs(server, { engine, auth, security, upgrade = null, onFanout = n
     const t0 = onFanout && !onlyUser ? process.hrtime.bigint() : null; // fan-out time metric (CLONE_SPEC.md §39.5)
     try { publishAll(channel, ticker, type, msg, onlyUser); } finally { if (t0 != null) onFanout(Number(process.hrtime.bigint() - t0) / 1e9, channel); }
   }
+  // Fan-out (soak finding 2026-11-13, CLONE_SPEC.md §39.20): the message body is serialised once per publish, not once per
+  // subscriber (with 500 clients that was 30% of the server's CPU); each subscriber gets exactly the bytes
+  // JSON.stringify({ type, sid, seq, msg }) would give, its own sid and seq included.
   function publishAll(channel, ticker, type, msg, onlyUser) {
+    let head = null; let tail = null;
     for (const c of clients) {
       if (onlyUser && c.userId !== onlyUser) continue;
       for (const [sid, s] of c.subs) {
         if (s.channel !== channel) continue;
         if (ticker && s.tickers && !s.tickers.has(ticker)) continue;
         s.seq += 1;
-        send(c, { type, sid, seq: s.seq, msg });
+        if (c.ws.readyState !== 1) continue;
+        if (head === null) { head = `{"type":${JSON.stringify(type)},"sid":`; tail = msg === undefined ? '}' : `,"msg":${JSON.stringify(msg)}}`; }
+        c.ws.send(`${head}${JSON.stringify(sid)},"seq":${s.seq}${tail}`);
       }
     }
   }

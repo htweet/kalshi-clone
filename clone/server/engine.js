@@ -104,9 +104,15 @@ class Engine extends EventEmitter {
     const prev = priceAt(dayAgo);
     const hourAgo = priceAt(Date.now() - 3600000);
     const weekAgo = priceAt(Date.now() - 7 * 86400000);
-    const vol = this.db.prepare('SELECT COALESCE(SUM(count),0) v FROM trades WHERE market_ticker=?').get(ticker).v;
-    const dvol = this.db.prepare('SELECT COALESCE(SUM(count*yes_price_cc),0) v FROM trades WHERE market_ticker=?').get(ticker).v;
-    const vol24 = this.db.prepare('SELECT COALESCE(SUM(count),0) v FROM trades WHERE market_ticker=? AND created_ts>?').get(ticker, dayAgo).v;
+    // Running totals kept by triggers on trades (migration 0004, CLONE_SPEC.md §39.20): this runs after every order, and
+    // summing the market's whole history here made each order slower as the market traded.
+    const tot = this.db.prepare('SELECT volume_units v, dollar_volume_cc d FROM market_volume WHERE market_ticker=?').get(ticker);
+    const vol = tot ? tot.v : 0;
+    const dvol = tot ? tot.d : 0;
+    // Rolling 24 h: whole hours after the hour that holds `dayAgo` from the hourly table, that partial hour from trades.
+    const edge = Math.floor(dayAgo / 3600000) * 3600000;
+    const vol24 = this.db.prepare('SELECT COALESCE(SUM(volume_units),0) v FROM market_volume_hourly WHERE market_ticker=? AND hour_ts>?').get(ticker, edge).v
+      + this.db.prepare('SELECT COALESCE(SUM(count),0) v FROM trades WHERE market_ticker=? AND created_ts>? AND created_ts<?').get(ticker, dayAgo, edge + 3600000).v;
     const oi = this.db.prepare('SELECT COALESCE(SUM(yes_count),0) v FROM positions WHERE market_ticker=?').get(ticker).v;
     const lastP = last ? last.p : null;
     const cc = {
