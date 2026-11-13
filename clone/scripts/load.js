@@ -71,7 +71,7 @@ async function main() {
     // Self mode: the server runs in its own process (as in production), the load generator in this one.
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-load-'));
     dbFile = path.join(tmp, 'load.db');
-    srv = child = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1')], { stdio: ['ignore', 'pipe', 'inherit'] });
+    srv = child = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1'), '--token-ttl', String(a['token-ttl'] || '')], { stdio: ['ignore', 'pipe', 'inherit'] });
     const port = await new Promise((resolve, reject) => {
       let buf = '';
       srv.stdout.on('data', (d) => { buf += d; const m = /PORT (\d+)/.exec(buf); if (m) resolve(Number(m[1])); });
@@ -141,7 +141,9 @@ async function main() {
   const srvMem = [];
   const memTimer = setInterval(() => { mem.push(process.memoryUsage().rss); if (srv) { const r = serverRss(); if (r != null) srvMem.push(r); } }, 10000);
   const t0 = Date.now(); const end = t0 + prof.duration * 1000;
-  const err = (k) => { errors[k] = (errors[k] || 0) + 1; };
+  // One example message per error kind goes into the report (error_samples), so a refusal can be traced to its cause.
+  const errorSamples = {};
+  const err = (k, r) => { errors[k] = (errors[k] || 0) + 1; if (r && !errorSamples[k]) errorSamples[k] = { at_s: Math.round((Date.now() - t0) / 1000), message: (r.body && r.body.error && (r.body.error.message + (r.body.error.details ? ` (${r.body.error.details})` : ''))) || String(r.text || '').slice(0, 200) }; };
   // Order generator: a token bucket at the target rate spread over the traders; every other order crosses the last one.
   const interval = 1000 / prof.rate;
   let seq = 0;
@@ -160,7 +162,7 @@ async function main() {
       const o = r.body && r.body.order;
       if (o && Number(o.fill_count_fp || o.filled_count || 0) > 0) fills += 1;
       if (o && o.status === 'resting' && i % 3 === 0) { const d = await c.call('DELETE', `/v1/users/${c.uid}/orders/${o.order_id}`).catch(() => ({ status: 0 })); if (d.status < 300) cancels += 1; else err(`cancel_${d.status}`); }
-    } else err(`order_${r.status}_${r.code}`);
+    } else err(`order_${r.status}_${r.code}`, r);
   }
   const inflight = new Set();
   const orderLoop = (async () => {
@@ -209,7 +211,7 @@ async function main() {
     orders_per_sec: Math.round((orders / elapsed) * 10) / 10, orders, cancels, orders_with_fills: fills, order_p50_ms: pct(orderLat, 0.5), order_p99_ms: pct(orderLat, 0.99),
     ws_clients: sockets.length, ws_messages: wsMessages, ws_fanout_p50_ms: pct(fanout, 0.5), ws_fanout_p99_ms: pct(fanout, 0.99), live_ticks_per_sec: Math.round((liveTicks / elapsed) * 10) / 10,
     page_p50_ms: pct(pageLat, 0.5), page_p95_ms: pct(pageLat, 0.95), pages: pageLat.length, api_p50_ms: pct(apiLat, 0.5), api_p99_ms: pct(apiLat, 0.99), api_requests: apiLat.length,
-    errors, client_rss_mb: mem.map((x) => Math.round(x / 1048576)), server_rss_mb: srvMem,
+    errors, error_samples: errorSamples, client_rss_mb: mem.map((x) => Math.round(x / 1048576)), server_rss_mb: srvMem,
   };
   if (srv) {
     try { results.server_rss_mb_end = Math.round(Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${srv.pid}/status`, 'utf8'))[1]) / 1024); } catch { /* not Linux */ }
@@ -231,10 +233,11 @@ async function main() {
 }
 
 // --serve <db>: the server process of self mode (rate limits and the bot challenge relaxed for the load host).
-async function serve(dbFile, assets, sportsSpeed) {
+// tokenTtl (--token-ttl seconds): a shorter signed client token lifetime, to exercise token renewal in a short run.
+async function serve(dbFile, assets, sportsSpeed, tokenTtl) {
   const { start } = require('../server/index.js');
   const HIGH = { burst: 1e9, per_second: 1e9 };
-  const s = await start({ port: 0, dbFile, quiet: true, tickMs: 500, sports: sportsSpeed === 'off' ? false : { speed: Number(sportsSpeed) || 1 }, rate: { burst: 1e9, perSec: 1e9 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH, anonRate: HIGH, readRate: HIGH },
+  const s = await start({ port: 0, dbFile, quiet: true, tickMs: 500, sports: sportsSpeed === 'off' ? false : { speed: Number(sportsSpeed) || 1 }, rate: { burst: 1e9, perSec: 1e9 }, security: { challengeMode: 'off', ...(Number(tokenTtl) ? { bot: { client_token_ttl_seconds: Number(tokenTtl) } } : {}), authRate: HIGH, writeRate: HIGH, anonRate: HIGH, readRate: HIGH },
     admin: { email: 'root.ops@example.test', password: PW }, flags: { defaults: { 'perps.waitlist': false } }, assets });
   process.stdout.write(`PORT ${s.port}\n`);
   const stop = () => s.close().then(() => process.exit(0), () => process.exit(0));
@@ -242,5 +245,5 @@ async function serve(dbFile, assets, sportsSpeed) {
 }
 
 const argv = process.argv.slice(2);
-if (argv[0] === '--serve') serve(argv[1], argv[3] || 'dist', argv[5] || '1').catch((e) => { console.error(e); process.exit(1); });
+if (argv[0] === '--serve') serve(argv[1], argv[3] || 'dist', argv[5] || '1', argv[7] || '').catch((e) => { console.error(e); process.exit(1); });
 else main().catch((e) => { console.error(`load failed: ${e.stack || e.message}`); if (child) child.kill('SIGTERM'); process.exit(1); });

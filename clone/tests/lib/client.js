@@ -56,7 +56,7 @@ class Client {
     if (json && typeof json.csrf_token === 'string') this.csrf = json.csrf_token;
     const code = json && json.error ? json.error.code : null;
     if (this.autoRefresh && !retried && code === 'client_token_invalid' && !('x-client-token' in headers) && p !== '/v1/client_token') {
-      if (!this.renewing) this.renewing = this.boot().finally(() => { this.renewing = null; }); // one renewal for concurrent refusals
+      if (!this.renewing) this.renewing = this.renewToken().finally(() => { this.renewing = null; }); // one renewal for concurrent refusals
       await this.renewing;
       return this.call(method, p, body, headers, true);
     }
@@ -65,6 +65,12 @@ class Client {
 
   // What the SPA does on page load: boot proof -> client token; login CSRF token for the sign-in form.
   async boot() {
+    await this.renewToken();
+    await this.call('GET', '/v1/auth/csrf');
+    return this;
+  }
+  // A new signed client token only (what the SPA's refreshClientToken does); the session's CSRF token is left alone.
+  async renewToken() {
     const page = await this.call('GET', '/', undefined, { accept: 'text/html' });
     const meta = /<meta[^>]*name="plx-boot"[^>]*>/.exec(page.text || '');
     const proof = meta && /content="([^"]*)"/.exec(meta[0]);
@@ -72,7 +78,6 @@ class Client {
       const t = await this.call('POST', '/v1/client_token', { boot: proof[1] });
       if (t.status === 200 && t.body && t.body.token) this.ct = t.body.token;
     }
-    await this.call('GET', '/v1/auth/csrf');
     return this;
   }
 
