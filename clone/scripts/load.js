@@ -30,7 +30,9 @@ const { SignedClient, ed25519, pubPem } = require('../tests/lib/signing');
 const PROFILES = {
   smoke: { duration: 12, traders: 8, markets: 4, ws: 50, rate: 60, pageConcurrency: 4 },
   full: { duration: 120, traders: 40, markets: 8, ws: 2000, rate: 200, pageConcurrency: 16 },
-  soak: { duration: 3600, traders: 20, markets: 6, ws: 500, rate: 100, pageConcurrency: 4 },
+  // Soak: a steady load below the measured single-instance ceiling (~60 orders/s, CLONE_SPEC.md §39.9) for an hour, to
+  // show nothing drifts (server memory, latency, errors). Above the ceiling, queues grow and a soak measures overload instead.
+  soak: { duration: 3600, traders: 20, markets: 6, ws: 500, rate: 40, pageConcurrency: 4 },
 };
 const TARGETS = { orders_per_sec: 200, order_p99_ms: 50, ws_fanout_p99_ms: 250, page_p95_ms: 300 };
 
@@ -101,10 +103,14 @@ async function main() {
   const sockets = [];
   const viewer = await new Client(base, 'viewer').boot();
   for (let i = 0; i < prof.ws; i++) {
-    const s = viewer.socket();
+    const s = viewer.socket({ keep: false }); // no per-socket message log (it grew without limit over a soak)
     try { await s.opened; } catch (e) { log(`WebSocket ${i} refused: ${e.message}`); break; }
+    // Every 10th socket decodes its messages for the fan-out latency; the others only count them (decoding every message
+    // on every socket is CPU the generator itself cannot spare at soak rates).
+    const sample = i % 10 === 0;
     s.ws.on('message', (raw) => {
       wsMessages += 1;
+      if (!sample) return;
       let m; try { m = JSON.parse(String(raw)); } catch { return; }
       if (m.type === 'live_data') liveTicks += 1;
       const ts = m.msg && (m.msg.ts || m.msg.created_time && Date.parse(m.msg.created_time));

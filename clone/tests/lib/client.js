@@ -86,7 +86,9 @@ class Client {
   }
 
   // WebSocket on /v1/ws with this client's cookie, CSRF token and client token (as the SPA's ws.js does).
-  socket({ csrf = this.csrf, origin = this.base } = {}) {
+  // keep: false (load generation) keeps only a small rolling buffer of command replies and skips decoding ordinary feed
+  // messages unless a waiter is pending: with hundreds of sockets, keeping every message grows without limit.
+  socket({ csrf = this.csrf, origin = this.base, keep = true } = {}) {
     const u = new URL('/v1/ws', this.base);
     u.protocol = 'ws:';
     u.searchParams.set('csrfToken', csrf || '');
@@ -96,8 +98,11 @@ class Client {
     const waiters = [];
     let id = 0;
     ws.on('message', (raw) => {
-      let m; try { m = JSON.parse(String(raw)); } catch { return; }
-      messages.push(m);
+      const str = String(raw);
+      if (!keep && !waiters.length && !str.includes('"id":')) return;
+      let m; try { m = JSON.parse(str); } catch { return; }
+      if (keep) messages.push(m);
+      else if (m.id != null) { messages.push(m); if (messages.length > 200) messages.shift(); }
       for (const w of [...waiters]) if (w.pred(m)) { waiters.splice(waiters.indexOf(w), 1); w.resolve(m); }
     });
     const opened = new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); ws.once('unexpected-response', (req, res) => reject(new Error(`ws upgrade refused: ${res.statusCode}`))); });
