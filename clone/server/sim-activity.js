@@ -7,7 +7,7 @@
 // 7,000 journal postings a minute — millions of rows a day — and the database grew by gigabytes in days.
 //
 // Levels (read live on every decision, so a change in Admin › Owner settings takes effect at once):
-//   off     no re-quotes and no reference trades; resting quotes stay, new fixtures still get their opening quotes;
+//   off     no re-quotes, no reference trades, no opening quotes for new fixtures; resting quotes stay;
 //   low     (recommended) a market re-quotes only when its fair price moved at least 2¢ since its last quote (and that
 //           quote is 15 s old) or moved at all and the quote is a minute old; at most 20 re-quotes a minute across the
 //           exchange (a token bucket), each with its reference trade when the price changed — prices, charts and volume

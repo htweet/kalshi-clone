@@ -352,6 +352,42 @@ everything is audited, and the switch catalogue at the bottom lists every featur
 | Feature flags › Reach | Server-rendered pages, crawler access, languages, data saver (`ssr`, `ssr.crawlers`, `i18n`, `data_saver`) | on |
 | Feature flags › Reach | SMS notifications (`sms`, simulated adapter) | off |
 | Content › Languages | Each language (Pidgin, Hausa, Yoruba, Igbo) | off until translated, reviewed and covered |
+| Owner settings › Simulated markets | Simulated trading activity (`simulation.activity`: off / low / normal) | low |
+| Owner settings › Backups | Keep at most this many interval backups (`backups.keep_interval_count`, password) | 8 |
+
+## Keeping the database small (owner guide)
+
+The simulated markets (live sports games and their spreads and totals) are kept moving by two built-in liquidity
+accounts. Every quote and every reference trade they make is stored for good, so a server left running on the old
+behaviour grew by millions of rows a day (about 7,000 journal postings a minute; ten days made a 3.8 GB database plus
+8 GB of backups, and the site timed out). Three things keep it small (`../CLONE_SPEC.md` §39.17):
+
+- **Simulated trading activity** — Admin › Owner settings › Simulated markets › *Simulated trading activity*.
+  `low` (recommended, the default) re-quotes a market only when its fair price moved 2¢ (or after a minute), at most
+  20 re-quotes a minute in all, each with its reference trade: prices, charts and volume keep moving with about a
+  twentieth of the writes. `normal` is the old behaviour (every 1¢ move, every second); `off` stops the liquidity accounts
+  (resting quotes stay; new games open without quotes). Press Edit, choose, give a reason; it takes effect at once and
+  survives restarts.
+- **`npm run db:compact`** — shrinks a database that has already grown. Stop the server (`Ctrl+C`), then:
+  ```bash
+  npm run db:compact -- --dry-run      # what would go, and the size now; changes nothing
+  npm run db:compact                   # keeps the last 7 days of simulated history (--days 14 keeps 14)
+  ```
+  It first takes an encrypted backup (`pre_compaction`, kept a year) and refuses to run without one. It then removes the
+  liquidity accounts' orders that never filled and rolls their bot-against-bot trading into one balancing ledger entry
+  per account and day — never anything a member is part of; trades (the price history behind the charts) stay. The
+  ledger audit is compared before and after (any difference undoes everything), the file is compacted (VACUUM: it needs
+  free disk about the size of the database while it runs), a fresh backup of the result is taken, and the sizes are
+  printed. Admin › System › Database shows the size and the last compaction.
+- **Backups on a laptop** — `npm start` keeps backups on (every 15 minutes, encrypted, in `data/backups`), but keeps at
+  most 8 interval snapshots (owner setting *Keep at most this many interval backups*) besides the 48-hour window, the
+  nightly 7 / 4 / 12 and the manual / pre-production / pre-compaction ones. Each snapshot is about the size of the
+  database. **Clearing `data/backups` safely:** take one fresh backup first (Admin › System › Back up now), stop the
+  server, then delete whole folders under `data/backups/snapshots/<year>/<month>/<day>/` older than the days you want to
+  keep, and `data/backups/wal/` generations older than the oldest snapshot you kept (a WAL generation is only useful on
+  top of an older snapshot). Never delete `data/backup.key` (no key, no restore) or the newest snapshot; `npm run restore
+  -- --list` shows what is left. On the next start the server notices the missing objects only when it prunes (it skips
+  files that are already gone).
 
 ## Growth and reach (Phase 8)
 

@@ -92,7 +92,12 @@ async function renderSystem({ el }) {
     const st = d.storage;
     const storageHtml = `<section class="card panel" data-testid="sys-storage"><h2>${te('admin.sysops.storage.title')}</h2><p>${te('admin.sysops.storage.media', { where: esc(where(st.media)) })}</p>
       <p class="faint" data-testid="sys-blob-move" data-remaining="${esc(st.blob_move.remaining)}">${te('admin.sysops.storage.moved', { moved: esc(st.blob_move.moved), remaining: esc(st.blob_move.remaining) })}</p></section>`;
-    el.innerHTML = section(tx('admin.sysops.title'), te('admin.sysops.intro'), `<button class="btn btn-sm" data-act="refresh">${te('admin.sysops.refresh')}</button>`) + `<div data-testid="sys-page">${health}${sw}${backupsHtml}${drillHtml}${keysHtml}${anchorHtml}${verifyHtml}${alertsHtml}${storageHtml}</div>`;
+    // Database size and the last `npm run db:compact` (CLONE_SPEC.md §39.17).
+    const dbi = d.database || {}; const lc = dbi.last_compaction;
+    const dbHtml = `<section class="card panel" data-testid="sys-database" data-bytes="${esc(dbi.bytes ?? '')}"><h2>${te('admin.sysops.db.title')}</h2><p>${te('admin.sysops.db.size', { size: esc(size(dbi.bytes)), wal: esc(size(dbi.wal_bytes)) })}</p>
+      ${lc ? `<p data-testid="sys-compaction" data-id="${esc(lc.id)}">${te('admin.sysops.db.last', { time: esc(fmtTime(lc.time)), before: esc(size(lc.bytes_before)), after: esc(size(lc.bytes_after)), orders: esc(lc.counts.orders_removed ?? 0), entries: esc(lc.counts.journal_entries_removed ?? 0), days: esc(lc.older_than_days) })}</p>` : `<p class="faint" data-testid="sys-compaction-none">${te('admin.sysops.db.never')}</p>`}
+      ${dbi.last_refused ? `<p class="faint" data-testid="sys-compaction-refused">${te('admin.sysops.db.refused', { time: esc(fmtTime(dbi.last_refused.time)), error: esc(dbi.last_refused.error) })}</p>` : ''}</section>`;
+    el.innerHTML = section(tx('admin.sysops.title'), te('admin.sysops.intro'), `<button class="btn btn-sm" data-act="refresh">${te('admin.sysops.refresh')}</button>`) + `<div data-testid="sys-page">${health}${sw}${backupsHtml}${drillHtml}${keysHtml}${anchorHtml}${verifyHtml}${alertsHtml}${storageHtml}${dbHtml}</div>`;
   };
   const page = live(el, () => get('/system'), draw);
   await page.start();

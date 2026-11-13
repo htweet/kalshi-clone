@@ -415,6 +415,20 @@ webhook delivery, the container image and the reverse proxy.
 | T / E | **Vulnerable or tampered image** | Multi-stage build, pinned base digest, non-root, read-only root, no package manager at run time, build fails on secrets in the context; Trivy (fixable high / critical fail CI), CycloneDX SBOM | ✅ (CI `image` job) |
 | I | **FIX credentials in clear text on the network** | TLS ends at the proxy's layer-4 listener; plain FIX only on the internal network (closes §35.15) | ✅ (configuration; validated by `caddy validate` without the layer-4 module) |
 
+**Backups: object format version 2 (database growth fix 2026-11-13, `CLONE_SPEC.md` §39.17).** Snapshots are now
+sealed and opened as streams so a multi-gigabyte database never sits in memory: `PLXB2` = magic | key-id length | key id
+| chunk size (4 bytes, 1 MiB) | nonce prefix (8 random bytes per object) | chunks, each the AES-256-GCM ciphertext of one
+chunk with its own 16-byte tag, under IV = nonce prefix ‖ chunk index (4 bytes, big-endian) and AAD = the whole header ‖
+chunk index ‖ final flag. Every chunk but the last is full; the last carries the final flag. A changed byte, a dropped,
+reordered or duplicated chunk, a truncated object, trailing data or an edited header fails authentication; a nonce is
+never reused under one key (random 64-bit prefix per object, 32-bit counter, at most 4 TiB per object). Plaintext reaches
+the restore's temporary file before the last tag is checked, so restores write to a temporary name and rename only after
+the object authenticated and its plaintext SHA-256 matched the manifest. WAL segments keep the one-piece `PLXB1` format;
+every `PLXB1` snapshot written before still restores (as a stream too). No plaintext copy of the database is written any
+more during a backup (the worker seals the checkpointed main file directly). `npm run db:compact` (removes simulated
+trading history no member is part of) refuses to run until an encrypted `pre_compaction` backup has been written and
+records itself in the audit chain.
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).

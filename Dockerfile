@@ -33,7 +33,7 @@ COPY --from=build /src/clone/node_modules ./node_modules
 COPY --from=build /src/clone/server ./server
 COPY --from=build /src/clone/public ./public
 COPY --from=build /src/clone/dist ./dist
-COPY --from=build /src/clone/scripts/build.js /src/clone/scripts/restore.js /src/clone/scripts/keys.js /src/clone/scripts/backup-verify.js ./scripts/
+COPY --from=build /src/clone/scripts/build.js /src/clone/scripts/restore.js /src/clone/scripts/keys.js /src/clone/scripts/backup-verify.js /src/clone/scripts/db-compact.js ./scripts/
 # npm, npx, corepack and yarn are not needed at run time (and carry their own advisories): removed from the runtime image.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg \
   && mkdir -p /data && chown node:node /data && chmod 0700 /data

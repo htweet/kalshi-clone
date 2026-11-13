@@ -10,7 +10,7 @@ const { DatabaseSync } = require('node:sqlite');
 
 const DAY = 86400000;
 
-function amplify(file, { orders = 1_000_000, entries = 2_600_000, fills = 520_000, trades = 260_000, ledger = 1_000_000, member = null, memberRows = 0, spanDays = 10, now = Date.now(), padMb = 0 } = {}) {
+function amplify(file, { orders = 1_000_000, entries = 2_600_000, fills = 520_000, trades = 260_000, ledger = 1_000_000, member = null, memberRows = 0, spanDays = 10, now = Date.now(), padMb = 0, padZero = false } = {}) {
   const d = new DatabaseSync(file);
   const t0 = Date.now();
   try {
@@ -66,7 +66,7 @@ function amplify(file, { orders = 1_000_000, entries = 2_600_000, fills = 520_00
     }
     if (padMb > 0) {
       d.exec('CREATE TABLE IF NOT EXISTS zz_pad(id INTEGER PRIMARY KEY, b BLOB)');
-      log.push(step('pad', `${N(padMb)} INSERT INTO zz_pad(b) SELECT randomblob(1048576) FROM n`));
+      log.push(step('pad', `${N(padMb)} INSERT INTO zz_pad(b) SELECT ${padZero ? 'zeroblob' : 'randomblob'}(1048576) FROM n`));
     }
     d.exec('COMMIT');
     d.exec('PRAGMA wal_checkpoint(TRUNCATE)');

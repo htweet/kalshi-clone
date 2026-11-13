@@ -91,7 +91,7 @@ const STRINGS = {
   'value.everyone': 'everyone',
   // Database growth fix (CLONE_SPEC.md §39.17): how much the built-in liquidity accounts trade.
   'setting.simulation.activity.label': 'Simulated trading activity',
-  'setting.simulation.activity.help': 'How much the built-in liquidity accounts trade to keep the simulated markets moving: off (no re-quotes or reference trades; resting quotes stay), low (re-quote only when the fair price moves at least 2¢ or after a minute, a reference trade at most every 2 minutes per market, at most 40 re-quotes a minute in all) or normal (re-quote on every 1¢ move, every second). Every simulated trade is stored for good, so normal grows the database by millions of rows a day; low keeps prices, charts and volume moving with about a tenth of the writes. Low is recommended. Takes effect at once.',
+  'setting.simulation.activity.help': 'How much the built-in liquidity accounts trade to keep the simulated markets moving: off (no re-quotes, reference trades or opening quotes; resting quotes stay), low (re-quote only when the fair price moves at least 2¢ or after a minute, a reference trade at most every 2 minutes per market, at most 40 re-quotes a minute in all) or normal (re-quote on every 1¢ move, every second). Every simulated trade is stored for good, so normal grows the database by millions of rows a day; low keeps prices, charts and volume moving with about a tenth of the writes. Low is recommended. Takes effect at once.',
   'group.simulation': 'Simulated markets',
   'group.backups': 'Backups (Phase 9A)',
   'group.observability': 'Logs and observability (Phase 9A)',

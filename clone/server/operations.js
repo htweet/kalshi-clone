@@ -320,9 +320,20 @@ function mountOperations(ctx) {
       approvals: db.prepare("SELECT * FROM ops_approvals WHERE status='pending' ORDER BY requested_ts DESC").all().map(approvalVo),
       alerts: { firing, contacts: alerts.contacts(), history: alerts.history(20) },
       storage: { media: mediaStorage ? mediaStorage.describe() : null, backups: backupStorage ? backupStorage.describe() : null, blob_move: blobStatus() },
+      database: databaseInfo(),
       metrics: { port: obs.metricsPort || null, host: obs.metricsPort ? (process.env.METRICS_HOST || '127.0.0.1') : null },
       admin_origin: security.adminOrigin || null, public_origin: security.publicOrigin || null,
     };
+  }
+  // Database size and the last `npm run db:compact` run (scripts/db-compact.js, CLONE_SPEC.md §39.17).
+  function databaseInfo() {
+    const f = dbFile && dbFile !== ':memory:' ? path.resolve(dbFile) : null;
+    const st = (x) => { try { return fs.statSync(x).size; } catch { return 0; } };
+    const vo = (r) => (r ? { id: r.id, time: new Date(r.ts).toISOString(), older_than_days: r.older_than_days, bytes_before: r.bytes_before, bytes_after: r.bytes_after, counts: JSON.parse(r.counts_json || '{}'), backup_id: r.backup_id, error: r.error || null } : null);
+    const q = (sql) => { try { return db.prepare(sql).get(); } catch { return null; } };
+    return { bytes: f ? st(f) + st(`${f}-wal`) : null, wal_bytes: f ? st(`${f}-wal`) : null,
+      last_compaction: vo(q("SELECT * FROM ops_compactions WHERE status='ok' AND dry_run=0 ORDER BY ts DESC LIMIT 1")),
+      last_refused: vo(q("SELECT * FROM ops_compactions WHERE status='refused' AND ts > COALESCE((SELECT MAX(ts) FROM ops_compactions WHERE status='ok' AND dry_run=0), 0) ORDER BY ts DESC LIMIT 1")) };
   }
   v1.get('/admin/system', can('settings.write'), async (req, res) => res.json(await systemView()));
   v1.post('/admin/system/backups', can('settings.write'), async (req, res) => {

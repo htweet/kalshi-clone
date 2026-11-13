@@ -1008,12 +1008,12 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   // Re-quote the liquidity account around the live fair price: cancel, print one reference trade at the fair
   // price (system flow account vs liquidity account), then rest a bid one cent below and an offer one cent above.
   // How often: the owner setting `simulation.activity` (server/sim-activity.js, CLONE_SPEC.md §39.17): off / low / normal.
-  // Forced quotes (a new fixture's opening quotes) always run; at "off" they carry no reference trade.
+  // Forced quotes (a new fixture's opening quotes) run at low and normal; "off" places nothing at all.
   function requote(mk, p, now, force = false, table = 'sports_markets') {
     const f = clamp(Math.round(p * 100), 2, 98);
     if (!force && mk.quoted_cents === f) return;
     if (!force && mk.quoted_ts && now - mk.quoted_ts < requoteMs) return;
-    if (!force && !activity.allow(mk.quoted_cents, mk.quoted_ts, f, now)) return;
+    if (force ? activity.level() === 'off' : !activity.allow(mk.quoted_cents, mk.quoted_ts, f, now)) return;
     const lp = LP();
     const m = db.prepare('SELECT status FROM markets WHERE ticker=?').get(mk.market_ticker);
     if (!lp || !m || m.status !== 'active' || !engine.tradingActive) return;
@@ -1021,7 +1021,7 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
     const cancelOwn = (uid) => { for (const o of db.prepare("SELECT id FROM orders WHERE market_ticker=? AND status='resting' AND user_id=?").all(t, uid)) engine.cancelOrder(uid, o.id, 'requote'); };
     const attempt = (fn) => { try { fn(); } catch (e) { if (process.env.SPORTS_DEBUG) console.error('requote', t, e.message); } };
     attempt(() => { cancelOwn(lp); cancelOwn(FLOW); });
-    if (mk.quoted_cents !== f && activity.level() !== 'off') {
+    if (mk.quoted_cents !== f) {
       attempt(() => engine.placeOrder(FLOW, { ticker: t, side: 'no', price: 100 - f, count: PRINT, source: 'liquidity' }));
       attempt(() => engine.placeOrder(lp, { ticker: t, side: 'yes', price: f, count: PRINT, time_in_force: 'ioc', source: 'liquidity' }));
       attempt(() => cancelOwn(FLOW));

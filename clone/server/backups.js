@@ -551,7 +551,12 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
   const byGen = new Map();
   for (const s of segs) { if (!byGen.has(s.generation)) byGen.set(s.generation, []); byGen.get(s.generation).push(s); }
   let applied = 0; let reached = snap.ts; let generations = 0;
+  let nextGen = snap.wal_generation;
   for (const [gen, list] of [...byGen].sort((a, b) => a[0] - b[0])) {
+    // Generations apply in an unbroken run from the snapshot's own: a missing generation (never shipped, e.g. the writes
+    // of `npm run db:compact` while the server was stopped) ends the replay — a later one belongs to another base.
+    if (gen !== nextGen) { log({ level: 'warn', msg: 'wal generation missing, stopping', generation: nextGen }); break; }
+    nextGen += 1;
     if (list[0].first_frame !== 0) { log({ level: 'warn', msg: 'wal generation incomplete, stopping', generation: gen }); break; }
     // The generation's WAL file, written segment by segment (one segment in memory at a time).
     let expect = 0; let header = null; let fd = null;

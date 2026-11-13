@@ -72,7 +72,8 @@ test('backup, destroy, restore with one command; point in time; the verifiers pa
     const objDir = path.join(dir, 'backups');
     const snapKey = r.body.backup.object_key;
     const raw = fs.readFileSync(path.join(objDir, ...snapKey.split('/')));
-    assert.ok(raw.subarray(0, 5).equals(Buffer.from('PLXB1')) && !raw.includes(Buffer.from('SQLite format 3')) && !raw.includes(Buffer.from(email('ada'))), 'encrypted at rest');
+    // Snapshots are sealed as a stream in the chunked format since the database growth fix (PLXB2, CLONE_SPEC.md §39.17).
+    assert.ok(raw.subarray(0, 5).equals(Buffer.from('PLXB2')) && !raw.includes(Buffer.from('SQLite format 3')) && !raw.includes(Buffer.from(email('ada'))), 'encrypted at rest');
     const manifest = JSON.parse(fs.readFileSync(path.join(objDir, ...`${snapKey}.json`.split('/')), 'utf8'));
     assert.equal(manifest.sha256, crypto.createHash('sha256').update(raw).digest('hex'));
   } finally { await srv.close(); }
@@ -152,6 +153,12 @@ test('retention: 7 daily, 4 weekly, 12 monthly nightly backups and the interval 
     assert.ok(removed.snapshots > 350 && removed.segments === 1, JSON.stringify(removed));
     assert.equal(await store.get('wal/old.plxw'), null, 'the old WAL segment object is gone');
     assert.ok(db.prepare("SELECT 1 FROM admin_audit WHERE action='ops.backup_prune'").get(), 'audited');
+    // By count as well (owner setting backups.keep_interval_count, 8): twelve interval snapshots in the last two hours
+    // keep the newest eight (a large database cannot fill the disk; CLONE_SPEC.md §39.17).
+    for (let i = 0; i < 12; i++) await put(`ic${i}`, 'interval', now - i * 10 * 60000, 3000 + i);
+    await B.prune();
+    const recent = db.prepare("SELECT id FROM ops_backups WHERE deleted_ts IS NULL AND status='ok' AND kind='interval' ORDER BY created_ts DESC").all().map((r) => r.id);
+    assert.deepEqual(recent, ['ic0', 'ic1', 'ic2', 'ic3', 'ic4', 'ic5', 'ic6', 'ic7'], 'the newest 8 interval snapshots are kept');
   } finally { await srv.close(); }
 });
 
@@ -261,4 +268,37 @@ test('a large database: backup, restore drill and live verifiers never hold up r
   const worst = Math.max(...lat);
   assert.ok(worst < 700, `the slowest answer took ${worst} ms while the backup, drill and checks ran (${lat.length} requests)`);
   assert.ok(lat.length > 20, `only ${lat.length} answers while the backup, drill and checks ran`);
+});
+
+// Database growth fix (CLONE_SPEC.md §39.17): large objects never pass through memory whole. A file goes to S3 as one
+// streamed PUT signed with its SHA-256, or above the part size as a multipart upload; a snapshot sealed and uploaded by
+// the operations worker that way restores through a streamed download.
+test('S3: streamed and multipart uploads of large objects; a snapshot uploaded in parts restores', async () => {
+  const s3 = storageLib.s3Driver({ endpoint: fakeBase, bucket: 'parlance-big', accessKeyId: fake.accessKeyId, secretAccessKey: fake.secretAccessKey, partSize: 1048576 });
+  const dir = path.join(TMP, 's3big'); fs.mkdirSync(dir, { recursive: true });
+  const small = path.join(dir, 'small.bin'); fs.writeFileSync(small, crypto.randomBytes(300000));
+  const big = path.join(dir, 'big.bin'); fs.writeFileSync(big, crypto.randomBytes(3 * 1048576 + 123));
+  await s3.putFile('o/small.bin', small);
+  await s3.putFile('o/big.bin', big);
+  assert.ok(fs.readFileSync(small).equals(await s3.get('o/small.bin')), 'streamed single PUT');
+  assert.ok(fake.multipartDone.some((m) => m.key === 'o/big.bin' && m.parts === 4), 'multipart upload in 4 parts');
+  const back = path.join(dir, 'back.bin');
+  assert.deepEqual(await s3.getFile('o/big.bin', back), { size: fs.statSync(big).size });
+  assert.ok(fs.readFileSync(back).equals(fs.readFileSync(big)), 'streamed download');
+  assert.equal(await s3.getFile('o/missing.bin', path.join(dir, 'x')), null);
+  // A server whose backup store is that bucket: the snapshot (a few MB) is sealed and sent in parts by the worker.
+  const file = path.join(dir, 'b.db');
+  const backupStorage = { driver: 's3', endpoint: fakeBase, region: 'auto', bucket: 'parlance-big-backups', accessKeyId: fake.accessKeyId, secretAccessKey: fake.secretAccessKey, partSize: 1048576 };
+  const srv = await start(opts(file, { ops: { backupStorage } }));
+  let snap;
+  try {
+    srv.db.prepare("INSERT INTO meta(key,value) VALUES('s3_big_probe','yes')").run();
+    snap = await srv.app.locals.backups.snapshot('manual');
+  } finally { await srv.close(); }
+  assert.ok(snap.bytes > 1048576 && fake.multipartDone.some((m) => m.key === snap.object_key), 'the snapshot went up in parts');
+  const out = path.join(dir, 'restored.db');
+  await restore({ storage: storageLib.create(backupStorage), outFile: out, keyDir: dir });
+  const d = new DatabaseSync(out);
+  assert.equal(d.prepare("SELECT value FROM meta WHERE key='s3_big_probe'").get().value, 'yes');
+  d.close();
 });
