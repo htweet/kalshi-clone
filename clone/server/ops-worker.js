@@ -6,6 +6,8 @@
 // so pages timed out while they ran. They now run in one worker thread, started on first use and unref'd so it never
 // keeps the process alive. The worker opens its own connections (read-only for the live database: WAL mode gives it a
 // consistent snapshot while the server keeps writing) and its own storage driver from a plain config.
+// Database growth fix (2026-11-13, CLONE_SPEC.md §39.17): snapshots are sealed and uploaded as streams (memory bounded
+// whatever the database size), and the ledger audit (scheduled and Admin › Payments) and the Perps ledger page run here too.
 //
 // Client: run(task, args, transfer?) → Promise. Every task falls back to the calling thread when no worker can be used
 // (an in-memory database, an injected storage driver, or the worker failing to start), so behaviour never depends on it.
