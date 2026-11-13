@@ -373,6 +373,34 @@ U13 is resolved for Calendar and Browse by §13.4 and §13.2. U16 is resolved by
 U1 logged-in header contents · U2 exact odds/multiplier formulas · U3 fee coefficient · U4 password-login endpoint path · U5 sign-up branch conditions · U6 event page layout · U7 portfolio layout and columns · U8 CSV columns · U9 WS backoff constants · U10 HTTP status for `MARKET_INACTIVE` · U11 empty/error state copy · U12 BFF feed paging params · U13 calendar/browse/category layouts · U14 whether watchlist syncs to server when logged in (endpoints exist for favorited series).
 U15 exact hex values behind the current design tokens (`surface-x10`, `text-x10`, `fill-x30…x50`) and the type-scale metrics (CSS not captured) · U16 how `event_limits` groups are expanded in the calendar UI · U17 fractional-contract order entry UX · U18 contents and ranking of the `/ideas/feed` Social feed (loaded client-side, not in HAR3) · U19 name of the push channel for notifications · U20 delivery channel of the 4-digit MFA code (email or SMS).
 
+
+### 11.1 Closure status (2026-11-13)
+Every register item is now either resolved by evidence or settled by a recorded design choice in the clone (PLAN.md §8
+item 2). Where this spec still says UNKNOWN elsewhere, the same paragraph names the design choice that stands in for it.
+
+| Item | Resolution (design choice unless noted) | Where |
+|---|---|---|
+| U1 logged-in header | balance, portfolio link, notifications bell, account menu (☰) with avatar / initials | §13.16 (A3), §25 |
+| U2 odds / multiplier | chance = last trade price (bid/ask midpoint before the first trade); multiplier = 1 / price | §2 (Home cards) |
+| U3 fee coefficient | quadratic taker fee, coefficient editable at runtime (default from the public fee docs) | §16, §21.9 (G7) |
+| U4 password-login path | `POST /v1/log_in` with login CSRF and step-up | §22 |
+| U5 sign-up branches | email → password → phone code → name → birthday → address; KYC sandbox after | §25 |
+| U6 event page layout | built from the redesign observations | §15 |
+| U7 portfolio layout and columns | the five tabs as built; **verification against real screens still open (G14, owner captures)** | §17.11 |
+| U8 CSV columns | History CSV: time, type, market, description, side, action, quantity, price, amount, fee, status (NGN) | §17.9 |
+| U9 WebSocket backoff | 500 ms base, ×2 per attempt, 30 s cap, random jitter; 5 s subscription timeout | §7.2, `public/js/ws.js` |
+| U10 `MARKET_INACTIVE` status | HTTP 409 `market_inactive` | §5.4 |
+| U11 empty / error copy | every empty and error state is CMS text (Admin › Texts) | §32 |
+| U12 BFF feed paging | the home BFF answers in one response (no paging); lists page with cursors where they grow | §2, §35 |
+| U13 calendar / browse layouts | resolved by evidence | §13.2, §13.4 |
+| U14 watchlist sync | server-side watchlist for signed-in members (`/v1/users/:uid/watchlist`), local for visitors | §17 |
+| U15 design-token values | own token scale (type, weights, spacing, radius, colours) applied to every stylesheet | §27 |
+| U16 `event_limits` expansion | resolved by a design choice | §29.4 |
+| U17 fractional order entry | fractional quantities in the ticket, the book and the API | §16.3 |
+| U18 social feed contents / ranking | as built in the social completion phase | §24 |
+| U19 push channel name | the private `notifications` channel carries `push` messages; Web Push for devices | §20, §31 |
+| U20 4-digit MFA code delivery | authenticator-app codes (TOTP); no SMS or email login codes | §22 |
+
 ---
 
 ## 12. Clean-room clone mapping (what our implementation covers)
