@@ -6467,6 +6467,24 @@ commit waited for the disk. Every signed-in request also wrote the member's sess
 - Next on the request path (not done here): the idempotency layer's response handling and the demo market makers'
   quoting (`server/engine.js` `quote`) are the next largest self-time items in the profile.
 
+### 39.19 Data retention by class (2026-11-13; Phase 9A not-built item)
+Owner settings in Admin › Owner settings › Data retention (ground rule 6: recommended default, CMS explanation, reason,
+step-up because they concern personal data, audit, live effect). Days a record is kept; 0 keeps it forever.
+
+| Setting | Data | Default |
+|---|---|---|
+| `retention.notifications_days` | in-app notifications (read or not) | 365 |
+| `retention.device_days` | device sightings (hashes used by fraud and referral checks), by last seen | 180 |
+| `retention.share_clicks_days` | share-link click records (hashed address, time); links keep their totals | 90 |
+| `retention.email_copies_days` | the server's copies of sent emails (addresses, personal details) | 30 |
+| `retention.chat_days` | event chat messages | 0 (kept) |
+
+Already scheduled elsewhere: security and sign-in logs (`logs.retention_days`, 90), closed accounts' identity data (Admin ›
+Identity, KYC retention), unconfirmed waitlist guests (§36), backups (§39.3). The purge runs with the hourly maintenance
+job, deletes in batches of 2,000 rows with a yield in between (a large purge never holds up requests), audits every class
+it purged with its count (`ops.retention_purge`), and Admin › System (`GET /v1/admin/system` → `retention`) reports the
+classes, their days and the last purge. Test: `retention.e2e` (defaults, chat kept, audit, the UI change, restart).
+
 ---
 
 ## Appendix A. Evidence per view (requests and scripts)

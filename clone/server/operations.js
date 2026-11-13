@@ -314,6 +314,7 @@ function mountOperations(ctx) {
       backups: { ...b, recent: backups.list(15).map((x) => ({ id: x.id, kind: x.kind, status: x.status, time: new Date(x.created_ts).toISOString(), bytes: x.bytes, sha256: x.sha256, key_id: x.key_id, deleted: !!x.deleted_ts, error: x.error })) },
       restore_drill: { last_ok: drillVo(lastDrill()), recent: db.prepare('SELECT * FROM ops_restore_drills ORDER BY started_ts DESC LIMIT 10').all().map(drillVo), running: !!drillRunning },
       keys: keyring.status(),
+      retention: retentionVo(), // data retention by class (§39.19)
       anchor: { ...(await anchors.check()), public_key: anchors.publicKey, key_id: anchors.keyId },
       verifiers: await verifiers(),
       readiness: obs.readiness(),
@@ -447,6 +448,34 @@ function mountOperations(ctx) {
     return n;
   }
 
+  // ---------------------------------------------------------------- data retention by class (CLONE_SPEC.md §39.19)
+  // Each owner setting gives the days a record is kept (0 keeps it forever). Old rows go in batches of 2,000 with a yield in
+  // between, so a large purge never holds up requests; every class purged is audited with its count.
+  const RETENTION = [
+    ['retention.notifications_days', 'notifications', 'created_ts', 'ms'],
+    ['retention.device_days', 'device_sightings', 'last_seen', 'ms'],
+    ['retention.share_clicks_days', 'share_clicks', 'ts', 'ms'],
+    ['retention.email_copies_days', 'email_outbox', 'created_at', 'iso'],
+    ['retention.chat_days', 'chat_messages', 'created_ts', 'ms'],
+  ];
+  let lastRetention = null;
+  async function purgeData() {
+    const removed = {};
+    for (const [key, table, col, kind] of RETENTION) {
+      const days = Number(S(key)) || 0;
+      if (!days || !hasTable(table)) continue;
+      const cutMs = now() - days * 86400000;
+      const cut = kind === 'iso' ? new Date(cutMs).toISOString() : cutMs;
+      const del = db.prepare(`DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE ${col} < ? LIMIT 2000)`);
+      let n = 0;
+      for (;;) { const c = del.run(cut).changes; n += c; if (c < 2000) break; await new Promise((r) => setImmediate(r)); }
+      if (n) { removed[table] = n; sysAudit({ action: 'ops.retention_purge', target_id: table, after: { rows: n, older_than_days: days }, reason: OS('reason.retention') }); }
+    }
+    lastRetention = { time: new Date(now()).toISOString(), removed };
+    return removed;
+  }
+  const retentionVo = () => ({ classes: RETENTION.map(([key, table]) => ({ key, table, days: Number(S(key)) || 0 })), last: lastRetention });
+
   // ---------------------------------------------------------------- jobs
   const timers = []; const sweepTimers = [];
   function startJobs({ schedule = true } = {}) {
@@ -464,6 +493,7 @@ function mountOperations(ctx) {
     timers.push(setInterval(() => {
       try {
         purgeLogs();
+        purgeData().catch((e) => logger.error('retention purge failed', { error: e.message }));
         const every = S('backups.drill_every_days');
         const last = db.prepare("SELECT MAX(started_ts) t FROM ops_restore_drills").get().t || 0;
         if (every > 0 && backupStorage && now() - last > every * 86400000 && db.prepare("SELECT 1 FROM ops_backups WHERE status='ok' LIMIT 1").get()) restoreDrill({ trigger: 'schedule' }).catch(() => {});
@@ -475,7 +505,7 @@ function mountOperations(ctx) {
   }
   function stopJobs() { timers.splice(0).forEach(clearInterval); sweepTimers.splice(0).forEach(clearInterval); anchors.stop(); alerts.stop(); }
 
-  return { lastVerifiers: () => verifierCache, switchGate, restoreDrill, readiness, assertLaunchReady, systemView, verifiers, moveBlobs, blobStatus, purgeLogs, startJobs, stopJobs, LOAD_TARGETS, OWNER_ITEMS };
+  return { purgeData, retentionVo, lastVerifiers: () => verifierCache, switchGate, restoreDrill, readiness, assertLaunchReady, systemView, verifiers, moveBlobs, blobStatus, purgeLogs, startJobs, stopJobs, LOAD_TARGETS, OWNER_ITEMS };
 }
 
 module.exports = { mountOperations, LOAD_TARGETS, OWNER_ITEMS, TRADING, ALWAYS };

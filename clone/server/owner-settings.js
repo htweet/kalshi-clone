@@ -50,6 +50,13 @@ const REGISTRY = [
   ['db.max_durability', 'backups', 'bool', false, { stepUp: true, where: '/admin/system' }],
   ['logs.level', 'observability', 'enum', 'info', { values: ['debug', 'info', 'warn', 'error'], where: '/admin/system' }],
   ['logs.retention_days', 'observability', 'int', 90, { min: 7, max: 730, unit: 'days', stepUp: true, where: '/admin/system' }],
+  // Data retention by class (Phase 9A not-built item, 2026-11-13; CLONE_SPEC.md §39.19). Days a record is kept; 0 keeps it
+  // forever. Personal data: step-up. Closed accounts' identity data has its own schedule (Admin › Identity, KYC days).
+  ['retention.notifications_days', 'retention', 'int', 365, { min: 0, max: 3650, unit: 'days', stepUp: true, where: '/admin/system' }],
+  ['retention.device_days', 'retention', 'int', 180, { min: 0, max: 730, unit: 'days', stepUp: true, where: '/admin/system' }],
+  ['retention.share_clicks_days', 'retention', 'int', 90, { min: 0, max: 730, unit: 'days', stepUp: true, where: '/admin/system' }],
+  ['retention.email_copies_days', 'retention', 'int', 30, { min: 0, max: 365, unit: 'days', stepUp: true, where: '/admin/system' }],
+  ['retention.chat_days', 'retention', 'int', 0, { min: 0, max: 3650, unit: 'days', stepUp: true, where: '/admin/system' }],
   ['traces.sample_pct', 'observability', 'int', 10, { min: 1, max: 100, unit: 'percent', where: '/admin/system' }],
   ['anchors.interval_minutes', 'observability', 'int', 60, { min: 5, max: 1440, unit: 'minutes', where: '/admin/system' }],
   ['alerts.error_rate_pct', 'alerts', 'int', 5, { min: 1, max: 100, unit: 'percent', where: '/admin/system' }],
