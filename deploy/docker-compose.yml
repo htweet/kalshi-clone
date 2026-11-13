@@ -124,14 +124,16 @@ services:
   alertmanager:
     image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
     restart: unless-stopped
-    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--config.expand-env=true"]
+    # Alertmanager cannot read environment variables in its configuration: the entrypoint writes it from them, then starts
+    # Alertmanager (email only once ALERT_EMAIL and ALERT_SMTP_HOST are set).
+    entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
     environment:
       ALERT_EMAIL: ${ALERT_EMAIL:-}
       ALERT_SMTP_HOST: ${ALERT_SMTP_HOST:-}
       ALERT_SMTP_FROM: ${ALERT_SMTP_FROM:-}
       ALERT_SMTP_USER: ${ALERT_SMTP_USER:-}
       ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
-      ALERT_PHONE_WEBHOOK: ${ALERT_PHONE_WEBHOOK:-http://127.0.0.1:9/disabled}
+      ALERT_PHONE_WEBHOOK: ${ALERT_PHONE_WEBHOOK:-}
     volumes: ["./alertmanager:/etc/alertmanager:ro", "alertmanager:/alertmanager"]
     networks: [edge]
 
@@ -163,6 +165,11 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # No calls to grafana.com (plugin update checks, background plugin installs, the Angular detector list): nothing
+      # leaves the server (CLONE_SPEC.md §39.5).
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_DISABLE_ANGULAR_DETECTOR: "true"
     secrets: [grafana_admin_password]
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
