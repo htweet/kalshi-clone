@@ -143,6 +143,10 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.flags = flags; engine.flags = flags; flagsRef = flags;
   // Owner settings (ground rule 6, CLONE_SPEC.md §38.1): validated values every module reads live (engine.ownerSettings).
   const ownerSettings = createOwnerSettings({ db, engine, overrides: ownerOptions.overrides || {} });
+  // Commit durability (owner setting db.max_durability, CLONE_SPEC.md §39.18): applied now and on every change.
+  const applyDurability = () => { try { db.exec(`PRAGMA synchronous = ${ownerSettings.get('db.max_durability') ? 'FULL' : 'NORMAL'}`); } catch (e) { console.error('durability setting', e.message); } };
+  applyDurability();
+  ownerSettings.listeners.push((key) => { if (key === 'db.max_durability') applyDurability(); });
   app.locals.ownerSettings = ownerSettings; engine.ownerSettings = ownerSettings; ownerSettingsRef = ownerSettings;
   // Waitlist storage (server/waitlists.js, CLONE_SPEC.md §36): the Perps list and the real-money launch list share it.
   const waitlists = createWaitlists({ db, keyDir });

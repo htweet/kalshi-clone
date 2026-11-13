@@ -196,16 +196,35 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   }
   // Session-time accounting: every authenticated /v1 request adds the gap since the last one (capped at 60 s).
   const SESSION_EXEMPT = /^\/(session|log_out|users\/[^/]+\/(daily_session_time_limit|deposit_limits?|trading_limits))$/;
+  // Performance pass 2026-11-13 (CLONE_SPEC.md §39.18): the gaps are added up in memory per member and day and written at
+  // most every 15 s (one database write per member per 15 s instead of one per request); the limit check adds the
+  // unwritten seconds, so it stays exact. Whole seconds are written, the remainder carries over (more exact than rounding
+  // each gap). At most 15 s of session time can be lost in a crash.
+  const SESSION_FLUSH_MS = 15000;
+  const sessionState = new Map(); // uid -> { day, last, pendingMs, wrote }
+  engine.on('session_time_cleared', (uid) => sessionState.delete(uid)); // Admin › Users › clear session time
+  const flushSession = (uid, st, now) => {
+    const sec = Math.floor(st.pendingMs / 1000);
+    db.prepare('INSERT INTO session_usage(user_id,day,seconds,last_seen_ms) VALUES(?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET seconds=seconds+excluded.seconds, last_seen_ms=excluded.last_seen_ms')
+      .run(uid, st.day, sec, now);
+    st.pendingMs -= sec * 1000; st.wrote = now;
+  };
   function sessionMiddleware(req, res, next) {
     if (!req.auth) return next();
     const uid = req.auth.user.id;
     const now = Date.now();
     const day = dayKey(now);
-    const row = db.prepare('SELECT * FROM session_usage WHERE user_id=? AND day=?').get(uid, day);
-    if (!row) db.prepare('INSERT INTO session_usage(user_id,day,seconds,last_seen_ms) VALUES(?,?,0,?)').run(uid, day, now);
-    else db.prepare('UPDATE session_usage SET seconds=seconds+?, last_seen_ms=? WHERE user_id=? AND day=?').run(Math.round(Math.min(Math.max(now - row.last_seen_ms, 0), 60000) / 1000), now, uid, day);
+    let st = sessionState.get(uid);
+    if (!st || st.day !== day) {
+      const row = db.prepare('SELECT last_seen_ms FROM session_usage WHERE user_id=? AND day=?').get(uid, day);
+      st = { day, last: row ? row.last_seen_ms : now, pendingMs: 0, wrote: 0 };
+      sessionState.set(uid, st);
+    }
+    st.pendingMs += Math.min(Math.max(now - st.last, 0), 60000);
+    st.last = now;
+    if (now - st.wrote >= SESSION_FLUSH_MS) flushSession(uid, st, now);
     const lim = limitValue(uid, 'session');
-    if (lim != null && usedToday.session(uid) >= lim * 60 && !SESSION_EXEMPT.test(req.path)) {
+    if (lim != null && usedToday.session(uid) + Math.floor(st.pendingMs / 1000) >= lim * 60 && !SESSION_EXEMPT.test(req.path)) {
       return next(new ApiError(403, 'session_time_limit_reached', 'you have reached your daily session time limit', `limit ${lim} minutes per day; resets at 00:00 UTC`));
     }
     next();

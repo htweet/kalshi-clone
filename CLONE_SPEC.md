@@ -6250,6 +6250,31 @@ and the live ledger / audit-chain checks likewise ran in one piece, and the 15-m
   (250 MB; no answer may exceed 700 ms; the old code answered 6 requests in 6.5 s). `reach.e2e` "quick-loading page"
   covers `ssr.visitors` (off: no body for visitors, full body for crawlers, the switch in Admin › Feature flags).
 
+### 39.18 Performance pass on the request path (2026-11-13)
+A CPU profile of the server under `scripts/load.js --profile smoke` (60 orders/s, 50 WebSocket clients) put the largest
+single cost in the transaction helper `tx` (`server/db.js`): SQLite ran with its default `synchronous = FULL`, so every
+commit waited for the disk. Every signed-in request also wrote the member's session time (`server/features.js`).
+- **Owner setting `db.max_durability`** (Admin › Owner settings › Backups, step-up, reason, audit, live): off =
+  `synchronous NORMAL` (WAL mode: an app crash or restart loses nothing and the database cannot be corrupted; a power cut
+  or operating-system crash can lose the newest commits), on = `FULL` (every commit waits for the disk). Recommended
+  default **off while trading is play money**; Admin › Launch readiness has a check `db_durability` that requires it on,
+  so the switch to real money cannot run without it. Applied at start and on every change.
+- **Session time** is added up in memory per member and day and written at most every 15 s; the daily-limit check adds
+  the unwritten seconds (still exact); an admin clearing it also clears the unwritten part; at most 15 s can be lost in a
+  crash. Whole seconds are written and the remainder carries over (each gap used to be rounded on its own).
+- Measured on the same machine and load (smoke profile, 60 orders/s target):
+
+  | | FULL (before) | NORMAL (default now) |
+  |---|---|---|
+  | order p50 / p99 | 162 / 5,130 ms | 113 / 506 ms |
+  | other API p99 | 2,890 ms | 465 ms |
+  | public pages p95 | 321 ms | 222 ms |
+- Tests: `features.e2e` (30 signed-in requests write the session row at most twice; the limit test unchanged),
+  `ops.e2e` (the readiness check red by default and green once on, the switch to real money refused while it is off,
+  `PRAGMA synchronous` 1 / 2, kept after a restart).
+- Next on the request path (not done here): the idempotency layer's response handling and the demo market makers'
+  quoting (`server/engine.js` `quote`) are the next largest self-time items in the profile.
+
 ---
 
 ## Appendix A. Evidence per view (requests and scripts)

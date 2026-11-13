@@ -227,6 +227,7 @@ function mountOperations(ctx) {
     add('backups_fresh', on('ops.backups') && b.last_backup && b.last_backup.age_sec <= S('backups.max_age_minutes') * 60 && (!backups.shipping || (b.last_wal_segment ? b.last_wal_segment.age_sec <= 3600 : true)),
       !on('ops.backups') ? 'the backup schedule is off' : !b.last_backup ? 'no backup yet' : `newest backup ${Math.round(b.last_backup.age_sec / 60)} min old`);
     add('backups_offsite', !!backupStorage && (backupStorage.kind === 's3' || (backupStorage.describe().dir && !configGuardInside(backupStorage.describe().dir, keyDir))), backupStorage ? JSON.stringify(backupStorage.describe()) : 'not configured');
+    add('db_durability', S('db.max_durability') === true, S('db.max_durability') ? null : 'Admin › Owner settings › Maximum durability is off');
     const d = lastDrill();
     add('restore_drill', d && t - d.finished_ts <= S('backups.drill_max_age_days') * 86400000, d ? `last drill ${Math.floor((t - d.finished_ts) / 86400000)} day(s) ago` : 'no successful drill yet');
     const confirmed = alerts.contacts().filter((x) => x.confirmed).length;

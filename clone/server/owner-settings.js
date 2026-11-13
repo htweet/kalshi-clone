@@ -41,6 +41,10 @@ const REGISTRY = [
   ['backups.max_age_minutes', 'backups', 'int', 60, { min: 5, max: 1440, unit: 'minutes', where: '/admin/system' }],
   ['backups.drill_max_age_days', 'backups', 'int', 30, { min: 1, max: 365, unit: 'days', where: '/admin/system' }],
   ['backups.drill_every_days', 'backups', 'int', 7, { min: 0, max: 90, unit: 'days', where: '/admin/system' }],
+  // Commit durability (performance pass 2026-11-13, CLONE_SPEC.md §39.18): off = SQLite synchronous NORMAL (an app crash
+  // loses nothing, the database cannot corrupt; a power cut can lose the newest commits), on = FULL (every commit waits for
+  // the disk). Launch readiness requires it on before real money.
+  ['db.max_durability', 'backups', 'bool', false, { stepUp: true, where: '/admin/system' }],
   ['logs.level', 'observability', 'enum', 'info', { values: ['debug', 'info', 'warn', 'error'], where: '/admin/system' }],
   ['logs.retention_days', 'observability', 'int', 90, { min: 7, max: 730, unit: 'days', stepUp: true, where: '/admin/system' }],
   ['traces.sample_pct', 'observability', 'int', 10, { min: 1, max: 100, unit: 'percent', where: '/admin/system' }],

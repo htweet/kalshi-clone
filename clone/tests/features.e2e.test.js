@@ -315,6 +315,26 @@ test('account limits: deposit and trading limits enforced; loosening waits 24h; 
   await page.context().close();
 });
 
+// Performance pass 2026-11-13 (CLONE_SPEC.md §39.18): session time used to be written to the database on every signed-in
+// request (with durable commits, a disk sync per page view). It is now added up in memory and written at most every 15 s;
+// the limit check above still sees it exactly (it adds the unwritten seconds).
+test('session time is written at most every 15 seconds, not on every signed-in request', async () => {
+  const page = await newPage();
+  await logIn(page, erin.email);
+  dbrun('CREATE TABLE IF NOT EXISTS zz_session_writes(n INTEGER)');
+  dbrun('CREATE TRIGGER IF NOT EXISTS zz_session_upd AFTER UPDATE ON session_usage BEGIN INSERT INTO zz_session_writes VALUES (1); END');
+  dbrun('CREATE TRIGGER IF NOT EXISTS zz_session_ins AFTER INSERT ON session_usage BEGIN INSERT INTO zz_session_writes VALUES (1); END');
+  try {
+    const codes = await page.evaluate(async () => { const out = []; for (let i = 0; i < 30; i++) out.push((await fetch('/v1/live_data/count')).status); return out; });
+    assert.ok(codes.every((c) => c === 200), JSON.stringify(codes));
+    const n = dbq('SELECT COUNT(*) c FROM zz_session_writes')[0].c;
+    assert.ok(n <= 2, `${n} session-time writes for 30 requests (at most 2 expected)`);
+  } finally {
+    dbrun('DROP TRIGGER IF EXISTS zz_session_upd'); dbrun('DROP TRIGGER IF EXISTS zz_session_ins'); dbrun('DROP TABLE IF EXISTS zz_session_writes');
+    await page.context().close();
+  }
+});
+
 test('two-factor login: set up from Account, log in requires a valid code, turn off', async () => {
   const page = await newPage();
   await logIn(page, erin.email);
