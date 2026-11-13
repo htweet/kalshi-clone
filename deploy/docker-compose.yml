@@ -116,13 +116,13 @@ services:
     networks: [edge]
 
   blackbox:
-    image: prom/blackbox-exporter:v0.27.0@sha256:a50c4c0eda297baa1678cd4dc4712a67fdea713b832d43ce7fcc5f9bea05094d
+    image: prom/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13
     restart: unless-stopped
     volumes: ["./prometheus/blackbox.yml:/etc/blackbox_exporter/config.yml:ro"]
     networks: [edge]
 
   alertmanager:
-    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
     restart: unless-stopped
     command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--config.expand-env=true"]
     environment:
@@ -136,14 +136,14 @@ services:
     networks: [edge]
 
   loki:
-    image: grafana/loki:3.5.3@sha256:3165cecce301ce5b9b6e3530284b080934a05cd5cafac3d3d82edcb887b45ecd
+    image: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
     restart: unless-stopped
     command: ["-config.file=/etc/loki/loki.yml"]
     volumes: ["./loki/loki.yml:/etc/loki/loki.yml:ro", "loki:/loki"]
     networks: [edge]
 
   promtail:
-    image: grafana/promtail:3.5.3@sha256:698c3357886c886bb9a862da36062e130c20bf359d956148e67ee36141ef6f17
+    image: grafana/promtail:3.6.8@sha256:6cfa64ec432b24a912d640e2edb940eeae2666f61861a66c121d763dd7241381
     restart: unless-stopped
     command: ["-config.file=/etc/promtail/promtail.yml"]
     volumes:
@@ -152,7 +152,7 @@ services:
     networks: [edge]
 
   grafana:
-    image: grafana/grafana:12.1.1@sha256:a1701c2180249361737a99a01bc770db39381640e4d631825d38ff4535efa47d
+    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-owner}
