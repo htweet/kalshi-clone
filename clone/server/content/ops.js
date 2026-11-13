@@ -43,6 +43,8 @@ const STRINGS = {
   'check.backups_fresh.help': 'The newest encrypted backup is younger than the backup-age setting, and WAL shipping is running.',
   'check.backups_offsite': 'Backups off the server',
   'check.backups_offsite.help': 'Backups go to an S3-compatible bucket (or a folder on another disk), not the data volume.',
+  'check.db_durability': 'Maximum durability on',
+  'check.db_durability.help': 'Admin › Owner settings › Maximum durability is on: every commit waits for the disk, so a power cut cannot lose confirmed trades or payments. Required before real money.',
   'check.restore_drill': 'Restore drill recent',
   'check.restore_drill.help': 'A restore drill succeeded within the drill-age setting: the newest backup was restored and every verifier passed.',
   'check.alerts_contact': 'Alerts reach a confirmed contact',

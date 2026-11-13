@@ -58,6 +58,8 @@ const STRINGS = {
   'setting.backups.max_age_minutes.help': 'The backup-overdue alert and the Launch readiness check turn red past this age. 1 hour is four missed snapshots.',
   'setting.backups.drill_max_age_days.label': 'Alert when the last restore drill is older than',
   'setting.backups.drill_max_age_days.help': 'A backup is only proven by restoring it. Past this age the restore-drill alert fires and Launch readiness turns red. Recommended: 30 days.',
+  'setting.db.max_durability.label': 'Maximum durability (every commit waits for the disk)',
+  'setting.db.max_durability.help': 'On: every trade and deposit is written to disk before it is confirmed, so even a sudden power cut loses nothing; the slowest requests take noticeably longer. Off (recommended while trading is play money): the database still survives an app crash or restart without loss or damage, but a power cut can lose the last moments of activity. Launch readiness requires it on before real money.',
   'setting.backups.drill_every_days.label': 'Run a restore drill automatically every',
   'setting.backups.drill_every_days.help': 'Days between automatic restore drills (the newest backup is restored to a temporary file and every verifier runs). 0 = only when an admin runs one.',
   'setting.logs.level.label': 'Log level',

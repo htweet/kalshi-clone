@@ -335,7 +335,9 @@ test('Launch readiness: checks turn green and red live; the production switch is
   for (const k of ['config_guard', 'tls_hsts', 'admin_origin', 'backups_fresh', 'backups_offsite', 'restore_drill', 'alerts_contact', 'key_ages', 'audit_anchor', 'flags_launch']) {
     await ap.waitForSelector(`[data-testid=launch-check][data-key=${k}][data-ok="1"]`, { timeout: 15000 });
   }
-  for (const k of ['dependency_scan', 'image_scan', 'load_test']) await ap.waitForSelector(`[data-testid=launch-check][data-key=${k}][data-ok="0"]`);
+  for (const k of ['dependency_scan', 'image_scan', 'load_test', 'db_durability']) await ap.waitForSelector(`[data-testid=launch-check][data-key=${k}][data-ok="0"]`);
+  // Commit durability (owner setting db.max_durability, off by default): SQLite runs synchronous NORMAL (1) until it is on.
+  assert.equal(srv.db.prepare('PRAGMA synchronous').get().synchronous, 1);
   assert.equal(await ap.getAttribute('[data-testid=launch-gate]', 'data-enforced'), '1');
   // The waitlist target and count are shown.
   assert.equal((await set('PUT', '/v1/admin/waitlists/real_money_launch/target', { target: 500, reason: 'launch target' })).status, 200);
@@ -350,7 +352,7 @@ test('Launch readiness: checks turn green and red live; the production switch is
   await answerStepUp(pp);
   const err = await pp.waitForSelector('[data-testid=switch-form] [data-form-error]:not(:empty)');
   const text = await err.textContent();
-  for (const label of ['Dependency scan clean', 'Container image scan clean', 'Load test within targets', 'External penetration test']) assert.ok(text.includes(label), `the refusal names "${label}": ${text}`);
+  for (const label of ['Dependency scan clean', 'Container image scan clean', 'Load test within targets', 'Maximum durability on', 'External penetration test']) assert.ok(text.includes(label), `the refusal names "${label}": ${text}`);
   const api = await set('POST', '/v1/admin/play_mode/production_switch', { reason: 'launch day', confirm: 'RESET' });
   assert.equal(api.code, 'launch_not_ready'); assert.ok(api.body.error.blocking.length >= 8);
   // A check turns red live: maintenance on → "Switches in their launch state" red; off → green.
@@ -371,6 +373,10 @@ test('Launch readiness: checks turn green and red live; the production switch is
   await ap.waitForSelector('[data-testid=launch-check][data-key=load_test][data-ok="0"]', { timeout: 10000 });
   assert.equal((await admin.call('POST', '/v1/admin/launch_readiness/evidence', { kind: 'load_test', report: { machine: 'staging 4 vCPU', results: { orders_per_sec: 210, order_p99_ms: 40, ws_fanout_p99_ms: 120, page_p95_ms: 180 } }, reason: 'staging run' })).status, 201);
   await ap.waitForSelector('[data-testid=launch-check][data-key=load_test][data-ok="1"]', { timeout: 10000 });
+  // Maximum durability on (step-up, reason): every commit waits for the disk (synchronous FULL = 2), the check turns green.
+  assert.equal((await set('PUT', '/v1/admin/owner_settings/db.max_durability', { value: true, reason: 'durable commits before real money' })).status, 200);
+  assert.equal(srv.db.prepare('PRAGMA synchronous').get().synchronous, 2);
+  await ap.waitForSelector('[data-testid=launch-check][data-key=db_durability][data-ok="1"]', { timeout: 10000 });
   // Owner items: one ticked in the UI (note + date, step-up), the rest by API.
   await ap.click('[data-testid=launch-item][data-key=pen_test] [data-testid=launch-item-edit]');
   await ap.setChecked('[data-testid=launch-item-form] [name=done]', true);
@@ -404,6 +410,9 @@ test('a restart keeps the switches, owner items, contacts and evidence', async (
   const r = (await a.call('GET', '/v1/admin/launch_readiness')).body;
   assert.ok(r.items.every((i) => i.done), 'owner items kept');
   assert.ok(r.checks.find((c) => c.key === 'dependency_scan').ok && r.checks.find((c) => c.key === 'load_test').ok, 'evidence kept');
+  // Maximum durability stays on and is applied at start (synchronous FULL = 2).
+  assert.ok(r.checks.find((c) => c.key === 'db_durability').ok, 'durability setting kept');
+  assert.equal(srv.db.prepare('PRAGMA synchronous').get().synchronous, 2);
   const s = (await a.call('GET', '/v1/admin/system')).body;
   assert.ok(s.alerts.contacts.some((c) => c.confirmed && c.kind === 'webhook'), 'confirmed contact kept');
   assert.ok(s.switches.every((x) => !['ops.maintenance', 'ops.trading_halt', 'ops.read_only'].includes(x.key) || !x.on));

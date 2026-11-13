@@ -1294,6 +1294,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const day = dayKey(Date.now());
     const before = db.prepare('SELECT seconds FROM session_usage WHERE user_id=? AND day=?').get(u.id, day)?.seconds ?? 0;
     db.prepare('UPDATE session_usage SET seconds=0 WHERE user_id=? AND day=?').run(u.id, day);
+    engine.emit('session_time_cleared', u.id); // drops the seconds not yet written (server/features.js)
     audit(req, 'users.clear_session_time', 'user', u.id, { used_today_seconds: before }, { used_today_seconds: 0 }, reason);
     res.json({ used_today_seconds: 0 });
   });
