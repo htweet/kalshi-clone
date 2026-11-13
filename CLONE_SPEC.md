@@ -5887,7 +5887,7 @@ yet, so each is configuration with a placeholder (`deploy/env.example`, `clone/.
 | TLS, HTTP/3, HSTS, request limits, FIX over TLS | `deploy/caddy` | automatic certificates; `X-Forwarded-*` set here only; layer-4 TLS for FIX on 9443 |
 | Backup verification | `backup` service (same image) | restores the store into tmpfs every 6 h and runs the verifiers |
 | Metrics, uptime and certificate probes, rules | Prometheus + blackbox (`deploy/prometheus`) | scrapes the private metrics port |
-| Alert delivery | Alertmanager (`deploy/alertmanager`) | owner email + phone through a webhook relay |
+| Alert delivery | Alertmanager (`deploy/alertmanager`; `entrypoint.sh` writes its configuration from the environment) | owner email + phone through a webhook relay |
 | Logs | Loki + promtail (`deploy/loki`) | the app's lines are scrubbed JSON; 30 days |
 | Dashboards | Grafana (`deploy/grafana`), under `/grafana` on the admin host | provisioned data sources and the "Parlance — overview" dashboard |
 
@@ -6222,6 +6222,23 @@ starts Phase 9B. The load test result recorded in Launch readiness must be withi
   Phase 6 `perp_waitlist` table — run for them as they would on a real old database).
 - `scripts/container-smoke.js` and `scripts/load.js --profile smoke` in the CI `image` job.
 - Full suite: 401 scenarios across 52 files, all passing (2026-11-09, after §39.16).
+
+### 39.15a Deploy stack checked by running it (2026-11-13)
+The Phase 9A stack had been checked with `docker compose config` and `caddy validate` without the FIX add-on only. Starting
+each service with the dependency batch of 2026-11-13 found and fixed:
+- **Alertmanager never started**: compose passed `--config.expand-env`, a flag Alertmanager does not have (0.28.1 nor
+  0.35.0), and its configuration cannot read environment variables. `deploy/alertmanager/entrypoint.sh` now writes the
+  configuration from `ALERT_EMAIL`, `ALERT_SMTP_*` and `ALERT_PHONE_WEBHOOK` (every value a quoted YAML string) and
+  starts it; email and the phone webhook are each left out, with a log line, until configured. Checked by starting it
+  configured, unconfigured and with a password containing quotes and backslashes (`amtool check-config` passes on the
+  written file each time).
+- **Grafana 13.3.0** loads the provisioned Prometheus and Loki data sources and the Parlance dashboard; it no longer
+  contacts grafana.com (plugin update checks, background installs, the Angular detector list are off).
+- **Caddy 2.11** (builder and runtime, pinned by digest) builds with the pinned layer-4 add-on and the Caddyfile,
+  including the FIX over TLS block, validates.
+- Loki 3.7.9 (`-verify-config`), Promtail 3.6.8 (`-check-syntax`) and blackbox-exporter 0.29.1 (`--config.check`)
+  accept their files.
+Still not run end to end: the whole stack with real certificates (needs the owner's domain).
 
 ### 39.16 Performance fix after the owner's report (2026-11-09)
 Report: after updating to Phase 9A the owner's long-running local database answered "request timed out" and pages
