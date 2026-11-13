@@ -6250,6 +6250,139 @@ and the live ledger / audit-chain checks likewise ran in one piece, and the 15-m
   (250 MB; no answer may exceed 700 ms; the old code answered 6 requests in 6.5 s). `reach.e2e` "quick-loading page"
   covers `ssr.visitors` (off: no body for visitors, full body for crawlers, the switch in Admin › Feature flags).
 
+### 39.17 Database growth fix after the owner's report (2026-11-13)
+
+**Cause.** The owner's database (`npm start` since 3 November) had reached 3.8 GB (5.9 M journal postings, 2.9 M
+entries, 1.8 M ledger rows, 1.2 M orders, 600 k fills, 340 k trades) plus 7.9 GB of backups, and the site answered
+"request timed out". (1) **Growth:** the built-in liquidity accounts (`liquidity@`, `sportsflow@`, `is_system = 1`)
+re-quoted every simulated sports market on every 1¢ move of its fair price, once a second: cancel, a bot-against-bot
+reference trade, two new resting orders — every order, fill, trade, journal entry and ledger row stored for good. A fresh
+`npm start` wrote per minute 7,249 journal postings, 3,512 entries, 2,117 ledger rows, 1,395 orders, 698 fills and 349
+trades (≈ 10 M postings a day), all by system accounts. (2) **Request-thread stalls** that grow with the tables (below).
+(3) **Backups** read the whole snapshot into memory and sealed it in one buffer: twice the database in RAM, and a
+database over 2 GiB could not be backed up at all (`readFileSync` refuses files over 2 GiB); restore did the same.
+
+**Measured** (development VM: 4 vCPU, 15 GB, Node 22.23). A database built like the owner's: a fresh `npm start` for
+two minutes, then invented system-account history added with `tests/lib/big-db.js` (fresh ids, audit-clean: 1.06 M
+orders, 5.2 M postings, 2.6 M entries, 582 k fills, 280 k trades, 1.06 M ledger rows, one member with 60 k orders, fills
+and ledger rows; 2.3 GB). The server started as `npm start` does (backups on) with a debug-only statement / event-loop
+instrument (not committed), for 13 minutes (the 10-minute audit included) while a headless browser loaded the public
+pages, a signed-in member's portfolio / history / funds and every admin page, and a probe asked `/v1/exchange/status`
+every 200 ms. Every request-thread statement or job above 100 ms, before → after:
+
+| Stall (source) | Before (main thread) | After |
+|---|---|---|
+| Scheduled ledger audit every 10 min (`payments-admin.js` → `journal.audit`: GROUP BY entry, GROUP BY account, reservations, play-mode epoch check) | 1,367 + 745 + 403 + 219 ms ≈ 2.7 s | 0 ms: operations worker (2.1 s + 1.4 s + 0.6 s + 0.4 s there) |
+| Admin › Payments › Ledger audit view and "run now" (`payments-admin.js`) | up to 1,472 + 756 + 420 + 219 ms ≈ 2.9 s per view | 0 ms: worker; the page answers in 3–4 s while everything else keeps answering |
+| Admin › Perps ops › Ledger (`perps-ops.js`: every posting grouped by account) | 780 ms per view | 0 ms: worker; the bridge check reads one indexed sum |
+| `engine.expireOrders`, every engine tick (full scan of `orders` for expired good-til-time orders) | 115–165 ms every second | below 1 ms: partial index `idx_orders_expiring` |
+| `GET /users/:uid/transactions` and the CSV (every ledger row of the member) | 150–180 ms, 6.1 s at the client | newest 500 (like the fill history); the CSV in keyset pages of 2,000 that yield between pages |
+| Admin › Reports (trades by day / by market, deposits by day) | 212 / 370 / 107 ms | 150 / 113 ms / below 100 ms (`idx_trades_ts`, `idx_ledger_kind_ts`); still proportional to the chosen period (residual) |
+| History timeline of the 60 k-row member (`history.js` UNION) | 150–170 ms | 200–290 ms under the same load (residual: proportional to one member's history) |
+| A backup of the 2.3 GB database (`ops-worker.js` `sealFile`) | failed (`File size is greater than 2 GiB`) | 2.37 GB sealed and stored by the worker as a stream |
+| WAL checkpoint while the worker reads (`backups.js`): TRUNCATE waits for readers with the 5 s busy timeout | up to 5 s (found in review: the hourly verifiers, and now the audits, hold a read snapshot) | never waits: busy means "next tick" |
+| Single-row writes waiting on the disk (flash prices, session usage, perps history, sports quotes, commits) | 300 ms–2.9 s, ≈ 400 times | up to 730 ms, ≈ 40 times (the bots write a twentieth as much at "low") |
+
+Event loop over the 13 minutes: before 960 delays ≥ 100 ms (220 over 1 s, worst 4.7 s), probes over 300 ms 456 (worst
+5.6 s); after 914 (19 over 1 s; the worst, 4.3 s, is the one-off index build at start, before listening), probes over
+300 ms 357 (worst 1.55 s). The remaining delays come from the machine, not the database: the browser client shares the
+four cores (and another worktree's test suite ran at the same time); the same server and database with no client show 12
+delays ≥ 100 ms in 75 s (worst 164 ms), a fresh database 8 (worst 392 ms).
+
+**Write rates** (`rate.js`: fresh `npm start`, two minutes, rows per minute; normal = the code before):
+
+| Level | journal_postings | journal_entries | ledger | orders | fills | trades |
+|---|---|---|---|---|---|---|
+| normal | 7,249 | 3,512 | 2,117 | 1,395 | 698 | 349 |
+| low (default) | 391 (18.5×) | 191 (18.4×) | 111 (19×) | 80 (17×) | 40 (17×) | 20 (17×) |
+| off | 0 simulated orders (the `sim-activity` suite) | | | | | |
+
+**Design.**
+- **Operations worker for every whole-table job** (`server/ledger-audit.js`, `server/ops-worker.js` tasks `ledgerAudit`,
+  `perpsLedger`): the full ledger audit (journal, the database's module checks, pending payouts) and the Perps ledger page
+  run on a read-only connection inside one read transaction; the request thread only records the result
+  (`ledger_audits`). The module checks are plain functions of the database (`perpsChecks`, `playModeChecks`); a
+  database names the checks it has (`journal.enableCheck`, set by Perps and play mode when mounted), so the worker runs
+  exactly what the in-process hooks run and the results are identical (an in-memory database falls back to the request
+  thread). A scheduled audit never overlaps the previous one.
+- **Migration 0003** (`server/migrations/0003-db-growth.js`): `idx_orders_expiring` (partial), `idx_orders_resting_user`
+  (partial; play-mode preview and reset), `idx_trades_ts` (trade tape, Trade API list, reports), `idx_fills_trade`
+  (social trade feed, referral first trades, compaction), `idx_ledger_kind_ts` (reports); table `ops_compactions`.
+  Building them on the measured database takes about 2.4 s once, at start, before the server listens.
+- **Bounded queries:** the member's transactions (newest 500) and settlements (newest 500); the transactions CSV in
+  pages.
+- **Streaming backups:** the worker seals the checkpointed main file directly (no plaintext copy) into a staging file as
+  the chunked format PLXB2 (1 MiB chunks, AES-256-GCM per chunk, header and chunk index authenticated; SECURITY.md),
+  hashing plaintext and ciphertext on the way, then hands it to the store: the local driver renames the staging file into
+  place, S3 streams one PUT signed with the precomputed SHA-256 up to 16 MiB or sends a multipart upload of 16 MiB parts.
+  Checkpoints wait only while the main file is read, not during the upload. Restore streams the object (the local
+  store's own file or a streamed download), checks its SHA-256, then decrypts into a temporary file renamed only after the
+  last tag and the plaintext SHA-256 matched; PLXB1 objects (WAL segments, older snapshots) still open, as streams too.
+  WAL generations are replayed only as an unbroken run from the snapshot's own (a missing generation ends the replay).
+- **Simulated trading activity** (owner setting `simulation.activity`, Admin › Owner settings › Simulated markets, CMS
+  explanation, reason, audit, live, default **low**; `server/sim-activity.js`): `normal` = the old behaviour; `low` =
+  a market re-quotes only after its fair price moved 2¢ (and its quote is 15 s old) or moved at all and the quote is a
+  minute old, at most 20 re-quotes a minute exchange-wide (token bucket), each with its reference trade when the price
+  changed — the last trade always equals the quoted fair price, so prices, charts and volume keep moving; `off` = no
+  re-quotes, reference trades or opening quotes (resting quotes stay). The 15-minute flash markets' two opening orders
+  are not governed by it.
+- **Backup count** (owner setting `backups.keep_interval_count`, default 8, step-up): interval snapshots are kept while
+  inside `backups.keep_interval_hours` **and** among the newest 8; `pre_compaction` backups are kept a year like manual
+  ones. README › Owner guide says how to clear `data/backups` safely.
+- **`npm run db:compact`** (`scripts/db-compact.js`, `server/compact.js`): with the server stopped (the instance lock
+  refuses otherwise) and the database at this build's schema. It takes an encrypted `pre_compaction` snapshot through the
+  backup code first and refuses without one (recorded as refused). Then, in one transaction, for history older than
+  `--days` (7): **compaction rules** —
+  1. candidates are orders of system accounts placed by the liquidity jobs (`source = 'liquidity'`), not resting, created
+     and last changed before the cut-off;
+  2. a trade with any member fill is never touched, nor any order that filled in it, nor any of their journal entries or
+     ledger rows; member rows are never selected at all;
+  3. candidate orders with no fill are deleted with their `order_reserve` / `refund` journal entries, their ledger rows
+     and their `journal_order_credits` rows;
+  4. bot-against-bot trades (every fill from a candidate order, before the cut-off): their `trade` / `fee` journal entries
+     and the `order_reserve` / `refund` entries of the orders that filled in them are replaced by one balancing
+     `compaction_rollup` entry per system account, UTC day and money epoch / mode, whose postings are the net of the
+     removed postings per journal account (zero nets are dropped; an unbalanced group aborts); their ledger rows by one
+     `compaction` row per account and day; the orders, fills and trades themselves stay;
+  5. `journal_balances` is not written: every account's posting sum is unchanged by construction; the full ledger audit
+     (with the Perps and play-mode checks and pending payouts) is computed before and after and any difference in its
+     result, problems or totals rolls everything back.
+  Charts, candlesticks, volume, the trade tape and the Trade API read `trades`, which stay complete; positions are
+  untouched. Afterwards `VACUUM` (needs free disk about the database's size), the WAL generation counter moves past the
+  unshipped compaction writes and a `post_compaction` snapshot of the result is taken (so a point-in-time restore after
+  the compaction starts from it, and one before it stops at the pre-compaction snapshot), the run is recorded in
+  `ops_compactions` and the audit chain (`ops.db_compact`), and the sizes before / after are printed. `--dry-run` runs
+  the same transaction and rolls it back (no backup needed). Admin › System › Database shows the size (with the WAL) and
+  the last compaction (and a refused attempt after it).
+
+**Tests** (each new one fails on the code before; shown by running them against `origin/main` with the new test files):
+`large-db.e2e` (1.05 M orders, 5.2 M postings, 520 k fills: the scheduled audit, the ledger audit view and run, the Perps
+ledger, a backup and a restore drill with no answer above 700 ms — the old code stalled several seconds; a 2.1 GiB
+database backed up and restored with the resident set growing under 400 MB, byte-identical, PLXB2 on disk, and a PLXB1
+object of the earlier format still restoring — the old code could not back it up); `db-compact.e2e` (real simulated
+trading at "normal" with a member trading against the liquidity accounts, dated 10 days back: dry run, refusal without a
+writable backup store, the real run keeping the audit clean and every member's orders, fills, ledger, positions,
+balance, journal and history page, every trade and the candlestick chart identical, Admin › System in Chromium showing
+the run, the pre-compaction backup restoring the old state); `sim-activity.e2e` (Chromium: low by default with its
+explanation; normal → low cuts orders and journal entries at least 10× with reference trades still printing; off writes
+nothing; audited; survives a restart); `backups.e2e` gains the S3 streamed / multipart upload and a multipart snapshot
+restored, and the interval count limit.
+
+**Existing tests changed:** `backups.e2e` (the snapshot object on disk starts with `PLXB2` instead of `PLXB1`: the
+format changed by design; the encryption assertions are unchanged; the retention test also checks the count limit);
+`sports.e2e` (pins `simulation.activity` to `normal` with a start option: it checks per-move re-quoting — the price within
+3 points of the win probability — which is the normal level; low re-quotes on 2¢ moves within an exchange-wide budget);
+`tests/lib/fake-s3.js` gains multipart uploads.
+
+**Residual risks.** Per-member work still grows with that member's own history (the History timeline UNION: about
+200 ms for a member with 60 k orders, 60 k fills and 60 k ledger rows; pushing the page limit into each branch is the
+next step); Admin › Reports is proportional to the trades in the chosen period; the audit in the worker holds a read
+snapshot for a few seconds on a large database, during which the WAL cannot be checkpointed (it grows, and a scheduled
+snapshot waits for the next tick); single-row commits still wait on the disk when it is busy (synchronous = FULL is
+kept for durability); `db:compact` needs the server stopped and free disk about the size of the database for VACUUM;
+compaction does not shrink trades or fills (they are the price history); history written at "normal" before the
+compaction remains until it is older than `--days`.
+
 ---
 
 ## Appendix A. Evidence per view (requests and scripts)
