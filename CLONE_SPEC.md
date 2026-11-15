@@ -6558,6 +6558,92 @@ publisher changes a guide's summary, topic and related guides and hides another 
 search, the guide page and the sitemap follow); Help feedback report; unsafe images dropped when saved; a bad topic
 refused; everything kept after a restart; crawler rendering and the sitemap.
 
+
+## 41. Layout variants: the landing page for visitors and the new member home (owner requests 2026-11-15)
+
+Owner rule (2026-11-15): every new layout is an upgrade or a variant switchable from the admin panel. The original home
+(`views/home.js`) stays as the **classic** variant; the visitor landing page and the new member home are **new**
+variants. Built from the owner's screenshots of the reference site (signed out: hero carousel, Weekly forecasts ticker,
+Markets to watch, promo rail, Monthly forecasts, category lists; signed in: featured-market carousel, Get ready to trade,
+15 Min Markets, Customize your view, Trending, Top movers), with invented markets, own artwork, naira and CMS wording.
+
+### 41.1 Switches (owner settings, Admin › Owner settings group "Layout variants"; also Admin › Content › Landing page)
+| Setting | Default (recommended) | Effect |
+|---|---|---|
+| `layout.home_visitors` | `new` | `/` for signed-out visitors: landing page or classic home |
+| `layout.home_members` | `classic` | `/` for members: classic or the new member home (classic until the new home is approved) |
+| `layout.hero_autoadvance` | on | the landing carousel moves on by itself (pausable; never with reduced motion) |
+| `layout.hero_interval_seconds` | 7 (4–60) | seconds per slide |
+| `layout.ticker_autoscroll` | on | the Weekly forecasts band scrolls (pausable; static with reduced motion) |
+| `layout.member_onboarding_card` / `layout.member_customize_card` / `layout.member_fifteen_min` | on | cards of the new member home |
+| `rolling.extra_underlyings` | on | rolling 15-minute markets on ORB, KOLA and Harbor 100 next to the PLX token |
+All are public (they ride in the flag bundle), validated, audited (`owner_settings.update`), live on every open page and
+stored in `admin_settings` (they survive restarts). A member in Trader mode lands on `/pro` whatever the variant.
+
+### 41.2 Landing page (`views/landing.js`, `GET /v1/bff/landing`)
+- **Hero carousel** (`#hero`, `aria-roledescription=carousel`): full width; the centre slide with its neighbours peeking
+  at the edges and vertical dividers; round ‹ › buttons, dots and a pause / play button; arrow keys; swipe on phones (one
+  slide at ≤760 px). A slide: category · series overline, condensed title (2 lines), legend of the top three outcomes,
+  multi-line chart (right axis 0/25/50… or up to 100 %, dotted gridlines, end-point dots, text alternative), "₦… volume";
+  beside it the event image (CMS, lazy, skipped in data saver) or generated artwork in the category colour, and the
+  context paragraph clamped to 3 lines with "Read more". Non-current slides are inert; auto-advance stops for good on any
+  visitor step, pauses on hover / focus / hidden tab, is off with reduced motion; the track is `aria-live=off` while
+  rotating and `polite` after a visitor's own step.
+- **Slides**: the Hero carousel selection (`cms_hero`, shared with the member home) when set — only those, unless "fill
+  with automatic slides" is on — else automatic: open events ranked by dollar volume (running totals in `market_volume`)
+  halved per 14 days of age, newest first among equals; events or series marked "keep out" are skipped.
+- **Weekly forecasts**: pinned chips (market + optional label) then, unless switched off, one chip per event closing
+  within 7 days (soonest first, 12 at most): label, leading outcome and % (scalar markets: the forecast value), the 1-day
+  change "(+1% 1D) ▲" green / "▼" red / grey. Marquee of two copies (the copy inert and hidden from assistive tech), paused
+  by the button, hover or focus.
+- **Markets to watch**: 3 cards (pins, else the next events after the hero): image or artwork, title, two outcomes, chart
+  0 / 50 / 100 %, volume. **Rail**: the play-mode waitlist call to action, CMS promo cards with placement "all" or
+  "landing" (else the built-in Invest cards: Perps with candlesticks, the cash APY with coins, each behind its flag), the
+  hub card (first CMS hub, else the Nigeria elections hub, with volume and a map-tile illustration), **Monthly forecasts**
+  (chosen event, else the most traded scalar market: "1.80% forecasted", 1-day change, area sparkline) and the CMS note.
+- **Category lists**: the first N categories in navigation order (default 4), six events each in two columns: icon,
+  title, close day or live label, leading %.
+- **Data**: one bundled call; per chart at most one hourly close per hour over 7 days, sampled to 60 points; cached 10 s
+  per variant (signed in / out) and rebuilt at once when an admin input changes (hero pins, landing config, landing
+  content, promos, hubs, news, navigation, event meta). Live: one `ticker` subscription filtered to the page's markets
+  updates percentages, chips, the forecast and chart end points (batched per animation frame).
+
+### 41.3 New member home (`views/home-new.js`, `GET /v1/bff/member_home` with `/v1/bff/home`)
+- Main column: the classic carousel (Market · Pays out · Odds, "N more", volume, news items), **Get ready to trade**
+  (the member's real state: email confirmed, identity approved, a deposit, a first trade; "Step N of 4", progress bar,
+  "View all steps" → `/rewards`, the next step's button; hidden when done or dismissed), **15 Min Markets** (countdown
+  pill to the next close, one card per open window: target, distance Above / Below, sparkline with the dotted target
+  line, Above · % and Below · % buttons opening the ticket, volume; data refreshed every 15 s and after each close, odds
+  live), Upcoming and the market sections.
+- Rail: promo cards (Invest style) and the hub card, **Customize your view** (Prediction / Trader radio group, dismissible),
+  Trending and Top movers.
+- Member choices are account preferences in `user_settings` (`view_mode`, `home_onboarding_dismissed`,
+  `home_customize_dismissed`; `PUT /v1/users/:uid/preferences`); Account › Settings › Home view shows the same choice.
+  Trader mode: `/` opens `/pro`; the event ticket starts on limit orders unless the member chose another mode.
+- Rolling underlyings: `server/rolling.js` runs the PLX token plus ORB, KOLA and Harbor 100 (series `PLXFLASH…`, so every
+  list that leaves rolling markets out still does); their prices live in `flash_prices_x` (one point per 5 s, 2 hours).
+  `GET /v1/rolling/windows` lists every open window; `/v1/rolling/current` and `/determined` stay the PLX token's.
+
+### 41.4 Admin › Content › Landing page (content.write; `GET /v1/admin/landing`, `PUT /v1/admin/landing/config`, `PUT|DELETE /v1/admin/landing/content/:kind/:ref`)
+Variant selects (owner settings), section order and visibility, slide count and "fill with automatic slides", category
+count, automatic chips on/off, pinned chips, Markets to watch pins, the Monthly forecast event and title; per event:
+pin / unpin (the Hero carousel selection), context paragraph (plain text ≤600), image from the media library with alt
+text, "keep out of the automatic slides". Promo cards gained **Illustration** (none, candlesticks, coins, map tiles,
+rising bars) and **Show on** (both homes, member home, landing page). Every change is audited (`landing.config`,
+`landing.content`, `content.hero.set`, `content.promos.*`). Storage: `admin_settings` key `landing_config`, table
+`landing_content` and the `cms_promos.art` / `placement` columns (migration 0006).
+
+### 41.5 Verification
+`landing.e2e` (real server + SQLite + Chromium): the landing page in dark and light (carousel arrows, keyboard, pager,
+peeking neighbours, ticker scrolls and pauses, three watch cards with charts and volume, promo rail, Monthly forecast,
+categories), auto-advance and pause, reduced motion (no auto-advance, static ticker), a trade updating a chip and the
+hero legend without a reload, Admin › Content › Landing page (pin, context text, image, chip → visitor sees them; Read
+more; fill with automatic slides; validation), 390 px (one slide, swipe, rail under the cards, no sideways scroll), the
+variant switches live and after a restart (members classic by default), the new member home (onboarding steps and
+dismissal, 15 Min Markets countdown and four underlyings, Customize your view stored and shown in Settings, Trader →
+Pro and limit ticket, owner switch live, 390 px). `a11y` checks the landing page (axe, both themes and widths) and the
+member home; `cms` and `visual-system` pin visitors to the classic home they test.
+
 ---
 
 ## Appendix A. Evidence per view (requests and scripts)

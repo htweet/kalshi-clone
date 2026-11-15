@@ -101,7 +101,9 @@ test('tokens: every stylesheet uses the type, weight, tracking and spacing scale
 before(async () => {
   const port = await freePort();
   BASE = `http://127.0.0.1:${port}`;
-  srv = await start({ port, dbFile: DB_FILE, tickMs: 500, quiet: true, demoPassword: DEMO_PW, admin: ADMIN, sports: {} });
+  // The home layout checks (hero table, phone stacking) are the classic home's: visitors keep it here. The landing page (the
+  // visitors' default, CLONE_SPEC.md §41) has its own 1280 / 390, light / dark checks in tests/landing.e2e.test.js.
+  srv = await start({ port, dbFile: DB_FILE, tickMs: 500, quiet: true, demoPassword: DEMO_PW, admin: ADMIN, sports: {}, owner: { overrides: { 'layout.home_visitors': 'classic' } } });
   browser = await chromium.launch();
   const p = await page0({ width: 1280, height: 900 });
   await p.goto(BASE + '/');

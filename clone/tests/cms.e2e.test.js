@@ -29,7 +29,10 @@ const D = H.db(DB_FILE);
 let PORT; let BASE; let srv; let browser; let admin; let editor; let publisher; let user;
 const EDITOR = { name: 'Edna Editor', email: `edna.${stamp}@example.test` };
 const PUBLISHER = { name: 'Paul Publisher', email: `paul.${stamp}@example.test` };
-const opts = (port) => ({ port, dbFile: DB_FILE, tickMs: 300, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, identity: { kycRequired: false }, auth: { stepUpMs: 60000 }, cms: { tickMs: 200 } });
+const opts = (port) => ({ port, dbFile: DB_FILE, tickMs: 300, quiet: true, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH }, identity: { kycRequired: false }, auth: { stepUpMs: 60000 }, cms: { tickMs: 200 },
+  // The texts under test are the classic home's (home.render.*, home.rail.note): visitors keep the classic home here; the
+  // landing page (the default for visitors, CLONE_SPEC.md §41) is covered by tests/landing.e2e.test.js.
+  owner: { overrides: { 'layout.home_visitors': 'classic' } } });
 const restart = async () => { await srv.close(); srv = await start(opts(PORT)); };
 const bundle = async () => (await (await fetch(`${BASE}/v1/content/bundle`)).json());
 const draft = (c, type, key, value) => c.call('PUT', `/v1/admin/cms/${type}/draft`, { key, value });

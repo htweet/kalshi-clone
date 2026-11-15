@@ -121,7 +121,7 @@ after(async () => {
 
 test('axe: key pages signed out and signed in, light and dark, 1280 and 390 px — no WCAG 2.2 AA violations', async () => {
   const anon = ['/', '/browse', EV, '/category/elections/nigeria-2027', '/hubs/economics', '/sign-in', '/sign-up', '/waitlist', '/support/faq', '/support/accessibility'];
-  const signed = ['/portfolio', '/funds', '/funds/deposit', '/account/settings', '/account/security', '/rewards'];
+  const signed = ['/', '/portfolio', '/funds', '/funds/deposit', '/account/settings', '/account/security', '/rewards'];
   const found = [];
   const ran = new Set();
   for (const theme of ['light', 'dark']) {
@@ -266,7 +266,9 @@ test('text alternatives: charts, the elections map (named tiles, Enter pins), ga
 
 test('reduced motion: no CSS animation runs and scripted scrolling is instant; without the preference both animate', async () => {
   const run = async (reducedMotion) => {
+    // The Upcoming strip is on the member home (classic by default); visitors get the landing page (checked below).
     const page = await newPage({ width: 1280, theme: 'dark', reducedMotion });
+    await uiLogIn(page, member);
     await page.goto(BASE + '/');
     await page.waitForSelector('#up-next');
     await settled(page);
@@ -287,6 +289,13 @@ test('reduced motion: no CSS animation runs and scripted scrolling is instant; w
       return { moved: after - before, animated, running, overflow: strip.scrollWidth > strip.clientWidth };
     });
     await page.context().close();
+    // The visitor landing page (CLONE_SPEC.md §41): the Weekly forecasts ticker scrolls only without the preference.
+    const v = await newPage({ width: 1280, theme: 'dark', reducedMotion });
+    await v.goto(BASE + '/');
+    await v.waitForSelector('[data-testid=ticker-track]');
+    await settled(v);
+    r.landing = await v.evaluate(() => [...document.querySelectorAll('*')].map((el) => getComputedStyle(el).animationName).filter((n) => n && n !== 'none'));
+    await v.context().close();
     return r;
   };
   const reduced = await run('reduce');
@@ -297,6 +306,8 @@ test('reduced motion: no CSS animation runs and scripted scrolling is instant; w
   assert.deepEqual(reduced.animated, [], 'reduced motion: no element or pseudo-element has a CSS animation');
   assert.equal(reduced.running, 0, 'reduced motion: no CSS animation running');
   assert.ok(normal.animated.includes('main:fade-in'), `without the preference the page fades in (${normal.animated.join(',')})`);
+  assert.deepEqual(reduced.landing, [], 'reduced motion: the landing page ticker stands still');
+  assert.ok(normal.landing.includes('lp-marquee'), `without the preference the ticker scrolls (${normal.landing.join(',')})`);
 });
 
 test('admin-chosen party colours: text on a pale, a mid-tone and a dark colour stays readable (axe contrast, light and dark)', async () => {
@@ -327,6 +338,7 @@ test('admin-chosen party colours: text on a pale, a mid-tone and a dark colour s
 test('watch stars on the home cards keep a 24 px target whatever font draws the star (narrow glyph simulated)', async () => {
   for (const width of [1280, 390]) {
     const page = await newPage({ width, theme: 'light' });
+    await uiLogIn(page, member); // the stars are on the member home (visitors get the landing page, CLONE_SPEC.md §41)
     await page.goto(BASE + '/');
     await page.waitForSelector('button[data-star]');
     await settled(page);
