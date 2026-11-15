@@ -4,7 +4,11 @@
 //     recount of its trades, after inserts, price fills by the cc trigger, updates and deletes (every writer is covered);
 //   • quote() no longer reads the market's whole history: with 300,000 trades in one market it stays fast (the old code
 //     summed every trade on each order, so each order got slower as the market traded);
-//   • the event page of that market renders in the browser without errors.
+//   • the event page of that market renders in the browser without errors;
+//   • the order book's price levels (migration 0005, soak finding 2026-11-15) always equal a full recount of resting
+//     orders after member orders (resting, crossing, partial fills), amendments, decreases, cancels, expiry and a direct
+//     delete; engine.book() stays fast with 50,000 resting orders in one market (it summed them all, twice per order);
+//     the order book the browser shows matches the recount.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -85,3 +89,63 @@ test('quote() stays fast with 300,000 trades in one market (it no longer reads t
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+const bookRecount = (t) => {
+  const b = { yes: {}, no: {} };
+  for (const r of srv.db.prepare("SELECT side, price_cc p, SUM(remaining_count) c FROM orders WHERE market_ticker=? AND status='resting' GROUP BY side, price_cc HAVING c<>0").all(t)) b[r.side][r.p] = r.c;
+  return b;
+};
+const bookNow = (t) => { const b = srv.engine.book(t); return { yes: Object.fromEntries(b.yes), no: Object.fromEntries(b.no) }; };
+
+test('order-book levels equal a full recount after orders, fills, amendments, decreases, cancels, expiry and deletes; book() stays fast with 50,000 resting orders', async () => {
+  const d = srv.db; const e = srv.engine;
+  const M = d.prepare("SELECT m.ticker FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE m.status='active' AND m.ticker<>? AND e.series_ticker NOT LIKE 'PLXFLASH%' AND e.series_ticker<>'PLXCOMBO' ORDER BY m.rowid LIMIT 1").get(T.ticker).ticker;
+  const users = [];
+  for (let i = 0; i < 4; i++) {
+    const id = `u_book_${i}`;
+    d.prepare('INSERT INTO users(id,email,password_hash,display_name,created_at) VALUES(?,?,?,?,?)').run(id, `book${i}.${Date.now()}@example.test`, 'x', `Book ${i}`, new Date().toISOString());
+    e.credit(id, 50_000_000, 'deposit', null, 'book test');
+    users.push(id);
+  }
+  const placed = [];
+  for (let i = 0; i < 120; i++) {
+    const u = users[i % users.length]; const side = i % 2 ? 'yes' : 'no';
+    const r = e.placeOrder(u, { ticker: M, side, price: 30 + ((i * 7) % 40), count: (1 + (i % 5)) * 100, expiration_ts: i % 17 === 0 ? Date.now() + 50 : null });
+    if (r && r.status === 'resting') placed.push([u, r.id]);
+  }
+  assert.ok(placed.length > 10, `resting orders: ${placed.length}`);
+  assert.deepEqual(bookNow(M), bookRecount(M), 'after placing and crossing');
+  for (const [u, id] of placed.slice(0, 5)) { try { e.amendOrder(u, id, { price: 25 }); } catch { /* filled meanwhile */ } }
+  for (const [u, id] of placed.slice(5, 10)) { try { e.decreaseOrder(u, id, 100); } catch { /* filled meanwhile */ } }
+  for (const [u, id] of placed.slice(10, 15)) { try { e.cancelOrder(u, id); } catch { /* filled meanwhile */ } }
+  assert.deepEqual(bookNow(M), bookRecount(M), 'after amendments, decreases and cancels');
+  await new Promise((r) => setTimeout(r, 120));
+  e.expireOrders();
+  d.prepare("DELETE FROM orders WHERE id=(SELECT id FROM orders WHERE market_ticker=? AND status='resting' LIMIT 1)").run(M);
+  assert.deepEqual(bookNow(M), bookRecount(M), 'after expiry and a direct delete');
+  assert.equal(d.prepare('SELECT COUNT(*) c FROM book_levels WHERE units=0').get().c, 0, 'empty levels are removed');
+  // 50,000 resting orders in one market (inserted directly: a large, long-lived book).
+  const ins = d.prepare("INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,price_cc,initial_count,remaining_count,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'resting',?,?)");
+  d.exec('BEGIN');
+  for (let i = 0; i < 50000; i++) { const p = 2 + (i % 20); ins.run(`bk_${i}`, 10_000_000 + i, users[i % 4], M, i % 2 ? 'yes' : 'no', p, p * 100, 100, 100, new Date().toISOString(), new Date().toISOString()); }
+  d.exec('COMMIT');
+  assert.deepEqual(bookNow(M), bookRecount(M), 'with 50,000 resting orders');
+  e.book(M);
+  const times = [];
+  for (let i = 0; i < 15; i++) { const s = process.hrtime.bigint(); e.book(M); e.quote(M); times.push(Number(process.hrtime.bigint() - s) / 1e6); }
+  times.sort((a, b) => a - b);
+  assert.ok(times[7] < 10, `book() + quote() took ${times[7].toFixed(1)} ms (median) with 50,000 resting orders`);
+  // The order book in the browser matches the recount.
+  const ev = d.prepare('SELECT e.ticker ev, e.series_ticker st, s.slug FROM markets m JOIN events e ON e.ticker=m.event_ticker JOIN series s ON s.ticker=e.series_ticker WHERE m.ticker=?').get(M);
+  const api = await (await fetch(`${BASE}/trade-api/v2/markets/${M}/orderbook`)).json();
+  const rc = bookRecount(M);
+  const apiYes = Object.fromEntries((api.orderbook_fp?.yes_dollars || api.orderbook?.yes_dollars || []).map(([p, c]) => [Math.round(Number(p) * 10000), Math.round(Number(c) * 100)]));
+  for (const [p, c] of Object.entries(rc.yes)) if (apiYes[p] != null) assert.equal(apiYes[p], c, `yes level ${p}`);
+  const page = await browser.newPage();
+  const errors = []; page.on('pageerror', (er) => errors.push(er.message));
+  await page.goto(`${BASE}/markets/${ev.st.toLowerCase()}/${ev.slug}/${ev.ev.toLowerCase()}`);
+  await page.waitForSelector('[data-testid=event-title]');
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+

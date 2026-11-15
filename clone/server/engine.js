@@ -77,15 +77,25 @@ class Engine extends EventEmitter {
     return this.seq;
   }
 
+  // Prepared statements reused across calls on the order path (soak finding 2026-11-15, CLONE_SPEC.md §39.20): quote()
+  // alone prepared about ten statements per order.
+  st(sql) {
+    let s = this._st?.get(sql);
+    if (!s) { (this._st ||= new Map()).set(sql, (s = this.db.prepare(sql))); }
+    return s;
+  }
+
   market(ticker) {
-    const m = this.db.prepare('SELECT m.*, s.fee_multiplier FROM markets m JOIN events e ON e.ticker=m.event_ticker JOIN series s ON s.ticker=e.series_ticker WHERE m.ticker=?').get(ticker);
+    const m = this.st('SELECT m.*, s.fee_multiplier FROM markets m JOIN events e ON e.ticker=m.event_ticker JOIN series s ON s.ticker=e.series_ticker WHERE m.ticker=?').get(ticker);
     if (!m) throw E.notFound();
     return m;
   }
 
-  // Aggregated book: { yes: Map(price cc->units), no: Map(price cc->units) }
+  // Aggregated book: { yes: Map(price cc->units), no: Map(price cc->units) }, from the levels kept by triggers on
+  // `orders` (migration 0005): it runs before and after every order, and summing every resting order made each order
+  // slower as the book filled up.
   book(ticker) {
-    const rows = this.db.prepare("SELECT side, price_cc p, SUM(remaining_count) c FROM orders WHERE market_ticker=? AND status='resting' GROUP BY side, price_cc").all(ticker);
+    const rows = this.st('SELECT side, price_cc p, units c FROM book_levels WHERE market_ticker=?').all(ticker);
     const b = { yes: new Map(), no: new Map() };
     for (const r of rows) b[r.side].set(r.p, r.c);
     return b;
@@ -94,26 +104,26 @@ class Engine extends EventEmitter {
   // Best prices, last trade and volumes. `*_cc` fields are exact (centi-cents); the unsuffixed fields are the legacy
   // whole-cent view (rounded) used by integer-cent callers (simulated liquidity, alerts).
   quote(ticker) {
-    const best = (side) => this.db.prepare("SELECT MAX(price_cc) p FROM orders WHERE market_ticker=? AND status='resting' AND side=?").get(ticker, side).p;
-    const sizeAt = (side, p) => (p == null ? 0 : this.db.prepare("SELECT COALESCE(SUM(remaining_count),0) c FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cc=?").get(ticker, side, p).c);
+    const best = (side) => this.st("SELECT MAX(price_cc) p FROM orders WHERE market_ticker=? AND status='resting' AND side=?").get(ticker, side).p;
+    const sizeAt = (side, p) => (p == null ? 0 : this.st("SELECT COALESCE(SUM(remaining_count),0) c FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cc=?").get(ticker, side, p).c);
     const yb = best('yes');
     const nb = best('no');
-    const last = this.db.prepare('SELECT yes_price_cc p FROM trades WHERE market_ticker=? ORDER BY created_ts DESC, rowid DESC LIMIT 1').get(ticker);
+    const last = this.st('SELECT yes_price_cc p FROM trades WHERE market_ticker=? ORDER BY created_ts DESC, rowid DESC LIMIT 1').get(ticker);
     const dayAgo = Date.now() - 86400000;
-    const priceAt = (ms) => this.db.prepare('SELECT yes_price_cc p FROM trades WHERE market_ticker=? AND created_ts<=? ORDER BY created_ts DESC LIMIT 1').get(ticker, ms)?.p ?? null;
+    const priceAt = (ms) => this.st('SELECT yes_price_cc p FROM trades WHERE market_ticker=? AND created_ts<=? ORDER BY created_ts DESC LIMIT 1').get(ticker, ms)?.p ?? null;
     const prev = priceAt(dayAgo);
     const hourAgo = priceAt(Date.now() - 3600000);
     const weekAgo = priceAt(Date.now() - 7 * 86400000);
     // Running totals kept by triggers on trades (migration 0004, CLONE_SPEC.md §39.20): this runs after every order, and
     // summing the market's whole history here made each order slower as the market traded.
-    const tot = this.db.prepare('SELECT volume_units v, dollar_volume_cc d FROM market_volume WHERE market_ticker=?').get(ticker);
+    const tot = this.st('SELECT volume_units v, dollar_volume_cc d FROM market_volume WHERE market_ticker=?').get(ticker);
     const vol = tot ? tot.v : 0;
     const dvol = tot ? tot.d : 0;
     // Rolling 24 h: whole hours after the hour that holds `dayAgo` from the hourly table, that partial hour from trades.
     const edge = Math.floor(dayAgo / 3600000) * 3600000;
-    const vol24 = this.db.prepare('SELECT COALESCE(SUM(volume_units),0) v FROM market_volume_hourly WHERE market_ticker=? AND hour_ts>?').get(ticker, edge).v
-      + this.db.prepare('SELECT COALESCE(SUM(count),0) v FROM trades WHERE market_ticker=? AND created_ts>? AND created_ts<?').get(ticker, dayAgo, edge + 3600000).v;
-    const oi = this.db.prepare('SELECT COALESCE(SUM(yes_count),0) v FROM positions WHERE market_ticker=?').get(ticker).v;
+    const vol24 = this.st('SELECT COALESCE(SUM(volume_units),0) v FROM market_volume_hourly WHERE market_ticker=? AND hour_ts>?').get(ticker, edge).v
+      + this.st('SELECT COALESCE(SUM(count),0) v FROM trades WHERE market_ticker=? AND created_ts>? AND created_ts<?').get(ticker, dayAgo, edge + 3600000).v;
+    const oi = this.st('SELECT COALESCE(SUM(yes_count),0) v FROM positions WHERE market_ticker=?').get(ticker).v;
     const lastP = last ? last.p : null;
     const cc = {
       yes_bid_cc: yb ?? null,

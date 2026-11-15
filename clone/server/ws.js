@@ -96,6 +96,18 @@ function attachWs(server, { engine, auth, security, upgrade = null, onFanout = n
   // Fan-out (soak finding 2026-11-13, CLONE_SPEC.md §39.20): the message body is serialised once per publish, not once per
   // subscriber (with 500 clients that was 30% of the server's CPU); each subscriber gets exactly the bytes
   // JSON.stringify({ type, sid, seq, msg }) would give, its own sid and seq included.
+  // Corked sockets (soak finding 2026-11-15, §39.20): one order publishes several messages (book deltas, ticker, trade)
+  // to every subscriber within the same tick; each ws.send was its own write system call (22% of the server's CPU with
+  // 500 clients). A socket is corked at its first message of the tick and uncorked once after the tick, so the frames
+  // leave in one write. The bytes and their order are unchanged.
+  const corked = new Set();
+  const uncorkAll = () => { for (const sock of corked) { try { sock.uncork(); } catch { /* closed */ } } corked.clear(); };
+  const cork = (ws) => {
+    const sock = ws._socket;
+    if (!sock || corked.has(sock)) return;
+    if (!corked.size) process.nextTick(uncorkAll);
+    sock.cork(); corked.add(sock);
+  };
   function publishAll(channel, ticker, type, msg, onlyUser) {
     let head = null; let tail = null;
     for (const c of clients) {
@@ -106,6 +118,7 @@ function attachWs(server, { engine, auth, security, upgrade = null, onFanout = n
         s.seq += 1;
         if (c.ws.readyState !== 1) continue;
         if (head === null) { head = `{"type":${JSON.stringify(type)},"sid":`; tail = msg === undefined ? '}' : `,"msg":${JSON.stringify(msg)}}`; }
+        cork(c.ws);
         c.ws.send(`${head}${JSON.stringify(sid)},"seq":${s.seq}${tail}`);
       }
     }
