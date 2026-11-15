@@ -348,6 +348,7 @@ export async function render({ el, params, query, navigate }) {
     if (ocBtn) {
       const setOc = async (body) => {
         try { state.oneClick = (await api.setOneClick(session.uid, body)).one_click; toast(state.oneClick.one_click ? tx('event.oneclick.turned_on') : tx('event.oneclick.turned_off')); } catch (e) { toast(e.message, 'error'); }
+        t.classList.remove('tkt-focus'); // the confirmation had the ticket to itself
         drawTicket();
       };
       ocBtn.onclick = () => {
