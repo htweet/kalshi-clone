@@ -361,8 +361,8 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     }
     // Home shows untargeted promos; series / category promos appear on those pages (GET /v1/promos, server/social2.js).
     const promos = db.prepare('SELECT * FROM cms_promos WHERE active=1 ORDER BY position, created_at').all().filter((r) => windowOk(r))
-      .filter((r) => (r.series_tickers || '[]') === '[]' && (r.categories || '[]') === '[]' && !(r.hide_logged_out && !req.auth));
-    h.promos = promos.length ? promos.map((p) => ({ id: p.id, overline: p.overline, title: p.title, subtitle: p.subtitle, link: p.link, color: p.color })) : null;
+      .filter((r) => (r.series_tickers || '[]') === '[]' && (r.categories || '[]') === '[]' && !(r.hide_logged_out && !req.auth) && (r.placement || 'all') !== 'landing');
+    h.promos = promos.length ? promos.map((p) => ({ id: p.id, overline: p.overline, title: p.title, subtitle: p.subtitle, link: p.link, color: p.color, art: p.art || '' })) : null;
     const info = db.prepare('SELECT * FROM cms_info_cards WHERE active=1 ORDER BY position, created_at').all();
     h.info_cards = info.length ? info.map((c) => ({ id: c.id, title: c.title, subtitle: c.subtitle, link: c.link, icon: c.icon })) : null;
   });
@@ -527,7 +527,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const q = like(req.query.q); const st = String(req.query.series || '');
     const f = st ? ' AND series_ticker=?' : '';
     const a = st ? [st] : [];
-    const pub = db.prepare(`SELECT * FROM events WHERE series_ticker NOT IN (?,?) AND (lower(ticker) LIKE ? OR lower(title) LIKE ?)${f} ORDER BY rowid DESC`).all(COMBO_SERIES, FLASH_SERIES, q, q, ...a).map((e) => eventRow(e, 'published'));
+    const pub = db.prepare(`SELECT * FROM events WHERE series_ticker NOT IN (?,?) AND series_ticker NOT LIKE 'PLXFLASH%' AND (lower(ticker) LIKE ? OR lower(title) LIKE ?)${f} ORDER BY rowid DESC`).all(COMBO_SERIES, FLASH_SERIES, q, q, ...a).map((e) => eventRow(e, 'published'));
     const dr = db.prepare(`SELECT * FROM cms_draft_events WHERE (lower(ticker) LIKE ? OR lower(title) LIKE ?)${f} ORDER BY created_at DESC`).all(q, q, ...a).map((e) => eventRow(e, 'draft'));
     res.json({ events: [...dr, ...pub] });
   });
@@ -535,7 +535,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const q = like(req.query.q); const et = String(req.query.event || '');
     const f = et ? ' AND m.event_ticker=?' : '';
     const a = et ? [et] : [];
-    const pub = db.prepare(`SELECT m.* FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND (lower(m.ticker) LIKE ? OR lower(m.title) LIKE ? OR lower(m.yes_sub_title) LIKE ?)${f} ORDER BY m.rowid DESC LIMIT 500`)
+    const pub = db.prepare(`SELECT m.* FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND e.series_ticker NOT LIKE 'PLXFLASH%' AND (lower(m.ticker) LIKE ? OR lower(m.title) LIKE ? OR lower(m.yes_sub_title) LIKE ?)${f} ORDER BY m.rowid DESC LIMIT 500`)
       .all(COMBO_SERIES, FLASH_SERIES, q, q, q, ...a).map((m) => marketRow(m, 'published'));
     const dr = db.prepare(`SELECT * FROM cms_draft_markets m WHERE (lower(ticker) LIKE ? OR lower(title) LIKE ? OR lower(yes_sub_title) LIKE ?)${f} ORDER BY created_at DESC`).all(q, q, q, ...a).map((m) => marketRow(m, 'draft'));
     res.json({ markets: [...dr, ...pub] });
@@ -588,7 +588,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const parent = getEvent(et) || draftEvent(et);
     let v; try { v = check({ open_time: nowIso(), ...Object.fromEntries(Object.entries(b).filter(([, x]) => x !== '' || false)), event_ticker: et }, MARKET_SPEC); } catch (e) { if (e instanceof FieldError) Object.assign(errs, e.fields); else throw e; }
     if (!parent) errs.event_ticker = 'no such event';
-    else if (parent.series_ticker === COMBO_SERIES || parent.series_ticker === FLASH_SERIES) errs.event_ticker = 'markets cannot be added to this event';
+    else if (parent.series_ticker === COMBO_SERIES || String(parent.series_ticker).startsWith(FLASH_SERIES)) errs.event_ticker = 'markets cannot be added to this event';
     if (v) validateMarketTimes(v, errs);
     if (v) validateScalar(v, errs);
     if (Object.keys(errs).length) throw new FieldError(errs);
@@ -880,10 +880,10 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   v1.get(`${A}/resolution/queue`, can('catalog.read'), (req, res) => {
     const now = nowIso();
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const rows = db.prepare(`SELECT m.* FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND (
+    const rows = db.prepare(`SELECT m.* FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND e.series_ticker NOT LIKE 'PLXFLASH%' AND (
         m.status IN ('closed','determined') OR (m.status IN ('active','inactive') AND m.close_time<=?) OR (m.status='finalized' AND m.settled_at>=?)) ORDER BY m.close_time DESC LIMIT 200`)
       .all(COMBO_SERIES, FLASH_SERIES, now, weekAgo);
-    const open = db.prepare("SELECT m.* FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND m.status IN ('active','inactive') AND m.close_time>? ORDER BY m.close_time LIMIT 300").all(COMBO_SERIES, FLASH_SERIES, now);
+    const open = db.prepare("SELECT m.* FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND e.series_ticker NOT LIKE 'PLXFLASH%' AND m.status IN ('active','inactive') AND m.close_time>? ORDER BY m.close_time LIMIT 300").all(COMBO_SERIES, FLASH_SERIES, now);
     res.json({ queue: rows.map(deskRow), open: open.map((m) => ({ ticker: m.ticker, title: m.title, outcome: m.yes_sub_title, status: m.status, close_time: m.close_time, can_close_early: !!m.can_close_early })) });
   });
   v1.get(`${A}/resolution/:ticker`, can('catalog.read'), (req, res, next) => {
@@ -985,7 +985,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   const COLL = {
     hubs: C('cms_hubs', { title: F.text(1, 60), category: F.category(), position: F.int(0, 9999, 0), active: F.bool(1) }),
     promos: C('cms_promos', { overline: F.text(0, 30, ''), title: F.text(1, 80), subtitle: F.text(0, 140, ''), link: F.link(), color: F.color('#008751'), starts_at: F.time(true), ends_at: F.time(true), position: F.int(0, 9999, 0), active: F.bool(1),
-      series_tickers: F.jsonList('series', 20), categories: F.jsonList('category', 10), hide_logged_out: F.bool(0) }), // targeting (G8)
+      series_tickers: F.jsonList('series', 20), categories: F.jsonList('category', 10), hide_logged_out: F.bool(0), // targeting (G8)
+      // Layout variants (migration 0012, CLONE_SPEC.md §44): the card's illustration and which home shows an untargeted card.
+      art: F.oneOf(['', 'candles', 'coins', 'map', 'bars'], ''), placement: F.oneOf(['all', 'home', 'landing'], 'all') }),
     banners: C('cms_banners', { content: F.text(1, 240), link: F.link(true), visibility: F.oneOf(['all', 'logged_in', 'logged_out'], 'all'), position: F.oneOf(['top', 'bottom'], 'top'), starts_at: F.time(true), ends_at: F.time(true), active: F.bool(1) }),
     info_cards: C('cms_info_cards', { title: F.text(1, 40), subtitle: F.text(0, 80, ''), link: F.link(), icon: F.oneOf(['shield', 'bars', 'clock', 'star', 'info'], 'info'), position: F.int(0, 9999, 0), active: F.bool(1) }),
     news: C('cms_news', { event_ticker: F.ticker(), source: F.text(1, 40), published_at: F.time(), headline: F.text(1, 160), summary: F.text(0, 800, ''), position: F.int(0, 9999, 0), active: F.bool(1) }, { order: 'published_at DESC' }),
@@ -1045,7 +1047,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   // Hero carousel: ordered selection of events (empty = featured events, the default).
   v1.get(`${A}/hero`, can('content.write'), (req, res) => {
     const sel = db.prepare('SELECT h.event_ticker, h.position, e.title FROM cms_hero h LEFT JOIN events e ON e.ticker=h.event_ticker ORDER BY h.position').all();
-    const candidates = db.prepare('SELECT ticker, title, category, featured FROM events WHERE series_ticker NOT IN (?,?) ORDER BY rowid').all(COMBO_SERIES, FLASH_SERIES);
+    const candidates = db.prepare("SELECT ticker, title, category, featured FROM events WHERE series_ticker NOT IN (?,?) AND series_ticker NOT LIKE 'PLXFLASH%' ORDER BY rowid").all(COMBO_SERIES, FLASH_SERIES);
     res.json({ selected: sel, candidates: candidates.map((e) => ({ event_ticker: e.ticker, title: e.title, category: e.category, featured: !!e.featured })) });
   });
   v1.put(`${A}/hero`, can('content.write'), (req, res) => {
@@ -1085,7 +1087,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   v1.get(`${A}/ops`, can('markets.ops'), (req, res) => {
     const liq = new Map(db.prepare('SELECT * FROM ops_liquidity').all().map((r) => [r.market_ticker, r]));
     const flags = new Map(db.prepare('SELECT * FROM ops_market_flags').all().map((r) => [r.market_ticker, r]));
-    const rows = db.prepare("SELECT m.*, e.title et, e.series_ticker st FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND m.status IN ('initialized','active','inactive') ORDER BY m.rowid").all(COMBO_SERIES, FLASH_SERIES);
+    const rows = db.prepare("SELECT m.*, e.title et, e.series_ticker st FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE e.series_ticker NOT IN (?,?) AND e.series_ticker NOT LIKE 'PLXFLASH%' AND m.status IN ('initialized','active','inactive') ORDER BY m.rowid").all(COMBO_SERIES, FLASH_SERIES);
     const markets = rows.map((m) => {
       const vo = marketVo(m, engine.quote(m.ticker));
       const l = liq.get(m.ticker);

@@ -128,7 +128,18 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.content.render_nav.colour_blank_theme_default": "Colour (blank = theme default)",
   "admin.content.render_nav.save_navigation": "Save navigation",
   "admin.content.render_nav.navigation_saved": "Navigation saved",
-  "admin.content.coll_promos_cols_render.home": "Home"
+  "admin.content.coll_promos_cols_render.home": "Home",
+  "admin.content.tabs.landing_page": "Landing page",
+  "admin.content.coll_promos_fields.illustration": "Illustration",
+  "admin.content.coll_promos_fields.art_none": "None (colour dots)",
+  "admin.content.coll_promos_fields.art_candles": "Candlesticks",
+  "admin.content.coll_promos_fields.art_coins": "Coins",
+  "admin.content.coll_promos_fields.art_map": "Map tiles",
+  "admin.content.coll_promos_fields.art_bars": "Rising bars",
+  "admin.content.coll_promos_fields.placement": "Show on (cards without targeting)",
+  "admin.content.coll_promos_fields.placement_all": "Both home pages",
+  "admin.content.coll_promos_fields.placement_home": "Member home only",
+  "admin.content.coll_promos_fields.placement_landing": "Visitor landing page only"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

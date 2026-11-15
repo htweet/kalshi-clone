@@ -31,6 +31,7 @@ const AREA_ROUTES = {
   share: '/browse', referrals: '/rewards', locale: '/', reach: '/account/settings', // Phase 8 (CLONE_SPEC.md §38)
   news: '/browse', // content operations: category news strip, event news and market content (CLONE_SPEC.md §41)
   category: '/category/economics', // category pages (CLONE_SPEC.md §42)
+  landing: '/', 'home-new': '/', // layout variants (CLONE_SPEC.md §44)
 };
 
 function block(src, b, e, file) {

@@ -29,6 +29,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "home.render.odds": "Odds",
   "home.render.vol": "{money0} vol",
   "home.render.trade": "Trade",
+  "home.render.n_more": "{n} more",
   "home.render.parlance": "Parlance",
   "home.render.news": "News",
   "home.info.market_integrity": "Market integrity",

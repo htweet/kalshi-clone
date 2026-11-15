@@ -31,6 +31,19 @@ const REGISTRY = [
   ['ssr.cache_seconds', 'reach', 'int', 60, { min: 0, max: 3600, unit: 'seconds', where: '/admin/owner_settings' }],
   ['data_saver.default_on', 'reach', 'bool', false, { pub: true, where: '/admin/owner_settings' }],
   ['sms.per_user_per_day', 'reach', 'int', 10, { min: 1, max: 100, unit: 'count', stepUp: true, where: '/admin/owner_settings' }],
+  // Layout variants (owner requests 2026-11-15, CLONE_SPEC.md §44): every new layout is a variant the owner switches here.
+  // `classic` is the original home; `new` is the landing page for visitors (views/landing.js) or the new member home
+  // (views/home-new.js). Public: the browser picks the variant from the flag bundle, live on every open page.
+  ['layout.home_visitors', 'layout', 'enum', 'new', { values: ['classic', 'new'], pub: true, where: '/admin/content/landing' }],
+  ['layout.home_members', 'layout', 'enum', 'classic', { values: ['classic', 'new'], pub: true, where: '/admin/content/landing' }],
+  ['layout.hero_autoadvance', 'layout', 'bool', true, { pub: true, where: '/admin/content/landing' }],
+  ['layout.hero_interval_seconds', 'layout', 'int', 7, { min: 4, max: 60, unit: 'seconds', pub: true, where: '/admin/content/landing' }],
+  ['layout.ticker_autoscroll', 'layout', 'bool', true, { pub: true, where: '/admin/content/landing' }],
+  ['layout.member_onboarding_card', 'layout', 'bool', true, { pub: true, where: '/admin/content/landing' }],
+  ['layout.member_customize_card', 'layout', 'bool', true, { pub: true, where: '/admin/content/landing' }],
+  ['layout.member_fifteen_min', 'layout', 'bool', true, { pub: true, where: '/admin/content/landing' }],
+  // Extra rolling 15-minute underlyings (ORB, KOLA, Harbor 100) next to the PLX token (server/rolling.js).
+  ['rolling.extra_underlyings', 'simulation', 'bool', true, { where: '/admin/owner_settings' }],
   // Database growth fix (CLONE_SPEC.md §39.17): the built-in liquidity accounts' write rate (server/sim-activity.js).
   // Category pages (owner request 2026-11-15, CLONE_SPEC.md §42): the layout of /category/<slug> (new or classic; each
   // category can override it in Admin › Category pages) and the default size of the featured carousel. Public: the page

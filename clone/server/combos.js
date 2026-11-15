@@ -138,7 +138,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
       if (l.event_ticker != null && l.event_ticker !== m.event_ticker) throw E.badRequest(`event_ticker does not match market ${t}`);
       if (!['yes', 'no'].includes(l.side)) throw E.badRequest('each leg side must be yes or no');
       if (m.mve_collection_ticker || m.series_ticker === COMBO_SERIES) throw new ApiError(400, 'invalid_leg', 'a combo cannot be a leg of another combo', t);
-      if (m.series_ticker === ROLLING_SERIES) throw new ApiError(400, 'invalid_leg', 'rolling short-window markets cannot be combo legs', t);
+      if (String(m.series_ticker).startsWith(ROLLING_SERIES)) throw new ApiError(400, 'invalid_leg', 'rolling short-window markets cannot be combo legs', t);
       if (m.status !== 'active') throw new ApiError(400, 'invalid_leg', 'every leg must be an open market', `${t} is ${m.status}`);
       if (seen.has(m.event_ticker)) throw new ApiError(400, 'duplicate_event', 'each leg must come from a different event', m.event_ticker);
       seen.add(m.event_ticker);
@@ -190,7 +190,7 @@ function mountCombos({ v1, db, engine, requireUser, notify, eventFull, checkTrad
   }
 
   // ======================= collection endpoints =======================
-  const eligibleEvents = () => db.prepare('SELECT * FROM events WHERE series_ticker NOT IN (?,?) ORDER BY rowid').all(COMBO_SERIES, ROLLING_SERIES)
+  const eligibleEvents = () => db.prepare("SELECT * FROM events WHERE series_ticker NOT IN (?,?) AND series_ticker NOT LIKE 'PLXFLASH%' ORDER BY rowid").all(COMBO_SERIES, ROLLING_SERIES)
     .map(eventFull).map((e) => ({ ...e, markets: e.markets.filter((m) => m.status === 'active') })).filter((e) => e.markets.length);
   const collectionVo = (withEvents) => ({ collection_ticker: COMBO_SERIES, series_ticker: COMBO_SERIES, title: 'Build a combo', description: CS.t('combos.description', { value: C.contractValue() }), min_legs: MIN_LEGS, max_legs: MAX_LEGS, ...(withEvents ? { events: eligibleEvents() } : {}) });
   v1.get('/multivariate_event_collections', (req, res) => res.json({ multivariate_contracts: [collectionVo(false)] }));

@@ -205,8 +205,8 @@ test('Settings: observed order; every setting persisted and applied app-wide; co
   await page.waitForSelector('[data-testid=set-notifications] h2');
   const order = await page.locator('[data-testid=settings] > section h2').allTextContents();
   // The observed sections in their observed order, then Phase 8's "Data and messages" (data saver, SMS, language;
-  // CLONE_SPEC.md §38.7) appended after them.
-  assert.deepEqual(order.map((t) => t.replace('ⓘ', '').trim()), ['Browse and manage markets by', 'Connected apps', 'Notifications', 'Marketing text messages', 'Security notifications', 'Theme', 'Trade mechanics', 'Market preview price type', 'Data and messages']);
+  // CLONE_SPEC.md §38.7) appended after them, then the Home view (Prediction / Trader, CLONE_SPEC.md §44.3).
+  assert.deepEqual(order.map((t) => t.replace('ⓘ', '').trim()), ['Browse and manage markets by', 'Connected apps', 'Notifications', 'Marketing text messages', 'Security notifications', 'Theme', 'Trade mechanics', 'Market preview price type', 'Data and messages', 'Home view']);
 
   // 1. Display mode: live preview, then the home page cards switch to share prices.
   assert.ok(await page.locator('[data-testid=display-preview] .mult').count() > 0, 'payout preview shows the multiplier');

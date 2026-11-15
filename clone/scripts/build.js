@@ -9,7 +9,8 @@
 // response), dist/assets/main-<hash>.js + chunk-<hash>.js (ES modules, code-split), dist/assets/app-<hash>.css (every
 // stylesheet linked from public/index.html, in order) and the fonts it references, dist/manifest.json (source hash).
 // PWA (CLONE_SPEC.md §31): dist/offline.html (static fallback page, its stylesheet links pointed at the bundle) and
-// dist/sw.js (the service worker with this build's version and precache list: every hashed asset, the offline page,
+// dist/sw.js (the service worker with this build's version and precache list: every hashed asset except the staff-only
+// admin chunks (manifest `staff_files`), the offline page,
 // the web app manifest and the icons). The version is derived from the source hash, the output file list and an
 // optional `salt` (tests use it to produce a "new version" without touching the sources).
 // No .map files and no sourceMappingURL comments are produced. The build goes to a temporary directory first and is
@@ -123,10 +124,16 @@ async function build({ quiet = false, salt = '' } = {}) {
       if (f.endsWith('.map')) throw new Error(`source map emitted: ${f}`);
       if (/\.(js|css)$/.test(f) && /sourceMappingURL/.test(fs.readFileSync(path.join(tmp, f), 'utf8'))) throw new Error(`sourceMappingURL left in ${f}`);
     }
-    const precache = [...PWA_STATIC, ...files.map((f) => `/${f}`)];
+    // Staff-only chunks (2026-11-15): chunks built only from the admin views and their text catalogs are not precached for
+    // every visitor (about a third of the scripts); an admin page fetches them from the network as before.
+    const STAFF_SRC = /public\/js\/(views\/admin(\/|\.js)|content\/admin[.-])/;
+    const staffFiles = Object.entries(js.metafile.outputs).filter(([p, o]) => p.endsWith('.js') && Object.keys(o.inputs).length && Object.keys(o.inputs).every((i) => STAFF_SRC.test(i.replace(/\\/g, '/'))))
+      .map(([p]) => `assets/${path.basename(p)}`);
+    const staff = new Set(staffFiles);
+    const precache = [...PWA_STATIC, ...files.filter((f) => !staff.has(f)).map((f) => `/${f}`)];
     const version = crypto.createHash('sha256').update(`${hash}\0${files.join('\n')}\0${salt}`).digest('hex').slice(0, 16);
     fs.writeFileSync(path.join(tmp, 'sw.js'), renderServiceWorker(fs.readFileSync(path.join(PUBLIC, 'sw.js'), 'utf8'), version, precache));
-    fs.writeFileSync(path.join(tmp, MANIFEST), JSON.stringify({ source_hash: hash, built_at: new Date().toISOString(), esbuild: esbuild.version, entry: { js: mainJs, css: appCss }, files, pwa: { version, precache } }, null, 1));
+    fs.writeFileSync(path.join(tmp, MANIFEST), JSON.stringify({ source_hash: hash, built_at: new Date().toISOString(), esbuild: esbuild.version, entry: { js: mainJs, css: appCss }, files, staff_files: staffFiles, pwa: { version, precache } }, null, 1));
     // Pre-compressed copies (Brotli and gzip) of every script and stylesheet, served by server/security.js to browsers that
     // accept them: about a quarter of the bytes on slow mobile networks (PLAN P8.6, CLONE_SPEC.md §38.7). Not in `files`:
     // they are encodings of the same URL, not assets of their own.

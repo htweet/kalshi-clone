@@ -282,6 +282,7 @@ const MODULE_FLAGS = {
   mountHelpCenter: 'core', // Help Center (CLONE_SPEC.md §40): public reads under /v1/help, admin under /v1/admin
   mountContentAdmin: 'core', // all content, revisions and Trash (CLONE_SPEC.md §43): admin-only routes under /v1/admin
   mountCategoryPages: 'core', // category pages (CLONE_SPEC.md §42): public reads under /v1/bff, admin under /v1/admin
+  mountLanding: 'core', // layout variants (CLONE_SPEC.md §44): their switches are owner settings (layout.*)
   mountOperations: 'core', // Phase 9A (§39): Admin › System, Launch readiness, operating switches (ops.* flags are the modes)
   mountContentQueue: 'core', // content operations (§41): the queues are core; their jobs follow content.news_ingest / content.autogen
   mountPro: 'pro', // Pro trading terminal (CLONE_SPEC.md §15.6)

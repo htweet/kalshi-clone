@@ -50,6 +50,11 @@ const PREFS = {
   trade_collateral_return: { bool: true, def: true },
   rfq_enabled: { bool: true, def: false },
   market_price_type: { values: ['last_traded', 'current_buy'], def: 'last_traded' },
+  // Customize your view (new member home, CLONE_SPEC.md §44.3): Prediction (the home) or Trader (the home address opens
+  // Pro and the ticket starts on limit orders); and the member home cards the member closed.
+  view_mode: { values: ['prediction', 'trader'], def: 'prediction' },
+  home_onboarding_dismissed: { bool: true, def: false },
+  home_customize_dismissed: { bool: true, def: false },
 };
 
 // Marketing-text disclosure (our own wording). Changing the text means a new version: consent is recorded per version.

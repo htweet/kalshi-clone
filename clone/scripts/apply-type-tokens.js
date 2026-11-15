@@ -16,7 +16,7 @@ const ROOT = path.join(__dirname, '..', 'public');
 const CHECK = process.argv.includes('--check');
 
 // ---------------------------------------------------------------- scales (mirror the :root block in app.css)
-const FS = [[10, '3xs'], [11, '2xs'], [12, 'xs'], [13, 'sm'], [14, 'md'], [16, 'lg'], [18, 'xl'], [22, '2xl'], [28, '3xl'], [36, '4xl'], [44, '5xl']];
+const FS = [[10, '3xs'], [11, '2xs'], [12, 'xs'], [13, 'sm'], [14, 'md'], [16, 'lg'], [18, 'xl'], [22, '2xl'], [28, '3xl'], [36, '4xl'], [44, '5xl'], [56, '6xl']];
 // Explicit choices where two steps are equally near (15 → 16: body-large/inputs; 20 → 22: stat values; 32 → 28).
 const FS_OVERRIDE = { 15: 'lg', 17: 'lg', 20: '2xl', 32: '3xl', 40: '4xl' };
 const SPACE = [[0, '0'], [2, 'half'], [4, '1'], [6, '1h'], [8, '2'], [12, '3'], [16, '4'], [20, '5'], [24, '6'], [32, '8'], [40, '10'], [48, '12'], [64, '16']];

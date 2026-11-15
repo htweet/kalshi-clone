@@ -499,6 +499,13 @@ Owner and admin guide for `../CLONE_SPEC.md` §38.
   the Trash; legal pages and market news ask you to confirm it is you first. Select several rows to publish, unpublish,
   trash or restore them with one reason. Built-in pages, texts and templates are reset to their default instead of
   deleted; published markets are paused or closed in Market ops, not trashed.
+- **Home page variants** (CLONE_SPEC.md §44): Admin › Content › Landing page chooses what visitors and members see at
+  the home address — classic (the original home) or new (the landing page for visitors; the new member home for
+  members). Recommended: new for visitors, classic for members until you approve the new member home. On the same page:
+  section order, pinned carousel events (shared with the Hero carousel tab), each event's context text and image (upload
+  images in Content › Media first), Weekly forecasts chips, Markets to watch and the Monthly forecast. Carousel timing,
+  the ticker, the member home cards and the extra 15-minute markets are in Owner settings › Layout variants. Members
+  switch between Prediction and Trader (Pro as their home) on the home page or in Settings.
 - **Accessibility and performance** are checked by the test suite (`tests/a11y.e2e.test.js`, `tests/perf.e2e.test.js`)
   and the budget script (`npm run perf:budget`, run in CI after the build).
 

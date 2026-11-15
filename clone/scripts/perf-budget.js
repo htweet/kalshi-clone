@@ -7,14 +7,15 @@
 //                starts), compressed as served (Brotli)
 //   css          the one stylesheet, compressed as served
 //   chunk        any single lazily loaded chunk (a view), compressed
-//   total_js     every script in the bundle, compressed (the service worker precaches them after the first visit)
+//   total_js     every script a visitor's phone downloads, compressed (the service worker precaches them after the first
+//                visit); the staff-only admin chunks (manifest `staff_files`, not precached) are measured as staff_js
 //
 // Raising a budget is a deliberate change: say why in the commit and update §38.7.
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 
-const BUDGETS_KB = { initial_js: 160, css: 32, chunk: 24, total_js: 380 };
+const BUDGETS_KB = { initial_js: 160, css: 32, chunk: 24, total_js: 380, staff_js: 240 };
 const DIST = path.join(__dirname, '..', 'dist');
 
 function compressed(file) {
@@ -36,6 +37,7 @@ function measure(dist = DIST) {
   };
   walk(manifest.entry.js);
   const scripts = fs.readdirSync(dir).filter((f) => f.endsWith('.js'));
+  const staff = new Set((manifest.staff_files || []).map((f) => f.replace(/^assets\//, '')));
   const size = Object.fromEntries(scripts.map((f) => [f, compressed(path.join(dir, f))]));
   const lazy = scripts.filter((f) => !initial.has(f));
   const largest = lazy.reduce((a, f) => (size[f] > (size[a] || 0) ? f : a), '');
@@ -46,7 +48,8 @@ function measure(dist = DIST) {
     css: kb(compressed(path.join(dir, manifest.entry.css))),
     chunk: kb(size[largest] || 0),
     largest_chunk: largest,
-    total_js: kb(scripts.reduce((a, f) => a + size[f], 0)),
+    total_js: kb(scripts.filter((f) => !staff.has(f)).reduce((a, f) => a + size[f], 0)),
+    staff_js: kb(scripts.filter((f) => staff.has(f)).reduce((a, f) => a + size[f], 0)),
   };
 }
 

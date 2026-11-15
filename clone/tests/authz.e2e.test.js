@@ -81,7 +81,8 @@ const EXPECT = {
   'GET /v1/users/:uid/pro/screens': O, 'POST /v1/users/:uid/pro/screens': O, 'PUT /v1/users/:uid/pro/screens/:id': O, 'DELETE /v1/users/:uid/pro/screens/:id': O,
   'GET /v1/users/:uid/pro/preferences': O, 'PUT /v1/users/:uid/pro/preferences': O, 'GET /v1/users/:uid/one_click': O, 'PUT /v1/users/:uid/one_click': O,
   'GET /v1/bff/home': P, 'GET /v1/events/:ticker/related': P, 'GET /v1/live_data/count': P, 'GET /v1/search/series': P,
-  'GET /v1/categories': P, 'GET /v1/calendar': P, 'GET /v1/rolling/current': P, 'GET /v1/rolling/determined': P,
+  'GET /v1/categories': P, 'GET /v1/calendar': P, 'GET /v1/rolling/current': P, 'GET /v1/rolling/determined': P, 'GET /v1/rolling/windows': P,
+  'GET /v1/bff/landing': P, 'GET /v1/bff/member_home': P, // layout variants (CLONE_SPEC.md §44): member_home answers visitors without the member part
   'GET /v1/social/profile': P, 'GET /v1/social/profile/holdings': P, 'GET /v1/social/posts': P, 'GET /v1/social/posts/:pid': P,
   'GET /v1/social/posts/:pid/comments': P, 'GET /v1/social/leaderboard': P, 'GET /v1/social/trades': P, 'GET /v1/social/top_holders': P,
   'GET /v1/perps/enabled': P, 'GET /v1/perps/exchange/status': P, 'GET /v1/perps/asset_classes': P, 'GET /v1/perps/markets': P,
@@ -159,6 +160,7 @@ const EXPECT = {
   'GET /v1/admin/content_index/history': perm('content.write'), 'POST /v1/admin/content_index/history/restore': perm('content.write'),
   'GET /v1/admin/content_index/trash': perm('content.write'), 'POST /v1/admin/content_index/trash': perm('content.write'),
   'POST /v1/admin/content_index/trash/restore': perm('content.write'), 'POST /v1/admin/content_index/trash/purge': perm('content.write'), 'POST /v1/admin/content_index/bulk': perm('content.write'),
+  'GET /v1/admin/landing': perm('content.write'), 'PUT /v1/admin/landing/config': perm('content.write'), 'PUT /v1/admin/landing/content/:kind/:ref': perm('content.write'), 'DELETE /v1/admin/landing/content/:kind/:ref': perm('content.write'),
   'GET /v1/admin/nav': perm('content.write'), 'PUT /v1/admin/nav': perm('content.write'),
   'GET /v1/admin/ops': perm('markets.ops'), 'POST /v1/admin/ops/exchange': perm('markets.ops'), 'POST /v1/admin/ops/markets/:ticker/:action': perm('markets.ops'),
   'PUT /v1/admin/ops/series/:ticker/fee': perm('markets.ops'), 'PUT /v1/admin/ops/markets/:ticker/liquidity': perm('markets.ops'), 'PUT /v1/admin/ops/markets/:ticker/combo': perm('markets.ops'),

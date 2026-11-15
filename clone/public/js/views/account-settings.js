@@ -60,6 +60,8 @@ export async function render(panel, { navigate }) {
     <section class="card panel set-sec" data-testid="set-price-type" data-order="8"><h2>${te('account-settings.render.market_preview_price_type')}</h2><p class="muted">${te('account-settings.render.the_price_shown_for_markets')}</p>
       <div class="set-radios">${radio('market_price_type', 'last_traded', tx('account-settings.render.last_traded_price'), p.market_price_type)}${radio('market_price_type', 'current_buy', tx('account-settings.render.current_buy_price'), p.market_price_type, tx('account-settings.render.the_best_price_to_buy'))}</div></section>
     <section class="card panel set-sec" data-testid="set-reach" data-order="9"><div data-reach></div></section>
+    <section class="card panel set-sec" data-testid="set-view-mode" data-order="10"><h2>${te('account-settings.render.home_view')}</h2><p class="muted">${te('account-settings.render.home_view_help')}</p>
+      <div class="set-radios">${radio('view_mode', 'prediction', tx('account-settings.render.prediction'), p.view_mode, tx('account-settings.render.prediction_hint'))}${radio('view_mode', 'trader', tx('account-settings.render.trader'), p.view_mode, tx('account-settings.render.trader_hint'))}</div></section>
   </div>`;
 
   const save = async (prefs) => {
