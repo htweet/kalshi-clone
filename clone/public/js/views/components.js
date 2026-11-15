@@ -56,7 +56,7 @@ export function eventCard(ev) {
     const right = shares
       ? `<span class="share-prices" data-testid="share-prices"><a class="share-btn yes" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link>${te('components.event_card.yes', { value: ya == null ? '—' : esc(pxCents(ya)) })}</a><a class="share-btn no" href="${href}?side=no&amp;market=${esc(m.ticker)}" data-link>${te('components.event_card.no', { value: na == null ? '—' : esc(pxCents(na)) })}</a></span>`
       : `<span class="mult">${multiplier(m)}</span>${scoreCols(ev, m)}
-      <a class="odds pill" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link aria-label="${esc(label)} ${p == null ? te('components.event_card.no_price') : p + (' ' + te('components.event_card.percent'))}">${p == null ? '—' : p + '%'}</a>`;
+      <a class="odds pill" href="${href}?side=yes&amp;market=${esc(m.ticker)}" data-link aria-label="${esc(label)} ${p == null ? `— ${te('components.event_card.no_price')}` : `${p}%`}">${p == null ? '—' : p + '%'}</a>`; // the name contains the visible text (WCAG 2.5.3)
     return `<div class="mrow outcome-row" data-ticker="${esc(m.ticker)}">
       ${ocAvatar(m, 'sm')}${ocName(m, label)}
       ${right}

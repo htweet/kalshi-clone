@@ -375,9 +375,9 @@ function mountCategoryPages({ v1, db, engine, admin, eventFull, options = {} }) 
     return out;
   }
   v1.post('/bff/category/:slug/banner/dismiss', (req, res) => {
+    if (!req.auth) throw E.unauthorized(); // signed-in members only, before anything about the category is revealed
     const cat = fromSlug(String(req.params.slug));
     if (!cat) throw E.notFound();
-    if (!req.auth) throw E.unauthorized();
     const v = configOf(cat).banner.version;
     db.prepare('INSERT INTO category_banner_dismissals(user_id,category,banner_version,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id,category) DO UPDATE SET banner_version=excluded.banner_version, created_at=excluded.created_at').run(req.auth.user.id, cat, v, nowIso());
     res.json({ ok: true, banner_version: v });
