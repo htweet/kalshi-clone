@@ -6199,7 +6199,7 @@ assets, 2026-11-09:
 | smoke | 8 traders, 60 orders/s target, 50 WS, 12 s | 57–58 (saturated) | 180–240 ms / 5.4–9 s | 4 ms | 310–490 ms | 480–560 ms |
 | full | 40 traders, 200 orders/s target, 2,000 WS, 16 page workers, 60 s | 17.8 (saturated) | 836 ms / 70 s | 203 ms | 1.1 s | 32 s |
 
-Server memory stayed at ~195 MB in every run (no growth over the runs; the one-hour soak was not run in this build).
+Server memory stayed at ~195 MB in every run (no growth over the runs). The soak runs of 2026-11-13 → 15 and the fixes they led to are in §39.20.
 **The P9.5 targets are not met on this machine:** one Node process does roughly 10 ms of CPU work per order (gates,
 session and rate accounting, idempotency rows, matching, journal, notifications, fan-out), so the ceiling is about
 60 orders/s with light fan-out and it falls sharply when every trade is fanned out to thousands of sockets (4.5 million
@@ -6308,7 +6308,7 @@ starts Phase 9B. The load test result recorded in Launch readiness must be withi
   setting and job (`logs.retention_days`, audited). Chat history, waitlist guests (already purged by the Phase 7A setting
   for unconfirmed entries) and closed accounts' personal data after a legal hold (closure today destroys the member's data
   key at once, §25) have no new settings; a legal-hold period needs the 9C regulatory decision first.
-- The one-hour soak run (P9.5) was not run; memory was flat across the shorter runs.
+- The one-hour soak run (P9.5) after the 2026-11-15 fixes is still to do; the 20-minute soaks and their fixes are in §39.20.
 
 ### 39.15 Verification
 
@@ -6571,6 +6571,52 @@ job, deletes in batches of 2,000 rows with a yield in between (a large purge nev
 it purged with its count (`ops.retention_purge`), and Admin › System (`GET /v1/admin/system` → `retention`) reports the
 classes, their days and the last purge. Test: `retention.e2e` (defaults, chat kept, audit, the UI change, restart).
 
+
+---
+
+### 39.20 Soak runs and what they found (2026-11-13 → 2026-11-15)
+
+The soak profile (`npm run load -- --profile soak`: 20 traders crossing on 6 markets at 40 orders/s, 500 WebSocket
+clients subscribed to ticker / trade / order-book channels, 4 page workers, signed Trade API calls; server and load
+generator on the same 4-vCPU VM, `dist` assets) was run until it stayed flat. Each finding was fixed at its cause:
+
+1. **Load tool** (2026-11-13): the generator kept every latency and every received message in memory (out of memory at
+   2,000 clients) and its signed client tokens expired mid-run (orders refused `client_token_invalid`, then
+   `missing or invalid x-csrf-token` after a renewal overwrote the CSRF token). Now: histograms, sampled decoding,
+   `renewToken()` keeps the session's CSRF token, `--token-ttl` for short runs, `error_samples` in the report.
+2. **Market volume** (2026-11-13, migration 0004): `engine.quote()` ran after every order and summed the market's whole
+   trade history for volume, dollar volume and 24-hour volume (1,039 ms per quote at 300,000 trades). Running totals are
+   kept by triggers on `trades` (`market_volume`, `market_volume_hourly`); the 24-hour figure stays exact (whole hours
+   from the hourly table, the partial edge hour from `trades`). Elections hub volume reads the same totals.
+3. **WebSocket fan-out serialisation** (2026-11-13): each message was serialised once per subscriber (30% of server
+   CPU at 500 clients); it is serialised once per publish, byte-identical.
+4. **Diagnostics** (2026-11-15): the report now has `order_ms_by_10s` — per 10-second window the order p50 / p99 /
+   count, the load process's event-loop delay and the server's (new metric `parlance_event_loop_delay_seconds`, p99 and
+   max since the previous scrape, on the private metrics port). A clean 15-minute run showed the generator never late
+   (≤ 55 ms) while the server's event loop was blocked up to 2.2 s and order p99 grew to 41 s over the run; a CPU
+   profile of the server (10 ms sampling) showed it idle 1% of the time.
+5. **Order book rebuilt twice per order** (2026-11-15, migration 0005): `engine.book()` ran before and after every order
+   and summed every resting order of the market (GROUP BY on `orders`), so each order got slower as the book filled
+   (47 ms for book + quote with 50,000 resting orders). Book levels are now running totals kept by triggers on `orders`
+   (`book_levels`, empty levels removed; every writer — matching, amend, decrease, cancel, expiry, deletes — covered in
+   its own transaction): under 10 ms. Prepared statements on the order path are reused.
+6. **One write per message per subscriber** (2026-11-15): `ws.send` was 22% of server CPU. Each subscriber's socket is
+   corked at its first message of the tick and uncorked once after it, so an order's frames (book deltas, ticker,
+   trade) leave in one write; bytes and order unchanged.
+
+Tests: `market-volume.e2e` — volume totals and book levels equal full recounts after inserts, updates, deletes, member
+orders, fills, amendments, decreases, cancels and expiry; `quote()` fast with 300,000 trades; `book()` + `quote()` fast
+with 50,000 resting orders (each speed check fails on the old code); the event page renders.
+
+| Soak (40 orders/s, 500 WS clients) | Duration | Orders/s | Order p50 / p99 | WS fan-out p99 | Pages p95 | Server memory start → end |
+|---|---|---|---|---|---|---|
+| before the volume fix (2026-11-13) | 60 min | 28.7 | — / 300 s | — | — | flat (217–294 MB) |
+| volume + serialisation fixes, other work on the machine (2026-11-15) | 20 min | 40 | 269 ms / 31.8 s | 16 ms | 518 ms | 218 → 261 MB |
+| same, machine otherwise idle | 20 min | 39.9 | 307 ms / 21.6 s | 16 ms | 552 ms | 219 → 251 MB |
+| diagnostics run (event-loop delay per window) | 15 min | 40 | 281 ms / 7.5 s (41 s at the end) | 19 ms | 539 ms | 211 → 309 MB |
+| **book levels + statement reuse + corked fan-out** | 20 min | **40** | **41 ms / 161 ms** | **34 ms** | **97 ms** | 231 → 324 MB |
+
+**Capacity.** after the last fix the server keeps up at 40 orders/s with 500 subscribers for 20 minutes: 4 of 120 ten-second windows had an order p99 above 1 s (worst 1.9 s), the server's event-loop delay was 132 ms at the median window (826 ms worst), signed API p99 143 ms, no errors other than cancels of already-filled orders (`cancel_409`, expected). Still open: (a) order p50 drifts from ~25 ms to ~60 ms over the run and server memory rose ~95 MB in 20 minutes — the one-hour soak (P9.5) has to show whether both level off before real money; (b) the 200 orders/s target of §39.9 is still above one process's ceiling (the capacity plan stands: fan-out off the matching process, then 9B); (c) the perps book (`perp_orders`) is still aggregated per request the same way the event book was — same fix when perps trading volume grows.
 
 ---
 
