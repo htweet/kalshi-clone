@@ -142,9 +142,10 @@ ${fig('ticket-buy.jpg', 'The trade ticket with BUY selected, YES chosen, an amou
 <ol>
 <li>Open a market and, in the trade ticket, open the <b>NAIRA ▾</b> menu.</li>
 <li>Choose <b>Limit order</b>.</li>
-<li>Choose <b>YES</b> or <b>NO</b>, then enter the <b>Price (₦)</b> you are willing to pay per contract and the number of contracts.</li>
-<li>Optional: set <b>Order expiry</b> (for example at a set time) so the order cancels itself.</li>
-<li>Select <b>Review</b>, check the details, then select <b>Place order</b>.</li>
+<li>Choose <b>YES</b> or <b>NO</b>, then enter the <b>Limit price (₦)</b> you are willing to pay per contract.</li>
+<li><b>Expires</b> is <b>Never (GTC)</b> (good till cancelled) unless you choose a time, after which the order cancels itself.</li>
+<li>Enter the number of <b>Contracts</b>. The ticket shows the <b>Max cost</b>, the <b>Est. fee (if taken)</b> and the <b>Max payout</b>.</li>
+<li>Select <b>Review · Buy Yes</b> (or Buy No), check the details, then select <b>Place order</b>.</li>
 </ol>
 ${fig('ticket-limit.jpg', 'The trade ticket in Limit order mode with the price field', 'Limit order mode.')}
 <h2>Good to know</h2>
@@ -157,9 +158,9 @@ ${fig('ticket-limit.jpg', 'The trade ticket in Limit order mode with the price f
     body: `<p>You can sell contracts you hold at the current bid at any time while the market is open. You do not have to wait for the result.</p>
 <h2>From the market page</h2>
 <ol>
-<li>Open the market and select <b>SELL</b> at the top of the trade ticket. The ticket shows how many contracts you hold.</li>
-<li>Enter how much to sell.</li>
-<li>Select <b>Review</b>, check the proceeds, then select <b>Place order</b>.</li>
+<li>Open the market and select <b>SELL</b> at the top of the trade ticket.</li>
+<li>Enter how many <b>Contracts</b> to sell. <b>You hold</b> shows how many you have and <b>Est. proceeds</b> what you would receive.</li>
+<li>Select <b>Review · Sell Yes</b> (or Sell No), check the proceeds, then select <b>Place order</b>.</li>
 </ol>
 ${fig('ticket-sell.jpg', 'The trade ticket with the SELL tab selected, showing contracts held', 'Selling from the trade ticket.')}
 <h2>From your portfolio</h2>
@@ -377,10 +378,11 @@ ${fig('privacy.jpg', 'The Identity and privacy tab with Download my data and Clo
     related: ['find-markets', 'price-alerts'],
     body: `<h2>Steps</h2>
 <ol>
-<li>Select the <b>Elections</b> tab under the header, or <b>Elections hub</b> in the footer.</li>
-<li>Pick a race to see each candidate’s chance, the price history and the markets to trade.</li>
-<li>Use the map to compare states, then select a state for its races.</li>
-<li>Open <a href="/ballot">Your ballot</a>, enter an <b>Address or 5-digit code</b> and select <b>Look up</b> to see the races on your ballot.</li>
+<li>Open <b>More</b> › <b>Elections hub</b>, or <b>Elections hub</b> in the footer. The <b>Overview</b> shows the President, Senate and House of Representatives forecasts and the seat bar.</li>
+<li>Choose a tab: <b>Presidential</b>, <b>Senate</b>, <b>House</b> or <b>Governorship</b> for each race, with every candidate’s chance and the markets to trade.</li>
+<li>Choose <b>States</b>, or use <b>Search states and candidates</b>, to go straight to a state. The <b>Results map</b> compares states at a glance.</li>
+<li>Choose <b>My ballot</b> and pick your state, LGA and ward to see the races on your ballot.</li>
+<li>Off-cycle governorship elections and international elections are in the list on the left.</li>
 </ol>
 ${fig('elections.jpg', 'The elections hub page', 'The elections hub.')}
 <blockquote>Markets reflect traders’ views, not official results. Each market’s Rules name the official source used to settle it.</blockquote>`,

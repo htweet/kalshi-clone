@@ -22,7 +22,8 @@ async function main() {
   const want = (n) => !only.length || only.includes(n);
   fs.mkdirSync(OUT, { recursive: true });
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-help-shots-'));
-  const srv = await start({ port: 0, dbFile: path.join(tmp, 'h.db'), quiet: true, sports: false, tickMs: 1000, admin: { email: `root.${Date.now()}@example.test`, password: PW }, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH } });
+  // Seeded like `npm start` (elections hub, hubs), so the screens show what members see.
+  const srv = await start({ port: 0, dbFile: path.join(tmp, 'h.db'), quiet: true, sports: false, tickMs: 1000, elections: { seed: true }, marketsContent: { seedHubs: true }, admin: { email: `root.${Date.now()}@example.test`, password: PW }, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH } });
   const BASE = `http://127.0.0.1:${srv.port}`;
   const browser = await chromium.launch();
   const saved = [];
@@ -36,8 +37,16 @@ async function main() {
       if (!want(name)) return;
       await settle();
       let box;
-      if (sel) { const loc = page.locator(sel).first(); await loc.waitFor({ state: 'visible', timeout: 15000 }); await loc.scrollIntoViewIfNeeded(); box = await loc.boundingBox(); }
-      else box = await page.locator('#view').boundingBox();
+      await page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove())); // no stray notices in the picture
+      // The sticky header and category strip: keep the captured element below them.
+      const top = await page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('header, .cat-strip, .site-banner')].map((h) => { const st = getComputedStyle(h).position; const r = h.getBoundingClientRect(); return st === 'sticky' || st === 'fixed' ? r.bottom : 0; })));
+      if (sel) {
+        const loc = page.locator(sel).first(); await loc.waitFor({ state: 'visible', timeout: 15000 });
+        await loc.evaluate((el, off) => { const r = el.getBoundingClientRect(); if (r.top < off + 16 || r.bottom > window.innerHeight) window.scrollBy(0, r.top - off - 16); }, top); // only when not fully in view
+        await page.waitForTimeout(200);
+        box = await loc.boundingBox();
+      } else box = await page.locator('#view').boundingBox();
+      if (box.y < top + pad) { const cut = top + pad - box.y; box = { ...box, y: box.y + cut, height: box.height - cut }; }
       const vp = page.viewportSize();
       const x = Math.max(0, box.x - pad); const y = Math.max(0, box.y - pad);
       const clip = { x, y, width: Math.min(vp.width - x, box.width + pad * 2), height: Math.min(maxH, vp.height - y, box.height + pad * 2) };
@@ -72,7 +81,11 @@ async function main() {
     await page.waitForSelector('[data-testid=header-balance]:has-text("₦50,000")');
 
     // The trade ticket: buy, limit order, then sell what was bought.
+    // The alert card sits under the sticky ticket: a tall window shows both without scrolling.
+    await page.setViewportSize({ width: 1280, height: 1600 });
     await go(EVENT);
+    await shot('price-alert', '[data-testid=alert-card]');
+    await page.setViewportSize({ width: 1280, height: 860 });
     await page.waitForSelector('#t-amount');
     await page.fill('#t-amount', '2000');
     await shot('ticket-buy', '#ticket');
@@ -85,7 +98,6 @@ async function main() {
     await page.click('[data-testid=sell-tab]');
     await page.waitForSelector('[data-testid=held]');
     await shot('ticket-sell', '#ticket');
-    await shot('price-alert', '[data-testid=alert-card]');
 
     await go('/portfolio');
     await shot('portfolio', null, { maxH: 560 });
@@ -103,6 +115,7 @@ async function main() {
     await go('/rewards');
     await shot('rewards', null, { maxH: 680 });
     await go('/category/elections/nigeria-2027');
+    await page.waitForSelector('[data-testid=elections-hub], [data-testid=el-hub], .el-hub', { timeout: 20000 }).catch(() => {});
     await shot('elections', null, { maxH: 680 });
     if (errors.length) console.warn('page errors while capturing:', errors);
   } finally {
