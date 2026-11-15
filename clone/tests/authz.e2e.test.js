@@ -399,6 +399,19 @@ const EXPECT = {
   'POST /v1/admin/system/alerts/contacts/:id/confirm': perm('settings.write'), 'DELETE /v1/admin/system/alerts/contacts/:id': perm('settings.write'),
   'POST /v1/admin/system/alerts/run': perm('settings.write'),
   'GET /v1/admin/launch_readiness': perm('settings.write'), 'PUT /v1/admin/launch_readiness/items/:key': perm('settings.write'), 'POST /v1/admin/launch_readiness/evidence': perm('settings.write'),
+  // ---- Content operations (CLONE_SPEC.md §41): approved news and published market content are public; the queues need
+  // content.write (read, reject pending, regenerate, fetch / generate now); approving, restoring, sources and keyword rules
+  // need content.publish (taking an approved item down is checked after the gate).
+  'GET /v1/news': P, 'GET /v1/events/:ticker/content': P,
+  'GET /v1/admin/content_queue/overview': perm('content.write'), 'GET /v1/admin/content_queue/news': perm('content.write'),
+  'POST /v1/admin/content_queue/news/:id/approve': perm('content.publish'), 'POST /v1/admin/content_queue/news/:id/reject': perm('content.write'), 'POST /v1/admin/content_queue/news/bulk': perm('content.write'),
+  'GET /v1/admin/content_queue/sources': perm('content.write'), 'GET /v1/admin/content_queue/sources/:id/log': perm('content.write'), 'POST /v1/admin/content_queue/sources': perm('content.publish'),
+  'PUT /v1/admin/content_queue/sources/:id': perm('content.publish'), 'POST /v1/admin/content_queue/sources/:id/delete': perm('content.publish'), 'POST /v1/admin/content_queue/sources/:id/fetch': perm('content.write'),
+  'GET /v1/admin/content_queue/rules': perm('content.write'), 'POST /v1/admin/content_queue/rules': perm('content.publish'), 'PUT /v1/admin/content_queue/rules/:id': perm('content.publish'), 'POST /v1/admin/content_queue/rules/:id/delete': perm('content.publish'),
+  'GET /v1/admin/content_queue/market_content': perm('content.write'), 'GET /v1/admin/content_queue/market_content/:id': perm('content.write'),
+  'POST /v1/admin/content_queue/market_content/:id/approve': perm('content.publish'), 'POST /v1/admin/content_queue/market_content/:id/reject': perm('content.write'),
+  'POST /v1/admin/content_queue/market_content/regenerate': perm('content.write'), 'POST /v1/admin/content_queue/market_content/run': perm('content.write'),
+  'GET /v1/admin/content_queue/market_content/events/:ticker/history': perm('content.write'), 'POST /v1/admin/content_queue/market_content/events/:ticker/restore': perm('content.publish'),
 };
 
 // Role → permissions, mirroring server/admin.js ROLE_PERMS (asserted against the live module below).

@@ -6485,6 +6485,7 @@ job, deletes in batches of 2,000 rows with a yield in between (a large purge nev
 it purged with its count (`ops.retention_purge`), and Admin › System (`GET /v1/admin/system` → `retention`) reports the
 classes, their days and the last purge. Test: `retention.e2e` (defaults, chat kept, audit, the UI change, restart).
 
+
 ---
 
 ## 40. Help Center with step-by-step guides (owner request 2026-11-15)
@@ -6557,6 +6558,115 @@ without sideways scroll; a member's changed vote replaces the first (one row); i
 publisher changes a guide's summary, topic and related guides and hides another in Admin › Content › Pages (lists,
 search, the guide page and the sitemap follow); Help feedback report; unsafe images dropped when saved; a bad topic
 refused; everything kept after a restart; crawler rendering and the sitemap.
+
+---
+
+## 41. Content operations part 1: news queue and auto-written market content (owner decisions 2026-11-15)
+
+Two review queues in **Admin › Content queue** (`/admin/content_queue`, `server/content-queue.js`, tables in migration
+`0007-content-queue`). Nothing in either queue is public until it is approved; every decision carries a reason and writes
+one hash-chained audit row (`content_queue.*`). Roles: `content.write` reads the queues, rejects pending items,
+regenerates, fetches now and generates now; `content.publish` approves, takes approved news down, restores versions and
+manages sources and keyword rules.
+
+### 41.1 Legal stance (news)
+Parlance takes from a publisher's **public RSS / Atom feed** only the **headline, the link, a short excerpt** (plain
+text, at most 300 characters, cut at a word boundary; the feed's own `<description>` / `<summary>`, never
+`content:encoded` or the article page) and the **publisher's name**. Every public item names the publisher and links to
+its article (`rel="noopener noreferrer nofollow"`, new tab); the category strip says that the full stories are on the
+publishers' sites. Admins may shorten or correct the headline and excerpt, never paste the article. This keeps within the
+customary terms of public feeds (headline-and-link aggregation with attribution) and avoids copying articles.
+
+### 41.2 Sources and ingestion
+- **Sources** (`news_sources`, admin-managed): name, feed URL (https only), default category, on/off, fetch interval
+  (5–1440 minutes, default 30), position; the last fetch time, status, HTTP code, error, items / new / duplicates, bytes
+  and duration, plus `news_fetch_log` (last 50 per source). Seeded: Punch, Vanguard, Premium Times, Channels TV, The
+  Guardian Nigeria, ThisDay, BusinessDay, Nairametrics (the owner's list), all on.
+- **Fetching** (`server/news-fetch.js`) runs in a worker thread: one deadline per fetch (10 s), a size cap on the wire
+  and after decompression (2 MB), at most 3 redirects (each hop re-checked), at most 60 items, conditional GET (ETag /
+  Last-Modified). **SSRF-safe**: https on port 443 only, no credentials in the URL, no local names; every address the host
+  resolves to must be public (loopback, RFC 1918, link-local incl. 169.254.169.254, CGNAT, multicast, documentation,
+  reserved, IPv6 ULA / link-local, IPv4-mapped forms) and the connection uses the checked address (no DNS rebinding
+  window). A refused URL is refused when the source is saved and again at every fetch / redirect. Statuses: `ok`,
+  `not_modified`, `https_only`, `blocked_port`, `blocked_address`, `blocked_policy` (tests), `invalid_url`, `dns_failed`,
+  `connect_failed`, `timeout`, `too_large`, `too_many_redirects`, `http_error`, `not_a_feed`, `read_failed`.
+- **Schedule**: `npm start` runs the content job every minute (start option `content.schedule`); due sources (enabled,
+  interval elapsed) are fetched while the flag `content.news_ingest` is on. "Fetch now" works whenever the flag is on.
+  Test servers never reach the network: `content.news.allow` lists exact `127.0.0.1:<port>` fixture hosts (http allowed
+  for them) and `only` refuses every other host before DNS.
+- **De-duplication**: normalised URL (scheme and `www.` ignored, fragment and tracking parameters such as `utm_*`,
+  `fbclid`, `gclid` dropped, parameters sorted, no trailing slash; unique index) and SHA-256 of the normalised headline.
+- **Categories**: owner-editable keyword rules (`news_category_rules`; whole words / phrases, weight 1–10; a headline
+  match counts twice); the category with the highest score wins (ties: the source default, then site order). No match:
+  the AI classifier when configured and allowed (`content.news_ai_classify`; the answer must be one of the site
+  categories), else the source's default category. Rules never name people.
+- **Event suggestions**: up to three open events sharing distinctive words with the item (two words, or one of 7+
+  letters); the reviewer attaches events explicitly.
+
+### 41.3 News review states
+`pending` → `approved` (headline / excerpt edited or not, category, 0–5 events) or `rejected`. Approving writes one
+`cms_news` row per attached event (new columns `url`, `ingest_item_id`), so the item shows in the event page's news list
+(with the publisher link) and feeds the AI summary (§29.6); every approved item shows in its category's news strip
+(`GET /v1/news?category=`, newest first, at most 20). Rejecting an approved item (`content.publish`) removes its rows.
+Bulk approve publishes each item with its own category and no events; bulk reject hides them.
+
+### 41.4 Auto-written market content
+- **Per event**: description, background and resolution notes. Input (hashed): event title and subtitle, category,
+  series title, frequency, rules and settlement sources, and per market the outcome, rule, close and expected expiry.
+  **Idempotent**: an event whose input hash equals that of its newest queue item is not queued again (whatever that
+  item's state); a changed event is queued and its older pending item becomes `superseded`.
+- **Generators**: the external provider (the optional Claude adapter in `server/ai-providers.js`, enabled only when
+  `ANTHROPIC_API_KEY` and `AI_SUMMARY_MODEL` are set; no model identifier is written anywhere) when
+  `content.autogen_use_ai` is on and the daily request cap (`content.ai_daily_requests`, shared with the classifier) is
+  not reached; otherwise the **offline template** (wording in `server/content/content-queue.js`, CMS-managed as
+  `server.content_queue.*`).
+- **Batches**: every `content.autogen_interval_minutes` (30) the job writes at most `content.autogen_batch_size` (10)
+  events, those without published text first, while the flag `content.autogen` is on; "Generate now" runs one batch;
+  "Regenerate" writes one event at once (rate limited, 30 per admin per 10 minutes).
+- **AI safety**: market data goes in escaped and inside `<market_data>`, and the system prompt says it is untrusted; the
+  answer must be JSON with the three strings; each is reduced to plain text (tags and scripts, links, markdown,
+  control / zero-width / bidi characters removed, paragraphs kept), capped (600 / 1,200 / 1,500 characters) and refused
+  when it echoes instructions (the §29.6 patterns) or gives trading advice. A refused or failed answer falls back to the
+  template with `fallback_reason` (`invalid_output:<why>`, `provider_error:<kind>`, `budget`, `disabled`). Everything is
+  shown escaped; the published value is re-validated as plain text by the CMS type.
+- **States**: `pending` → `approved` (edited or not) / `rejected`; `superseded`; `auto_published` when review is not
+  required. Approved text is published as the CMS entry `market_content/<event>` (§32.2 store: versions, author, reason,
+  audit), shown on the event page as "About this market" (`GET /v1/events/:ticker/content`, live over the
+  `event_content` channel). **History / restore**: any earlier version (or 0, nothing) is republished as a new version.
+
+### 41.5 Switches (ground rule 6)
+| Switch | Kind | Default | Effect |
+|---|---|---|---|
+| `content.news_ingest` | flag | on | scheduled fetching and "Fetch now" (off: neither; queue and approved items stay) |
+| `content.autogen` | flag | on | scheduled generation, "Generate now", "Regenerate" |
+| `content.autogen_require_review` | setting | on | off publishes generated text at once (still versioned and audited) |
+| `content.autogen_batch_size` | setting | 10 (1–200) | events per run |
+| `content.autogen_interval_minutes` | setting | 30 (1–1440) | minutes between runs |
+| `content.autogen_use_ai` | setting | on | ask the provider (when configured) before the template |
+| `content.news_ai_classify` | setting | on | ask the provider (when configured) for items no rule matches |
+| `content.ai_daily_requests` | setting | 200 (0–100000) | provider requests per UTC day (`content_ai_usage`) |
+
+### 41.6 Routes and tables
+Public: `GET /v1/news?category=&limit=`, `GET /v1/events/:ticker/content`; `news_items[].url` on the event. Admin
+(`/v1/admin/content_queue/…`): `overview`; `news` (list), `news/:id/approve`, `news/:id/reject`, `news/bulk`; `sources`
+(list, create), `sources/:id` (update), `sources/:id/delete`, `sources/:id/fetch`, `sources/:id/log`; `rules` (list,
+create), `rules/:id`, `rules/:id/delete`; `market_content` (list), `market_content/:id`, `…/:id/approve`,
+`…/:id/reject`, `market_content/regenerate`, `market_content/run`, `market_content/events/:ticker/history`,
+`…/events/:ticker/restore`. Tables: `news_sources`, `news_fetch_log`, `news_items`, `news_category_rules`,
+`market_content_queue`, `content_ai_usage`; columns `cms_news.url`, `cms_news.ingest_item_id`.
+
+### 41.7 Verification and residual risks
+`tests/content-queue.e2e.test.js` (real server, SQLite file, Chromium; a fixture feed server on 127.0.0.1 and a fake AI
+adapter): scheduled ingestion, categories and de-duplication in the DB, no article body stored, a switched-off source
+never fetched; review in the browser (edited headline, attached event → event page and category strip; reject hidden;
+bulk; take-down); refused URLs (http, private, metadata, local, IPv6 loopback, odd port, script) and refused fetches
+(oversize, timeout, redirect to a private address, redirect loop, not a feed); template generation, idempotency,
+re-queue on change, edit + approve in the browser, a second version, restore from the history dialog; the fake adapter
+(delimited, escaped prompt; malicious output sanitised and rendered inert; injected instructions and non-JSON refused;
+classifier answer accepted / refused; daily cap); switches live (review off in the Owner settings UI, batch size,
+fetching / generation off) and after a restart. Residual: feeds are trusted for their own excerpt wording (an excerpt can
+carry a publisher's claims; review is the control); keyword rules are simple word matches; the generator's template is
+generic; a feed host that resolves to a public address may still serve slowly up to the deadline (one source at a time).
 
 ---
 

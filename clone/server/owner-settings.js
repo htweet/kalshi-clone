@@ -69,6 +69,13 @@ const REGISTRY = [
   ['ops.maintenance_retry_after_sec', 'operations', 'int', 300, { min: 10, max: 86400, unit: 'seconds', where: '/admin/system' }],
   ['admin.ip_allowlist', 'operations', 'cidrs', '', { stepUp: true, where: '/admin/system' }],
   ['keys.max_age_days', 'operations', 'int', 365, { min: 30, max: 1825, unit: 'days', stepUp: true, where: '/admin/system' }],
+  // Content operations (owner decisions 2026-11-15, CLONE_SPEC.md §41): the market content generator and the news classifier.
+  ['content.autogen_require_review', 'content', 'bool', true, { where: '/admin/content_queue' }],
+  ['content.autogen_batch_size', 'content', 'int', 10, { min: 1, max: 200, unit: 'count', where: '/admin/content_queue' }],
+  ['content.autogen_interval_minutes', 'content', 'int', 30, { min: 1, max: 1440, unit: 'minutes', where: '/admin/content_queue' }],
+  ['content.autogen_use_ai', 'content', 'bool', true, { where: '/admin/content_queue' }],
+  ['content.news_ai_classify', 'content', 'bool', true, { where: '/admin/content_queue' }],
+  ['content.ai_daily_requests', 'content', 'int', 200, { min: 0, max: 100000, unit: 'count', where: '/admin/content_queue' }],
 ];
 // Comma-separated IP addresses / CIDR ranges ("" = no restriction), normalised; null when any entry is invalid.
 const net = require('node:net');

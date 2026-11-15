@@ -145,6 +145,10 @@ const REGISTRY = [
   ['ops.traces', 'operations', null, 'server', false],
   ['ops.backups', 'operations', null, 'server'],
   ['ops.alerts', 'operations', null, 'server'],
+  // Content operations (owner decisions 2026-11-15, CLONE_SPEC.md §41): fetching the news sources (on: production default)
+  // and writing market descriptions, background and resolution notes into the review queue (on).
+  ['content.news_ingest', 'content', null, 'server'],
+  ['content.autogen', 'content', null, 'server'],
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -233,6 +237,9 @@ const ROUTE_RULES = {
   i18n: [R('PUT', /^\/users\/[^/]+\/locale$/)],
   data_saver: [R('PUT', /^\/users\/[^/]+\/data_saver$/)],
   sms: [R('PUT', /^\/users\/[^/]+\/sms_notifications$/, { when: (req) => bodyOf(req).enabled === true })], // opting out always works
+  // Content operations (CLONE_SPEC.md §41): "Fetch now" and "Generate now" / "Regenerate" follow their job switches.
+  'content.news_ingest': [R('POST', /^\/admin\/content_queue\/sources\/[^/]+\/fetch$/, { admin: true })],
+  'content.autogen': [R('POST', /^\/admin\/content_queue\/market_content\/(run|regenerate)$/, { admin: true })],
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
 // cancelling orders (always possible), responsible-trading limits, notifications inbox, content, admin. Used by the
@@ -250,6 +257,7 @@ const CORE_ROUTES = [
   /^\/v1\/users\/[^/]+\/reach$/, /^\/v1\/i18n\/locales$/, /^\/v1\/users\/[^/]+\/sms_notifications$/,
   /^\/(sitemap\.xml|sitemaps\/[a-z0-9-]+\.xml|robots\.txt)$/, /^\/s\//, /^\/og\//, /^\/hubs\/elections$/, // the removed Phase 5B hub: a redirect
   /^\/(healthz|readyz)$/, /^\/\.well-known\/security\.txt$/, // Phase 9A (CLONE_SPEC.md §39): health endpoints and the disclosure contact
+  /^\/v1\/news$/, /^\/v1\/events\/[^/]+\/content$/, // approved news and published market content are content (CLONE_SPEC.md §41)
 ];
 // Every mount* module wired in server/app.js → the flag that switches it (or 'core'). Checked by the enforcement test.
 const MODULE_FLAGS = {
@@ -262,6 +270,7 @@ const MODULE_FLAGS = {
   mountOwnerSettings: 'core', // ground rule 6 (CLONE_SPEC.md §38.1)
   mountPredictionReferrals: 'referrals.predictions', mountShareLinks: 'share_links', mountSeo: 'ssr', mountI18n: 'i18n', mountReach: 'data_saver', // Phase 8 (§38)
   mountOperations: 'core', // Phase 9A (§39): Admin › System, Launch readiness, operating switches (ops.* flags are the modes)
+  mountContentQueue: 'core', // content operations (§41): the queues are core; their jobs follow content.news_ingest / content.autogen
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
 const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',
@@ -269,7 +278,8 @@ const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.ref
   'newsletter', // Phase 7A: the waitlist newsletter outbox
   'elections.simulator', // Phase 7B: the simulated results feed
   'referrals.predictions', 'sms', // Phase 8: referral expiry sweep, the SMS notification outbox
-  'ops.backups', 'ops.alerts']; // Phase 9A: backup schedule and WAL shipping, alert evaluation and delivery
+  'ops.backups', 'ops.alerts', // Phase 9A: backup schedule and WAL shipping, alert evaluation and delivery
+  'content.news_ingest', 'content.autogen']; // content operations (§41): news fetching, market content generation
 
 // One-time, audited flag migrations for databases that existed before a default changed. Each runs once per database
 // (a meta marker), so a later admin "off" is never switched back on; a new database starts with the new default (or the

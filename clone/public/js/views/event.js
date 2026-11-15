@@ -11,7 +11,7 @@ import { socket } from '../ws.js';
 import { scrollMotion, esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars, priceUnit, pxCents, contractValue, amountLabel, toApiDollars, validMoneyInput, moneyStep, sym, fmtDay, fmtDateTime, isNgn } from '../lib.js';
 import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0, eventCard } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
-import { newsItemsHtml } from './admin/site.js'; // CMS news items
+import { newsListHtml, mountMarketContent } from './news.js'; // CMS news items with publisher links, market content (CLONE_SPEC.md §41)
 import { mountGameBoard, mountLinesSection } from './sports.js'; // live scoreboard (§19.6); spread & total section (§29)
 import { evLabelInner } from './scoreboard.js'; // live header label with the running game clock (§29, PLAN G9)
 import { mountAiSummary } from './ai-summary.js'; // AI news summary + timeline (§29, PLAN P5.4)
@@ -114,11 +114,12 @@ export async function render({ el, params, query, navigate }) {
       <div id="scalar-card"></div>
       <table class="mkt-table" aria-label="${te('event.render.outcomes')}"><thead><tr><th class="ta-l"></th><th>${te('event.render.chance')}</th><th></th><th></th></tr></thead><tbody id="mkt-rows"></tbody></table>
       <div id="series-events"></div>
+      <div id="market-content" hidden></div>
       <div class="big-tabs" role="tablist">${TABS.map(([t, l]) => `<button data-tab="${esc(t)}" class="${t === state.bottomTab ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       <div id="bottom"></div>
       <div class="sec-head mt-48"><h2>${te('event.render.people_are_also_trading')}</h2></div><div id="also"></div>
       ${ev.news_items ? '<div id="ai-summary" class="ai-mount" data-flag="ai_summaries"></div>' : ''}
-      ${ev.news || ev.news_items ? `<div class="sec-head"><h2>${te('event.render.news')}</h2></div>${newsItemsHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${te('event.render.parlance_newsroom', { ev_icon: evIcon({ category: ev.category, title: 'P' }, 'sm'), fmt_day: fmtDay(Date.now() - 86400000) })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
+      ${ev.news || ev.news_items ? `<div class="sec-head"><h2>${te('event.render.news')}</h2></div>${newsListHtml(ev)}${ev.news ? `<div class="news-item" data-testid="news"><div class="src">${te('event.render.parlance_newsroom', { ev_icon: evIcon({ category: ev.category, title: 'P' }, 'sm'), fmt_day: fmtDay(Date.now() - 86400000) })}</div><b>${esc(ev.title)}</b><span class="muted">${esc(ev.news)}</span></div>` : ''}` : ''}
     </div>
     <aside>
       ${comboEligible ? `<button class="combo-btn ev-combo-btn" id="combo-toggle" data-testid="combo-toggle" data-flag="combos" aria-pressed="false">${te('event.render.combo')}</button><div id="combo-mini"></div>` : ''}
@@ -715,6 +716,7 @@ export async function render({ el, params, query, navigate }) {
   unsubs.push(mountGameBoard($('#sports-board'), ev));
   unsubs.push(mountLinesSection($('#sb-lines'), ev));
   unsubs.push(mountAiSummary($('#ai-summary'), ev));
+  unsubs.push(mountMarketContent($('#market-content'), ev)); // published description, background, resolution notes (§41)
   if (!isCombo) unsubs.push(mountChat({ el, ev }));
   if (!isCombo) { unsubs.push(mountEventExtras({ el, ev, market })); el.querySelector('.ev-header')?.insertAdjacentHTML('afterend', '<div class="targeted-promos" data-testid="event-promos"></div>'); renderPromos(el.querySelector('[data-testid=event-promos]'), { series_ticker: ev.series_ticker }); }
   let pending = null;

@@ -29,6 +29,7 @@ const AREA_ROUTES = {
   waitlist: '/waitlist', // Phase 7A (CLONE_SPEC.md §36)
   elections: '/category/elections/nigeria-2027', // Phase 7B (CLONE_SPEC.md §37)
   share: '/browse', referrals: '/rewards', locale: '/', reach: '/account/settings', // Phase 8 (CLONE_SPEC.md §38)
+  news: '/browse', // content operations: category news strip, event news and market content (CLONE_SPEC.md §41)
 };
 
 function block(src, b, e, file) {
@@ -52,6 +53,7 @@ function serverModules() {
   out.push(['switches', require('../content/switches').STRINGS]); // ground rule 6: switch and setting explanations (CLONE_SPEC.md §38.1)
   out.push(['growth', require('../content/growth').STRINGS]); // Phase 8: referrals, share links, SEO, languages, SMS (CLONE_SPEC.md §38)
   out.push(['ops', require('../content/ops').STRINGS]); // Phase 9A: operating switches, Admin › System, Launch readiness, alerts (CLONE_SPEC.md §39)
+  out.push(['content_queue', require('../content/content-queue').STRINGS]); // content operations: the template generator's wording (CLONE_SPEC.md §41)
   return out;
 }
 

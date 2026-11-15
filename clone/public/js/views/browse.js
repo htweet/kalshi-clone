@@ -7,6 +7,7 @@ import { session, queries } from '../store.js';
 import { esc, catFromSlug, catSlug, catLabel, CATEGORIES, ICON } from '../lib.js';
 import { eventCard } from './components.js';
 import { revealSportsLink } from './sports.js'; // "Live scores" link on the Sports category (CLONE_SPEC §19.6)
+import { mountCategoryNews } from './news.js'; // approved publisher news for the category (CLONE_SPEC.md §41)
 
 const ORDERS = [['trending', ts('browse.orders.trending')], ['event-volume', ts('browse.orders.volume')], ['newest', ts('browse.orders.new')], ['closing-soon', ts('browse.orders.closing_soon')]];
 const FREQS = [['', ts('browse.freqs.frequency')], ['fifteen_min', '15 min'], ['daily', ts('browse.freqs.daily')], ['weekly', ts('browse.freqs.weekly')], ['monthly', ts('browse.freqs.monthly')], ['one_off', ts('browse.freqs.one_off')]];
@@ -42,10 +43,12 @@ export async function render({ el, params, query, navigate }) {
       </div></div>
     ${category ? '<div class="targeted-promos" data-testid="category-promos"></div>' : ''}<div class="faint m-count" id="result-count"></div>
     ${category ? `<div class="chips mb-16" data-testid="subcategories"><a class="chip ${!tag ? 'on' : ''}" href="/category/${catSlug(category)}" data-link>${te('browse.render.all', { cat_label: esc(catLabel(category)) })}</a>${subs.map((s) => `<a class="chip ${s === tag ? 'on' : ''}" href="/category/${catSlug(category)}/${encodeURIComponent(s)}" data-link>${esc(s)}</a>`).join('')}${category === 'Sports' ? `<a class="chip sb-hub-chip" href="/sports" data-link data-testid="sports-hub-link" hidden>${te('browse.render.live_scores')}</a>` : ''}</div>` : ''}
+    ${category && !q && !live ? '<section class="news-strip" data-testid="category-news" hidden></section>' : ''}
     <div class="grid" id="results">${'<div class="skeleton"></div>'.repeat(6)}</div>
     <div class="ta-c mt-16"><button class="btn" id="more" hidden>${te('browse.render.load_more')}</button></div>`;
 
   const results = el.querySelector('#results');
+  if (category) mountCategoryNews(el.querySelector('[data-testid=category-news]'), category);
   if (category) import('./social2.js').then((m) => m.renderPromos(el.querySelector('[data-testid=category-promos]'), { category })).catch(() => {}); // targeted promos (G8)
   revealSportsLink(el);
   const drawLayout = () => {
