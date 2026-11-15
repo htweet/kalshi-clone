@@ -887,14 +887,18 @@ function mountSports({ v1, db, engine, eventFull, getEvent, options = {} }) {
   const lineEventByMs = new Map(db.prepare('SELECT * FROM sports_line_events').all().map((r) => [r.milestone_id, r.event_ticker]));
   const msByLineEvent = new Map([...lineEventByMs].map(([m, e]) => [e, m]));
   const linesCache = new Map();
-  const linesOf = (id) => {
-    if (!linesCache.has(id)) linesCache.set(id, db.prepare('SELECT * FROM sports_lines WHERE milestone_id=? ORDER BY rowid').all(id));
-    return linesCache.get(id);
+  // The simulator adds games for as long as it runs and never removes them: both caches keep the most recently loaded
+  // CACHE_GAMES games (the oldest loaded is dropped first; a dropped game is read again when asked for), instead of
+  // one entry per game ever shown (soak review 2026-11-15, CLONE_SPEC.md §39.20).
+  const CACHE_GAMES = 500;
+  const cached = (cache, id, load) => {
+    let v = cache.get(id);
+    if (!v) { v = load(); cache.set(id, v); if (cache.size > CACHE_GAMES) cache.delete(cache.keys().next().value); }
+    return v;
   };
-  const marketsOf = (id) => {
-    if (!outcomesCache.has(id)) outcomesCache.set(id, db.prepare('SELECT * FROM sports_markets WHERE milestone_id=? ORDER BY rowid').all(id));
-    return outcomesCache.get(id);
-  };
+  engine.memory?.set('sports_caches', () => outcomesCache.size + linesCache.size);
+  const linesOf = (id) => cached(linesCache, id, () => db.prepare('SELECT * FROM sports_lines WHERE milestone_id=? ORDER BY rowid').all(id));
+  const marketsOf = (id) => cached(outcomesCache, id, () => db.prepare('SELECT * FROM sports_markets WHERE milestone_id=? ORDER BY rowid').all(id));
 
   // Series per league under the existing Sports category; tags drive the Sports subcategory chips.
   for (const lg of leagues.values()) {
