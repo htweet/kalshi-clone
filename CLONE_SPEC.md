@@ -6533,7 +6533,7 @@ Chromium as a new member (sign-up, deposit, a trade, a limit order, selling, set
 the pictures can be refreshed whenever a screen changes; the guides keep their paths.
 
 ### 40.4 Feedback ("Was this helpful?")
-Table `help_feedback` (migration 0005): one row per guide and voter — `u:<user id>` for a member, `a:` + SHA-256 of a
+Table `help_feedback` (migration 0006): one row per guide and voter — `u:<user id>` for a member, `a:` + SHA-256 of a
 random token the visitor's browser keeps for a signed-out visitor (no IP address or other personal data) — with
 `helpful`, an optional plain-text comment (≤ 500 characters, markup refused) and times. A later vote replaces the earlier
 one. The guide page shows the visitor's own vote after a reload. Admin › Content › Help feedback
