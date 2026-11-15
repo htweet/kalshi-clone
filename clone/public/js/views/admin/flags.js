@@ -31,7 +31,7 @@ export async function render({ el }) {
   let group = '';
   el.innerHTML = section(tx('admin.flags.page.title'), te('admin.flags.page.intro')) +
     `<div class="adm-toolbar"><select class="adm-input" data-group aria-label="${te('admin.flags.page.all_groups')}" data-testid="flag-group"><option value="">${te('admin.flags.page.all_groups')}</option>${data.groups.map((g) => `<option value="${esc(g)}">${esc(groupLabel(g))}</option>`).join('')}</select><span class="faint" data-version></span></div><div id="ft"></div>`;
-  const table = dataTable(el.querySelector('#ft'), { testid: 'flags-table', pageSize: 100, rowAttrs: (f) => `data-flag-key="${esc(f.key)}"`,
+  const table = dataTable(el.querySelector('#ft'), { testid: 'flags-table', pageSize: 250, /* every flag on one page (101 in 2026-11); the group filter narrows it */ rowAttrs: (f) => `data-flag-key="${esc(f.key)}"`,
     searchText: (f) => [f.key, label(f.key), groupLabel(f.group)].join(' '),
     cols: [
       // Ground rule 6 (CLONE_SPEC.md §38.1): the explanation and the recommended default next to every switch.

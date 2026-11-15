@@ -269,6 +269,10 @@ test('ladder click loads the ticket price; B / Y / Enter review and Place order 
 // ------------------------------------------------------------------------------------------------ one-click + owner switch
 async function setFlagUi(ap, key, enabled) {
   await ap.goto(`${BASE}/admin/flags`);
+  // The flags table shows 100 rows a page and the app has more flags than that: filter to the flag's group first.
+  const group = require('../server/flags.js').REGISTRY.find(([k]) => k === key)?.[1];
+  await ap.waitForSelector('[data-testid=flag-group]');
+  if (group) await ap.selectOption('[data-testid=flag-group]', group);
   await ap.waitForSelector(`[data-flag-key="${key}"]`);
   await ap.click(`[data-flag-key="${key}"] [data-testid=flag-edit]`);
   await ap.waitForSelector('[data-testid=flag-form]');
