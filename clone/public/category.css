@@ -65,7 +65,7 @@
 .cp-game-when { color: var(--text-x30); font-size: var(--fs-sm); line-height: var(--lh-sm); }
 .cp-team { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--fw-semibold); }
 .cp-team-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cp-badge { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: var(--rounded-pill); background: var(--bg); color: #fff; font-size: var(--fs-3xs); line-height: var(--lh-3xs); font-weight: var(--fw-bold); }
+.cp-badge { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: var(--rounded-pill); background: var(--bg); color: var(--color, #fff); font-size: var(--fs-3xs); line-height: var(--lh-3xs); font-weight: var(--fw-bold); }
 
 /* banner */
 .cp-banner { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-5) var(--space-12) var(--space-5) var(--space-6); background: linear-gradient(100deg, color-mix(in srgb, var(--brand) 22%, var(--surface-x20)), var(--surface-x20) 70%); }

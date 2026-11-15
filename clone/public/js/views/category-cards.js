@@ -43,13 +43,16 @@ export function citiesStrip(tc) {
 }
 
 // ---------------------------------------------------------------- Sports games strip
-const badge = (o) => `<span class="cp-badge v-bg"${vars({ '--bg': o.color && o.color !== '#5b5bd6' ? o.color : '#3a7bff' })} aria-hidden="true">${esc(String(o.name || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</span>`;
+// Badge text in black or white, whichever reads better on the team colour (WCAG 1.4.3 at this small size).
+const lum = (hex) => { const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+const inkOn = (hex) => (/^#[0-9a-f]{6}$/i.test(hex) && (lum(hex) + 0.05) / 0.05 > 1.05 / (lum(hex) + 0.05) ? '#000000' : '#ffffff');
+const badge = (o) => { const bg = o.color && o.color !== '#5b5bd6' ? o.color : '#3a7bff'; return `<span class="cp-badge v-bg v-color"${vars({ '--bg': bg, '--color': inkOn(bg) })} aria-hidden="true">${esc(String(o.name || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</span>`; };
 export function gamesStrip(sp) {
   if (!sp || !sp.strip.length) return '';
   return `<section class="cp-strip cp-strip-games" aria-labelledby="cp-games-h" data-testid="sports-strip"><h2 id="cp-games-h" class="sr-only">${te('category.games.title')}</h2><div class="cp-strip-nav">
       <button class="icon-btn" type="button" data-strip="-1" aria-label="${te('category.strip.left')}">‹</button><button class="icon-btn" type="button" data-strip="1" aria-label="${te('category.strip.right')}">›</button></div>
     <div class="strip cp-games" data-strip-body>${sp.strip.map((g) => `<div class="cp-league" data-testid="league-group"><div class="cp-league-h overline">${esc(g.label)} <span class="faint">${te('category.games.of', { n: esc(g.games.length), total: esc(g.total) })}</span></div>
-      <div class="cp-league-cards">${g.games.map((x) => `<a class="card cp-game" href="${eventHref(x)}" data-link data-event="${esc(x.event_ticker)}" data-testid="game-card">
+      <div class="cp-league-cards">${g.games.map((x) => `<a class="card cp-game" href="${eventHref(x)}" data-link data-event="${esc(x.event_ticker)}" data-testid="cp-game-card">
         <span class="cp-game-when">${x.status === 'live' ? `<span class="live-dot">${te('category.games.live')}</span>` : esc(t('category.games.when', { day: fmtDay(x.start_time), time: fmtTime(x.start_time) }))}</span>
         ${x.outcomes.map((o) => `<span class="cp-team">${badge(o)}<span class="cp-team-name">${esc(o.name)}</span><b class="num" data-ticker-pct="${esc(o.ticker)}">${o.prob == null ? '—' : `${esc(o.prob)}%`}</b></span>`).join('')}</a>`).join('')}</div></div>`).join('')}</div></section>`;
 }

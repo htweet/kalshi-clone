@@ -187,7 +187,7 @@ test('grid cards: LIVE and date subtitles; kind chips; a trade moves a pill with
   await page.waitForSelector('#results [data-testid=event-card] .live-dot');
   const subs = await page.$$eval('#results [data-testid=event-card] .mcard-sub', (els) => els.map((e) => e.textContent.trim()));
   assert.ok(subs.some((s) => /\d{1,2} [A-Z][a-z]{2}/.test(s)), `a date subtitle: ${subs.join(' | ')}`);
-  assert.ok((await page.locator('[data-testid=sports-strip] [data-testid=game-card]').count()) >= 2, 'games strip');
+  assert.ok((await page.locator('[data-testid=sports-strip] [data-testid=cp-game-card]').count()) >= 2, 'games strip');
   const kinds = await page.$$eval('[data-testid=kind-chips] a', (els) => els.map((e) => [e.dataset.kind, Number(/\((\d+)\)/.exec(e.textContent)[1])]));
   assert.equal(kinds.find(([k]) => k === 'games')[1], dbq(`SELECT COUNT(*) n FROM events e WHERE e.ticker IN (SELECT event_ticker FROM sports_event_links) AND ${OPEN}`)[0].n);
   await page.click('[data-kind=futures]');

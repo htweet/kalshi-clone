@@ -418,6 +418,13 @@ Owner and admin guide for `../CLONE_SPEC.md` §38.
   unpublish one, or add a guide with New page and a `help/…` slug. Content › Help feedback shows the "Was this helpful?"
   votes and comments per guide; guides with many No votes need attention. After a screen changes, refresh the
   screenshots with `npm run help:screenshots` (or just the ones named, e.g. `npm run help:screenshots -- ticket-buy`).
+- **Category pages** (`/category/<slug>`, CLONE_SPEC.md §41): Admin › Category pages chooses, per category, which
+  events the featured carousel pins first (one ticker per line, or `series:TICKER` for the newest open event of a
+  series) and which it never shows, the carousel size, the sidebar groups (automatic, or your own: label, what it
+  matches, a glyph or a square image from the media library), the hub link, the Top-cities strip, the docked ticket on
+  wide screens, outcome avatars and a dismissible banner. Every save asks for a reason and is in the audit log; "Reset to
+  recommended" goes back to the defaults. To go back to the earlier layout everywhere, set Owner settings › Category page
+  layout to Classic (or set Page layout on one category only).
 - **Accessibility and performance** are checked by the test suite (`tests/a11y.e2e.test.js`, `tests/perf.e2e.test.js`)
   and the budget script (`npm run perf:budget`, run in CI after the build).
 
