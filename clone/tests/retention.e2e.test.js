@@ -54,13 +54,13 @@ test('recommended defaults: old notifications, device sightings, share clicks an
   seed('a');
   const removed = await srv.app.locals.ops.purgeData();
   assert.deepEqual(Object.keys(removed).sort(), ['device_sightings', 'email_outbox', 'notifications', 'share_clicks']);
-  assert.equal(count("SELECT COUNT(*) c FROM notifications WHERE id LIKE 'nt_a_%'"), 1);
+  assert.equal(count("SELECT COUNT(*) c FROM notifications WHERE id GLOB 'nt_a_*'"), 1);
   assert.equal(count("SELECT COUNT(*) c FROM notifications WHERE id='nt_a_new'"), 1);
   assert.equal(count("SELECT COUNT(*) c FROM device_sightings WHERE device_hash='dev_a_new'"), 1);
   assert.equal(count("SELECT COUNT(*) c FROM device_sightings WHERE device_hash='dev_a_old'"), 0);
   assert.equal(count("SELECT COUNT(*) c FROM share_clicks WHERE link_id='lnk_a'"), 1);
-  assert.equal(count("SELECT COUNT(*) c FROM email_outbox WHERE id LIKE 'em_a_%'"), 1);
-  assert.equal(count("SELECT COUNT(*) c FROM chat_messages WHERE id LIKE 'ch_a_%'"), 2, 'chat is kept by default (0 = forever)');
+  assert.equal(count("SELECT COUNT(*) c FROM email_outbox WHERE id GLOB 'em_a_*'"), 1);
+  assert.equal(count("SELECT COUNT(*) c FROM chat_messages WHERE id GLOB 'ch_a_*'"), 2, 'chat is kept by default (0 = forever)');
   for (const t of ['notifications', 'device_sightings', 'share_clicks', 'email_outbox']) {
     const row = dbq("SELECT after_json FROM admin_audit WHERE action='ops.retention_purge' AND target_id=?", t)[0];
     assert.ok(row && JSON.parse(row.after_json).rows >= 1, `${t} purge audited`);
