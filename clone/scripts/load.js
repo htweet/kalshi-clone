@@ -59,6 +59,8 @@ class Hist {
 const pct = (h, q) => { const v = h.quantile(q); return v == null ? null : Math.round(v * 10) / 10; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let child = null; // the self-mode server process, stopped on any exit
+let metricsPort = null; // its private metrics port (event-loop delay per window)
+const freePort = () => new Promise((res, rej) => { const sv = require('node:net').createServer(); sv.unref(); sv.on('error', rej); sv.listen(0, '127.0.0.1', () => { const { port } = sv.address(); sv.close(() => res(port)); }); });
 process.on('exit', () => { if (child && child.exitCode == null) child.kill('SIGTERM'); });
 const PW = `Benue-Harbor-${crypto.randomBytes(4).toString("hex")}-Quill`;
 
@@ -71,7 +73,8 @@ async function main() {
     // Self mode: the server runs in its own process (as in production), the load generator in this one.
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-load-'));
     dbFile = path.join(tmp, 'load.db');
-    srv = child = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1'), '--token-ttl', String(a['token-ttl'] || '')], { stdio: ['ignore', 'pipe', 'inherit'] });
+    metricsPort = await freePort();
+    srv = child = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1'), '--token-ttl', String(a['token-ttl'] || '')], { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, METRICS_PORT: String(metricsPort), METRICS_HOST: '127.0.0.1' } });
     const port = await new Promise((resolve, reject) => {
       let buf = '';
       srv.stdout.on('data', (d) => { buf += d; const m = /PORT (\d+)/.exec(buf); if (m) resolve(Number(m[1])); });
@@ -140,8 +143,20 @@ async function main() {
   const serverRss = () => { try { return Math.round(Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${srv.pid}/status`, 'utf8'))[1]) / 1024); } catch { return null; } };
   const srvMem = [];
   // Order latency per 10-second window (p50 / p99 / count, by when the order completed), so a stall can be placed in time.
+  // Event-loop delay of this load process and of the server (its metrics port, self mode) per window: tells a slow
+  // server from a load generator that is late reading its own responses. Each window: [p50 ms, p99 ms, orders,
+  // load-process loop delay max ms, server loop delay max ms].
   let win = new Hist(); const windows = [];
-  const memTimer = setInterval(() => { mem.push(process.memoryUsage().rss); if (srv) { const r = serverRss(); if (r != null) srvMem.push(r); } windows.push([pct(win, 0.5), pct(win, 0.99), win.length]); win = new Hist(); }, 10000);
+  const eld = require('node:perf_hooks').monitorEventLoopDelay({ resolution: 10 }); eld.enable();
+  const serverEld = async () => {
+    if (!metricsPort) return null;
+    try { const t = await (await fetch(`http://127.0.0.1:${metricsPort}/metrics`)).text(); const m = /parlance_event_loop_delay_seconds\{quantile="max"\} ([0-9.e+-]+)/.exec(t); return m ? Math.round(Number(m[1]) * 1000) : null; } catch { return null; }
+  };
+  const memTimer = setInterval(async () => {
+    mem.push(process.memoryUsage().rss); if (srv) { const r = serverRss(); if (r != null) srvMem.push(r); }
+    const w = [pct(win, 0.5), pct(win, 0.99), win.length, Math.round(eld.max / 1e6)]; win = new Hist(); eld.reset();
+    w.push(await serverEld()); windows.push(w);
+  }, 10000);
   const t0 = Date.now(); const end = t0 + prof.duration * 1000;
   // One example message per error kind goes into the report (error_samples), so a refusal can be traced to its cause.
   const errorSamples = {};

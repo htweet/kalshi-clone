@@ -103,6 +103,10 @@ function createObservability({ db, engine, logger, trustProxy, settings, flagsOn
   reg.gauge('parlance_job_last_success_age_seconds', 'Seconds since each background job last succeeded', (set) => { for (const [n, j] of jobs) set({ job: n }, j.last_ok_ts ? (Date.now() - j.last_ok_ts) / 1000 : -1); });
   reg.gauge('parlance_process_resident_memory_bytes', 'Resident memory', (set) => set({}, process.memoryUsage().rss));
   reg.gauge('parlance_process_uptime_seconds', 'Process uptime', (set) => set({}, process.uptime()));
+  // Event-loop delay since the previous scrape (p99 and max): a blocked request thread delays every request, which the
+  // per-request histograms cannot show (their clock starts when the request is finally read).
+  const eld = require('node:perf_hooks').monitorEventLoopDelay({ resolution: 10 }); eld.enable();
+  reg.gauge('parlance_event_loop_delay_seconds', 'Event-loop delay since the previous scrape', (set) => { set({ quantile: '0.99' }, eld.percentile(99) / 1e9); set({ quantile: 'max' }, eld.max / 1e9); eld.reset(); });
   reg.gauge('parlance_db_size_bytes', 'SQLite database and WAL size', (set) => {
     const f = db.prepare('PRAGMA database_list').all().find((d) => d.name === 'main')?.file;
     if (!f) return;
