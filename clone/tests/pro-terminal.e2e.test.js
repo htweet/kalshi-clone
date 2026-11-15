@@ -11,7 +11,10 @@
 //     places at once; the owner's switch in Admin › Feature flags turns it off for everyone (UI and API);
 //   • open orders: amend price and size, cancel; positions: close at market and at the bid; price alerts: create, delete;
 //   • layout: hide, move and drag panels, saved in the database, restored after a reload and in another browser;
+//   • 1-Click in the event ticket: the same preference, asked once, persisted, owner switch hides it and forces review;
+//   • first page after sign-in: the panels keep their place while the data loads (no layout jump);
 //   • signed-out visitors: screener and chart, trading panels ask to sign in; 390px wide without horizontal scroll;
+//   • owner setting pro.layout: the classic screener instead of the terminal, audited, kept across a restart;
 //     no page errors or CSP violations anywhere.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,10 +32,11 @@ const ADMIN = { email: `root.pro.${stamp}@example.test`, password: PW };
 const HIGH = { burst: 1e6, per_second: 1e6 };
 const email = (n) => `${n}.pro.${stamp}@example.test`;
 let srv; let browser; let BASE;
+const OPTS = () => ({ port: 0, dbFile: path.join(TMP, 'pro.db'), quiet: true, sports: false, tickMs: 300, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH } });
 const pages = [];
 
 before(async () => {
-  srv = await start({ port: 0, dbFile: path.join(TMP, 'pro.db'), quiet: true, sports: false, tickMs: 300, admin: ADMIN, rate: { burst: 1e6, perSec: 1e6 }, security: { challengeMode: 'off', authRate: HIGH, writeRate: HIGH } });
+  srv = await start(OPTS());
   BASE = `http://127.0.0.1:${srv.port}`;
   browser = await chromium.launch();
 });
@@ -279,7 +283,7 @@ async function setFlagUi(ap, key, enabled) {
   await ap.waitForSelector(`[data-flag-key="${key}"] [data-testid=flag-state][data-on="${enabled ? 1 : 0}"]`, { timeout: 15000 });
 }
 
-test('one-click: off by default, on only after confirming, then Enter places at once; the owner switch in Admin turns it off for everyone', async () => {
+test('one-click (Pro): off by default, on only after confirming once, then Enter places at once; the owner switch in Admin turns it off for everyone', async () => {
   const cy = await member('cy');
   const t = T0();
   const page = await newPage();
@@ -305,6 +309,14 @@ test('one-click: off by default, on only after confirming, then Enter places at 
   const pref = q1('SELECT * FROM pro_prefs WHERE user_id=?', cy.uid);
   assert.equal(pref.one_click, 1); assert.ok(pref.one_click_confirmed_at);
   assert.doesNotMatch(await page.textContent('[data-testid=pro-ticket-submit]'), /Review/);
+  // The confirmation is asked once: off and on again needs no second question.
+  await page.click('[data-testid=pro-one-click]');
+  await page.waitForSelector('[data-testid=pro-one-click]:not(:checked)');
+  await eventually(() => q1('SELECT one_click FROM pro_prefs WHERE user_id=?', cy.uid).one_click === 0, { label: 'one-click off' });
+  await page.click('[data-testid=pro-one-click]');
+  await page.waitForSelector('[data-testid=pro-one-click]:checked');
+  assert.equal(await page.locator('[data-testid=pro-one-click-confirm]').count(), 0, 'no second confirmation');
+  assert.equal(q1('SELECT one_click_confirmed_at c FROM pro_prefs WHERE user_id=?', cy.uid).c, pref.one_click_confirmed_at, 'the first confirmation is kept');
   // Enter places the order at once (a resting limit buy at the lowest tick), with no review step.
   await page.click('[data-testid=pro-ticket] [data-otype=limit]');
   await page.fill('[data-testid=pro-ticket-price]', '1');
@@ -318,12 +330,12 @@ test('one-click: off by default, on only after confirming, then Enter places at 
   // cannot switch it on, and the API refuses unreviewed orders, although the member's own preference is still on.
   const ap = await newPage({ width: 1400, height: 1000 });
   await logIn(ap, ADMIN.email);
-  await setFlagUi(ap, 'pro.one_click', false);
+  await setFlagUi(ap, 'trading.one_click', false);
   await page.waitForSelector('[data-testid=pro-one-click]:disabled', { timeout: 15000 });
   assert.match(await page.textContent('[data-testid=pro-ticket-submit]'), /Review/);
   assert.match(await page.textContent('[data-testid=pro-one-click-state]'), /switched off by the exchange/);
   const off = await cy.call('POST', `/v1/users/${cy.uid}/orders`, body, { 'x-plx-one-click': '1' });
-  assert.equal(off.status, 403); assert.equal(off.code, 'feature_disabled'); assert.equal(off.body.error.feature, 'pro.one_click');
+  assert.equal(off.status, 403); assert.equal(off.code, 'feature_disabled'); assert.equal(off.body.error.feature, 'trading.one_click');
   assert.equal((await cy.call('PUT', `/v1/users/${cy.uid}/pro/preferences`, { one_click: true, confirm: true })).code, 'feature_disabled');
   const prefs = (await cy.call('GET', `/v1/users/${cy.uid}/pro/preferences`)).body.preferences;
   assert.deepEqual([prefs.one_click, prefs.one_click_available, prefs.one_click_effective], [true, false, false]);
@@ -334,14 +346,94 @@ test('one-click: off by default, on only after confirming, then Enter places at 
   // Admin shows both Pro switches with their explanation and recommended default.
   await ap.goto(`${BASE}/admin/flags`);
   await ap.waitForSelector('[data-flag-key="pro"]');
-  assert.match(await ap.textContent('[data-flag-key="pro.one_click"]'), /One-click/);
+  assert.match(await ap.textContent('[data-flag-key="trading.one_click"]'), /One-click/);
   const os2 = await (await new Client(BASE, 'admin').logIn(ADMIN.email, PW)).call('GET', '/v1/admin/owner_settings');
-  const sw = os2.body.switches.filter((s) => s.key.startsWith('pro'));
-  assert.deepEqual(sw.map((s) => [s.key, s.default, s.effective]), [['pro', true, true], ['pro.one_click', true, false]]);
+  const sw = os2.body.switches.filter((s) => ['pro', 'trading.one_click'].includes(s.key));
+  assert.deepEqual(sw.map((s) => [s.key, s.default, s.effective]).sort(), [['pro', true, true], ['trading.one_click', true, false]]);
   assert.ok(sw.every((s) => s.help.length > 40 && /Recommended: on/.test(s.recommended)));
-  await setFlagUi(ap, 'pro.one_click', true);
+  await setFlagUi(ap, 'trading.one_click', true);
   await clean(page, 'one-click'); await clean(ap, 'admin');
   await page.context().close(); await ap.context().close();
+});
+
+// ------------------------------------------------------------------------------------------------ 1-Click in the event ticket
+const eventUrl = (t) => { const r = q1('SELECT e.ticker ev, e.series_ticker st, s.slug FROM markets m JOIN events e ON e.ticker=m.event_ticker JOIN series s ON s.ticker=e.series_ticker WHERE m.ticker=?', t); return `${BASE}/markets/${r.st.toLowerCase()}/${r.slug}/${r.ev.toLowerCase()}?market=${encodeURIComponent(t)}`; };
+async function openModeMenu(page) { await page.click('#t-mode-btn'); await page.waitForSelector('#t-mode-menu:not([hidden])'); }
+test('1-Click in the event ticket: off by default, enabling asks once and persists (reload, another browser, shared with Pro), places without review; the owner switch hides it and forces review', async () => {
+  const gi = await member('gi');
+  const t = T0();
+  const page = await newPage();
+  await logIn(page, email('gi'));
+  await page.goto(eventUrl(t));
+  await page.waitForSelector('[data-testid=submit-order]');
+  // Off by default: the switch sits under a divider in the mode menu, the button reviews.
+  await openModeMenu(page);
+  assert.equal(await page.getAttribute('[data-testid=one-click-toggle]', 'aria-checked'), 'false');
+  assert.equal(await page.locator('#t-mode-menu hr.mode-sep').count(), 1);
+  assert.match(await page.textContent('[data-testid=submit-order]'), /Review/);
+  assert.equal(await page.getAttribute('[data-testid=submit-order]', 'data-one-click'), '0');
+  // Enabling asks (Keep reviewing leaves it off), then turns it on.
+  await page.click('[data-testid=one-click-toggle]');
+  await page.waitForSelector('[data-testid=one-click-confirm]');
+  await page.click('[data-testid=one-click-cancel]');
+  await page.waitForSelector('[data-testid=one-click-confirm]', { state: 'detached' });
+  assert.equal(q1('SELECT one_click FROM pro_prefs WHERE user_id=?', gi.uid)?.one_click ?? 0, 0);
+  await openModeMenu(page);
+  await page.click('[data-testid=one-click-toggle]');
+  await page.click('[data-testid=one-click-accept]');
+  await page.waitForSelector('[data-testid=submit-order][data-one-click="1"]');
+  assert.equal(await page.textContent('[data-testid=submit-order]'), '⚡ Buy with 1-Click');
+  assert.ok(await page.$eval('[data-testid=submit-order]', (b) => b.classList.contains('cta-oneclick')), 'outlined 1-Click style');
+  const pref = q1('SELECT one_click, one_click_confirmed_at FROM pro_prefs WHERE user_id=?', gi.uid);
+  assert.equal(pref.one_click, 1); assert.ok(pref.one_click_confirmed_at);
+  // A 1-Click limit order (resting at the lowest tick) lands in the database without the review step.
+  await openModeMenu(page);
+  await page.click('[data-otype=limit]');
+  await page.waitForSelector('[data-testid=t-price]');
+  await page.fill('[data-testid=t-price]', '1');
+  await page.fill('[data-testid=t-count]', '2');
+  assert.equal(await page.textContent('[data-testid=submit-order]'), '⚡ Buy with 1-Click');
+  const n0 = q1('SELECT COUNT(*) c FROM orders WHERE user_id=?', gi.uid).c;
+  await page.click('[data-testid=submit-order]');
+  const o = await eventually(() => q1('SELECT * FROM orders WHERE user_id=? ORDER BY seq DESC LIMIT 1', gi.uid), { label: '1-Click order' });
+  assert.equal(q1('SELECT COUNT(*) c FROM orders WHERE user_id=?', gi.uid).c, n0 + 1);
+  assert.deepEqual([o.market_ticker, o.side, o.price_cc, o.initial_count, o.status], [t, 'yes', 100, 200, 'resting']);
+  assert.equal(await page.locator('[data-testid=order-review]').count(), 0, 'no review step');
+  // Off and on again: no second question.
+  await openModeMenu(page);
+  await page.click('[data-testid=one-click-toggle]');
+  await page.waitForSelector('[data-testid=submit-order][data-one-click="0"]');
+  await openModeMenu(page);
+  await page.click('[data-testid=one-click-toggle]');
+  await page.waitForSelector('[data-testid=submit-order][data-one-click="1"]');
+  assert.equal(await page.locator('[data-testid=one-click-confirm]').count(), 0, 'asked once only');
+  // Persists after a reload, in another browser, and in the Pro terminal (one shared preference).
+  await page.reload();
+  await page.waitForSelector('[data-testid=submit-order][data-one-click="1"]');
+  const other = await newPage({ width: 1300, height: 1000 });
+  await logIn(other, email('gi'));
+  await other.goto(eventUrl(t));
+  await other.waitForSelector('[data-testid=submit-order][data-one-click="1"]');
+  await openPro(other, `?market=${t}`);
+  await other.waitForSelector('[data-testid=pro-one-click]:checked');
+  // The owner switch off: the toggle disappears (live), the button reviews again, the API refuses unreviewed orders.
+  const ap = await newPage({ width: 1400, height: 1000 });
+  await logIn(ap, ADMIN.email);
+  await setFlagUi(ap, 'trading.one_click', false);
+  try {
+    await page.waitForSelector('[data-testid=submit-order][data-one-click="0"]', { timeout: 15000 });
+    await openModeMenu(page);
+    assert.equal(await page.locator('[data-testid=one-click-toggle]').count(), 0, 'switch hidden');
+    assert.match(await page.textContent('[data-testid=submit-order]'), /Review/);
+    await page.click('[data-testid=submit-order]');
+    await page.waitForSelector('[data-testid=order-review]');
+    const off = await gi.call('POST', `/v1/users/${gi.uid}/orders`, { ticker: t, side: 'yes', action: 'buy', type: 'limit', count: 1, price_dollars: '0.0100' }, { 'x-plx-one-click': '1' });
+    assert.equal(off.status, 403); assert.equal(off.body.error.feature, 'trading.one_click');
+    assert.equal((await gi.call('GET', `/v1/users/${gi.uid}/one_click`)).code, 'feature_disabled');
+    assert.equal((await gi.call('PUT', `/v1/users/${gi.uid}/one_click`, { one_click: false })).status, 200, 'switching off always works');
+  } finally { await setFlagUi(ap, 'trading.one_click', true); }
+  await clean(page, 'ticket 1-Click'); await clean(other, 'ticket 1-Click (other browser)'); await clean(ap, 'admin');
+  await page.context().close(); await other.context().close(); await ap.context().close();
 });
 
 // ------------------------------------------------------------------------------------------------ orders, positions, alerts
@@ -431,6 +523,27 @@ test('layout: hide, move and drag panels; saved in the database, restored after 
   await page.context().close(); await other.context().close();
 });
 
+// ------------------------------------------------------------------------------------------------ no layout jump
+test('first page after sign-in: the panels keep their place while the data loads (no layout jump)', async () => {
+  await member('hu');
+  const page = await newPage();
+  await logIn(page, email('hu'));
+  const tops = () => page.$$eval('#pro-grid > [data-panel]', (els) => Object.fromEntries(els.map((e) => [e.dataset.panel, Math.round(e.getBoundingClientRect().top + window.scrollY)])));
+  await page.goto(`${BASE}/pro`);
+  await page.waitForSelector('#pro-grid');
+  const first = await tops();
+  await page.waitForSelector('[data-testid=pro-row]');
+  await page.waitForSelector('[data-testid=pro-chart], [data-testid=pro-chart-empty]');
+  await page.waitForSelector('[data-testid=ladder-level]');
+  await page.waitForSelector('[data-testid=pro-ticket]');
+  await page.waitForSelector('[data-testid=pro-no-orders], [data-testid=pro-orders]');
+  await page.waitForTimeout(500);
+  const loaded = await tops();
+  for (const id of Object.keys(first)) assert.ok(Math.abs(loaded[id] - first[id]) <= 2, `${id} moved from ${first[id]} to ${loaded[id]}`);
+  await clean(page, 'no layout jump');
+  await page.context().close();
+});
+
 // ------------------------------------------------------------------------------------------------ signed out + mobile
 test('signed-out visitors see the screener and chart, trading panels ask to sign in; 390px wide without horizontal scroll', async () => {
   const page = await newPage({ width: 390, height: 844 });
@@ -476,4 +589,46 @@ test('the pro flag off shows the managed "not available" page and refuses the Pr
     await page.context().close();
   } finally { assert.equal((await set(true)).status, 200); }
   assert.equal((await (await new Client(BASE, 'anon').boot()).call('GET', '/v1/pro/screener')).status, 200);
+});
+
+// ------------------------------------------------------------------------------------------------ owner setting pro.layout
+test('owner setting pro.layout: Admin switches /pro to the classic screener (audited, live) and it stays after a restart; terminal again', async () => {
+  await member('ix');
+  const page = await newPage();
+  await logIn(page, email('ix'));
+  await openPro(page);
+  const ap = await newPage({ width: 1400, height: 1000 });
+  await logIn(ap, ADMIN.email);
+  await ap.goto(`${BASE}/admin/owner_settings`);
+  const row = '[data-testid=owner-setting][data-key="pro.layout"]';
+  await ap.waitForSelector(`${row}[data-value="terminal"]`);
+  assert.match(await ap.textContent(row), /Pro page layout/);
+  await ap.click(`${row} [data-testid=owner-edit]`);
+  await ap.waitForSelector('[data-testid=owner-form]');
+  assert.match(await ap.textContent('[data-testid=owner-dialog]'), /Recommended: terminal/);
+  await ap.selectOption('[data-testid=owner-form] [name=value]', 'classic');
+  await ap.fill('[data-testid=owner-form] [name=reason]', 'pro e2e: classic screener');
+  await ap.click('[data-testid=owner-form] button[type=submit]');
+  await ap.waitForSelector(`${row}[data-value="classic"]`);
+  // Live on the member's open page: the classic table replaces the terminal.
+  await page.waitForSelector('[data-testid=pro-classic]', { timeout: 15000 });
+  assert.equal(await page.locator('[data-testid=pro-terminal]').count(), 0);
+  assert.ok(await page.locator('[data-testid=pro-table] tbody tr').count() >= 20);
+  const audit = q1("SELECT * FROM admin_audit WHERE action='owner_settings.update' AND target_id='pro.layout' ORDER BY ts DESC LIMIT 1");
+  assert.equal(audit.reason, 'pro e2e: classic screener'); assert.deepEqual(JSON.parse(audit.after_json), { value: 'classic' });
+  await clean(page, 'classic'); await clean(ap, 'admin owner settings');
+  await page.context().close(); await ap.context().close();
+  // A restart keeps it.
+  await srv.close();
+  srv = await start(OPTS());
+  BASE = `http://127.0.0.1:${srv.port}`;
+  const p2 = await newPage();
+  await p2.goto(`${BASE}/pro`);
+  await p2.waitForSelector('[data-testid=pro-classic]');
+  const admin = await new Client(BASE, 'admin').logIn(ADMIN.email, PW);
+  assert.equal((await admin.call('PUT', '/v1/admin/owner_settings/pro.layout', { value: 'terminal', reason: 'pro e2e: back to the terminal' })).status, 200);
+  await p2.goto(`${BASE}/pro`);
+  await p2.waitForSelector('[data-testid=pro-terminal]');
+  await clean(p2, 'after restart');
+  await p2.context().close();
 });

@@ -12,10 +12,14 @@
 //   DELETE /v1/users/:uid/pro/screens/:id          delete it
 //   GET    /v1/users/:uid/pro/preferences          layout, active screen, one-click state
 //   PUT    /v1/users/:uid/pro/preferences          { layout?, active_screen_id?, one_click?, confirm? }
-// One-click safety rule: one-click trading (an order placed without the review step) is off for every member until the
-// member switches it on and confirms it (`confirm: true`); the owner can switch it off for everyone with the
-// `pro.one_click` flag. An order the terminal places without review carries `X-Plx-One-Click: 1`; the flag gate refuses
-// it while the flag is off (feature_disabled), and the check below refuses it unless the member has one-click on.
+//   GET    /v1/users/:uid/one_click                the member's one-click preference, shared by the event ticket and
+//   PUT    /v1/users/:uid/one_click                the Pro terminal { one_click, confirm? } (flag trading.one_click)
+// One-click safety rule: one-click trading (an order placed without the review step, in the event ticket's "Submit order
+// with 1-Click" switch and the Pro terminal alike: one preference) is off for every member until the member switches it on;
+// the first time asks for a confirmation (`confirm: true`, its time is stored), later switches do not. The owner can switch
+// it off for everyone with the `trading.one_click` flag. An order placed without review carries `X-Plx-One-Click: 1`; the
+// flag gate refuses it while the flag is off (feature_disabled), and the check below refuses it unless the member has
+// one-click on. Step-up, trading limits and compliance checks apply to it like to any order.
 const { ApiError, E, nowIso, newId, ufp } = require('./util');
 const P = require('./pricing');
 const { s: S } = require('./content/pro');
@@ -167,7 +171,7 @@ function mountPro({ v1, db, flags, requireUser, eventCards, categories }) {
   const ownScreen = (uid, id) => { const r = db.prepare('SELECT * FROM pro_screens WHERE id=? AND user_id=?').get(String(id), uid); if (!r) throw new ApiError(404, 'not_found', S('error.unknown_screen')); return r; };
   const prefsVo = (req) => {
     const r = prefRow(req.auth.user.id);
-    const available = flags.on('pro.one_click', { req });
+    const available = flags.on('trading.one_click', { req });
     let layout = null;
     if (r && r.layout_json) { try { layout = normLayout(JSON.parse(r.layout_json)); } catch { layout = null; } }
     return { one_click: !!(r && r.one_click), one_click_available: available, one_click_effective: !!(r && r.one_click) && available, one_click_confirmed_time: r ? r.one_click_confirmed_at : null,
@@ -263,6 +267,29 @@ function mountPro({ v1, db, flags, requireUser, eventCards, categories }) {
     res.json({ ok: true });
   });
 
+  // ---------------------------------------------------------------- one-click (shared by the event ticket and the terminal)
+  // Switching on needs the trading.one_click flag (the gate refuses it first) and, the first time only, `confirm: true`.
+  function oneClickChange(req, b) {
+    if (typeof b.one_click !== 'boolean') throw fieldError('one_click', S('error.invalid', { detail: 'true or false' }));
+    if (b.confirm != null && typeof b.confirm !== 'boolean') throw fieldError('confirm', S('error.invalid', { detail: 'true or false' }));
+    if (!b.one_click) return { one_click: 0 };
+    if (!flags.on('trading.one_click', { req })) throw flags.disabledError('trading.one_click');
+    const r = prefRow(req.auth.user.id);
+    if (!(r && r.one_click_confirmed_at)) {
+      if (b.confirm !== true) throw new ApiError(400, 'one_click_confirmation_required', S('error.one_click_confirm'));
+      return { one_click: 1, one_click_confirmed_at: nowIso() };
+    }
+    return { one_click: 1 };
+  }
+  const oneClickVo = (req) => { const p = prefsVo(req); return { one_click: p.one_click, available: p.one_click_available, effective: p.one_click_effective, confirmed_time: p.one_click_confirmed_time }; };
+  v1.get('/users/:uid/one_click', requireUser, (req, res) => res.json({ one_click: oneClickVo(req) }));
+  v1.put('/users/:uid/one_click', requireUser, (req, res) => {
+    const b = req.body || {};
+    onlyKeys(b, ['one_click', 'confirm']);
+    upsertPrefs(req.auth.user.id, oneClickChange(req, b));
+    res.json({ one_click: oneClickVo(req) });
+  });
+
   // ---------------------------------------------------------------- preferences (layout, active screen, one-click)
   v1.get('/users/:uid/pro/preferences', requireUser, (req, res) => res.json({ preferences: prefsVo(req) }));
   v1.put('/users/:uid/pro/preferences', requireUser, (req, res) => {
@@ -271,15 +298,8 @@ function mountPro({ v1, db, flags, requireUser, eventCards, categories }) {
     const set = {};
     if (Object.prototype.hasOwnProperty.call(b, 'layout')) { const l = normLayout(b.layout); set.layout_json = l ? JSON.stringify(l) : null; }
     if (Object.prototype.hasOwnProperty.call(b, 'active_screen_id')) set.active_screen_id = b.active_screen_id == null || b.active_screen_id === '' ? null : ownScreen(uid, b.active_screen_id).id;
-    if (Object.prototype.hasOwnProperty.call(b, 'one_click')) {
-      if (typeof b.one_click !== 'boolean') throw fieldError('one_click', S('error.invalid', { detail: 'true or false' }));
-      if (b.one_click) {
-        // The flag gate already refused this while pro.one_click is off (ROUTE_RULES); the confirmation is asked every time it is switched on.
-        if (!flags.on('pro.one_click', { req })) throw flags.disabledError('pro.one_click');
-        if (b.confirm !== true) throw new ApiError(400, 'one_click_confirmation_required', S('error.one_click_confirm'));
-        set.one_click = 1; set.one_click_confirmed_at = nowIso();
-      } else set.one_click = 0;
-    } else if (Object.prototype.hasOwnProperty.call(b, 'confirm')) throw fieldError('confirm', S('error.invalid', { detail: 'only with one_click' }));
+    if (Object.prototype.hasOwnProperty.call(b, 'one_click')) Object.assign(set, oneClickChange(req, b));
+    else if (Object.prototype.hasOwnProperty.call(b, 'confirm')) throw fieldError('confirm', S('error.invalid', { detail: 'only with one_click' }));
     upsertPrefs(uid, set);
     res.json({ preferences: prefsVo(req) });
   });

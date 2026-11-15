@@ -145,10 +145,11 @@ const REGISTRY = [
   ['ops.traces', 'operations', null, 'server', false],
   ['ops.backups', 'operations', null, 'server'],
   ['ops.alerts', 'operations', null, 'server'],
-  // Pro trading terminal (owner design 2026-11-15, CLONE_SPEC.md §15.6). pro.one_click is the owner's global switch for
-  // one-click trading (orders without the review step); each member still opts in and confirms (off by default).
+  // Pro trading terminal (owner design 2026-11-15, CLONE_SPEC.md §15.6). trading.one_click is the owner's global switch for
+  // one-click trading (orders without the review step) in the event ticket and the Pro terminal alike; each member still
+  // opts in and confirms once (off by default).
   ['pro', 'pro', null, 'both'],
-  ['pro.one_click', 'pro', 'pro', 'both'],
+  ['trading.one_click', 'trading', 'trading', 'both'],
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -237,10 +238,11 @@ const ROUTE_RULES = {
   i18n: [R('PUT', /^\/users\/[^/]+\/locale$/)],
   data_saver: [R('PUT', /^\/users\/[^/]+\/data_saver$/)],
   sms: [R('PUT', /^\/users\/[^/]+\/sms_notifications$/, { when: (req) => bodyOf(req).enabled === true })], // opting out always works
-  // Pro trading terminal (CLONE_SPEC.md §15.6): the screener and candles are public reads; one-click covers orders the
-  // terminal sends without review (X-Plx-One-Click: 1) and switching it on. Switching it off always works.
+  // Pro trading terminal (CLONE_SPEC.md §15.6): the screener and candles are public reads. One-click (ticket and terminal)
+  // covers orders sent without review (X-Plx-One-Click: 1), reading the preference and switching it on.
   pro: [R('GET', /^\/pro\/(screener|candles)$/), R('*', /^\/users\/[^/]+\/pro\//)],
-  'pro.one_click': [R('POST', ORDERS, { when: (req) => typeof req.get === 'function' && req.get('x-plx-one-click') === '1' }), R('PUT', /^\/users\/[^/]+\/pro\/preferences$/, { when: (req) => bodyOf(req).one_click === true })],
+  'trading.one_click': [R('POST', ORDERS, { when: (req) => typeof req.get === 'function' && req.get('x-plx-one-click') === '1' }), R('PUT', /^\/users\/[^/]+\/pro\/preferences$/, { when: (req) => bodyOf(req).one_click === true }),
+    R('GET', /^\/users\/[^/]+\/one_click$/), R('PUT', /^\/users\/[^/]+\/one_click$/, { when: (req) => bodyOf(req).one_click === true })], // switching it off always works
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
 // cancelling orders (always possible), responsible-trading limits, notifications inbox, content, admin. Used by the

@@ -31,6 +31,8 @@ const REGISTRY = [
   ['sms.per_user_per_day', 'reach', 'int', 10, { min: 1, max: 100, unit: 'count', stepUp: true, where: '/admin/owner_settings' }],
   // Database growth fix (CLONE_SPEC.md §39.17): the built-in liquidity accounts' write rate (server/sim-activity.js).
   ['simulation.activity', 'simulation', 'enum', 'low', { values: ['off', 'low', 'normal'], where: '/admin/owner_settings' }],
+  // Pro page layout (owner request 2026-11-15, CLONE_SPEC.md §15.6): the Pro trading terminal or the classic screener table at /pro.
+  ['pro.layout', 'pro', 'enum', 'terminal', { values: ['terminal', 'classic'], pub: true, where: '/admin/owner_settings' }],
   // Phase 9A (CLONE_SPEC.md §39.7): backups, observability, alert thresholds, admin access. Backup settings touch personal
   // data (what is kept, for how long) and the allowlist touches security: both need a step-up.
   ['backups.interval_minutes', 'backups', 'int', 15, { min: 5, max: 1440, unit: 'minutes', stepUp: true, where: '/admin/system' }],

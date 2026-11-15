@@ -15,15 +15,24 @@
 .pro-p-ladder, .pro-p-ticket { grid-column: span 3; }
 .pro-panel.pro-dragging { opacity: .5; }
 .pro-panel.pro-drop { outline: 2px dashed var(--brand); outline-offset: 2px; }
-.pro-panel-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; flex-wrap: wrap; }
+.pro-panel-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-sm); }
 .pro-panel-head h2 { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); }
 .pro-grip { cursor: grab; color: var(--text-x30); user-select: none; font-size: var(--fs-sm); line-height: var(--lh-sm); padding: 0 var(--space-half); }
-.pro-panel-tools { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
-.pro-mkt { font-size: var(--fs-sm); line-height: var(--lh-sm); min-width: 0; overflow-wrap: anywhere; }
+.pro-panel-tools { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+.pro-mkt { font-size: var(--fs-sm); line-height: var(--lh-sm); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pro-panel-tools .seg { flex: none; }
 .pro-hide { width: var(--control-sm); height: var(--control-sm); }
 .pro-panel-body { min-width: 0; }
 .pro-scroll { max-width: 100%; overflow-x: auto; }
 .pro-p-screener .pro-scroll { max-height: 420px; overflow-y: auto; }
+/* No layout jump while data loads (the terminal can be a member's first page after sign-in): every panel reserves its
+   size before its data arrives, so the panels below never move. */
+.pro-p-chart .pro-panel-body { aspect-ratio: 9 / 4; }
+@media (min-width: 761px) {
+  .pro-p-screener .pro-scroll { height: 420px; }
+  .pro-p-ladder .pro-panel-body, .pro-p-ticket .pro-panel-body { min-height: 500px; }
+  .pro-p-orders .pro-panel-body, .pro-p-positions .pro-panel-body, .pro-p-tape .pro-panel-body, .pro-p-alerts .pro-panel-body { min-height: 120px; }
+}
 .pro-tape { max-height: 320px; overflow-y: auto; }
 
 .pro-layout-menu { padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3); }

@@ -355,7 +355,8 @@ everything is audited, and the switch catalogue at the bottom lists every featur
 | Owner settings › Simulated markets | Simulated trading activity (`simulation.activity`: off / low / normal) | low |
 | Owner settings › Backups | Keep at most this many interval backups (`backups.keep_interval_count`, password) | 8 |
 | Feature flags › Pro trading terminal | The Pro terminal (`pro`) | on |
-| Feature flags › Pro trading terminal | One-click trading, members still opt in (`pro.one_click`) | on |
+| Feature flags › Trading | One-click trading in the ticket and the Pro terminal, members still opt in (`trading.one_click`) | on |
+| Owner settings › Pro page | What /pro shows: the terminal or the classic screener (`pro.layout`) | terminal |
 
 ## Pro trading terminal (owner guide)
 
@@ -364,10 +365,13 @@ save as named screens, a live order-book ladder (click a price to load the ticke
 ALL), a quick ticket with keyboard shortcuts (B buy, S sell, Y / N side, Enter review, Esc cancel), and open orders,
 positions, recent trades and price alerts below. Members drag panels by their handle or use **Layout** to move, hide and
 reset them; the layout, saved screens and one-click choice are stored in the database and follow them to any browser.
-Every order shows the review step unless the member switches **one-click trading** on in the ticket (off by default, with a
-confirmation each time it is switched on). Two switches in **Admin › Feature flags › Pro trading terminal**: `pro` turns
-the whole terminal off (visitors see "not available", the nav item disappears), `pro.one_click` turns one-click trading off
-for everyone at once — open terminals show the review step again immediately, whatever members chose. Both default to on.
+Every order shows the review step unless the member switches **one-click trading** on — in the terminal's ticket or with
+"Submit order with 1-Click" at the bottom of the trade ticket's mode menu on any market (one setting for both, off by
+default, a confirmation the first time; the button then reads "⚡ Buy with 1-Click"). **Admin › Feature flags › Trading ›
+`trading.one_click`** turns one-click off for everyone at once: the switch disappears and the review step is back
+immediately, whatever members chose. **Admin › Feature flags › `pro`** turns the whole terminal off (visitors see "not
+available", the nav item disappears). **Admin › Owner settings › Pro page layout** (`pro.layout`) shows the earlier
+classic screener table at /pro instead of the terminal (recommended: terminal). All default to the recommendation.
 Wording is in Content › Texts (`pro.…` and `server.pro.…`).
 
 ## Keeping the database small (owner guide)

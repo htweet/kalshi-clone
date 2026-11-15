@@ -105,6 +105,9 @@ const STRINGS = {
   'setting.simulation.activity.label': 'Simulated trading activity',
   'setting.simulation.activity.help': 'How much the built-in liquidity accounts trade to keep the simulated markets moving: off (no re-quotes, reference trades or opening quotes; resting quotes stay), low (re-quote only when the fair price moves at least 2¢ or after a minute, a reference trade at most every 2 minutes per market, at most 40 re-quotes a minute in all) or normal (re-quote on every 1¢ move, every second). Every simulated trade is stored for good, so normal grows the database by millions of rows a day; low keeps prices, charts and volume moving with about a tenth of the writes. Low is recommended. Takes effect at once.',
   'group.simulation': 'Simulated markets',
+  'setting.pro.layout.label': 'Pro page layout',
+  'setting.pro.layout.help': 'What members see at /pro: terminal (the Pro trading terminal: screener with saved screens, order book, candlestick charts, quick ticket, orders, positions, trades and alerts in an arrangeable layout) or classic (the earlier single screener table with links to each market\'s ticket). Members choosing the Trader view land on this page. Takes effect at once on open pages. Recommended: terminal.',
+  'group.pro': 'Pro page',
   'group.backups': 'Backups (Phase 9A)',
   'group.observability': 'Logs and observability (Phase 9A)',
   'group.retention': 'Data retention',
@@ -224,7 +227,7 @@ const STRINGS = {
   'flag.ops.alerts': 'Alert evaluation and delivery to the confirmed contacts. Recommended: on.',
   // Pro trading terminal (CLONE_SPEC.md §15.6).
   'flag.pro': 'The Pro trading terminal at /pro: screener with saved screens, order-book ladder, candlestick charts, quick ticket with keyboard shortcuts, open orders, positions, trades and price alerts in one arrangeable layout. Signed-out visitors see the screener and charts. Recommended: on.',
-  'flag.pro.one_click': 'One-click trading in the Pro terminal: a member who switches it on (off by default, confirmed once each time) places orders without the review step. Off: every Pro order shows the review step again, for everyone. Recommended: on (each member still decides for themselves).',
+  'flag.trading.one_click': 'One-click trading ("Submit order with 1-Click" in the trade ticket, "One-click trading" in the Pro terminal): a member who switches it on (off by default, confirmed once) places orders without the review step; step-up, limits and compliance checks still apply. Off: the switch disappears and every order shows the review step again, for everyone. Recommended: on (each member still decides for themselves).',
 };
 
 const s = catalog.scoped('server.switches.', STRINGS);

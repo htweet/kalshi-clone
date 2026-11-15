@@ -297,5 +297,8 @@ export const api = {
   proDeleteScreen: (uid, id) => request('DELETE', u(uid, `/pro/screens/${encodeURIComponent(id)}`)),
   proPrefs: (uid) => request('GET', u(uid, '/pro/preferences')),
   proSetPrefs: (uid, b) => request('PUT', u(uid, '/pro/preferences'), b),
+  // One-click trading, one preference for the event ticket and the Pro terminal (flag trading.one_click)
+  oneClick: (uid) => request('GET', u(uid, '/one_click')),
+  setOneClick: (uid, b) => request('PUT', u(uid, '/one_click'), b),
   chatReact: (uid, t, id, reaction, on) => request(on ? 'PUT' : 'DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/reactions/${encodeURIComponent(reaction)}`), on ? {} : undefined),
 };

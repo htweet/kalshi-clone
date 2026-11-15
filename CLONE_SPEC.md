@@ -988,13 +988,27 @@ editable element (there Esc only leaves the field), with Ctrl / Cmd / Alt held, 
 confirmation) is open, or while the ticket panel is hidden. Enter on a focused button or link is that control's own
 action, and Enter never confirms an open review: placing a reviewed order takes the Place order button.
 
-**One-click safety rule.** One-click trading (an order placed without the review step) is a per-member preference that is
-**off by default**. Switching it on shows a confirmation ("Place orders without review?") and the server refuses it
-without `confirm: true`; the time of the confirmation is stored. The owner switch `pro.one_click` (Admin › Feature flags,
-recommended on: each member still decides) turns it off for everyone at once: open terminals show the review again live,
-switching it on is refused, and an order the terminal sends without review carries `X-Plx-One-Click: 1`, which the server
-refuses (`403 feature_disabled` while the flag is off, `403 one_click_not_enabled` while the member's preference is off).
-Closing a position from the Positions panel is an explicit one-button action without review, as on Portfolio.
+**One-click safety rule.** One-click trading (an order placed without the review step) is **one per-member preference**
+(`pro_prefs.one_click`) shared by the Pro terminal's "One-click trading" box and the event ticket's **"Submit order with
+1-Click"** switch (owner request 2026-11-15, after a screenshot of the live ticket): in the ticket's mode menu (Naira /
+Contracts / Limit order) a divider and the switch; when on, the main button reads "⚡ Buy with 1-Click" / "⚡ Sell with
+1-Click" in an outlined style and places the order at once (a flip sell still asks; RFQ is unchanged). The preference is
+**off by default**. The first time it is switched on, a confirmation asks ("Submit orders with 1-Click?" / "Place orders
+without review?") and the server refuses it without `confirm: true`; the time of that confirmation is stored, and later
+switches (off and on again, in either place) do not ask again. The owner switch **`trading.one_click`** (Admin › Feature
+flags, child of `trading`, independent of `pro`; recommended on: each member still decides) turns it off everywhere at once:
+the ticket's switch disappears and both places show the review again live, switching it on is refused, and an order sent
+without review carries `X-Plx-One-Click: 1`, which the server refuses (`403 feature_disabled` while the flag is off,
+`403 one_click_not_enabled` while the member's preference is off). Step-up, trading limits and identity / location
+checks apply to a 1-Click order exactly as to a reviewed one (the same order route and client `request()`). The ticket
+logic lives in the ticket module (`public/js/views/event.js`), so every page that docks the ticket gets it. Closing a
+position from the Pro Positions panel is an explicit one-button action without review, as on Portfolio.
+
+**Owner setting `pro.layout`** (Admin › Owner settings › Pro page, recommended **terminal**, audited with a reason, kept
+across restarts, live on open pages): `terminal` shows the Pro trading terminal at `/pro`; `classic` shows the earlier
+single screener table (open markets of the top 100 events, sortable, live, rows linking to the ticket). Members who choose
+the Trader view land on `/pro`; the terminal reserves every panel's size before its data arrives (fixed screener height,
+chart aspect ratio, ladder and ticket minimum heights, single-line panel heads), so nothing jumps while it loads.
 
 **Layout.** Panels are dragged by their handle (HTML5 drag and drop) or moved with the Layout menu's ↑ / ↓ buttons, and
 shown / hidden there or with each panel's ×; Reset restores the default. Order, hidden panels, chart timeframe and screener
@@ -1004,15 +1018,16 @@ sort are stored per member in the database and follow the member to another brow
 answers `403 feature_disabled`). Signed-out visitors see the screener, chart, ladder and trades; the ticket, orders,
 positions and alerts panels ask them to sign in.
 
-**Endpoints** (flag `pro`; `pro.one_click` where noted):
+**Endpoints** (flag `pro`; `trading.one_click` where noted):
 
 | Method and path | Purpose |
 |---|---|
 | `GET /v1/pro/screener?category=&closes_within_hours=&min_volume=&max_spread_cents=&min_move_cents=&query=` | Public. Active markets passing the filters, by volume (at most 300 rows, `total_count`), with bid / ask / last / previous-day price, volume, `spread_cents`, `move_24h_cents`. Unknown or invalid filters: `400 validation_failed` with `fields`. |
 | `GET /v1/pro/candles?ticker=&tf=1H\|1D\|1W\|ALL` | Public. `{ticker, tf, period_seconds, candles:[{start_ts, end_ts, open/high/low/close_dollars, volume_fp, trades}]}`; empty buckets after the first trade carry the previous close with volume 0. |
 | `GET / POST /v1/users/:uid/pro/screens`, `PUT / DELETE /v1/users/:uid/pro/screens/:id` | Saved screens `{name, filters}` (`409 screen_name_taken`, `409 too_many_screens`). |
-| `GET / PUT /v1/users/:uid/pro/preferences` | `{layout:{order, hidden, chart_tf, sort}, active_screen_id, one_click, confirm}`; the answer adds `one_click_available` and `one_click_effective`. `one_click: true` needs `confirm: true` (`400 one_click_confirmation_required`) and the `pro.one_click` flag. |
-| `POST /v1/users/:uid/orders` with `X-Plx-One-Click: 1` | An unreviewed order from the terminal: refused unless `pro.one_click` is on and the member's one-click preference is on. |
+| `GET / PUT /v1/users/:uid/pro/preferences` | `{layout:{order, hidden, chart_tf, sort}, active_screen_id, one_click, confirm}`; the answer adds `one_click_available` and `one_click_effective`. `one_click: true` needs the `trading.one_click` flag and, the first time, `confirm: true` (`400 one_click_confirmation_required`). |
+| `GET / PUT /v1/users/:uid/one_click` | Flag `trading.one_click` (switching off always works). The shared preference `{one_click, available, effective, confirmed_time}`; `PUT {one_click, confirm?}` — `confirm: true` only the first time. Used by the event ticket. |
+| `POST /v1/users/:uid/orders` with `X-Plx-One-Click: 1` | An unreviewed order (ticket or terminal): refused unless `trading.one_click` is on and the member's one-click preference is on. |
 
 **Data model** (migration `0005-pro-terminal`, self-contained): `pro_screens(id, user_id, name, filters_json, created_at,
 updated_at, UNIQUE(user_id, name))`; `pro_prefs(user_id PK, one_click, one_click_confirmed_at, layout_json, active_screen_id,
@@ -1026,13 +1041,16 @@ history: 1D / 1W / ALL read an index range of `market_candles` (≤ 168 hourly o
 `trades` through `idx_trades_market`. Existing trades are counted once by the migration. The member's Pro data is in the
 account data export (`pro_terminal`) and cleared by a seed reset.
 
-**Verification:** `clone/tests/pro-terminal.e2e.test.js` (8 scenarios, real server + SQLite + Chromium): candles equal a
+**Verification:** `clone/tests/pro-terminal.e2e.test.js` (11 scenarios, real server + SQLite + Chromium): candles equal a
 recount for all four timeframes after inserts, the cc fill, an update and deletes, with index-search query plans; screener
 filters and a saved screen restored after a reload; ladder click → ticket price; B / Y / Enter → review → Place order
 creates the order, no shortcut while typing; one-click off by default, confirmation, Enter places at once, and the owner
 switch in Admin turns it off (UI live and API); amend and cancel; close at market and at the bid; alert create / delete;
-layout hide / move / drag stored and restored after a reload and in another browser; signed-out panels and 390 px without
-horizontal scroll; the `pro` flag off; no page errors or CSP violations.
+layout hide / move / drag stored and restored after a reload and in another browser; 1-Click in the event ticket (off by
+default, asked once, persisted after a reload, in another browser and in the terminal, an order placed without review,
+the owner switch hiding it and forcing review); no layout jump while the terminal loads; signed-out panels and 390 px
+without horizontal scroll; the `pro` flag off; the `pro.layout` owner setting (classic live, audited, kept after a
+restart); no page errors or CSP violations.
 
 ### 15.7 Clone verification for §15
 

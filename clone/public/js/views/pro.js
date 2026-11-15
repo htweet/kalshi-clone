@@ -11,8 +11,8 @@
 // Panels can be dragged (or moved with the layout menu) and shown / hidden; the layout is stored per member in the database
 // (PUT /v1/users/:uid/pro/preferences) and follows the member to another browser. Signed-out visitors see the screener,
 // charts, ladder and trades; the trading panels ask them to sign in.
-// One-click safety rule: one-click trading is off by default, switching it on asks the member to confirm, and the owner can
-// switch it off for everyone (the `pro.one_click` flag). An order placed without the review step says so to the server
+// One-click safety rule: one-click trading is off by default, switching it on the first time asks the member to confirm, and the owner can
+// switch it off for everyone (the `trading.one_click` flag; the preference is shared with the event ticket's 1-Click switch). An order placed without the review step says so to the server
 // (X-Plx-One-Click), which refuses it unless both the flag and the member's preference are on (server/pro.js).
 import { t as tx, te, ts } from '../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../content/pro-strings.js';
@@ -21,9 +21,9 @@ import { vars } from '../dynstyle.js';
 import { api } from '../api.js';
 import { session } from '../store.js';
 import { socket } from '../ws.js';
-import { flagOn } from '../flags.js';
+import { flagOn, ownerSetting } from '../flags.js';
 import { hoverAttr, installChartHover } from '../chart-hover.js';
-import { esc, ccOf, ccDollars, eventHref, qty, catLabel, CATEGORIES, pxc, px, money, priceUnit, onGrid, minTickCc, snapCc, feeDollars, validQty, fmtDt, toast } from '../lib.js';
+import { esc, ccOf, ccDollars, eventHref, qty, catLabel, CATEGORIES, pxc, px, money, priceUnit, onGrid, minTickCc, snapCc, feeDollars, validQty, fmtDt, toast, cents, prob, pxCents } from '../lib.js';
 
 const PANELS = ['screener', 'chart', 'ladder', 'ticket', 'orders', 'positions', 'tape', 'alerts'];
 const TRADING = new Set(['ticket', 'orders', 'positions', 'alerts']); // ask signed-out visitors to sign in
@@ -35,6 +35,8 @@ const typingIn = (el) => !!(el && el.closest && el.closest('input, textarea, sel
 
 export async function render({ el, query }) {
   document.title = tx('pro.render.pro_parlance');
+  // Owner setting `pro.layout` (Admin › Owner settings, recommended "terminal"): the classic screener table instead.
+  if (ownerSetting('pro.layout', 'terminal') === 'classic') return renderClassic({ el });
   const uid = session.user ? session.uid : null;
   const state = {
     filters: { category: '', closes_within_hours: '', min_volume: '', max_spread_cents: '', min_move_cents: '' },
@@ -55,7 +57,7 @@ export async function render({ el, query }) {
     const active = state.prefs && state.screens.find((x) => x.id === state.prefs.active_screen_id);
     if (active) { state.activeScreen = active.id; state.filters = filtersForm(active.filters); }
   }
-  const oneClickOn = () => !!(uid && state.prefs && state.prefs.one_click && state.prefs.one_click_available && flagOn('pro.one_click'));
+  const oneClickOn = () => !!(uid && state.prefs && state.prefs.one_click && state.prefs.one_click_available && flagOn('trading.one_click'));
   const reviewOn = () => flagOn('trading.order_review') && !oneClickOn();
 
   el.innerHTML = `<div class="pro" data-testid="pro-terminal">
@@ -282,8 +284,8 @@ export async function render({ el, query }) {
   function drawLadder() {
     const box = body('ladder');
     if (!state.selected) { box.innerHTML = `<p class="faint">${te('pro.render.select_market')}</p>`; return; }
-    const asks = [...state.book.no.entries()].map(([p, c]) => [10000 - p, c]).sort((a, b) => a[0] - b[0]).slice(0, 10).reverse();
-    const bids = [...state.book.yes.entries()].sort((a, b) => b[0] - a[0]).slice(0, 10);
+    const asks = [...state.book.no.entries()].map(([p, c]) => [10000 - p, c]).sort((a, b) => a[0] - b[0]).slice(0, 8).reverse();
+    const bids = [...state.book.yes.entries()].sort((a, b) => b[0] - a[0]).slice(0, 8);
     const max = Math.max(1, ...asks.map((a) => a[1]), ...bids.map((b) => b[1]));
     const bar = (c, kind) => `<i class="pro-bar pro-bar-${esc(kind)} v-w"${vars({ '--w': `${Math.round((c / max) * 100)}%` })}></i>`;
     const row = (p, c, kind) => `<button type="button" class="pro-lv pro-lv-${esc(kind)}" data-level="${esc(p)}" data-kind="${esc(kind)}" data-testid="ladder-level" aria-label="${te('pro.ladder.load_price', { price: esc(pxc(p)) })}">
@@ -422,13 +424,17 @@ export async function render({ el, query }) {
     const box = body('ticket').querySelector('#pt-oneclick');
     if (!box) return;
     const p = state.prefs || {};
-    const avail = !!p.one_click_available && flagOn('pro.one_click');
+    const avail = !!p.one_click_available && flagOn('trading.one_click');
     box.innerHTML = `<label class="pro-check"><input type="checkbox" id="pt-oneclick-box" data-testid="pro-one-click" ${p.one_click && avail ? 'checked' : ''} ${avail ? '' : 'disabled'}> ${te('pro.oneclick.label')}</label>
       <span class="faint" data-testid="pro-one-click-state">${!avail ? te('pro.oneclick.off_by_owner') : p.one_click ? te('pro.oneclick.on_help') : te('pro.oneclick.off_help')}</span><div id="pt-oneclick-confirm"></div>`;
     const cb = box.querySelector('#pt-oneclick-box');
     cb.onchange = async () => {
       if (!cb.checked) {
         try { state.prefs = (await api.proSetPrefs(uid, { one_click: false })).preferences; toast(tx('pro.oneclick.turned_off')); } catch (ex) { toast(ex.message, 'error'); }
+        drawTicket(); return;
+      }
+      if (p.one_click_confirmed_time) { // confirmed once before (here or in the event ticket): no second question
+        try { state.prefs = (await api.proSetPrefs(uid, { one_click: true })).preferences; toast(tx('pro.oneclick.turned_on')); } catch (ex) { toast(ex.message, 'error'); }
         drawTicket(); return;
       }
       cb.checked = false;
@@ -633,4 +639,38 @@ function candleSvg(list, tf) {
   const lastK = ks[ks.length - 1];
   const sr = tx('pro.chart.sr', { count: ks.length, close: pxc(Math.round(lastK.c * 100)), high: pxc(Math.round(Math.max(...ks.map((k) => k.h)) * 100)), low: pxc(Math.round(Math.min(...ks.map((k) => k.l)) * 100)) });
   return `<svg class="chart pro-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(sr)}" data-testid="pro-chart" data-count="${ks.length}"${hover}>${grid}<line x1="0" x2="${plotW}" y1="${vy0}" y2="${vy0}" stroke="var(--line)"/>${bars}${ticks}</svg>`;
+}
+
+// The classic Pro page (before 2026-11-15, owner setting pro.layout = classic): one sortable, live table of the open
+// markets of the top 100 events, each row linking to the event ticket.
+const CLASSIC_COLS = [['title', ts('pro.cols.market')], ['bid', ts('pro.cols.bid')], ['ask', ts('pro.cols.ask')], ['last', ts('pro.cols.last')], ['chg', ts('pro.cols.change')], ['vol', ts('pro.cols.volume')]];
+async function renderClassic({ el }) {
+  const r = await api.search({ status: 'open', page_size: 100, order_by: 'event-volume' });
+  const rows = [];
+  for (const ev of r.current_page) for (const m of ev.markets.filter((x) => x.status === 'active')) rows.push({ ev, m });
+  let sort = ['vol', -1];
+  const val = ({ ev, m }, k) => ({ title: `${ev.title} ${m.yes_sub_title}`, bid: cents(m.yes_bid_dollars) ?? -1, ask: cents(m.yes_ask_dollars) ?? 999, last: prob(m) ?? -1, chg: (prob(m) ?? 0) - (cents(m.previous_price_dollars) ?? prob(m) ?? 0), vol: Number(m.volume_fp) }[k]);
+  el.innerHTML = `<div class="page-head pt-0" data-testid="pro-classic"><h1 class="page-title">${te('pro.render.pro')}</h1><span class="faint">${te('pro.render.open_markets_live', { value: rows.length })}</span></div>
+    <div class="card p-4-16"><table class="table pro-table" data-testid="pro-table"><thead><tr>${CLASSIC_COLS.map(([k, l]) => `<th class="${k === 'title' ? '' : 'num'}"><button class="btn btn-ghost btn-sm" data-sort="${esc(k)}">${esc(l)}</button></th>`).join('')}<th></th></tr></thead><tbody id="pro-rows"></tbody></table></div>`;
+  const draw = () => {
+    const [k, dir] = sort;
+    const list = [...rows].sort((a, b) => { const x = val(a, k); const y = val(b, k); return (typeof x === 'string' ? x.localeCompare(y) : x - y) * dir; });
+    el.querySelector('#pro-rows').innerHTML = list.map(({ ev, m }) => {
+      const chg = val({ ev, m }, 'chg');
+      return `<tr data-ticker="${esc(m.ticker)}"><td><a href="${eventHref(ev)}?market=${esc(m.ticker)}" data-link><strong>${esc(m.yes_sub_title)}</strong> <span class="faint">${esc(ev.title)} · ${esc(catLabel(ev.category))}</span></a></td>
+        <td class="num c-yes">${esc(pxCents(cents(m.yes_bid_dollars)))}</td><td class="num c-no">${esc(pxCents(cents(m.yes_ask_dollars)))}</td><td class="num"><strong>${prob(m) ?? '—'}%</strong></td>
+        <td class="num ${chg >= 0 ? 'delta-up' : 'delta-down'}">${chg ? (chg > 0 ? '+' : '') + chg : '0'}</td><td class="num">${qty(m.volume_fp)}</td>
+        <td><a class="btn btn-sm" href="${eventHref(ev)}?side=yes&amp;market=${esc(m.ticker)}" data-link>${te('pro.render.trade')}</a></td></tr>`;
+    }).join('');
+  };
+  for (const b of el.querySelectorAll('[data-sort]')) b.onclick = () => { sort = [b.dataset.sort, sort[0] === b.dataset.sort ? -sort[1] : -1]; draw(); };
+  draw();
+  let t = null;
+  const unsub = socket.subscribe({ channels: ['ticker'] }, (msg) => {
+    const row = rows.find((x) => x.m.ticker === msg.msg.market_ticker);
+    if (!row) return;
+    Object.assign(row.m, { yes_bid_dollars: msg.msg.yes_bid_dollars, yes_ask_dollars: msg.msg.yes_ask_dollars, last_price_dollars: msg.msg.last_price_dollars, volume_fp: msg.msg.volume_fp });
+    clearTimeout(t); t = setTimeout(draw, 150);
+  });
+  return () => { unsub(); clearTimeout(t); };
 }
