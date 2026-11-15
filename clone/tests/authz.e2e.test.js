@@ -72,6 +72,9 @@ const EXPECT = {
   // ---- public site data
   'GET /v1/site_config': P, 'GET /v1/help': P, 'GET /v1/help/:slug': P, 'GET /v1/help/search': P, 'POST /v1/help/:slug/feedback': P, // Help Center (CLONE_SPEC.md §40): visitors vote too
   'GET /v1/admin/help/feedback': perm('content.write'),
+  // Category pages (CLONE_SPEC.md §42): page data and the underlying price are public; dismissing a banner needs a member.
+  'GET /v1/bff/category/:slug': P, 'GET /v1/bff/category/:slug/underlying/:event': P, 'POST /v1/bff/category/:slug/banner/dismiss': U,
+  'GET /v1/admin/category_pages': perm('content.write'), 'GET /v1/admin/category_pages/:slug': perm('content.write'), 'PUT /v1/admin/category_pages/:slug': perm('content.write'),
   // Pro trading terminal (CLONE_SPEC.md §15.6): public screener and candles; saved screens, layout and the shared
   // one-click preference belong to the member.
   'GET /v1/pro/screener': P, 'GET /v1/pro/candles': P,
