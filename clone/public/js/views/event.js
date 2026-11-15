@@ -9,7 +9,7 @@ import { api, request } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
 import { scrollMotion, esc, cents, prob, multiplier, money, qty, validQty, shortDate, toast, eventHref, catSlug, catLabel, relTime, ICON, showShares, ccOf, pxc, px, ccDollars, onGrid, minTickCc, snapCc, feeDollars, priceUnit, pxCents, contractValue, amountLabel, toApiDollars, validMoneyInput, moneyStep, sym, fmtDay, fmtDateTime, isNgn } from '../lib.js';
-import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
+import { postCard, ocAvatar, evIcon, multiChart, seriesColor, money0, eventCard } from './components.js';
 import { wirePosts, composer, wireComposer } from './social.js';
 import { newsItemsHtml } from './admin/site.js'; // CMS news items
 import { mountGameBoard, mountLinesSection } from './sports.js'; // live scoreboard (§19.6); spread & total section (§29)
@@ -577,10 +577,16 @@ export async function render({ el, params, query, navigate }) {
     try {
       const r = await api.related(ev.event_ticker);
       if (r.series_events.length) {
-        $('#series-events').innerHTML = `<div class="sec-head"><h2>${te('event.render.more_in', { title: esc(series.title) })}</h2></div>${r.series_events.map((x) => {
-          const top = [...x.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0))[0];
-          return `<a class="list-row jc-between bb-line" href="${eventHref(x)}" data-link><span>${esc(x.title)}</span><span class="muted">${esc(top.yes_sub_title)} ${prob(top) ?? '—'}%</span></a>`;
-        }).join('')}`;
+        // The same market cards as the home page and Browse (owner request 2026-11-15), six at a time.
+        const list = r.series_events;
+        const drawSeries = (n) => {
+          $('#series-events').innerHTML = `<div class="sec-head"><h2>${te('event.render.more_in', { title: esc(series.title) })}</h2></div>
+            <div class="grid series-grid" data-testid="series-grid">${list.slice(0, n).map((x) => `<div class="series-card" data-testid="series-card">${eventCard(x)}</div>`).join('')}</div>
+            ${list.length > n ? `<button class="btn btn-pill h-48 c-brand" type="button" id="series-more" data-testid="series-more">${te('event.render.show_more')}</button>` : ''}`;
+          const more = $('#series-more');
+          if (more) more.onclick = () => drawSeries(n + 6);
+        };
+        drawSeries(6);
       }
       const also = r.people_also_trading;
       const drawAlso = (n) => {

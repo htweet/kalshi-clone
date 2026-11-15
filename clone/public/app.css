@@ -532,7 +532,9 @@ svg.ch-on .ch-end { opacity: 0; }
 /* ---------- trade ticket ---------- */
 .ticket { padding: var(--space-5); position: sticky; top: var(--space-4); }
 .ticket h3 { margin: 0; font-size: var(--fs-lg); line-height: var(--lh-lg); }
-.tkt { padding: 0; position: sticky; top: calc(var(--header-h) + var(--strip-h) + var(--space-4)); }
+/* The ticket stays put while the cards below it (position, price alert, admin) scroll up behind it: its own stacking
+   level keeps them underneath (positioned controls in those cards used to paint over it; owner report 2026-11-15). */
+.tkt { padding: 0; position: sticky; top: calc(var(--header-h) + var(--strip-h) + var(--space-4)); z-index: 5; }
 .tkt-head { display: flex; align-items: center; gap: var(--space-5); padding: var(--space-5) var(--space-5) var(--space-4); border-bottom: 1px solid var(--line); }
 .tkt-head button { padding: 0; border: 0; background: none; color: var(--text-x30); font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-bold); letter-spacing: var(--ls-caps); text-transform: uppercase; }
 .tkt-head button.on { color: var(--text-x10); }

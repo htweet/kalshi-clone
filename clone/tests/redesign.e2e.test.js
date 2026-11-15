@@ -109,7 +109,9 @@ test('event page: head-to-head, .ics + CSV downloads, related events, Show more'
   const lines = fs.readFileSync(await csv.path(), 'utf8').trim().split('\n');
   assert.equal(lines[0], 'time,market,outcome,yes_price_ngn,volume_contracts');
   assert.ok(lines.length > 20 && lines.some((l) => l.includes(BLUE)));
-  await page.waitForSelector('#series-events a.list-row:has-text("governor")');
+  // "More in <series>" shows the market cards used on the home page (owner request 2026-11-15), six at a time.
+  await page.waitForSelector('#series-events [data-testid=series-card]:has-text("governor")');
+  assert.ok((await page.locator('#series-events [data-testid=series-card] .outcome-row').count()) >= 1, 'cards show outcomes with prices');
   assert.equal(await page.locator('[data-testid=also-row]').count(), 3);
   await page.click('#also-more');
   assert.ok((await page.locator('[data-testid=also-row]').count()) > 3);
@@ -152,6 +154,36 @@ test('ticket: Dollars buy, SELL tab sells held contracts (netting to cash), mode
     return { s: x.status, b: await x.json() };
   }, [uid(), BLUE]);
   assert.equal(r.s, 409); assert.equal(r.b.error.code, 'insufficient_position');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
+// Owner report 2026-11-15: on the event page the trade ticket stays in place (sticky) while the cards below it scroll up,
+// but those cards (the price alert form, the position, the admin buttons) were drawn over the ticket when they reached it.
+// Wherever a card below overlaps the ticket, the ticket must be the one on top.
+test('event page: cards below the trade ticket scroll behind it, never over it', async () => {
+  const page = await newPage({ width: 1280, height: 720 });
+  await logIn(page);
+  await page.goto(BASE + SEN_URL);
+  await page.waitForSelector('#ticket .tkt-head');
+  await page.waitForSelector('[data-testid=alert-card]');
+  const result = await page.evaluate(async () => {
+    const t = document.querySelector('#ticket'); const a = document.querySelector('[data-testid=alert-card]');
+    for (let y = 0; y < document.documentElement.scrollHeight; y += 40) {
+      window.scrollTo(0, y);
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      const tr = t.getBoundingClientRect(); const ar = a.getBoundingClientRect();
+      const top = Math.max(tr.top, ar.top) + 10; const bottom = Math.min(tr.bottom, ar.bottom) - 10;
+      if (bottom > top) {
+        const x = tr.left + tr.width / 2; const yy = (top + bottom) / 2;
+        const hit = document.elementFromPoint(x, yy);
+        return { overlapped: true, onTicket: !!(hit && t.contains(hit)), hit: hit ? `${hit.tagName}.${hit.className}` : null };
+      }
+    }
+    return { overlapped: false };
+  });
+  assert.ok(result.overlapped, 'the alert card reaches the sticky ticket while scrolling');
+  assert.ok(result.onTicket, `the ticket is on top where they overlap (got ${result.hit})`);
   assert.deepEqual(page.errors, []);
   await page.context().close();
 });
