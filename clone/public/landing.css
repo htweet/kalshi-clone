@@ -45,6 +45,7 @@ main.lp-main { max-width: none; padding-left: 0; padding-right: 0; padding-top: 
 .lp-arrow.next { right: var(--space-4); }
 .lp-hero-ctl { display: flex; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-2); }
 .lp-play, .lp-tk-btn { display: inline-grid; place-items: center; }
+.lp-play[hidden], .lp-tk-btn[hidden], .lp-more[hidden] { display: none; }
 .lp-play svg, .lp-tk-btn svg { width: 12px; height: 12px; }
 .lp-play { width: var(--control-sm); height: var(--control-sm); padding: 0; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--text-x10); font-size: var(--fs-xs); line-height: var(--lh-xs); }
 .lp-dots { display: flex; gap: var(--space-1h); }
@@ -117,7 +118,8 @@ main.lp-main { max-width: none; padding-left: 0; padding-right: 0; padding-top: 
 @media (max-width: 760px) {
   .lp-hero { --peek: 0px; --gap: var(--space-3); }
   .lp-slide { width: calc(100% - 2 * var(--gutter)); grid-template-columns: minmax(0, 1fr); gap: var(--space-4); padding: var(--space-2) 0; border: 0; touch-action: pan-y; }
-  .lp-title { font-size: var(--fs-4xl); line-height: var(--lh-4xl); }
+  .lp-title { font-size: var(--fs-3xl); line-height: var(--lh-3xl); }
+  .lp-ctx { font-size: var(--fs-md); line-height: var(--lh-md); }
   .lp-img, .lp-side .lp-gen, .lp-card-pic { aspect-ratio: 16 / 7; }
   .lp-arrow { top: auto; bottom: var(--space-1); width: var(--control-sm); height: var(--control-sm); font-size: var(--fs-xl); line-height: var(--lh-xl); }
   .lp-arrow.prev { left: var(--gutter); }

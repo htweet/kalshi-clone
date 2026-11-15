@@ -13,6 +13,7 @@
 //   Admin › Content › Landing page (content.write): GET /v1/admin/landing, PUT /v1/admin/landing/config,
 //                               PUT|DELETE /v1/admin/landing/content/:kind/:ref — every change audited.
 // Hero pins are the Hero carousel selection (cms_hero, Admin › Content › Hero carousel), shared with the member home.
+const zlib = require('node:zlib');
 const { nowIso, E, ApiError, UNITS } = require('./util');
 const { marketVo } = require('./serialize');
 const P = require('./pricing');
@@ -204,11 +205,18 @@ function mountLanding({ v1, db, engine, admin, flags, getRolling, getAccountArea
     const sig = signature();
     const c = cache.get(key);
     if (c && c.sig === sig && Date.now() - c.at < CACHE_MS) return c.body;
-    const body = build(req);
+    const json = JSON.stringify({ landing: build(req) });
+    const body = { json, gz: zlib.gzipSync(json, { level: 6 }) };
     cache.set(key, { sig, at: Date.now(), body });
     return body;
   }
-  v1.get('/bff/landing', (req, res) => res.json({ landing: landing(req) }));
+  // Sent gzip-compressed when the browser accepts it (about a fifth of the size on a 3G phone).
+  v1.get('/bff/landing', (req, res) => {
+    const b = landing(req);
+    res.setHeader('Vary', 'Accept-Encoding');
+    res.type('application/json');
+    if (/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) { res.setHeader('Content-Encoding', 'gzip'); res.end(b.gz); } else res.end(b.json);
+  });
 
   // ------------------------------------------------------------------ member home extras
   function onboarding(uid) {

@@ -29,6 +29,7 @@ class SessionStore extends Observable {
 
   async setUser(user) {
     this.user = user;
+    try { localStorage.setItem('plx-member', '1'); } catch { /* storage unavailable */ } // main.js: skip the visitor landing prefetch
     // Each call may be refused (e.g. session_time_limit_reached); the user is still signed in.
     const [b, p, sp] = await Promise.all([api.balance(user.user_id).catch(() => ({ balance_dollars: null })), api.properties(user.user_id).catch(() => ({ properties: {} })), api.myProfile(user.user_id).catch(() => ({ profile: null }))]);
     this.balance = b.balance_dollars;
@@ -129,6 +130,7 @@ class SessionStore extends Observable {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.user = null; this.balance = null; this.props = {}; this.nickname = null;
+    try { localStorage.removeItem('plx-member'); } catch { /* storage unavailable */ }
     applyTheme(localTheme());
     resetUiPrefs();
     queries.clear();
@@ -151,6 +153,7 @@ class SessionStore extends Observable {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.user = null; this.balance = null; this.props = {}; this.nickname = null;
+    try { localStorage.removeItem('plx-member'); } catch { /* storage unavailable */ }
     applyTheme(localTheme());
     resetUiPrefs();
     queries.clear();

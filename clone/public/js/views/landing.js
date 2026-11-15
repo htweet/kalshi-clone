@@ -86,7 +86,8 @@ export async function render({ el }) {
   document.title = tx('landing.title');
   el.classList.add('lp-main');
   el.innerHTML = '<div class="lp"><div class="skeleton minh-420"></div></div>';
-  const { landing: L } = await queries.fetch(['landing'], api.landing, { staleTime: 10000 });
+  let L;
+  try { ({ landing: L } = await queries.fetch(['landing'], api.landing, { staleTime: 10000 })); } catch (e) { el.classList.remove('lp-main'); throw e; }
   const hero = L.sections.includes('hero') && L.hero.length ? L.hero : [];
   const n = hero.length;
   const S = {
@@ -119,7 +120,7 @@ function mountCarousel(root, hero) {
   const slides = [...root.querySelectorAll('.lp-slide')];
   const pager = root.querySelector('[data-testid=hero-pager]');
   const play = root.querySelector('#hero-play');
-  let idx = 0; let prevK = slides.map(() => 0);
+  let idx = 0; let prevK = slides.map(() => Infinity); // the first placement jumps (no slide flies in on load)
   let playing = n > 1 && ownerSetting('layout.hero_autoadvance', true) !== false && !reduced();
   let hover = false; let focus = false;
   const interval = Math.max(4, Number(ownerSetting('layout.hero_interval_seconds', 7)) || 7) * 1000;

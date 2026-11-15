@@ -31,6 +31,10 @@ import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web 
 import { initFlags, loadFlags, routeFlagOff, unavailableHtml, renderPlayBanner, renderOpsBanner, onFlags, flagOn, playOn, ownerSetting } from './flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
 import { initLocale, flagsReady } from './locale.js'; // languages, Intl formatting, data saver, referral links (CLONE_SPEC.md §38)
 import { initA11y } from './a11y.js'; // tab semantics on every tab list (WCAG 2.2 AA, CLONE_SPEC.md §38.6)
+// Visitor landing page (CLONE_SPEC.md §41): on a browser that has not signed in here, start loading the landing view and
+// its data at once, in parallel with the session and flag requests (a 3G phone saves two round trips before the first
+// paint). The view uses the same query-cache entry; for a member or the classic variant the prefetch is simply unused.
+try { if (location.pathname === '/' && !localStorage.getItem('plx-member')) { import('./views/landing.js').catch(() => {}); queries.fetch(['landing'], api.landing, { staleTime: 10000 }).catch(() => {}); } } catch { /* storage unavailable */ }
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
