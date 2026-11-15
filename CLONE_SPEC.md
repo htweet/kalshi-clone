@@ -6691,8 +6691,6 @@ publisher changes a guide's summary, topic and related guides and hides another 
 search, the guide page and the sitemap follow); Help feedback report; unsafe images dropped when saved; a bad topic
 refused; everything kept after a restart; crawler rendering and the sitemap.
 
----
-
 ## 41. Content operations part 1: news queue and auto-written market content (owner decisions 2026-11-15)
 
 Two review queues in **Admin › Content queue** (`/admin/content_queue`, `server/content-queue.js`, tables in migration
@@ -6891,6 +6889,113 @@ sideways scroll, light and dark, axe WCAG 2.2 AA, no page errors; Admin › Cate
 audited, after a restart; layout switch classic ↔ new (owner setting) with a per-category override, after a restart.
 Existing suites changed where the page changed: `features` (the Basketball tag link is a sidebar group now),
 `e2e` (waits for the category page), `sports` (sports are sidebar groups).
+
+---
+
+## 43. Content management for every entity (owner request 2026-11-15)
+The owner reported: "Content management (create, restore, delete, updated) is not perfect enough … no place to directly
+manage each existing content on the application … the admin CMS system seems inadequate to manage the entire
+application." This is our design (the usual standard for a CMS of record: one index of everything, a version history
+with restore for every editable thing, soft delete with a recoverable Trash and a retention period, bulk actions, every
+change attributed and reasoned). Built on `content-admin`.
+
+### 43.1 Audit (before this change)
+C = create, E = edit, D = delete, R = restore after delete, H = history, P = preview, Pub = draft / publish. "–" = not
+applicable to the type.
+
+| Content type | Managed in | Had | Lacked |
+|---|---|---|---|
+| Pages and help guides (CMS `page`, `help/<slug>`) | Content & settings › Pages | C E H P Pub (versions, rollback, schedule, legal step-up) | D, R (a custom page could only be reset), one index |
+| Texts (`text`) | Content & settings › Texts | E H P Pub | – (catalog keys: reset to default instead of delete) |
+| Notification, email and SMS templates (`template`) | Content & settings › Templates | E H P Pub, test send | – (fixed keys) |
+| Media slots (`media`), footer, branding | Content & settings › Media / Pages / Branding | E H P Pub | media library files cannot be deleted (residual) |
+| Status incidents (`incident`) | API keys › Status | C E H Pub | D, R |
+| Waitlist survey questions (`survey`) | Waitlists | C E H Pub, `active` | D, R for added questions |
+| Site banners, promo cards, info cards, news items, help collection (`cms_help`), home hubs | Content › tabs | C E D (hard delete), `active` | H, R, reasons, trash, status other than active |
+| Category navigation, home hero carousel | Content › Navigation / Hero | E (audited) | H, R |
+| Series / event / market copy (title, rules, descriptions) | Catalog | C E (audited), D = discard draft (hard), publish | H, R, trash for drafts |
+| Election parties, candidates, races, elections | Elections › Data | C E (audited, reason) | H, R, D |
+| Promo codes | Promo codes | C, on / off | E (description), H, R, D |
+| Not in the registry (residual) | announcement templates, incentive program titles, AI summaries (generated, hide / regenerate), election countries / divisions / offices (reference data), owner settings and flags (own history), media library files | | |
+
+### 43.2 Registry
+`server/content-admin/index.js` keeps one registry of content types (`app.locals.contentRegistry`; other modules — e.g.
+the news sources and generated market content of `content-queue` — register theirs with `register(def)`). A type
+declares its key, permissions `{read, write, publish, purge}` (existing roles only), its editable content fields
+(`{name, kind: text | textarea | bool | int | select | datetime | color, options, max, nullable}`), a link to its own
+editor, where its history lives (`revisions`, or `cms` for the CMS store, whose versions are reused rather than copied),
+and adapters: `list`, `get`, `update`, `setPublished`, `rollback`, `trash {refuse, take, put, stepUp}`, `auditMatch`,
+`changed`. Writes go through the owning module's own validation and audit (the CMS store, the Admin › Content
+collection checks, or the existing admin route called internally), so nothing is validated twice in two ways. The
+built-in types (`server/content-admin/adapters.js`):
+
+| Type(s) | Permission (write / publish / purge) | Generic form fields | Trash |
+|---|---|---|---|
+| `page`, `text`, `template`, `media`, `footer`, `brand`, `incident`, `survey` | content.write / content.publish / content.publish | – (their own editors) | items without a code default: custom pages, incidents, added survey questions |
+| `banners`, `promos`, `info_cards`, `news`, `help`, `hubs` | content.write / content.write / content.publish | all their fields | yes |
+| `nav`, `hero` | content.write | – (own editors; history and restore here) | no |
+| `catalog_series`, `catalog_events`, `catalog_markets` | catalog.write | title, rules, sub-title, live label, news text, outcome names — never prices or trading state | drafts only (published markets hold positions: market ops pause or close them) |
+| `election_parties`, `election_candidates`, `election_races`, `election_elections` | catalog.write | names, short name, coalition, colour, featured, active | no (results data refers to them) |
+| `promo_codes` | users.money | description, on / off | unused codes only |
+
+Status of an item: `draft`, `published`, `scheduled` (a future start or a scheduled CMS publish), `hidden` (switched
+off, expired or a hidden guide) or `trashed`.
+
+### 43.3 Revisions
+Table `content_revisions` (migration 0011): type, key, version (per item), action (`create`, `update`, `trash`,
+`restore`, `restore_version`, `purge`), the content fields before and after as JSON, actor, reason, time. Every audited
+admin write of a registered type becomes a revision through a listener on the hash-chained audit log
+(`audit-chain.onAppend`), so the existing editors (Admin › Content tabs, Catalog, Elections, Promo codes, Navigation,
+Hero) write revisions without their own code; a write that changes no content field (a status-only publish) adds none.
+"Restore this version" writes that revision's `after` back through the type's update path (validated again, audited,
+labelled `restore_version` with "(version N)" in the reason). CMS types show their `cms_versions` with the previous
+version as "before"; restoring one is the CMS rollback (content.publish; legal pages ask for a step-up). Reasons: the
+registry's own actions require 3-500 characters; the older editors' routes accept an optional `reason` and record it.
+
+### 43.4 Trash and retention
+Table `content_trash`: the trashed item's full rows as JSON (`snapshot_json`), title, who, why, when. Moving to the Trash
+removes the rows from the live table in the same transaction (so every public query — home, banners, event news, help,
+pages, status — stops showing it at once; nothing else has to filter) and pushes a `content` change to open pages.
+Restore puts the rows back unchanged (a CMS page comes back with its published version and history) unless the key was
+taken in the meantime (`key_taken`). The Delete buttons of Admin › Content collections and Catalog › Discard draft now
+move to the Trash (asking for a reason). Delete forever needs the type's purge permission (content.publish for content,
+catalog.write for drafts, users.money for promo codes) and a fresh step-up (`content_purge`) for legal pages and market
+news (published market content); permissions and step-up are checked for every selected item before anything is
+deleted. Owner setting `content.trash_retention_days` (Content group; default 30, 1–3650; label and explanation in
+`server/content/switches.js`): the purge job (at start and every 10 minutes) deletes older items for good, audited as
+`content_admin.purge` by `system@parlance.local` with the reason "kept in the Trash for N days". The developer-portal docs
+seed no longer re-creates a docs page that was ever published (so a trashed docs page stays trashed after a restart).
+
+### 43.5 Admin › Content › All content, History, Trash
+`/admin/content` opens **All content**: one searchable list (title, type, key, status, updated, by) across every type
+the staff member may read, filters by type and status (`?q=&type=&status=`), each row with Edit (the generic form from
+the type's fields, with a required reason), Open editor (the type's own editor), History and Trash; checkboxes and bulk
+**Publish**, **Unpublish**, **Move to Trash**, **Restore from Trash** with one reason (per-item results; items that cannot
+take the action are listed). **History** (`/admin/content/history`, or `?type=&key=` for one item) shows each change with
+a field diff (before / after) and "Restore this version". **Trash** lists deleted items with who, why, when and when they
+are deleted for good, with Restore and Delete forever (single or selected). All wording is in the text catalog
+(`public/js/content/admin.content-index-strings.js`, `server/content/content-admin.js`).
+
+API (all `content.write` to open; each action also checks the type's own permission): `GET /v1/admin/content_index`
+(`q`, `type`, `status`, `offset`, `limit`), `GET|PUT /v1/admin/content_index/item`, `GET /v1/admin/content_index/history`,
+`POST /v1/admin/content_index/history/restore` (`r:<id>` revision or `c:<id>` CMS version), `GET|POST
+/v1/admin/content_index/trash`, `POST /v1/admin/content_index/trash/restore`, `POST /v1/admin/content_index/trash/purge`,
+`POST /v1/admin/content_index/bulk` (`publish | unpublish | trash | restore`, at most 200 items). Audit actions
+`content_admin.trash`, `content_admin.restore`, `content_admin.purge`, plus each type's own (`content.banners.update`,
+`cms.rollback`, `elections.parties.update`, `promo.update` …). Promo codes: `PUT /v1/admin/promo_codes/:id` also takes
+`description`.
+
+### 43.6 Verification
+`content-admin.e2e` (real server + SQLite + Chromium): the index lists items of every registered type, filters by type,
+status and search; a banner and an election party edited with the generic form and a custom page in the CMS editor show
+up publicly, History shows the field diffs, an older version restored is what the public site shows; a banner (index),
+a promo card (old Delete button), a custom page, a news item and a help collection page moved to the Trash disappear
+from the public site at once and are back after a restore; built-in pages, published market copy and the navigation are
+refused; an editor cannot delete forever, a publisher can, market news needs a fresh step-up; bulk trash and restore in
+the UI with one reason, bulk unpublish / publish through the API; support has no access, an editor cannot restore CMS
+versions, a publisher cannot edit market copy, promo codes need users.money; an item trashed 31 days ago (time travel in
+the database) is purged at start while a 29-day-old one stays; revisions, the Trash and restored content survive the
+restart. `authz` classifies the ten new routes.
 
 ---
 

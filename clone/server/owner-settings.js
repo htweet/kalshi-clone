@@ -25,6 +25,8 @@ const REGISTRY = [
   ['elections.rating_lean_pct', 'elections', 'int', 60, { min: 51, max: 97, unit: 'percent', where: '/admin/elections' }],
   ['referrals.review_ip_signups_per_day', 'growth', 'int', 5, { min: 2, max: 1000, unit: 'count', stepUp: true, where: '/admin/growth' }],
   ['share.clicks_per_ip_per_minute', 'growth', 'int', 60, { min: 1, max: 10000, unit: 'per_minute', where: '/admin/growth' }],
+  // Content management for every entity (owner request 2026-11-15, CLONE_SPEC.md §43): days an item stays in the Trash.
+  ['content.trash_retention_days', 'content', 'int', 30, { min: 1, max: 3650, unit: 'days', where: '/admin/content/trash' }],
   ['i18n.min_coverage_pct', 'reach', 'int', 95, { min: 1, max: 100, unit: 'percent', where: '/admin/cms/languages' }],
   ['ssr.cache_seconds', 'reach', 'int', 60, { min: 0, max: 3600, unit: 'seconds', where: '/admin/owner_settings' }],
   ['data_saver.default_on', 'reach', 'bool', false, { pub: true, where: '/admin/owner_settings' }],

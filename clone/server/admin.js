@@ -148,6 +148,8 @@ function check(body, spec, base = null) {
   if (Object.keys(errs).length) throw new FieldError(errs);
   return out;
 }
+// Optional reason on content writes (Admin › Content › All content asks for one; older editors may not send it).
+const reasonOpt = (req) => String((req.body && req.body.reason) || '').trim().slice(0, 500);
 const reasonOf = (b, min = 3) => {
   const r = String((b && b.reason) || '').trim();
   if (r.length < min || r.length > 500) throw new FieldError({ reason: `a reason of ${min}-500 characters is required` });
@@ -213,7 +215,9 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   }
   const apyNow = () => { const r = db.prepare('SELECT value FROM meta WHERE key=?').get(APY_META_KEY); return r ? Number(r.value) : DEFAULT_APY; };
   const features = () => setting('features');
-  const hooks = { resolutionGate: null }; // set by server/trading-core.js (two-person rule, CLONE_SPEC.md §28.7)
+  // resolutionGate: set by server/trading-core.js (two-person rule, CLONE_SPEC.md §28.7); trash: set by
+  // server/content-admin (deletes of content go to the Trash, CLONE_SPEC.md §43).
+  const hooks = { resolutionGate: null, trash: null };
   // Runtime-editable exchange settings (gap G7): applied at boot from the persisted values, changed live by PUT /settings.
   setTakerFeeCoefficient(setting('taker_fee')?.coefficient ?? DEFAULT_TAKER_FEE_COEFFICIENT);
   currency.configure(setting('display_currency'), setting('account_defaults')); // display currency + new-account defaults (§30)
@@ -621,7 +625,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     db.prepare(`UPDATE ${table} SET title=?, slug=?, category=?, tags=?, frequency=?, rules=?, settlement_sources=?, fee_type=?, fee_multiplier=?${d ? ', updated_at=?' : ''} WHERE ticker=?`)
       .run(v.title, v.slug, v.category, JSON.stringify(v.tags), v.frequency, v.rules, JSON.stringify(v.settlement_sources), v.fee_type, v.fee_multiplier, ...(d ? [nowIso()] : []), t);
     const after = seriesRow(d ? draftSeries(t) : getSeries(t), d ? 'draft' : 'published');
-    audit(req, 'catalog.series.update', 'series', t, before, after);
+    audit(req, 'catalog.series.update', 'series', t, before, after, reasonOpt(req));
     res.json({ series: after });
   });
   v1.put(`${A}/catalog/events/:ticker`, can('catalog.write'), (req, res) => {
@@ -645,7 +649,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
       });
     }
     const after = eventRow(d ? draftEvent(t) : getEvent(t), d ? 'draft' : 'published');
-    audit(req, 'catalog.event.update', 'event', t, before, after);
+    audit(req, 'catalog.event.update', 'event', t, before, after, reasonOpt(req));
     res.json({ event: after });
   });
   v1.put(`${A}/catalog/markets/:ticker`, can('catalog.write'), (req, res) => {
@@ -674,12 +678,13 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
         .run(v.title, v.yes_sub_title, v.no_sub_title || `Not ${v.yes_sub_title}`, v.color, v.open_time, v.close_time, v.expected_expiration_time || v.close_time, v.settlement_timer_seconds, v.rules_primary, nowIso(), t);
     }
     const after = marketRow(d ? draftMarket(t) : getMarket(t), d ? 'draft' : 'published');
-    audit(req, 'catalog.market.update', 'market', t, before, after);
+    audit(req, 'catalog.market.update', 'market', t, before, after, reasonOpt(req));
     res.json({ market: after });
   });
 
-  // Discard a draft.
-  v1.delete(`${A}/catalog/:kind/:ticker`, can('catalog.write'), (req, res) => {
+  // Discard a draft: it goes to Admin › Content › Trash (restorable) when the content registry is mounted
+  // (server/content-admin, CLONE_SPEC.md §43); otherwise it is deleted.
+  v1.delete(`${A}/catalog/:kind/:ticker`, can('catalog.write'), async (req, res) => {
     const t = req.params.ticker.toUpperCase();
     const k = req.params.kind;
     const table = { series: 'cms_draft_series', events: 'cms_draft_events', markets: 'cms_draft_markets' }[k];
@@ -688,6 +693,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (!row) throw E.conflict('not_a_draft', 'only drafts can be discarded; use market ops to pause or close published markets');
     if (k === 'series' && db.prepare('SELECT 1 FROM cms_draft_events WHERE series_ticker=?').get(t)) throw E.conflict('has_children', 'discard the draft events of this series first');
     if (k === 'events' && db.prepare('SELECT 1 FROM cms_draft_markets WHERE event_ticker=?').get(t)) throw E.conflict('has_children', 'discard the draft markets of this event first');
+    if (hooks.trash) { await hooks.trash(req, `catalog_${k}`, t, reasonOpt(req) || 'discarded in Admin › Catalog'); return res.json({ ok: true, trashed: true }); }
     db.prepare(`DELETE FROM ${table} WHERE ticker=?`).run(t);
     audit(req, `catalog.${k}.discard`, k, t, row, null);
     res.json({ ok: true });
@@ -1009,7 +1015,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const cols = Object.keys(c.fields);
     db.prepare(`INSERT INTO ${c.table}(id,${cols.join(',')},created_at,updated_at) VALUES(?,${cols.map(() => '?').join(',')},?,?)`).run(id, ...cols.map((k) => v[k]), now, now);
     const row = collGet(c, id);
-    audit(req, `content.${req.params.coll}.create`, req.params.coll, id, null, row);
+    audit(req, `content.${req.params.coll}.create`, req.params.coll, id, null, row, reasonOpt(req));
     res.status(201).json({ item: row });
   });
   v1.put(`${A}/content/:coll/:id`, can('content.write'), (req, res, next) => {
@@ -1022,14 +1028,16 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const cols = Object.keys(c.fields);
     db.prepare(`UPDATE ${c.table} SET ${cols.map((k) => `${k}=?`).join(', ')}, updated_at=? WHERE id=?`).run(...cols.map((k) => v[k]), nowIso(), cur.id);
     const row = collGet(c, cur.id);
-    audit(req, `content.${req.params.coll}.update`, req.params.coll, cur.id, cur, row);
+    audit(req, `content.${req.params.coll}.update`, req.params.coll, cur.id, cur, row, reasonOpt(req));
     res.json({ item: row });
   });
-  v1.delete(`${A}/content/:coll/:id`, can('content.write'), (req, res, next) => {
+  // Delete = move to Admin › Content › Trash when the content registry is mounted (CLONE_SPEC.md §43).
+  v1.delete(`${A}/content/:coll/:id`, can('content.write'), async (req, res, next) => {
     const c = COLL[req.params.coll];
     if (!c) return next();
     const cur = collGet(c, req.params.id);
     if (!cur) throw E.notFound();
+    if (hooks.trash) { await hooks.trash(req, req.params.coll, cur.id, String(req.query.reason || '').trim().slice(0, 500) || reasonOpt(req) || 'deleted in Admin › Content'); return res.json({ ok: true, trashed: true }); }
     db.prepare(`DELETE FROM ${c.table} WHERE id=?`).run(cur.id);
     audit(req, `content.${req.params.coll}.delete`, req.params.coll, cur.id, cur, null);
     res.json({ ok: true });
@@ -1047,7 +1055,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     if (bad.length) throw new FieldError({ event_tickers: `unknown event(s): ${bad.join(', ')}` });
     const before = db.prepare('SELECT event_ticker FROM cms_hero ORDER BY position').all().map((r) => r.event_ticker);
     tx(db, () => { db.prepare('DELETE FROM cms_hero').run(); [...new Set(list)].forEach((t, i) => db.prepare('INSERT INTO cms_hero(event_ticker,position) VALUES(?,?)').run(t, i)); });
-    audit(req, 'content.hero.set', 'hero', 'home', before, [...new Set(list)]);
+    audit(req, 'content.hero.set', 'hero', 'home', before, [...new Set(list)], reasonOpt(req));
     res.json({ selected: [...new Set(list)] });
   });
   // Category navigation + featured tab.
@@ -1069,7 +1077,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
       putSetting('featured_tab', ft, req.auth.user.id);
     });
     const after = navConfig();
-    audit(req, 'content.nav.set', 'nav', 'categories', before, after);
+    audit(req, 'content.nav.set', 'nav', 'categories', before, after, reasonOpt(req));
     res.json(after);
   });
 
@@ -1605,7 +1613,10 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     });
   });
 
-  return { decorateEvent, rolesOf, asUser, requote, can, rollingWindowSec: persistedRollingWindow, audit, deskRow, executeResolve, validateResolve, hooks, setting, putSetting, getMarket };
+  // Content collections for the content registry (server/content-admin, CLONE_SPEC.md §43): their tables and fields,
+  // and the same validation the routes above run.
+  const content = { COLL, navConfig, validate: (name, body, base = null, id = undefined) => { const v = check(body || {}, COLL[name].fields, base); collCheck(name, v, id); return v; } };
+  return { decorateEvent, rolesOf, permsOf, asUser, requote, can, rollingWindowSec: persistedRollingWindow, audit, deskRow, executeResolve, validateResolve, hooks, setting, putSetting, getMarket, content };
 }
 
 module.exports = { schema, SCHEMA, mountAdmin, ROLE_PERMS, PERMS, parseCsv, IMPORT_COLUMNS, FieldError };

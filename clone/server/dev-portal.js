@@ -64,7 +64,8 @@ function mountDeveloperPortal({ app, v1, db, engine, flags, admin, auth, apiKeys
   for (const [slug, page] of Object.entries(DOCS_PAGES)) {
     try {
       const cur = store.get('page', slug);
-      if (cur.published_version === 0 && cur.published == null) { seedReq.auth.session.auth_at = Date.now(); store.publish(seedReq, 'page', slug, { value: page, reason: 'seed: developer portal (Phase 7)' }); }
+      // Never re-seeded once it was published (a page moved to the Trash, CLONE_SPEC.md §43, keeps its versions).
+      if (cur.published_version === 0 && cur.published == null && !db.prepare("SELECT 1 FROM cms_versions WHERE type='page' AND key=? LIMIT 1").get(slug)) { seedReq.auth.session.auth_at = Date.now(); store.publish(seedReq, 'page', slug, { value: page, reason: 'seed: developer portal (Phase 7)' }); }
     } catch (e) { console.error('docs seed', slug, e.message); }
   }
 

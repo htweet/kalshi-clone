@@ -45,6 +45,7 @@ const { mountDeveloperPortal } = require('./dev-portal'); // Phase 7: /docs, /st
 const { createRegistry } = require('./api-registry'); // Phase 7: one route registry → routes, OpenAPI, AsyncAPI, contract tests
 const { createWaitlists, mountWaitlists } = require('./waitlists'); // Phase 7A: waitlists, survey, newsletter (CLONE_SPEC.md §36)
 const { mountElections } = require('./elections'); // Phase 7B: elections hub v2, Nigeria first (CLONE_SPEC.md §37)
+const { mountContentAdmin } = require('./content-admin'); // all content: registry, revisions, Trash (CLONE_SPEC.md §43)
 const { createOwnerSettings, mountOwnerSettings } = require('./owner-settings'); // ground rule 6: owner choices as admin settings (§38.1)
 const { mountPredictionReferrals } = require('./growth-referrals'); // Phase 8 P8.1: Predictions referrals, fraud review queue (§38.2)
 const { mountShareLinks } = require('./share-links'); // Phase 8 P8.2: signed share links, copy-trade (§38.3)
@@ -243,6 +244,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Phase 7B (CLONE_SPEC.md §37): elections hub v2 — country model, simulated results feed, results desk, timeline,
   // Power Index, My Ballot by division; the hub chat is a chat room of the module above.
   app.locals.elections = mountElections({ v1, db, engine, auth, admin, flags, feat, chat: chatApi, options: electionsOptions || {} });
+  // Content management for every entity (owner request 2026-11-15, CLONE_SPEC.md §43): one registry of content types
+  // (other modules register theirs into app.locals.contentRegistry), revisions, the Trash and Admin › Content › All content.
+  app.locals.contentRegistry = mountContentAdmin({ v1, app, db, engine, admin, auth });
   // Phase 8 (CLONE_SPEC.md §38): growth and reach, Nigeria first.
   app.locals.i18n = mountI18n({ v1, app, db, engine, auth, admin, flags, cms: app.locals.cms, options: growthOptions.i18n || {} });
   app.locals.referralsPredictions = mountPredictionReferrals({ v1, app, db, engine, auth, admin, flags, feat, centralBank: app.locals.centralBank, identity: app.locals.identity, security, waitlists, keyDir, options: growthOptions.referrals || {} });

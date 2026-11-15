@@ -27,6 +27,8 @@ const STRINGS = {
   'setting.elections.rating_lean_pct.help': 'Lean at or above this chance; below it a race is a Toss-up. Must be above 50.',
   'setting.i18n.min_coverage_pct.label': 'Minimum coverage to switch a language on',
   'setting.i18n.min_coverage_pct.help': 'A language can be switched on only when at least this share of the texts is translated and the language is marked reviewed. Missing texts fall back to English; 95% keeps fallbacks rare.',
+  'setting.content.trash_retention_days.label': 'Keep trashed content for',
+  'setting.content.trash_retention_days.help': 'Days a deleted item (a page, banner, news item, draft market…) stays in Admin › Content › Trash, restorable, before it is deleted for good. 30 days is the common standard: long enough to notice a mistake after a holiday, short enough not to keep stale copies.',
   'setting.data_saver.default_on.label': 'Data saver on for new visitors',
   'setting.data_saver.default_on.help': 'Whether data saver is on for visitors and accounts that have not chosen. Off by default; members switch it on in Settings. Data saver loads lighter images, fewer live updates and polls when the live connection is unstable.',
   'setting.sms.per_user_per_day.label': 'SMS notifications per member per day',
@@ -134,6 +136,7 @@ const STRINGS = {
   'setting.content.ai_daily_requests.help': 'The most requests the news classifier and the market content generator may send to the AI provider in one UTC day; above it the keyword rules and the template are used. 200 keeps the daily cost bounded; 0 never calls the provider.',
   'group.content': 'Content operations',
   // ---- groups
+  'group.content': 'Content',
   'group.waitlists': 'Waitlists (Phase 7A)',
   'group.elections': 'Elections (Phase 7B)',
   'group.growth': 'Growth (Phase 8)',

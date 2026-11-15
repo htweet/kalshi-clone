@@ -280,6 +280,7 @@ const MODULE_FLAGS = {
   mountOwnerSettings: 'core', // ground rule 6 (CLONE_SPEC.md §38.1)
   mountPredictionReferrals: 'referrals.predictions', mountShareLinks: 'share_links', mountSeo: 'ssr', mountI18n: 'i18n', mountReach: 'data_saver', // Phase 8 (§38)
   mountHelpCenter: 'core', // Help Center (CLONE_SPEC.md §40): public reads under /v1/help, admin under /v1/admin
+  mountContentAdmin: 'core', // all content, revisions and Trash (CLONE_SPEC.md §43): admin-only routes under /v1/admin
   mountCategoryPages: 'core', // category pages (CLONE_SPEC.md §42): public reads under /v1/bff, admin under /v1/admin
   mountOperations: 'core', // Phase 9A (§39): Admin › System, Launch readiness, operating switches (ops.* flags are the modes)
   mountContentQueue: 'core', // content operations (§41): the queues are core; their jobs follow content.news_ingest / content.autogen

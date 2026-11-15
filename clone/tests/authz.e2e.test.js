@@ -145,6 +145,12 @@ const EXPECT = {
   'POST /v1/admin/resolution/:ticker/finalize': perm('resolution.write'), 'POST /v1/admin/resolution/:ticker/close': perm('resolution.write'),
   'GET /v1/admin/content/:coll': perm('content.write'), 'POST /v1/admin/content/:coll': perm('content.write'), 'PUT /v1/admin/content/:coll/:id': perm('content.write'),
   'DELETE /v1/admin/content/:coll/:id': perm('content.write'), 'GET /v1/admin/hero': perm('content.write'), 'PUT /v1/admin/hero': perm('content.write'),
+  // Admin › Content › All content, History, Trash (CLONE_SPEC.md §43): content.write opens them; each action also checks
+  // the content type's own permission inside (content.publish, catalog.write, users.money …).
+  'GET /v1/admin/content_index': perm('content.write'), 'GET /v1/admin/content_index/item': perm('content.write'), 'PUT /v1/admin/content_index/item': perm('content.write'),
+  'GET /v1/admin/content_index/history': perm('content.write'), 'POST /v1/admin/content_index/history/restore': perm('content.write'),
+  'GET /v1/admin/content_index/trash': perm('content.write'), 'POST /v1/admin/content_index/trash': perm('content.write'),
+  'POST /v1/admin/content_index/trash/restore': perm('content.write'), 'POST /v1/admin/content_index/trash/purge': perm('content.write'), 'POST /v1/admin/content_index/bulk': perm('content.write'),
   'GET /v1/admin/nav': perm('content.write'), 'PUT /v1/admin/nav': perm('content.write'),
   'GET /v1/admin/ops': perm('markets.ops'), 'POST /v1/admin/ops/exchange': perm('markets.ops'), 'POST /v1/admin/ops/markets/:ticker/:action': perm('markets.ops'),
   'PUT /v1/admin/ops/series/:ticker/fee': perm('markets.ops'), 'PUT /v1/admin/ops/markets/:ticker/liquidity': perm('markets.ops'), 'PUT /v1/admin/ops/markets/:ticker/combo': perm('markets.ops'),

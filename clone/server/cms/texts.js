@@ -57,6 +57,7 @@ function serverModules() {
   out.push(['content_queue', require('../content/content-queue').STRINGS]); // content operations: the template generator's wording (CLONE_SPEC.md §41)
   out.push(['pro', require('../content/pro').STRINGS]); // Pro trading terminal (CLONE_SPEC.md §15.6)
   out.push(['category_pages', require('../content/category-pages').STRINGS]); // category pages (CLONE_SPEC.md §42)
+  out.push(['contentadmin', require('../content/content-admin').STRINGS]); // Admin › Content › All content, revisions, Trash (CLONE_SPEC.md §43)
   return out;
 }
 
