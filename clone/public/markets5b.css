@@ -42,6 +42,26 @@
 .news-item.ai-highlight { outline: 2px solid var(--brand); outline-offset: var(--space-1); border-radius: var(--rounded-x10); }
 @media (max-width: 640px) { .ai-card { padding: var(--space-3); } .ai-timeline li { grid-template-columns: auto minmax(0, 1fr); } .ai-timeline li .faint { grid-column: 2; } }
 
+/* ---------- content operations (CLONE_SPEC.md §40): publisher news, category news strip, market content ---------- */
+.news-item .news-link { color: inherit; text-decoration: none; }
+.news-item .news-link:hover b, .news-card .news-link:hover { text-decoration: underline; }
+.news-attr { margin-top: var(--space-1); font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-x20); }
+.news-attr a { color: var(--brand); }
+.news-strip { margin: 0 0 var(--space-4); }
+.news-strip-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+.news-strip-head h2 { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); }
+.news-strip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--space-3); }
+.news-card { padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-1); align-content: start; min-width: 0; }
+.news-card .news-link { color: inherit; text-decoration: none; font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.news-card .src { font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-caps); color: var(--text-x20); }
+.news-card p { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-x20); overflow-wrap: anywhere; }
+.mc-about { padding: var(--space-4) var(--space-5); margin: var(--space-6) 0; display: grid; gap: var(--space-2); }
+.mc-about h2 { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); }
+.mc-about h3 { margin: var(--space-2) 0 0; font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); }
+.mc-about p { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); overflow-wrap: anywhere; }
+.mc-meta { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+@media (max-width: 640px) { .mc-about { padding: var(--space-3); } .news-card { padding: var(--space-3); } }
+
 /* ---------- calendar event_limits ---------- */
 .cal-more { display: flex; align-items: center; justify-content: center; min-height: var(--control-lg); padding: var(--space-3); color: var(--text-x20); font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); cursor: pointer; }
 .cal-more:hover { color: var(--text-x10); background: var(--fill-x30); }

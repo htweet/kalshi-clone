@@ -110,6 +110,20 @@ const STRINGS = {
   'group.retention': 'Data retention',
   'group.alerts': 'Alerts (Phase 9A)',
   'group.operations': 'Operations (Phase 9A)',
+  // Content operations (owner decisions 2026-11-15, CLONE_SPEC.md §40).
+  'setting.content.autogen_require_review.label': 'Generated market content needs review',
+  'setting.content.autogen_require_review.help': 'Generated descriptions, background and resolution notes wait in Admin › Content queue until an editor with publish rights approves them. Off publishes generated text at once (still versioned, restorable and audited). On is recommended: unreviewed generated text should not be the default.',
+  'setting.content.autogen_batch_size.label': 'Markets generated per run',
+  'setting.content.autogen_batch_size.help': 'How many events the generator writes texts for in one run; events whose titles, outcomes, rules, dates and sources have not changed since their last queue item are skipped. 10 keeps the review queue and any provider cost small.',
+  'setting.content.autogen_interval_minutes.label': 'Generator runs every',
+  'setting.content.autogen_interval_minutes.help': 'Minutes between two generator runs (the job checks once a minute). 30 minutes picks up new markets the same hour without a burst of work.',
+  'setting.content.autogen_use_ai.label': 'Use the AI provider for market content when configured',
+  'setting.content.autogen_use_ai.help': 'When the server has an AI provider configured (ANTHROPIC_API_KEY and AI_SUMMARY_MODEL), the generator asks it first and checks the answer (plain text, length, no links, no instructions, no trading advice); anything refused, and every market without a provider, gets the offline template text. Off always uses the template.',
+  'setting.content.news_ai_classify.label': 'Use the AI provider to categorise news',
+  'setting.content.news_ai_classify.help': 'A news item that no keyword rule matches is sent to the AI provider (when configured) for one of the site categories; without it the item takes its source\'s default category. The answer is accepted only when it names a site category.',
+  'setting.content.ai_daily_requests.label': 'AI provider requests per day (content)',
+  'setting.content.ai_daily_requests.help': 'The most requests the news classifier and the market content generator may send to the AI provider in one UTC day; above it the keyword rules and the template are used. 200 keeps the daily cost bounded; 0 never calls the provider.',
+  'group.content': 'Content operations',
   // ---- groups
   'group.waitlists': 'Waitlists (Phase 7A)',
   'group.elections': 'Elections (Phase 7B)',
@@ -222,6 +236,9 @@ const STRINGS = {
   'flag.ops.traces': 'Request traces (OpenTelemetry format) for slow-request analysis, sampled by the trace-sampling setting. Recommended: off.',
   'flag.ops.backups': 'The backup schedule and continuous WAL shipping. Recommended: on (off turns the backup check red).',
   'flag.ops.alerts': 'Alert evaluation and delivery to the confirmed contacts. Recommended: on.',
+  // Content operations (owner decisions 2026-11-15, CLONE_SPEC.md §40).
+  'flag.content.news_ingest': 'Fetches the news sources (Admin › Content queue › Sources) on their own intervals: headline, link, a short excerpt and the publisher only, never the article. New items wait for review; nothing is published without an approval. Off stops fetching (also "Fetch now"); the queue and approved items stay. Recommended: on.',
+  'flag.content.autogen': 'Writes a description, background and resolution notes for every market into the review queue, in batches (owner settings: batch size, interval, review required). Off stops generation; published texts stay. Recommended: on.',
 };
 
 const s = catalog.scoped('server.switches.', STRINGS);

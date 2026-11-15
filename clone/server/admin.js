@@ -377,7 +377,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const meta = db.prepare('SELECT icon_color FROM cms_event_meta WHERE event_ticker=?').get(vo.event_ticker);
     if (meta && meta.icon_color) vo.icon_color = meta.icon_color;
     const news = db.prepare('SELECT * FROM cms_news WHERE event_ticker=? AND active=1 ORDER BY published_at DESC, position').all(vo.event_ticker);
-    if (news.length) vo.news_items = news.map((n) => ({ id: n.id, source: n.source, published_time: n.published_at, headline: n.headline, summary: n.summary }));
+    if (news.length) vo.news_items = news.map((n) => ({ id: n.id, source: n.source, published_time: n.published_at, headline: n.headline, summary: n.summary, url: n.url || null })); // url: the publisher's article (CLONE_SPEC.md §40)
     return vo;
   }
 

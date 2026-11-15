@@ -69,8 +69,11 @@ function listen(server, port, fallback) {
 // alerts, drills; on for npm start), launchGate (Launch readiness gates the production switch; on in production),
 // metricsPort, alertLoopback (tests: http webhook receivers on loopback), backupTickMs, anchorTickMs, alertTickMs }`;
 // `logs: true` writes JSON logs to stdout (npm start does).
+// Content operations (CLONE_SPEC.md §40): `content: { schedule (fetch due sources and generate market content on a timer;
+// npm start), tickMs, news: { allow: ['127.0.0.1:<port>'] (tests: a local fixture feed over http), only (refuse every other
+// host), limits: { timeoutMs, maxBytes, maxRedirects, maxItems }, inline }, ai: { adapter } (tests: a fake provider) }`.
 async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports,
-  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, waitlists, elections, owner, growth, seo, reach, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src'), ops = {}, logs = false } = {}) {
+  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, content, waitlists, elections, owner, growth, seo, reach, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src'), ops = {}, logs = false } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -101,12 +104,12 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const keyDir = dbFile === ':memory:' ? undefined : path.dirname(path.resolve(dbFile)); // secret.key lives next to the database
   let app; let boot;
   try {
-    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, waitlists, elections, owner, growth, seo, reach, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) },
+    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, content, waitlists, elections, owner, growth, seo, reach, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) },
       dbFile, logger, ops: { ...ops, mediaStorage, backupStorage } });
     srvRef.app = app;
     const envAdmin = process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD ? { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD } : null;
     boot = app.locals.auth.bootstrap({ admin: admin || envAdmin, demoPassword });
-  } catch (e) { try { app?.locals.cms?.close(); app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
+  } catch (e) { try { app?.locals.contentQueue?.close(); app?.locals.cms?.close(); app?.locals.webpush?.close(); app?.locals.payments?.close(); app?.locals.identity?.close(); app?.locals.security?.close(); } catch { /* ignore */ } db.close(); throw e; }
   const server = http.createServer(app);
   const tradeWs = attachTradeWs({ db, engine, apiKeys: app.locals.apiKeys, flags: app.locals.flags, tradeApi: app.locals.tradeApi, registry: app.locals.apiRegistry, env: app.locals.env || 'main' });
   app.locals.tradeWs = tradeWs;
@@ -127,7 +130,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
     const mp = ops.metricsPort ?? process.env.METRICS_PORT;
     if (mp != null && mp !== '') app.locals.obs.metricsPort = await app.locals.obs.listen({ port: mp });
   } catch (e) {
-    clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close();
+    clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.contentQueue?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close();
     await stopOps(); db.close();
     throw e;
   }
@@ -153,7 +156,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
     port: bound, db, engine, server, app, fix: fixGw, setupUrl, setupPath: boot.setupPath,
     demo: demoSrv,
     metricsPort: app.locals.obs.metricsPort || null,
-    close: () => new Promise((r) => { if (demoSrv) demoSrv.close().catch(() => {}); clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { stopOps().finally(() => { db.close(); r(); }); }); server.closeAllConnections?.(); }),
+    close: () => new Promise((r) => { if (demoSrv) demoSrv.close().catch(() => {}); clearInterval(ticker); hub.close(); tradeWs.close(); fixGw.close(); app.locals.apiKeys?.close(); app.locals.contentQueue?.close(); app.locals.cms?.close(); app.locals.webpush?.close(); app.locals.payments?.close(); app.locals.identity?.close(); app.locals.security.close(); server.close(() => { stopOps().finally(() => { db.close(); r(); }); }); server.closeAllConnections?.(); }),
   };
 }
 
@@ -168,7 +171,9 @@ if (require.main === module) {
   start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, elections: { seed: true },
     flags: process.env.NODE_ENV === 'production' ? undefined : { defaults: { 'elections.simulator': true } }, demo: process.env.DEMO_API === '0' ? null : {}, assets: process.argv.includes('--dev') ? 'src' : (process.env.ASSETS || 'dist'),
     // npm start: the first backup waits 2 minutes, so start-up stays quick.
-    ops: { schedule: process.env.BACKUPS !== 'off', firstBackupDelayMs: 120000 }, logs: process.env.NODE_ENV === 'production' || !!process.env.LOG_FORMAT }).then((srv) => {
+    ops: { schedule: process.env.BACKUPS !== 'off', firstBackupDelayMs: 120000 },
+    content: { schedule: true }, // news ingestion and market content generation; switched by the content.* flags (CLONE_SPEC.md §40)
+    logs: process.env.NODE_ENV === 'production' || !!process.env.LOG_FORMAT }).then((srv) => {
     console.log(`Parlance Exchange listening on http://localhost:${srv.port}${srv.metricsPort ? ` (metrics on ${process.env.METRICS_HOST || '127.0.0.1'}:${srv.metricsPort})` : ''}`);
     // Ctrl+C / termination: close the HTTP server and database cleanly so the DB lock is released.
     let stopping = false;

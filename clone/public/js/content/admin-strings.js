@@ -46,6 +46,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.sections.promo_codes": "Promo codes",
   "admin.sections.payments": "Payments",
   "admin.sections.ai_summaries": "AI summaries",
+  "admin.sections.content_queue": "Content queue",
   "admin.sections.liquidity_incentives": "Liquidity incentives",
   "admin.passkey_required.admin_parlance": "Admin · Parlance",
   "admin.forbidden.admin_parlance": "Admin · Parlance",

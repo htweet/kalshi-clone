@@ -107,22 +107,26 @@ function createAnthropicAdapter({ apiKey = process.env.ANTHROPIC_API_KEY, model 
     }
     return { client, SDK };
   };
+  // complete(): the same call with a caller-chosen output budget (content operations, CLONE_SPEC.md §40: the news classifier
+  // and the market content generator); its answer is untrusted text, validated by the caller like a summary.
+  const call = async ({ system, user, maxTokens = 1024 }) => {
+    const { client: c, SDK: S } = sdk();
+    let r;
+    try {
+      r = await c.messages.create({ model, max_tokens: Math.max(16, Math.min(4096, Number(maxTokens) || 1024)), system, messages: [{ role: 'user', content: user }] });
+    } catch (e) {
+      const kind = e instanceof S.RateLimitError ? 'rate_limited' : e instanceof S.AuthenticationError || e instanceof S.PermissionDeniedError ? 'auth' : e instanceof S.BadRequestError ? 'bad_request'
+        : e instanceof S.APIConnectionError ? 'network' : e instanceof S.APIError ? `api_${e.status || 'error'}` : 'error';
+      const err = new Error(`provider error: ${kind}`); err.kind = kind; throw err;
+    }
+    if (r.stop_reason === 'refusal') { const err = new Error('provider declined the request'); err.kind = 'refusal'; throw err; }
+    const text = (r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+    return { text, usage: { input_tokens: r.usage?.input_tokens || 0, output_tokens: r.usage?.output_tokens || 0 }, truncated: r.stop_reason === 'max_tokens' };
+  };
   return {
     name: 'anthropic', kind: 'external', label: 'Claude (Anthropic API)',
-    async summarize({ system, user }) {
-      const { client: c, SDK: S } = sdk();
-      let r;
-      try {
-        r = await c.messages.create({ model, max_tokens: 1024, system, messages: [{ role: 'user', content: user }] });
-      } catch (e) {
-        const kind = e instanceof S.RateLimitError ? 'rate_limited' : e instanceof S.AuthenticationError || e instanceof S.PermissionDeniedError ? 'auth' : e instanceof S.BadRequestError ? 'bad_request'
-          : e instanceof S.APIConnectionError ? 'network' : e instanceof S.APIError ? `api_${e.status || 'error'}` : 'error';
-        const err = new Error(`provider error: ${kind}`); err.kind = kind; throw err;
-      }
-      if (r.stop_reason === 'refusal') { const err = new Error('provider declined the request'); err.kind = 'refusal'; throw err; }
-      const text = (r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
-      return { text, usage: { input_tokens: r.usage?.input_tokens || 0, output_tokens: r.usage?.output_tokens || 0 }, truncated: r.stop_reason === 'max_tokens' };
-    },
+    summarize: ({ system, user }) => call({ system, user, maxTokens: 1024 }),
+    complete: ({ system, user, maxTokens }) => call({ system, user, maxTokens }),
   };
 }
 

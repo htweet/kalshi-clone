@@ -319,6 +319,46 @@ under `server.elections.`. Flags (group "Elections hub"): `elections.hub`, `elec
 `elections.results`, `elections.timeline`, `elections.power_index`, `elections.chat`, `elections.simulator`.
 Start options: `start({ elections: { seed, speed, snapshotEveryMin, retainSnapshots } })`.
 
+## News and market content (content queue)
+
+**Admin › Content queue** (`/admin/content_queue`) holds two review queues (`../CLONE_SPEC.md` §40). Nothing in them is
+public until someone with publish rights (a **publisher** or an admin) approves it; an **editor** can read the queues,
+reject pending items, regenerate texts and press Fetch now / Generate now.
+
+**News from Nigerian publishers.** The **Sources** tab lists the publishers' public RSS feeds (Punch, Vanguard, Premium
+Times, Channels TV, The Guardian Nigeria, ThisDay, BusinessDay, Nairametrics to start). Only the headline, the link, a
+short excerpt (at most 300 characters) and the publisher's name are taken — never the article — and the site always
+links to the publisher. To **add a source**: Sources › Add source, enter the publisher, its feed address (must start with
+`https://`), the category its items fall back to, how often to fetch it (minutes) and a reason. To **stop a source**,
+press Switch off (it is never fetched while off; its items stay); Delete removes it and its fetch log. Each row shows the
+last fetch: when, the result (`ok`, or why it was refused: `timeout`, `too_large`, `blocked_address`, `http_error`, …),
+how many items were new or duplicates. Fetch now fetches one source at once.
+
+**Reviewing news** (News review tab): each new item has a category (from the keyword rules in the Category rules tab,
+else the AI classifier when it is configured, else the source's default) and suggested markets. Press **Review**: correct
+the headline or excerpt if needed, choose the category, add the markets it belongs to (click a suggestion or type
+tickers), give a reason and **Approve and publish** — it appears in each chosen market's news list and in its category's
+news strip. **Reject** keeps it hidden (rejecting an approved item takes it down). Tick several rows for **Approve
+selected** / **Reject selected** (bulk approval publishes to the category strip only, without markets).
+
+**Market texts** (Market content tab): every open market gets a description, background and resolution notes, written in
+batches by the AI provider when it is configured, otherwise by the offline template (its wording is in Content › Texts ›
+`server.content_queue.…`). A market is written again only when its titles, outcomes, rules, dates or sources change.
+Press **Review**, edit the text if needed and **Approve and publish**, or **Reject**; **Regenerate** writes a new version
+for review. **History** lists every published version; **Restore** puts an earlier one back. The market rules, not these
+notes, decide how a market settles.
+
+**Switches** (Admin › Feature flags and Admin › Owner settings › Content operations): news fetching
+(`content.news_ingest`, on), the market text generator (`content.autogen`, on), review required
+(`content.autogen_require_review`, on — off publishes generated text at once, still versioned and restorable), markets
+per run (10), minutes between runs (30), use the AI provider for market texts and for news categories (on, when
+configured) and the AI requests a day (200).
+
+**Turning on the AI writer.** Set two environment variables on the server and restart it: `ANTHROPIC_API_KEY` (the key
+you were given) and `AI_SUMMARY_MODEL` (the model name from your Anthropic account; the code names no model). Without
+both, the offline template and the keyword rules are used and nothing leaves the server. Whatever the provider returns is
+checked (plain text only, length limits, no links, no instructions, no trading advice) and still waits for review.
+
 ## Owner settings and switches (ground rule 6)
 
 Every owner choice is a switch you can change in the admin, with the recommended standard as its default
@@ -354,6 +394,12 @@ everything is audited, and the switch catalogue at the bottom lists every featur
 | Content › Languages | Each language (Pidgin, Hausa, Yoruba, Igbo) | off until translated, reviewed and covered |
 | Owner settings › Simulated markets | Simulated trading activity (`simulation.activity`: off / low / normal) | low |
 | Owner settings › Backups | Keep at most this many interval backups (`backups.keep_interval_count`, password) | 8 |
+| Feature flags › Content | News fetching from the publisher feeds (`content.news_ingest`) | on |
+| Feature flags › Content | Market text generator (`content.autogen`) | on |
+| Owner settings › Content operations | Generated market texts need review (`content.autogen_require_review`) | on |
+| Owner settings › Content operations | Markets per run / minutes between runs (`content.autogen_batch_size`, `content.autogen_interval_minutes`) | 10 / 30 |
+| Owner settings › Content operations | AI provider for market texts / news categories (`content.autogen_use_ai`, `content.news_ai_classify`) | on (when configured) |
+| Owner settings › Content operations | AI provider requests a day (`content.ai_daily_requests`) | 200 |
 
 ## Keeping the database small (owner guide)
 

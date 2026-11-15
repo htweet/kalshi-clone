@@ -35,6 +35,8 @@ export const SECTIONS = [
   ['payments', ts('admin.sections.payments'), 'users.read', './admin/payments.js'],
   // Phase 5B (CLONE_SPEC.md §29): AI news summaries (hide / regenerate / budget) and the Liquidity Incentive Program.
   ['ai_summaries', ts('admin.sections.ai_summaries'), 'content.write', './admin/content5b.js'],
+  // Content operations (CLONE_SPEC.md §40): the news review queue, auto-written market content, news sources and keyword rules.
+  ['content_queue', ts('admin.sections.content_queue'), 'content.write', './admin/content-queue.js'],
   ['incentives', ts('admin.sections.liquidity_incentives'), 'markets.ops', './admin/content5b.js'],
   // Phase 5D (CLONE_SPEC.md §33): feature flags, play mode (switch to production) and the Central Bank / Vault Heist.
   ['flags', ts('admin.sections.feature_flags'), 'settings.write', './admin/flags.js'],
@@ -66,6 +68,7 @@ const LOADERS = {
   './admin/api-keys.js': () => import('./admin/api-keys.js'), './admin/waitlists.js': () => import('./admin/waitlists.js'),
   './admin/elections.js': () => import('./admin/elections.js'), './admin/owner-settings.js': () => import('./admin/owner-settings.js'), './admin/growth.js': () => import('./admin/growth.js'),
   './admin/system-ops.js': () => import('./admin/system-ops.js'),
+  './admin/content-queue.js': () => import('./admin/content-queue.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.
