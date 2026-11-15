@@ -323,12 +323,16 @@ function mountAccountArea({ v1, db, engine, auth, admin, identity, history, requ
     res.status(201).json({ promo_code: promoVo(p) });
   });
   v1.put('/admin/promo_codes/:id', can('users.money'), (req, res) => {
-    const b = check(req.body, { active: { type: 'boolean', required: true }, reason: { type: 'string', maxLen: 500 } }, { unknown: 'reject' });
+    // active: switch the code on / off; description: its wording (Admin › Content › All content, CLONE_SPEC.md §41).
+    const b = check(req.body, { active: { type: 'boolean' }, description: { type: 'string', maxLen: 140 }, reason: { type: 'string', maxLen: 500 } }, { unknown: 'reject' });
+    if (b.active === undefined && b.description === undefined) throw new ApiError(400, 'validation_failed', 'validation failed', 'active: is required');
     const p = db.prepare('SELECT * FROM promo_codes WHERE id=?').get(String(req.params.id));
     if (!p) throw E.notFound();
-    db.prepare('UPDATE promo_codes SET active=? WHERE id=?').run(b.active ? 1 : 0, p.id);
+    const desc = b.description === undefined ? p.description : String(b.description).trim();
+    if (/[<>\u0000-\u001f]/.test(desc)) throw new ApiError(400, 'validation_failed', 'validation failed', 'description: plain text only');
+    db.prepare('UPDATE promo_codes SET active=?, description=? WHERE id=?').run(b.active === undefined ? p.active : b.active ? 1 : 0, desc, p.id);
     const after = db.prepare('SELECT * FROM promo_codes WHERE id=?').get(p.id);
-    audit(req, b.active ? 'promo.enable' : 'promo.disable', 'promo_code', p.id, promoVo(p), promoVo(after), String(b.reason || '').trim());
+    audit(req, b.active === undefined ? 'promo.update' : b.active ? 'promo.enable' : 'promo.disable', 'promo_code', p.id, promoVo(p), promoVo(after), String(b.reason || '').trim());
     res.json({ promo_code: promoVo(after) });
   });
 

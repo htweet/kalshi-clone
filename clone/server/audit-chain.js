@@ -84,8 +84,14 @@ function append(db, e) {
       .run(r.id, r.ts, r.actor_id, r.actor_email, r.action, r.target_type, r.target_id, r.before_json, r.after_json, r.reason, r.chain_seq, r.prev_hash, r.hash);
   }
   writeHead(db, key, r);
+  const ls = listeners.get(db);
+  if (ls) for (const fn of ls) { try { fn(e, r); } catch (x) { console.error('audit listener', e.action, x); } }
   return r;
 }
+// Listeners per database handle (Admin › Content › All content, server/content-admin: a content revision for every
+// audited admin write of a registered content type). Called after the row is written, inside the caller's transaction.
+const listeners = new WeakMap();
+function onAppend(db, fn) { if (!listeners.has(db)) listeners.set(db, []); listeners.get(db).push(fn); }
 
 // Recompute the whole chain. Returns {ok, checked, head_seq, problem?: {chain_seq, id, reason}}.
 function verify(db) {
@@ -122,4 +128,4 @@ function verifyReadOnly(db, { keyDir } = {}) {
 // After a key rotation (server/keyring.js): new rows use the new active key.
 const resetKey = (db) => { ready.delete(db); hasKeyCol.delete(db); };
 
-module.exports = { schema, init, append, verify, verifyReadOnly, resetKey, head, GENESIS };
+module.exports = { schema, init, append, onAppend, verify, verifyReadOnly, resetKey, head, GENESIS };

@@ -3,12 +3,14 @@
 import { t as tx, te, ts } from '../../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../../content/admin.content-strings.js';
 import { vars } from '../../dynstyle.js';
-import { esc, get, post, put, del, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, subTabs, badge, fmtTime } from './ui.js';
+import { esc, get, post, put, toast, dataTable, formHtml, wireForm, dialog, confirmAction, section, subTabs, badge, fmtTime } from './ui.js';
 import { CATEGORIES, catLabel } from '../../lib.js';
 
 // Promo targeting lists are stored as JSON arrays; the form edits them as comma-separated text.
 const listText = (v) => { try { return (Array.isArray(v) ? v : JSON.parse(v || '[]')).join(', '); } catch { return ''; } };
-const TABS = [['hero', ts('admin.content.tabs.hero_carousel')], ['hubs', ts('admin.content.tabs.hubs')], ['promos', ts('admin.content.tabs.promo_cards')], ['banners', ts('admin.content.tabs.site_banner')], ['nav', ts('admin.content.tabs.navigation')], ['info_cards', ts('admin.content.tabs.info_cards')], ['news', ts('admin.content.tabs.news_items')], ['help', ts('admin.content.tabs.help_pages')]];
+// All content, History and Trash: every content type of the app in one place (CLONE_SPEC.md §41, ./content-index.js).
+const INDEX_TABS = ['all', 'history', 'trash'];
+const TABS = [['all', ts('admin.content.tabs.all_content')], ['history', ts('admin.content.tabs.history')], ['trash', ts('admin.content.tabs.trash')], ['hero', ts('admin.content.tabs.hero_carousel')], ['hubs', ts('admin.content.tabs.hubs')], ['promos', ts('admin.content.tabs.promo_cards')], ['banners', ts('admin.content.tabs.site_banner')], ['nav', ts('admin.content.tabs.navigation')], ['info_cards', ts('admin.content.tabs.info_cards')], ['news', ts('admin.content.tabs.news_items')], ['help', ts('admin.content.tabs.help_pages')]];
 const active = (r) => (r.active ? badge('active', 'ok') : badge('off'));
 const windowText = (r) => (r.starts_at || r.ends_at ? `${r.starts_at ? fmtTime(r.starts_at) : '…'} → ${r.ends_at ? fmtTime(r.ends_at) : '…'}` : tx('admin.content.window_text.always'));
 const COLL = {
@@ -47,10 +49,11 @@ const COLL = {
     cols: [{ key: 'slug', label: 'URL', render: (r) => `<a href="/help/${esc(r.slug)}" data-link>${te('admin.content.coll_help_cols_render.help', { slug: esc(r.slug) })}</a>` }, { key: 'title', label: ts('admin.content.coll_help_cols_label.title') }, { key: 'published', label: 'State', render: (r) => (r.published ? badge('published', 'ok') : badge('draft', 'warn')) }, { key: 'updated_at', label: 'Updated', render: (r) => esc(fmtTime(r.updated_at)) }] },
 };
 
-export async function render({ el, parts }) {
-  const tab = TABS.some(([k]) => k === parts[0]) ? parts[0] : 'hero';
+export async function render({ el, parts, query, perms, navigate }) {
+  const tab = TABS.some(([k]) => k === parts[0]) ? parts[0] : 'all';
   el.innerHTML = section(tx('admin.content.render.content'), tx('admin.content.render.what_the_public_site_shows')) + subTabs(TABS, tab, '/admin/content') + '<div id="ct-body"></div>';
   const body = el.querySelector('#ct-body');
+  if (INDEX_TABS.includes(tab)) return import('./content-index.js').then((m) => m.render({ el: body, tab, query, perms, navigate }));
   if (tab === 'hero') return renderHero(body);
   if (tab === 'nav') return renderNav(body);
   return renderCollection(body, tab);
@@ -78,9 +81,10 @@ async function renderCollection(body, name) {
     if (!b) return;
     if (b.dataset.edit) open(rows.find((r) => r.id === b.dataset.edit));
     if (b.dataset.del) {
-      const ok = await confirmAction({ title: tx('admin.content.render_collection.delete_this', { noun: c.noun }), body: tx('admin.content.render_collection.it_disappears_from_the_public'), confirm: tx('admin.content.render_collection.delete'), danger: true });
+      // Deleting moves the item to Admin › Content › Trash (restorable until the retention period ends, CLONE_SPEC.md §41).
+      const ok = await confirmAction({ title: tx('admin.content.render_collection.delete_this', { noun: c.noun }), body: tx('admin.content.render_collection.it_disappears_from_the_public'), confirm: tx('admin.content.render_collection.delete'), danger: true, reason: true });
       if (!ok) return;
-      try { await del(`/content/${name}/${encodeURIComponent(b.dataset.del)}`); toast(tx('admin.content.render_collection.deleted')); await load(); } catch (ex) { toast(ex.message, 'error'); }
+      try { await post('/content_index/trash', { items: [{ type: name, key: b.dataset.del }], reason: ok.reason }); toast(tx('admin.content.render_collection.deleted')); await load(); } catch (ex) { toast(ex.message, 'error'); }
     }
   });
   await load();
