@@ -418,6 +418,15 @@ Owner and admin guide for `../CLONE_SPEC.md` §38.
   unpublish one, or add a guide with New page and a `help/…` slug. Content › Help feedback shows the "Was this helpful?"
   votes and comments per guide; guides with many No votes need attention. After a screen changes, refresh the
   screenshots with `npm run help:screenshots` (or just the ones named, e.g. `npm run help:screenshots -- ticket-buy`).
+- **All content, History and Trash** (Admin › Content, CLONE_SPEC.md §41): one list of everything on the site — pages
+  and help guides, texts, templates, banners, cards, news, navigation, hubs, elections, survey questions, status
+  incidents, promo codes and market copy — searchable and filtered by type and status. Edit an item in place (or open
+  its own editor), see every change as before / after in History and restore any earlier version with a reason. Delete
+  moves an item to the Trash: it disappears from the site at once and can be restored for 30 days (owner setting
+  `content.trash_retention_days`), then it is deleted for good. Publishers (and admins) can also delete for good from
+  the Trash; legal pages and market news ask you to confirm it is you first. Select several rows to publish, unpublish,
+  trash or restore them with one reason. Built-in pages, texts and templates are reset to their default instead of
+  deleted; published markets are paused or closed in Market ops, not trashed.
 - **Accessibility and performance** are checked by the test suite (`tests/a11y.e2e.test.js`, `tests/perf.e2e.test.js`)
   and the budget script (`npm run perf:budget`, run in CI after the build).
 

@@ -74,7 +74,7 @@ function mountContentAdmin({ v1, app, db, engine, admin, auth, options = {} }) {
       const r2 = { method, url: u.pathname + u.search, originalUrl: `/v1${u.pathname}${u.search}`, baseUrl: '', path: u.pathname, headers: { 'content-type': 'application/json' }, query: Object.fromEntries(u.searchParams), params: {},
         body: body || {}, auth: req.auth, adminInternal: true, ip: req.ip || 'internal', get: () => undefined, header: () => undefined };
       let status = 200;
-      const res = { locals: {}, headersSent: false, statusCode: 200, status(c) { status = c; this.statusCode = c; return this; }, setHeader() {}, set() { return this; }, getHeader() {}, on() { return this; }, once() { return this; }, end() { resolve(null); },
+      const res = { locals: {}, headersSent: false, statusCode: 200, status(c) { status = c; this.statusCode = c; return this; }, setHeader() {}, set() { return this; }, header() { return this; }, type() { return this; }, append() { return this; }, getHeader() {}, on() { return this; }, once() { return this; }, end() { resolve(null); },
         json(b) { if (status >= 400) { const e = new ApiError(status, b?.error?.code || 'error', b?.error?.message || 'error', b?.error?.details); if (b?.error) e.toJSON = () => b; reject(e); } else resolve(b); return this; },
         send(b) { resolve(b); return this; } };
       try { v1.handle(r2, res, (err) => reject(err || E.notFound())); } catch (e) { reject(e); }

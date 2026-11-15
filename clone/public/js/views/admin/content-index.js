@@ -61,7 +61,7 @@ async function index({ el, query, navigate }) {
     ti.value = st.type; si.value = st.status;
     rows = r.items;
     const keyOf = (x) => `${x.type}\u0000${x.key}\u0000${x.trash_id || ''}`;
-    list.innerHTML = `<p class="faint" data-testid="ci-total">${te('admin.content_index.index.total', { total: r.total })}</p>
+    list.innerHTML = `<p class="faint" data-testid="ci-total">${te('admin.content_index.index.total', { total: esc(r.total) })}</p>
       <div class="adm-scroll"><table class="table adm-grid" data-testid="ci-table"><thead><tr><th><input type="checkbox" data-all aria-label="${te('admin.content_index.index.select_all')}"></th><th>${te('admin.content_index.index.title')}</th><th>${te('admin.content_index.index.type')}</th><th>${te('admin.content_index.index.key')}</th><th>${te('admin.content_index.index.status')}</th><th>${te('admin.content_index.index.updated')}</th><th>${te('admin.content_index.index.by')}</th><th></th></tr></thead>
       <tbody>${rows.map((x, i) => `<tr data-testid="ci-row" data-i="${i}" data-type="${esc(x.type)}" data-key="${esc(x.key)}" data-status="${esc(x.status)}">
         <td><input type="checkbox" data-sel="${i}" data-testid="ci-select" aria-label="${te('admin.content_index.index.select', { title: esc(x.title) })}" ${selected.has(keyOf(x)) ? 'checked' : ''}></td>
@@ -139,7 +139,7 @@ async function history({ el, query, navigate }) {
   const r = await get(`${API}/history?${qs({ type, key, limit: 100 })}`);
   el.innerHTML = `${type ? `<div class="adm-toolbar"><p><b>${esc(typeName(type))}</b> <code data-testid="ci-history-key">${esc(key)}</code></p><a class="btn btn-sm" href="/admin/content/history" data-link>${te('admin.content_index.history.all_changes')}</a></div>` : `<p class="muted">${te('admin.content_index.history.intro')}</p>`}
     <div class="ci-revs" data-testid="ci-history">${r.revisions.map((x, i) => `<section class="card adm-card ci-rev" data-testid="ci-rev" data-id="${esc(x.id)}" data-action="${esc(x.action)}" data-version="${esc(x.version)}" data-type="${esc(x.type)}" data-key="${esc(x.key)}">
-      <div class="ci-rev-head"><span>${badge(actionName(x.action))} <b>${esc(typeName(x.type, x.type_label))}</b> <code>${esc(x.key)}</code> · ${te('admin.content_index.history.version', { version: x.version })}</span>
+      <div class="ci-rev-head"><span>${badge(actionName(x.action))} <b>${esc(typeName(x.type, x.type_label))}</b> <code>${esc(x.key)}</code> · ${te('admin.content_index.history.version', { version: esc(x.version) })}</span>
       <span class="faint">${esc(fmtTime(x.time))} · ${esc(x.actor || t('admin.content_index.history.system'))}</span></div>
       ${x.reason ? `<p class="faint m-0">${te('admin.content_index.history.reason', { reason: esc(x.reason) })}</p>` : ''}
       ${diffHtml(x)}
@@ -156,7 +156,7 @@ async function history({ el, query, navigate }) {
 async function trash({ el }) {
   const r = await get(`${API}/trash`);
   const selected = new Set();
-  el.innerHTML = `<p class="muted" data-testid="ci-trash-intro">${te('admin.content_index.trash.intro', { days: r.retention_days })}</p>
+  el.innerHTML = `<p class="muted" data-testid="ci-trash-intro">${te('admin.content_index.trash.intro', { days: esc(r.retention_days) })}</p>
     <div class="ci-bulk"><span class="faint" data-selected>${te('admin.content_index.index.selected', { count: 0 })}</span>
       <button class="btn btn-sm" type="button" data-many="restore" data-testid="ci-trash-restore-selected" disabled>${te('admin.content_index.trash.restore')}</button>
       <button class="btn btn-sm btn-ghost btn-danger" type="button" data-many="purge" data-testid="ci-trash-purge-selected" disabled>${te('admin.content_index.trash.purge')}</button></div>
@@ -167,14 +167,13 @@ async function trash({ el }) {
       <td>${esc(fmtTime(x.deleted_at))}</td><td class="faint">${esc(x.deleted_by || '')}</td><td>${esc(x.reason)}</td><td>${esc(fmtTime(x.purge_at))}</td>
       <td><span class="adm-actions">${x.can_restore ? `<button class="btn btn-sm" type="button" data-restore="${i}" data-testid="ci-trash-restore">${te('admin.content_index.trash.restore')}</button>` : ''}
         ${x.can_purge ? `<button class="btn btn-sm btn-ghost btn-danger" type="button" data-purge="${i}" data-testid="ci-trash-purge">${te('admin.content_index.trash.purge')}</button>${x.step_up ? ` ${badge(t('admin.content_index.trash.step_up'), 'warn')}` : ''}` : ''}</span></td></tr>`).join('') || `<tr><td colspan="9" class="faint adm-empty" data-testid="ci-trash-empty">${te('admin.content_index.trash.empty')}</td></tr>`}</tbody></table></div>`;
-  const box = el.querySelector('[data-result]');
   const sync = () => { el.querySelector('[data-selected]').textContent = t('admin.content_index.index.selected', { count: selected.size }); for (const b of el.querySelectorAll('[data-many]')) b.disabled = !selected.size; };
   for (const c of el.querySelectorAll('[data-sel]')) c.onchange = () => { const id = r.items[Number(c.dataset.sel)].id; if (c.checked) selected.add(id); else selected.delete(id); sync(); };
   const run = async (action, ids) => {
     const purge = action === 'purge';
     const ok = await confirmAction({ title: purge ? t('admin.content_index.trash.purge_title', { count: ids.length }) : t('admin.content_index.trash.restore_title', { count: ids.length }), body: purge ? te('admin.content_index.trash.purge_body') : '', confirm: purge ? t('admin.content_index.trash.purge') : t('admin.content_index.trash.restore'), danger: purge, reason: true });
     if (!ok) return;
-    try { report(box, (await post(`${API}/trash/${purge ? 'purge' : 'restore'}`, { ids, reason: ok.reason })).results); const keep = box.innerHTML; await trash({ el }); el.querySelector('[data-result]').innerHTML = keep; } catch (ex) { toast(ex.message, 'error'); }
+    try { const res = await post(`${API}/trash/${purge ? 'purge' : 'restore'}`, { ids, reason: ok.reason }); await trash({ el }); report(el.querySelector('[data-result]'), res.results); } catch (ex) { toast(ex.message, 'error'); }
   };
   for (const b of el.querySelectorAll('[data-restore]')) b.onclick = () => run('restore', [r.items[Number(b.dataset.restore)].id]);
   for (const b of el.querySelectorAll('[data-purge]')) b.onclick = () => run('purge', [r.items[Number(b.dataset.purge)].id]);
