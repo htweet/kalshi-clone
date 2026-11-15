@@ -24,7 +24,7 @@ import * as perps from './views/perps.js';
 import * as combos from './views/combos.js';
 import * as sports from './views/sports.js';
 import { startLivePatcher } from './views/scoreboard.js';
-import { site, loadSite, featureGate, helpView } from './views/admin/site.js';
+import { site, loadSite, featureGate } from './views/admin/site.js';
 import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (CLONE_SPEC.md §25)
 import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
@@ -51,6 +51,7 @@ const incentivesView = lazy(() => import('./views/incentives.js')); // Phase 5B 
 const heistView = lazy(() => import('./views/heist.js')); // Phase 5D Central Bank + Vault Heist (CLONE_SPEC.md §33)
 const docsView = lazy(() => import('./views/docs.js')); // Phase 7 developer portal (CLONE_SPEC.md §35.9)
 const statusView = lazy(() => import('./views/status.js')); // Phase 7 status page (CLONE_SPEC.md §35.10)
+const helpCenterView = lazy(() => import('./views/help.js')); // Help Center home, search and guides (CLONE_SPEC.md §40)
 const waitlistView = lazy(() => import('./views/waitlist.js')); // Phase 7A real-money launch waitlist (CLONE_SPEC.md §36)
 // Phase 7B elections hub v2 (CLONE_SPEC.md §37): /category/elections/<hub>; an unknown slug falls back to the category tag page.
 const electionsView = { render: (ctx) => import('./views/elections.js').then((m) => m.render({ ...ctx, fallback: browse })) };
@@ -109,12 +110,13 @@ const routes = [
   [/^\/status$/, statusView],
   [/^\/waitlist$/, waitlistView, () => ({ page: 'main' })],
   [/^\/waitlist\/(confirm|unsubscribe|manage)$/, waitlistView, (m) => ({ page: m[1] })],
+  [/^\/(?:help|support\/help-center)$/, helpCenterView], // before the CMS page route: the Help Center home
   [/^\/(trust|research|support|legal)\/([a-z0-9-]+)$/, placeholderView, (m) => ({ group: m[1], slug: m[2] })], // CMS pages (CLONE_SPEC.md §32.7)
   [/^\/sign-in$/, auth, () => ({ mode: 'sign-in' })],
   [/^\/sign-up$/, auth, () => ({ mode: 'sign-up' })],
   [/^\/setup$/, auth, () => ({ mode: 'setup' })], // first-admin setup link (CLONE_SPEC §22.5)
   [/^\/admin(?:\/(.*))?$/, adminView, (m) => ({ path: m[1] || '' })],
-  [/^\/help\/([a-z0-9-]+)$/, helpView, (m) => ({ slug: m[1] })],
+  [/^\/help\/([a-z0-9-]+)$/, helpCenterView, (m) => ({ slug: m[1] })],
 ];
 
 let cleanup = null;

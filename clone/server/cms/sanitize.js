@@ -12,9 +12,14 @@ const PROFILES = {
   rich: new Set(['b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'a', 'p', 'br']),
   // CMS pages and email bodies: the above plus headings and quotes.
   // pre / code: the developer portal's code samples (CLONE_SPEC.md §35.9); no attributes, contents escaped like any text.
-  page: new Set(['b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'a', 'p', 'br', 'h2', 'h3', 'h4', 'blockquote', 'hr', 'pre', 'code']),
+  // figure / figcaption / img: help-guide screenshots (CLONE_SPEC.md §40). An image keeps only `src` (a same-origin help
+  // screenshot /help-img/<name>.(jpg|png|webp) or a media-library upload /media/<id>.(png|jpg)) and `alt` (plain text);
+  // any other source drops the image. It is emitted with loading="lazy" decoding="async".
+  page: new Set(['b', 'strong', 'i', 'em', 'ul', 'ol', 'li', 'a', 'p', 'br', 'h2', 'h3', 'h4', 'blockquote', 'hr', 'pre', 'code', 'figure', 'figcaption', 'img']),
 };
-const VOID = new Set(['br', 'hr']);
+const VOID = new Set(['br', 'hr', 'img']);
+const IMG_SRC = /^\/(help-img\/[a-z0-9][a-z0-9-]{0,80}\.(jpg|png|webp)|media\/[a-z0-9_]{1,64}\.(png|jpg))$/;
+const attr = (attrs, name) => { const m = new RegExp(`(?:^|\\s)${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(attrs); return m ? (m[2] ?? m[3] ?? m[4]) : null; };
 const DROP_CONTENT = new Set(['script', 'style', 'iframe', 'object', 'embed', 'template', 'svg', 'math', 'textarea', 'select', 'noscript', 'title', 'head', 'xmp', 'plaintext', 'noembed', 'noframes']);
 const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 const decode = (s) => String(s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);?/gi, (m, e) => {
@@ -60,6 +65,13 @@ function sanitize(input, profile = 'rich', opts = {}) {
       const at = stack.lastIndexOf(name);
       if (at < 0) continue;
       while (stack.length > at) out += `</${stack.pop()}>`;
+      continue;
+    }
+    if (name === 'img') {
+      const src = decode(String(attr(m[3], 'src') ?? '')).trim();
+      if (!IMG_SRC.test(src)) continue;
+      const alt = decode(String(attr(m[3], 'alt') ?? '')).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 300);
+      out += `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" decoding="async">`;
       continue;
     }
     if (VOID.has(name)) { out += `<${name}>`; continue; }

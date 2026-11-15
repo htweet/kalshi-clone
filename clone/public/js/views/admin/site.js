@@ -5,7 +5,7 @@ import '../../content/admin.site-strings.js';
 import { request } from '../../api.js';
 import { session } from '../../store.js';
 import { esc, toast } from '../../lib.js';
-import { setCurrency, fmtDate, fmtDay } from '../../currency.js';
+import { setCurrency, fmtDay } from '../../currency.js';
 
 const DEFAULT_NAV = { categories: null, featured: { label: ts('admin.site.default_nav_featured_label.harbor_2026'), href: '/category/elections', color: '' } };
 export const site = { banners: [], nav: DEFAULT_NAV, features: { social: true, perps: true, combos: true }, loaded: false };
@@ -45,7 +45,7 @@ let lastUid;
 session.subscribe(() => { if (!session.loaded) return; const uid = session.uid || null; if (uid !== lastUid) { const first = lastUid === undefined; lastUid = uid; if (!first) loadSite(); } });
 window.addEventListener('parlance:site-config', () => loadSite());
 
-// ---------------------------------------------------------------- help pages (/help/:slug)
+// ---------------------------------------------------------------- help collection text (§18.5 rows, shown by views/help.js)
 function inline(s) {
   // s is already escaped; allow **bold** and [text](/path or https://…)
   return s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -67,21 +67,6 @@ export function renderHelpText(text) {
   flush();
   return out.join('');
 }
-export const helpView = {
-  async render({ el, params }) {
-    let r;
-    try { r = await request('GET', `/v1/help/${encodeURIComponent(params.slug)}`); } catch (e) {
-      if (e.notFound) { el.innerHTML = `<div class="empty center-50" data-testid="help-missing"><h1 class="typ-title-x10 m-0">${te('admin.site.help_view_render.help_page_not_found')}</h1><a class="btn" href="/" data-link>${te('admin.site.help_view_render.go_home')}</a></div>`; document.title = tx('admin.site.help_view_render.help_parlance'); return; }
-      throw e;
-    }
-    let pages = [];
-    try { pages = (await request('GET', '/v1/help')).pages; } catch { /* optional */ }
-    document.title = tx('admin.site.help_view_render.help_parlance_2', { title: r.page.title });
-    el.innerHTML = `<div class="help-layout"><nav class="help-nav card" aria-label="${te('admin.site.help_view_render.help_pages')}"><h2>${te('admin.site.help_view_render.help')}</h2>${pages.map((p) => `<a href="/help/${esc(p.slug)}" data-link class="${p.slug === r.page.slug ? 'on' : ''}">${esc(p.title)}</a>`).join('')}</nav>
-      <article class="card help-page" data-testid="help-page"><h1 class="typ-title-x10">${esc(r.page.title)}</h1><div class="help-body" data-testid="help-body">${r.page.format === 'html' ? r.page.html /* eslint-disable-line parlance/no-unescaped-html -- CMS help page (CLONE_SPEC.md §32.7), sanitised by the server allowlist */ : renderHelpText(r.page.body)}</div><p class="faint">${te('admin.site.help_view_render.updated', { fmt_date: fmtDate(r.page.updated_time) })}</p></article></div>`;
-  },
-};
-
 // ---------------------------------------------------------------- event news items
 export function newsItemsHtml(ev) {
   return (ev.news_items || []).map((n) => `<div class="news-item" data-testid="news-item" id="news-${esc(n.id)}" data-news-id="${esc(n.id)}"><div class="src"><span class="news-src">${esc(n.source.toUpperCase())}</span> · ${esc(fmtDay(n.published_time))}</div><b>${esc(n.headline)}</b>${n.summary ? `<span class="muted">${esc(n.summary)}</span>` : ''}</div>`).join('');

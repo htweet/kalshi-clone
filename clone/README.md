@@ -413,6 +413,11 @@ Owner and admin guide for `../CLONE_SPEC.md` §38.
   decision.
 - **Help centre and footer**: Content › Pages (FAQ, Contact with the support hours, Accessibility statement, Trust,
   Research) and Content › Footer (columns and social links).
+- **Help Center guides** (`/help`, CLONE_SPEC.md §40): 31 step-by-step guides in six topics, each a page `help/<slug>`
+  in Content › Pages. Edit the text, topic, one-line summary, order and related guides there, tick "Hide this guide" to
+  unpublish one, or add a guide with New page and a `help/…` slug. Content › Help feedback shows the "Was this helpful?"
+  votes and comments per guide; guides with many No votes need attention. After a screen changes, refresh the
+  screenshots with `npm run help:screenshots` (or just the ones named, e.g. `npm run help:screenshots -- ticket-buy`).
 - **Accessibility and performance** are checked by the test suite (`tests/a11y.e2e.test.js`, `tests/perf.e2e.test.js`)
   and the budget script (`npm run perf:budget`, run in CI after the build).
 

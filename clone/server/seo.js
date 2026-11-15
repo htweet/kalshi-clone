@@ -115,6 +115,13 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
     if (path === '/hubs/economics') return { title: T('seo.rates.title'), description: T('seo.rates.description'), og: '/og/site.png', type: 'website', body: `<h1>${esc(T('seo.rates.title'))}</h1><p>${esc(T('seo.rates.description'))}</p>` };
     if (path === '/docs' || /^\/docs\/[a-z-]+$/.test(path)) return { title: T('seo.docs.title'), description: T('seo.docs.description'), og: '/og/site.png', type: 'website', body: `<h1>${esc(T('seo.docs.title'))}</h1><p>${esc(T('seo.docs.description'))}</p>` };
     if (path === '/status') return { title: T('seo.status.title'), description: T('seo.status.description'), og: '/og/site.png', type: 'website', body: `<h1>${esc(T('seo.status.title'))}</h1>` };
+    if (path === '/help' || path === '/support/help-center') { // the Help Center home (CLONE_SPEC.md §40): the guides by topic
+      const p = cms.pageOf('support/help-center');
+      const list = appRef.locals.helpCenter ? appRef.locals.helpCenter.guides(false) : [];
+      const items = list.map((g) => `<li><a href="/help/${esc(g.slug)}">${esc(g.title)}</a>${g.summary ? ` ${esc(g.summary)}` : ''}</li>`).join('');
+      return { title: (p && p.seo_title) || 'Help center', description: (p && p.seo_description) || b.description, og: '/og/site.png', type: 'website', canonical: '/help',
+        body: `<article class="ssr-page"><h1>${esc((p && p.title) || 'Help center')}</h1>${p ? sanitize(p.body || '', 'page') : ''}<ul>${items}</ul></article>` };
+    }
     m = PAGE_ROUTE.exec(path);
     if (m) {
       const p = cms.pageOf(`${m[1]}/${m[2]}`);
@@ -124,7 +131,8 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
     m = /^\/help\/([a-z0-9-]+)$/.exec(path);
     if (m) {
       const h = (appRef.locals.cmsHelp && appRef.locals.cmsHelp.get(m[1])) || null;
-      if (h) return { title: h.seo_title || h.title, description: h.seo_description || b.description, og: '/og/site.png', type: 'article', body: `<article class="ssr-page"><h1>${esc(h.title)}</h1>${h.body}</article>` };
+      if (h) return { title: h.seo_title || h.title, description: h.seo_description || b.description, og: '/og/site.png', type: 'article', body: `<article class="ssr-page"><h1>${esc(h.title)}</h1>${h.body}</article>`,
+        ld: [crumbs([['Help center', '/help'], [h.title, `/help/${m[1]}`]])] };
     }
     return null;
   }
@@ -271,6 +279,8 @@ function mountSeo({ app, db, engine, flags, security, cms, i18n, eventFull, opti
         const pub = new Map(pages.map((p) => [p.key, p.published_at]));
         const items = [{ loc: '/', lastmod: day() }, { loc: '/browse', lastmod: day() }, { loc: '/docs', lastmod: day() }, { loc: '/status', lastmod: day() }];
         for (const p of require('./content/pages').PAGES ? Object.keys(require('./content/pages').PAGES) : []) { const pg = cms.pageOf(p); if (pg && (pg.body || pg.customised) && /^(legal|trust|research|support)\//.test(p)) items.push({ loc: `/${p}`, lastmod: day(pub.get(p) ? Date.parse(pub.get(p)) : null) }); }
+        items.push({ loc: '/help', lastmod: day() }); // the Help Center and its guides (CLONE_SPEC.md §40)
+        for (const g of appRef.locals.helpCenter ? appRef.locals.helpCenter.guides(false) : []) items.push({ loc: `/help/${g.slug}`, lastmod: day(pub.get(`help/${g.slug}`) ? Date.parse(pub.get(`help/${g.slug}`)) : null) });
         return xml(res, urlset(o, items));
       }
       if (s === 'categories') return xml(res, urlset(o, CATEGORIES.map((c) => ({ loc: `/category/${catSlug(c)}`, lastmod: day() }))));

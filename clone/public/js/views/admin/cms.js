@@ -5,15 +5,19 @@
 //   /admin/cms/texts      text catalog: search, page (area) and section filters, per-key history, in-context preview
 //   /admin/cms/templates  notification, email and SMS templates: fields, sample preview, test send
 //   /admin/cms/media      uploads (PNG/JPEG, re-encoded by the server) and usage slots
-//   /admin/cms/pages      pages (legal, help, info) with SEO fields, and the footer
+//   /admin/cms/pages      pages (legal, help, info) with SEO fields, and the footer; help guides (help/<slug>) also
+//                         have a topic, summary, order, related guides and a hidden switch (CLONE_SPEC.md §40)
+//   /admin/cms/help       Help Center feedback: "Was this helpful?" per guide and the latest comments
 //   /admin/cms/branding   brand / YES colours per theme with the contrast check, app name and short name
 //   /admin/cms/transfer   JSON export, and import with a dry-run diff
 //   /admin/cms/languages  languages: coverage, review, switch, translation editor, export / import (views/admin/languages.js)
 import { t, te, ts } from '../../i18n.js'; // text catalog (CLONE_SPEC.md §32.3)
 import '../../content/admin.cms-strings.js';
+import '../../content/help-strings.js'; // Help Center topic names (CLONE_SPEC.md §40)
 import { get, post, put, del, esc, toast, section, subTabs, dialog, confirmAction, badge, fmtTime, fromLocalInput, download } from './ui.js';
 
-const TABS = [['hub', ts('admin.cms.tabs.overview')], ['texts', ts('admin.cms.tabs.texts')], ['templates', ts('admin.cms.tabs.templates')], ['media', ts('admin.cms.tabs.media')], ['pages', ts('admin.cms.tabs.pages_footer')], ['branding', ts('admin.cms.tabs.branding')], ['languages', ts('admin.cms.tabs.languages')], ['transfer', ts('admin.cms.tabs.import_export')]];
+const TABS = [['hub', ts('admin.cms.tabs.overview')], ['texts', ts('admin.cms.tabs.texts')], ['templates', ts('admin.cms.tabs.templates')], ['media', ts('admin.cms.tabs.media')], ['pages', ts('admin.cms.tabs.pages_footer')], ['help', ts('admin.cms.tabs.help_feedback')], ['branding', ts('admin.cms.tabs.branding')], ['languages', ts('admin.cms.tabs.languages')], ['transfer', ts('admin.cms.tabs.import_export')]];
+const HELP_TOPICS = ['getting-started', 'trading', 'money', 'account-security', 'features', 'troubleshooting']; // server/content/help.js CATEGORIES
 const BASE = '/admin/cms';
 
 export async function render({ el, parts, perms, query }) {
@@ -26,6 +30,7 @@ export async function render({ el, parts, perms, query }) {
   if (tab === 'templates') return templates(ctx);
   if (tab === 'media') return mediaTab(ctx);
   if (tab === 'pages') return pages(ctx);
+  if (tab === 'help') return helpFeedback(ctx);
   if (tab === 'branding') return branding(ctx);
   if (tab === 'transfer') return transfer(ctx);
   if (tab === 'languages') return import('./languages.js').then((m) => m.render(ctx)); // Phase 8 (CLONE_SPEC.md §38.5)
@@ -244,6 +249,13 @@ async function pageEditor(slug, canPublish, reload) {
     <label class="field"><span>${te('admin.cms.page_editor.section')}</span><select name="section" class="adm-input" data-testid="cms-page-section">${['info', 'help', 'legal'].map((s) => `<option value="${esc(s)}" ${p.section === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
     <label class="field"><span>${te('admin.cms.page_editor.seo_title')}</span><input name="seo_title" class="adm-input" value="${esc(p.seo_title || '')}" data-testid="cms-page-seo-title"></label>
     <label class="field"><span>${te('admin.cms.page_editor.seo_description')}</span><input name="seo_description" class="adm-input" value="${esc(p.seo_description || '')}" data-testid="cms-page-seo-description"></label>
+    <fieldset class="cms-help-fields" data-testid="cms-help-fields" ${(slug || '').startsWith('help/') ? '' : 'hidden'}><legend>${te('admin.cms.page_editor.help_guide')}</legend>
+      <label class="field"><span>${te('admin.cms.page_editor.help_topic')}</span><select name="category" class="adm-input" data-testid="cms-help-category">${HELP_TOPICS.map((c) => `<option value="${esc(c)}" ${p.category === c ? 'selected' : ''}>${esc(t(`help.category.${c}.title`))}</option>`).join('')}</select><small class="adm-err" data-err-for="category" role="alert"></small></label>
+      <label class="field"><span>${te('admin.cms.page_editor.help_summary')}</span><input name="summary" class="adm-input" maxlength="240" value="${esc(p.summary || '')}" data-testid="cms-help-summary"><small class="adm-err" data-err-for="summary" role="alert"></small></label>
+      <label class="field"><span>${te('admin.cms.page_editor.help_position')}</span><input name="position" type="number" min="0" max="9999" class="adm-input" value="${esc(p.position ?? 100)}" data-testid="cms-help-position"><small class="adm-err" data-err-for="position" role="alert"></small></label>
+      <label class="field"><span>${te('admin.cms.page_editor.help_related')}</span><input name="related" class="adm-input" value="${esc((p.related || []).join(', '))}" data-testid="cms-help-related"><small class="adm-err" data-err-for="related" role="alert"></small></label>
+      <label class="check"><input type="checkbox" name="hidden" ${p.hidden ? 'checked' : ''} data-testid="cms-help-hidden"> ${te('admin.cms.page_editor.help_hidden')}</label>
+      <p class="faint m-0">${te('admin.cms.page_editor.help_body_hint')}</p></fieldset>
     <label class="field"><span>${te('admin.cms.page_editor.body_headings_paragraphs_lists_bold')}</span><textarea name="body" rows="10" class="adm-input" data-testid="cms-page-body">${esc(p.body || '')}</textarea><small class="adm-err" data-err-for="body" role="alert"></small></label>
     <p class="form-error" data-form-error role="alert"></p>
     <div class="adm-form-actions"><button class="btn" type="button" data-close>${te('admin.cms.page_editor.close')}</button>${slug ? `<a class="btn" href="/${esc(slug)}?cms_preview=1" target="_blank" rel="noopener">${te('admin.cms.page_editor.preview')}</a>` : ''}<button class="btn" type="submit" data-testid="cms-save-draft">${te('admin.cms.page_editor.save_draft')}</button>
@@ -251,11 +263,27 @@ async function pageEditor(slug, canPublish, reload) {
     ${slug ? `<h4 class="mt-16">${te('admin.cms.page_editor.history')}</h4>${historyHtml(r.versions)}` : ''}</form>`, { wide: true, testid: 'cms-dialog' });
   const f = d.querySelector('form');
   const key = () => slug || f.slug.value.trim();
-  const save = async () => { try { await put('/cms/page/draft', { key: key(), value: { title: f.title.value, section: f.section.value, seo_title: f.seo_title.value, seo_description: f.seo_description.value, body: f.body.value } }); toast(t('admin.cms.page_editor.draft_saved')); return true; } catch (ex) { fieldErrors(f, ex); return false; } };
+  const isHelp = () => key().startsWith('help/');
+  const helpBox = d.querySelector('[data-testid=cms-help-fields]');
+  if (!slug) f.slug.addEventListener('input', () => { helpBox.hidden = !isHelp(); if (isHelp()) f.section.value = 'help'; });
+  const helpValue = () => (isHelp() ? { category: f.category.value, summary: f.summary.value, position: Number(f.position.value), related: f.related.value.split(',').map((x) => x.trim()).filter(Boolean), hidden: f.hidden.checked } : {});
+  const save = async () => { try { await put('/cms/page/draft', { key: key(), value: { title: f.title.value, section: f.section.value, seo_title: f.seo_title.value, seo_description: f.seo_description.value, body: f.body.value, ...helpValue() } }); toast(t('admin.cms.page_editor.draft_saved')); return true; } catch (ex) { fieldErrors(f, ex); return false; } };
   f.onsubmit = async (ev) => { ev.preventDefault(); if (await save()) { d.close(); reload(); } };
   d.querySelector('[data-close]').onclick = () => d.close();
   d.querySelector('[data-publish]')?.addEventListener('click', async () => { if (!(await save())) return; try { if (await publishFlow('page', key())) { d.close(); reload(); } } catch (ex) { fieldErrors(f, ex); } });
   for (const b of d.querySelectorAll('[data-rollback]')) b.onclick = async () => { try { if (await rollbackFlow('page', key(), Number(b.dataset.rollback))) { d.close(); reload(); } } catch (ex) { fieldErrors(f, ex); } };
+}
+
+// ------------------------------------------------------------------ Help Center feedback (CLONE_SPEC.md §40)
+async function helpFeedback({ el }) {
+  const r = await get('/help/feedback');
+  el.innerHTML = `<p class="muted">${te('admin.cms.help_feedback.intro')}</p>
+    <div class="adm-scroll"><table class="table adm-grid" data-testid="help-feedback-table"><thead><tr><th>${te('admin.cms.help_feedback.guide')}</th><th>${te('admin.cms.help_feedback.yes')}</th><th>${te('admin.cms.help_feedback.no')}</th><th>${te('admin.cms.help_feedback.helpful')}</th><th>${te('admin.cms.help_feedback.last_vote')}</th><th></th></tr></thead>
+    <tbody>${r.guides.map((g) => `<tr data-testid="help-feedback-row" data-slug="${esc(g.slug)}"><td><a href="/help/${esc(g.slug)}" target="_blank" rel="noopener">${esc(g.title)}</a></td><td data-col="yes">${esc(g.yes)}</td><td data-col="no">${esc(g.no)}</td><td>${esc(g.helpful_pct == null ? '—' : `${g.helpful_pct}%`)}</td><td>${g.last_time ? esc(fmtTime(g.last_time)) : '—'}</td>
+      <td>${/^[a-z0-9-]+$/.test(g.slug) ? `<button class="btn btn-sm" type="button" data-edit-guide="${esc(g.slug)}">${te('admin.cms.help_feedback.edit')}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
+    <h3 class="mt-16">${te('admin.cms.help_feedback.comments')}</h3>
+    ${r.comments.length ? `<ul class="adm-list" data-testid="help-feedback-comments">${r.comments.map((c) => `<li data-testid="help-feedback-comment"><b>${esc(c.title)}</b> · ${c.helpful ? te('admin.cms.help_feedback.yes') : te('admin.cms.help_feedback.no')} · <span class="faint">${esc(fmtTime(c.time))}</span><br>${esc(c.comment)}</li>`).join('')}</ul>` : `<p class="faint">${te('admin.cms.help_feedback.no_comments')}</p>`}`;
+  for (const b of el.querySelectorAll('[data-edit-guide]')) b.onclick = () => pageEditor(`help/${b.dataset.editGuide}`, true, () => helpFeedback({ el }));
 }
 
 // ------------------------------------------------------------------ branding
