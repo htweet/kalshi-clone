@@ -54,7 +54,10 @@ const statusView = lazy(() => import('./views/status.js')); // Phase 7 status pa
 const helpCenterView = lazy(() => import('./views/help.js')); // Help Center home, search and guides (CLONE_SPEC.md §40)
 const waitlistView = lazy(() => import('./views/waitlist.js')); // Phase 7A real-money launch waitlist (CLONE_SPEC.md §36)
 // Phase 7B elections hub v2 (CLONE_SPEC.md §37): /category/elections/<hub>; an unknown slug falls back to the category tag page.
-const electionsView = { render: (ctx) => import('./views/elections.js').then((m) => m.render({ ...ctx, fallback: browse })) };
+// Category pages (CLONE_SPEC.md §41): the new layout, or Browse when the owner setting (or the category) says classic.
+// Browse and the event view are handed over rather than imported, so the bundler keeps them in the main chunk.
+const categoryView = { render: (ctx) => import('./views/category.js').then((m) => m.render({ ...ctx, browse, eventView })) };
+const electionsView = { render: (ctx) => import('./views/elections.js').then((m) => m.render({ ...ctx, fallback: categoryView })) };
 
 const routes = [
   [/^\/$/, home],
@@ -68,9 +71,9 @@ const routes = [
   [/^\/perps\/categories\/([^/]+)$/, perps, (m) => ({ mode: 'list', assetClass: decodeURIComponent(m[1]) })],
   [/^\/perps\/([A-Za-z0-9]+)$/, perps, (m) => ({ mode: 'market', ticker: m[1].toUpperCase() })],
   [/^\/search$/, browse],
-  [/^\/category\/([^/]+)$/, browse, (m) => ({ category: m[1] })],
+  [/^\/category\/([^/]+)$/, categoryView, (m) => ({ category: m[1] })],
   [/^\/category\/elections\/([a-z0-9][a-z0-9-]{2,40})$/, electionsView, (m) => ({ hub: m[1] })],
-  [/^\/category\/([^/]+)\/([^/]+)$/, browse, (m) => ({ category: m[1], tag: decodeURIComponent(m[2]) })],
+  [/^\/category\/([^/]+)\/([^/]+)$/, categoryView, (m) => ({ category: m[1], tag: decodeURIComponent(m[2]) })],
   [/^\/markets\/([^/]+)\/([^/]+)\/([^/]+)$/, eventView, (m) => ({ series: m[1], slug: m[2], event: m[3] })],
   [/^\/calendar$/, calendar],
   [/^\/social$/, social, () => ({ tab: 'feed' })],

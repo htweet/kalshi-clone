@@ -28,6 +28,7 @@ const journal = require('./journal'); // Phase 4: double-entry journal (CLONE_SP
 const { mountMarketsContent } = require('./markets-content'); // Phase 5B: ballot, AI summaries, incentives, hubs (§29)
 const { mountCms } = require('./cms'); // Phase 5C: content management (CLONE_SPEC.md §32)
 const { mountHelpCenter } = require('./help-center');
+const { mountCategoryPages } = require('./category-pages'); // category pages (CLONE_SPEC.md §41)
 const { createFlags, mountFlags } = require('./flags'); // Phase 5D: feature flags (CLONE_SPEC.md §33)
 const { mountPlayMode } = require('./play-mode'); // Phase 5D: play mode, money controls, production switch (§33)
 const { mountCentralBank } = require('./central-bank'); // Phase 5D: Central Bank, promotions treasury, Vault Heist (§33)
@@ -78,7 +79,7 @@ function parseCookies(header) {
 
 // Observed quirk (spec §5.4): unparseable integer params use a {msg} envelope (ParamError / intParam, server/trade-api.js).
 
-function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, elections: electionsOptions = {}, owner: ownerOptions = {}, growth: growthOptions = {}, seo: seoOptions = {}, reach: reachOptions = {}, env = 'main', dbFile = null, ops: opsOptions = {}, logger: loggerOption = null }) {
+function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollingWindowSec, perps, combos, sports, auth: authOptions, keyDir, security: securityOptions, identity: identityOptions, payments: paymentsOptions, marketsContent, push: pushOptions, cms: cmsOptions, flags: flagsOptions, playMode: playModeOptions, centralBank: centralBankOptions, api: apiOptions = {}, waitlists: waitlistOptions = {}, elections: electionsOptions = {}, categoryPages: categoryPagesOptions = {}, owner: ownerOptions = {}, growth: growthOptions = {}, seo: seoOptions = {}, reach: reachOptions = {}, env = 'main', dbFile = null, ops: opsOptions = {}, logger: loggerOption = null }) {
   // Phase 9A: structured logs (quiet unless the caller passes a logger: the CLI does), then the versioned migrations
   // (server/migrations: 0001 baseline of Phases 0-8, then the numbered ones) before any module touches its tables.
   let ownerSettingsRef = null; let flagsRef = null;
@@ -207,6 +208,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   app.locals.tradingCore = mountTradingCore({ v1, db, engine, auth, admin, requireUser, notify: feat.notify });
   app.locals.cms = mountCms({ v1, app, db, engine, admin, auth, options: cmsOptions || {} }); // texts, templates, media, pages, branding (§32)
   app.locals.helpCenter = mountHelpCenter({ v1, app, db, admin }); // Help Center guides, search and feedback (CLONE_SPEC.md §40)
+  app.locals.categoryPages = mountCategoryPages({ v1, db, engine, admin, eventFull, options: categoryPagesOptions }); // category pages (CLONE_SPEC.md §41)
   // Phase 5D (CLONE_SPEC.md §33): flag admin + bundle, play mode and money controls, Central Bank and the Vault Heist.
   mountFlags({ v1, db, flags, admin, auth, identity: app.locals.identity });
   mountOwnerSettings({ v1, db, os: ownerSettings, admin, auth, flags }); // Admin › Owner settings (CLONE_SPEC.md §38.1)

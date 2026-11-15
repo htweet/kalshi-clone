@@ -48,11 +48,14 @@ const icsDate = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replac
 
 export async function render({ el, params, query, navigate }) {
   const eventTicker = params.event.toUpperCase();
+  // Docked mode (category pages, CLONE_SPEC.md §41.4): only this event's ticket and position card render into `el`, so a
+  // category page reuses the one ticket implementation (and whatever it gains later, e.g. one-click trading) unchanged.
+  const dock = !!params.dock;
   const { shareDialog } = await import('./share.js'); // share sheet and copy-trade (CLONE_SPEC.md §38.3)
   const { event: ev } = await api.event(eventTicker);
   const { series } = await api.series(ev.series_ticker);
-  document.title = tx('event.render.parlance_2', { title: ev.title });
-  if (session.user) api.visit(session.uid, ev.event_ticker).catch(() => {});
+  if (!dock) document.title = tx('event.render.parlance_2', { title: ev.title });
+  if (session.user && !dock) api.visit(session.uid, ev.event_ticker).catch(() => {});
 
   const props = session.props;
   const state = {
@@ -83,7 +86,7 @@ export async function render({ el, params, query, navigate }) {
   const h2h = ev.markets.length === 2 && ev.mutually_exclusive;
   const closeIso = () => state.ev.markets.map((m) => m.close_time).sort()[0];
 
-  el.innerHTML = `<div class="ev-layout">
+  el.innerHTML = dock ? `<div class="ev-dock" data-testid="ev-dock"><section class="card tkt ticket" id="ticket" aria-label="${te('event.render.trade_ticket')}"></section><div id="position"></div></div>` : `<div class="ev-layout">
     <div class="minw-0">
       <div class="ev-header">
         ${evIcon({ ...ev, series_title: series.title }, 'xl')}
@@ -129,7 +132,8 @@ export async function render({ el, params, query, navigate }) {
     </aside>
   </div>`;
 
-  const $ = (s) => el.querySelector(s);
+  const stub = dock ? document.createElement('div') : null; // docked: the page's other panels draw into a detached element
+  const $ = (s) => el.querySelector(s) || stub;
 
   // ---------- header actions ----------
   function drawWatch() {
@@ -186,7 +190,7 @@ export async function render({ el, params, query, navigate }) {
   const legOf = (m) => state.slip && state.slip.legs.find((l) => l.market_ticker === m.ticker);
   const pickOn = (m, side) => (state.comboMode ? legOf(m)?.side === side : m.ticker === state.selected && state.side === side);
   function drawRows() {
-    el.querySelector('.mkt-table').classList.toggle('combo-picking', state.comboMode);
+    $('.mkt-table').classList.toggle('combo-picking', state.comboMode);
     $('#mkt-rows').innerHTML = ranked().map((m) => {
       const p = prob(m);
       const tradable = m.status === 'active';
@@ -694,7 +698,7 @@ export async function render({ el, params, query, navigate }) {
   }
   async function drawComboLegs() {
     const box = $('#combo-legs');
-    if (!box) return;
+    if (!box || dock) return;
     try {
       const { combo } = await api.combo(state.ev.markets[0].ticker);
       const label = { pending: 'Pending', won: 'Won', lost: 'Lost' };
@@ -712,11 +716,13 @@ export async function render({ el, params, query, navigate }) {
   // ---------- live updates ----------
   const tickers = ev.markets.map((m) => m.ticker);
   const unsubs = [];
-  unsubs.push(mountGameBoard($('#sports-board'), ev));
-  unsubs.push(mountLinesSection($('#sb-lines'), ev));
-  unsubs.push(mountAiSummary($('#ai-summary'), ev));
-  if (!isCombo) unsubs.push(mountChat({ el, ev }));
-  if (!isCombo) { unsubs.push(mountEventExtras({ el, ev, market })); el.querySelector('.ev-header')?.insertAdjacentHTML('afterend', '<div class="targeted-promos" data-testid="event-promos"></div>'); renderPromos(el.querySelector('[data-testid=event-promos]'), { series_ticker: ev.series_ticker }); }
+  if (!dock) {
+    unsubs.push(mountGameBoard($('#sports-board'), ev));
+    unsubs.push(mountLinesSection($('#sb-lines'), ev));
+    unsubs.push(mountAiSummary($('#ai-summary'), ev));
+  }
+  if (!isCombo && !dock) unsubs.push(mountChat({ el, ev }));
+  if (!isCombo && !dock) { unsubs.push(mountEventExtras({ el, ev, market })); el.querySelector('.ev-header')?.insertAdjacentHTML('afterend', '<div class="targeted-promos" data-testid="event-promos"></div>'); renderPromos(el.querySelector('[data-testid=event-promos]'), { series_ticker: ev.series_ticker }); }
   let pending = null;
   let tradeT = null;
   unsubs.push(socket.subscribe({ channels: ['ticker'] }, (msg) => {
@@ -758,9 +764,9 @@ export async function render({ el, params, query, navigate }) {
     note.className = 'copy-note'; note.dataset.testid = 'copy-trade-note'; note.setAttribute('role', 'status');
     note.textContent = tx('share.copy.banner', { name: copied.sharer || '', side: copied.side.toUpperCase(), price: copied.price_cc != null ? tx('share.copy.price', { price: pxc(copied.price_cc) }) : '', size: copied.count_fp != null ? tx('share.copy.size', { count: qty(copied.count_fp) }) : '' });
     tk.prepend(note);
-  } drawChart(); subscribeBook(); drawBottom(); drawPosition(); drawAlerts(); drawAdmin(); drawRelated(); drawComboLegs();
+  } if (!dock) { drawChart(); subscribeBook(); drawBottom(); drawAlerts(); drawAdmin(); drawRelated(); drawComboLegs(); } drawPosition();
   // Keep canonical URL (slug is decorative, spec §3).
   const canonical = eventHref({ ...ev, series_slug: series.slug });
-  if (location.pathname !== canonical) history.replaceState({}, '', canonical);
+  if (!dock && location.pathname !== canonical) history.replaceState({}, '', canonical);
   return () => { if (unsubBook) unsubBook(); for (const u of unsubs) u(); clearTimeout(pending); clearTimeout(tradeT); };
 }

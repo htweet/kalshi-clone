@@ -37,6 +37,11 @@ const STRINGS = {
   'setting.ssr.cache_seconds.help': 'Seconds a server-rendered public page is cached per path, language and currency. Pages are never cached per user. 60 seconds keeps prices fresh enough for search and link previews.',
   'setting.referrals.review_ip_signups_per_day.label': 'Referral review: sign-ups from one IP per day',
   'setting.referrals.review_ip_signups_per_day.help': 'A referral is sent to the review queue when this many referred sign-ups came from the same IP address within 24 hours. Shared mobile networks are common in Nigeria, so the default (5) is above a household.',
+  // ---- category pages (owner request 2026-11-15, CLONE_SPEC.md §41)
+  'setting.category.layout.label': 'Category page layout',
+  'setting.category.layout.help': 'New: a sidebar with counts, a featured carousel with charts and two columns of market cards (recommended). Classic: the earlier category list with chips and filters. Each category can override this in Admin › Category pages.',
+  'setting.category.carousel_size.label': 'Featured carousel size',
+  'setting.category.carousel_size.help': 'How many events the featured carousel at the top of a category page cycles through. 3 is the recommended standard: enough variety, quick to scan. A category can set its own size.',
   // ---- Phase 9A (CLONE_SPEC.md §39): backups, observability, alerts, operations
   'setting.backups.interval_minutes.label': 'Backup every',
   'setting.backups.interval_minutes.help': 'Minutes between encrypted snapshots of the database (WAL shipping fills the gaps continuously). 15 minutes is the recommended standard (owner decision 2026-11-09). Needs step-up: backups hold personal data.',
@@ -105,6 +110,7 @@ const STRINGS = {
   'setting.simulation.activity.label': 'Simulated trading activity',
   'setting.simulation.activity.help': 'How much the built-in liquidity accounts trade to keep the simulated markets moving: off (no re-quotes, reference trades or opening quotes; resting quotes stay), low (re-quote only when the fair price moves at least 2¢ or after a minute, a reference trade at most every 2 minutes per market, at most 40 re-quotes a minute in all) or normal (re-quote on every 1¢ move, every second). Every simulated trade is stored for good, so normal grows the database by millions of rows a day; low keeps prices, charts and volume moving with about a tenth of the writes. Low is recommended. Takes effect at once.',
   'group.simulation': 'Simulated markets',
+  'group.category_pages': 'Category pages',
   'group.backups': 'Backups (Phase 9A)',
   'group.observability': 'Logs and observability (Phase 9A)',
   'group.retention': 'Data retention',

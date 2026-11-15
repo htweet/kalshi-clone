@@ -53,6 +53,8 @@ export const SECTIONS = [
   // Phase 9A (CLONE_SPEC.md §39): System (backups, drills, keys, anchor, alerts, switches) and Launch readiness.
   ['system', ts('admin.sections.system'), 'settings.write', './admin/system-ops.js'],
   ['launch', ts('admin.sections.launch_readiness'), 'settings.write', './admin/system-ops.js'],
+  // Category pages (CLONE_SPEC.md §41.5): layout, featured carousel, sidebar groups, strips and banner per category.
+  ['category_pages', ts('admin.sections.category_pages'), 'content.write', './admin/category-pages.js'],
 ];
 // Literal import() per module so the production bundler (scripts/build.js) can split them into hashed chunks.
 const LOADERS = {
@@ -65,7 +67,7 @@ const LOADERS = {
   './admin/cms.js': () => import('./admin/cms.js'), './admin/flags.js': () => import('./admin/flags.js'), './admin/playmode.js': () => import('./admin/playmode.js'),
   './admin/api-keys.js': () => import('./admin/api-keys.js'), './admin/waitlists.js': () => import('./admin/waitlists.js'),
   './admin/elections.js': () => import('./admin/elections.js'), './admin/owner-settings.js': () => import('./admin/owner-settings.js'), './admin/growth.js': () => import('./admin/growth.js'),
-  './admin/system-ops.js': () => import('./admin/system-ops.js'),
+  './admin/system-ops.js': () => import('./admin/system-ops.js'), './admin/category-pages.js': () => import('./admin/category-pages.js'),
 };
 
 // Admin passkey policy (CLONE_SPEC.md §25.3): when on, the session must have been signed in, or confirmed, with a passkey.
