@@ -247,6 +247,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Content management for every entity (owner request 2026-11-15, CLONE_SPEC.md §43): one registry of content types
   // (other modules register theirs into app.locals.contentRegistry), revisions, the Trash and Admin › Content › All content.
   app.locals.contentRegistry = mountContentAdmin({ v1, app, db, engine, admin, auth });
+  app.locals.contentQueue.registerContent(app.locals.contentRegistry); // news items, sources, rules, market texts (§41)
   // Phase 8 (CLONE_SPEC.md §38): growth and reach, Nigeria first.
   app.locals.i18n = mountI18n({ v1, app, db, engine, auth, admin, flags, cms: app.locals.cms, options: growthOptions.i18n || {} });
   app.locals.referralsPredictions = mountPredictionReferrals({ v1, app, db, engine, auth, admin, flags, feat, centralBank: app.locals.centralBank, identity: app.locals.identity, security, waitlists, keyDir, options: growthOptions.referrals || {} });

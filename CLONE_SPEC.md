@@ -6784,6 +6784,9 @@ create), `rules/:id`, `rules/:id/delete`; `market_content` (list), `market_conte
 `…/:id/reject`, `market_content/regenerate`, `market_content/run`, `market_content/events/:ticker/history`,
 `…/events/:ticker/restore`. Tables: `news_sources`, `news_fetch_log`, `news_items`, `news_category_rules`,
 `market_content_queue`, `content_ai_usage`; columns `cms_news.url`, `cms_news.ingest_item_id`.
+News items, sources, keyword rules and the published market texts are also in Admin › Content › All content, History
+and Trash (§43.2, `server/content-queue-registry.js`); deleting a source or a rule in the queue moves it to the Trash, and
+an item in the Trash is not fetched again while it can be restored.
 
 ### 41.7 Verification and residual risks
 `tests/content-queue.e2e.test.js` (real server, SQLite file, Chromium; a fixture feed server on 127.0.0.1 and a fake AI
@@ -6937,6 +6940,22 @@ built-in types (`server/content-admin/adapters.js`):
 | `catalog_series`, `catalog_events`, `catalog_markets` | catalog.write | title, rules, sub-title, live label, news text, outcome names — never prices or trading state | drafts only (published markets hold positions: market ops pause or close them) |
 | `election_parties`, `election_candidates`, `election_races`, `election_elections` | catalog.write | names, short name, coalition, colour, featured, active | no (results data refers to them) |
 | `promo_codes` | users.money | description, on / off | unused codes only |
+| `news_items`, `news_sources`, `news_rules`, `market_content` (§41) | content.publish (read: content.write) | headline, excerpt, category; name, feed URL, default category, on / off, interval; weight, on / off; description, background, resolution notes | yes, with the refusals below |
+
+The content queue registers its four types from `server/content-queue-registry.js` (`registerContent`, called once the
+registry is mounted); every write goes through the queue's own functions (plain-text checks, length caps, its
+`content_queue.*` audit rows). **News items**: pending → draft, approved → published, rejected or taken down → hidden;
+edits keep the review state and an approved item's event rows follow at once; publish / unpublish = approve / reject;
+revisions from the audit listener (`content_queue.news.approve` / `.edit`). The Trash takes the item with its `cms_news`
+rows (gone from event pages and the category strip at once) and fetching skips an item that is in the Trash; deleting
+an approved item for good needs a step-up. The `news` collection type no longer lists or trashes these rows. **Sources**
+(enabled → published, else hidden; the Trash takes the fetch log along; refused while the feed is being fetched) and
+**keyword rules** (active → published; weight and on / off; keyword and category fixed) keep revisions; the queue's
+Delete buttons move them to the Trash. **Market texts** (`market_content/<event>`): published text → published, version
+0 → hidden, only a pending queue item → draft (reviewed in the queue: not edited or trashed here); history is the CMS
+versions (`history: 'cms'`, restore = the queue's restore, `content_queue.content.restore`); an edit publishes a new
+version (`generator: edited`, `content_queue.content.edit`); the Trash removes the CMS entry (refused while new texts are
+being written for the event); deleting published text for good needs a step-up.
 
 Status of an item: `draft`, `published`, `scheduled` (a future start or a scheduled CMS publish), `hidden` (switched
 off, expired or a hidden guide) or `trashed`.
@@ -6995,7 +7014,12 @@ refused; an editor cannot delete forever, a publisher can, market news needs a f
 the UI with one reason, bulk unpublish / publish through the API; support has no access, an editor cannot restore CMS
 versions, a publisher cannot edit market copy, promo codes need users.money; an item trashed 31 days ago (time travel in
 the database) is purged at start while a 29-day-old one stays; revisions, the Trash and restored content survive the
-restart. `authz` classifies the ten new routes.
+restart. `authz` classifies the ten new routes. `content-queue.e2e` (test 7): news items, sources, rules and market
+texts listed with their status; an approved headline edited in the generic form shows on the event page, History shows
+the diff, restoring the approved version brings the old headline back; trashed, the item leaves the event page and the
+category strip at once and is not fetched again, and is back after a restore from the Trash tab; market texts show their
+CMS versions, refuse markup, are edited, trashed and restored live on the event page; a draft is refused; the queue's
+source and rule deletes go to the Trash and come back with the fetch log and weight.
 
 ---
 

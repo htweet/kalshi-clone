@@ -1,6 +1,7 @@
 'use strict';
 // Content management for every entity (owner request 2026-11-15, CLONE_SPEC.md §43), real server + SQLite file + Chromium:
-//   • Admin › Content › All content lists items of every registered content type (filters by type and status);
+//   • Admin › Content › All content lists items of every registered content type, the content queue's included (filters
+//     by type and status);
 //   • editing through the UI — a site banner and an election party with the generic form, a custom page in the CMS page
 //     editor — shows up publicly; History shows the field diff; "Restore this version" brings the older content back on
 //     the public site;
@@ -91,6 +92,10 @@ before(async () => {
   ok(await C.admin.call('POST', '/v1/admin/cms/page/publish', { key: 'info/ci-ferries', reason: REASON }), 'page publish');
   ok(await C.admin.call('POST', '/v1/admin/catalog/series', { ticker: `CIDRAFT${String(stamp).slice(-4)}`, title: 'Invented draft series', category: 'Economics' }), 'draft series');
   ids.series = `CIDRAFT${String(stamp).slice(-4)}`;
+  // The content queue's types (§41): an invented news item waiting for review (no feed is fetched here) and the
+  // offline template's texts for one event (a pending queue item: a draft in All content).
+  dbrun("INSERT INTO news_items(id,source_id,publisher,url,url_norm,title_hash,headline_orig,headline,published_ts,fetched_ts,category) VALUES('nwi_ci1','nsrc_ci','Lagoon Ledger','https://ledger.example.test/ferry','ledger.example.test/ferry','ci-hash','Ferry fares under review','Ferry fares under review',?,?,'Economics')", Date.now(), Date.now());
+  ok(await C.admin.call('POST', '/v1/admin/content_queue/market_content/regenerate', { event_ticker: ids.event, reason: REASON }), 'market texts');
 });
 after(async () => {
   try { await browser?.close(); } catch { /* closed */ }
@@ -101,7 +106,8 @@ after(async () => {
 test('All content lists items of every registered type, with type and status filters', async () => {
   const r = ok(await C.admin.call('GET', '/v1/admin/content_index?limit=500'), 'index');
   const want = ['page', 'text', 'template', 'media', 'footer', 'brand', 'incident', 'survey', 'banners', 'promos', 'info_cards', 'news', 'help', 'hubs', 'nav', 'hero', 'promo_codes',
-    'catalog_series', 'catalog_events', 'catalog_markets', 'election_parties', 'election_candidates', 'election_races', 'election_elections'];
+    'catalog_series', 'catalog_events', 'catalog_markets', 'election_parties', 'election_candidates', 'election_races', 'election_elections',
+    'news_items', 'news_sources', 'news_rules', 'market_content'];
   assert.deepEqual(want.filter((t) => !r.types.some((x) => x.type === t)), [], 'every built-in type is registered');
   for (const t of r.types) {
     assert.ok(t.count > 0, `${t.type} has items`);
@@ -111,6 +117,8 @@ test('All content lists items of every registered type, with type and status fil
   const drafts = ok(await C.admin.call('GET', '/v1/admin/content_index?status=draft&limit=500'), 'drafts');
   assert.ok(drafts.items.some((x) => x.type === 'catalog_series' && x.key === ids.series), 'draft series listed as draft');
   assert.ok(drafts.items.some((x) => x.type === 'incident' && x.key === 'ci-ferry-outage'));
+  assert.ok(drafts.items.some((x) => x.type === 'news_items' && x.key === 'nwi_ci1'), 'a news item waiting for review is a draft');
+  assert.ok(drafts.items.some((x) => x.type === 'market_content' && x.key === ids.event), 'market texts waiting for review are a draft');
   assert.ok(drafts.items.every((x) => x.status === 'draft'));
   const hidden = ok(await C.admin.call('GET', '/v1/admin/content_index?status=hidden&type=banners'), 'hidden');
   assert.deepEqual(hidden.items.map((x) => x.key), [ids.banner2]);

@@ -19,6 +19,11 @@
 //      daily request cap;
 //   6. owner switches live (review required off in Admin › Owner settings publishes at once; batch size; fetching and
 //      generation off refuse "Fetch now" / "Generate now" and stop the schedule) and after a restart.
+//   7. Admin › Content › All content (§43): news queue items, sources, keyword rules and market texts are listed with
+//      their status; an approved headline edited in the generic form shows on the event page, History shows the diff and
+//      "Restore this version" brings the old headline back; the item moved to the Trash leaves the event page and the
+//      category strip at once (and is not fetched again), restored from the Trash it is back; market texts show their CMS
+//      versions, are edited, trashed and restored; source and rule deletes in the queue go to the Trash.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -453,4 +458,144 @@ test('owner switches change behaviour live (review off publishes at once, batch 
   await pubPage.waitForSelector('[data-testid=news-item]:has-text("Tram vote date set by Harbor City council")');
   await H.assertClean(assert, pubPage);
   await pubPage.context().close();
+});
+
+// ------------------------------------------------------------------------------------------------ 7. All content (§43)
+test('All content: news items, sources, rules and market texts listed; edit → event page → History → restore a version; trash → gone → restore', async () => {
+  const tram = item('%waterfront tram vote');
+  const harbor = source('Harbor Daily');
+  const OLD = 'Tram vote date set by Harbor City council';
+  const NEW = 'Harbor City fixes the date of its tram vote';
+  // A second approved Politics item, so the category strip is drawn whether or not the tram item is in it.
+  const lantern = item('Lantern%');
+  ok(await call('POST', `/v1/admin/content_queue/news/${lantern.id}/approve`, { category: 'Politics', reason: 'second strip item' }), 'approve lantern');
+  // Listed with their status: approved -> published, pending -> draft, rejected / taken down -> hidden; sources and rules.
+  const idx = ok(await call('GET', '/v1/admin/content_index?limit=500'), 'index');
+  for (const t of ['news_items', 'news_sources', 'news_rules', 'market_content']) assert.ok(idx.types.some((x) => x.type === t && x.count > 0), `${t} registered and listed`);
+  const st = async (type, key) => ok(await call('GET', `/v1/admin/content_index?type=${type}&limit=500`), type).items.find((x) => x.key === key)?.status;
+  assert.equal(await st('news_items', tram.id), 'published');
+  assert.equal(await st('news_items', item('Night market%').id), 'draft');
+  assert.equal(await st('news_items', item('Super Eagles%').id), 'hidden');
+  assert.equal(await st('news_items', item('Bitcoin%').id), 'hidden');
+  assert.equal(await st('news_sources', harbor.id), 'published');
+  assert.equal(await st('news_sources', source('Switched Off').id), 'hidden');
+  assert.equal(await st('market_content', TRAM), 'published');
+  // The tram item's event row is the queue item's, not a separate `news` collection entry.
+  const ingestRow = q1('SELECT id FROM cms_news WHERE ingest_item_id=?', tram.id).id;
+  assert.ok(!ok(await call('GET', '/v1/admin/content_index?type=news&limit=500'), 'news type').items.some((x) => x.key === ingestRow));
+  const confirm = async (page, reason) => { await page.fill('[data-testid=confirm-reason]', reason); await page.click('[data-testid=confirm-ok]'); await page.waitForSelector('[data-testid=confirm-dialog]', { state: 'detached' }); };
+  const eventShows = async (pub, headline, yes) => {
+    await pub.goto(BASE + evUrl(TRAM));
+    await pub.waitForSelector('[data-testid=market-content]');
+    if (yes) await pub.waitForSelector(`[data-testid=news-item]:has-text("${headline}")`);
+    else assert.equal(await pub.locator(`[data-testid=news-item]:has-text("${headline}")`).count(), 0, `${headline} is not on the event page`);
+  };
+  const stripShows = async (pub, yes) => {
+    await pub.goto(`${BASE}/category/politics`);
+    await pub.waitForSelector('[data-testid=category-news-item]:has-text("Lantern festival")');
+    assert.equal(await pub.locator('[data-testid=category-news-item]:has-text("Tram vote date set")').count(), yes ? 1 : 0);
+  };
+
+  // Edit the approved headline in the generic form -> the event page shows it.
+  const page = await adminPage();
+  const pub = await H.newPage(browser, BASE);
+  await page.goto(`${BASE}/admin/content/all?type=news_items&q=${encodeURIComponent('tram vote')}`);
+  const row = page.locator(`[data-testid=ci-row][data-type=news_items][data-key="${tram.id}"][data-status=published]`);
+  await row.locator('[data-testid=ci-edit]').click();
+  const form = page.locator('[data-testid=ci-form]');
+  await form.locator('input[name=headline]').fill(NEW);
+  await form.locator('textarea[name=reason]').fill('shorter headline');
+  await form.locator('button[type=submit]').click();
+  await page.waitForSelector('[data-testid=ci-dialog]', { state: 'detached' });
+  assert.equal(item('%waterfront tram vote').headline, NEW);
+  assert.ok(q1("SELECT 1 x FROM admin_audit WHERE action='content_queue.news.edit' AND target_id=? AND reason='shorter headline'", tram.id));
+  await eventShows(pub, NEW, true);
+  assert.equal(ok(await call('GET', '/v1/news?category=Politics'), 'strip').items.find((x) => x.id === tram.id).headline, NEW);
+  // Markup is refused by the queue's own checks.
+  const bad = await call('PUT', '/v1/admin/content_index/item', { type: 'news_items', key: tram.id, data: { headline: '<b>Tram</b> vote' }, reason: 'markup' });
+  assert.equal(bad.status, 400);
+  // History shows the diff; restore the approved version -> the event page shows the old headline.
+  await row.locator('[data-testid=ci-history-link]').click();
+  const upd = page.locator('[data-testid=ci-rev][data-action=update]').first();
+  await upd.waitFor();
+  assert.equal(await upd.locator('tr[data-field=headline] [data-testid=ci-before]').textContent(), OLD);
+  assert.equal(await upd.locator('tr[data-field=headline] [data-testid=ci-after]').textContent(), NEW);
+  assert.match(await upd.textContent(), /shorter headline/);
+  await page.locator('[data-testid=ci-rev][data-version="1"] [data-testid=ci-restore-version]').click();
+  await confirm(page, 'the council wording was better');
+  await page.waitForSelector('[data-testid=ci-rev][data-action=restore_version]');
+  assert.equal(item('%waterfront tram vote').headline, OLD);
+  await eventShows(pub, OLD, true);
+  await stripShows(pub, true);
+
+  // Trash from All content -> gone from the event page and the category strip at once, not fetched again.
+  await page.goto(`${BASE}/admin/content/all?type=news_items&q=${encodeURIComponent('tram vote')}`);
+  await page.locator(`[data-testid=ci-row][data-key="${tram.id}"] [data-testid=ci-trash]`).click();
+  await confirm(page, 'story withdrawn by the publisher');
+  await page.waitForSelector(`[data-testid=ci-row][data-key="${tram.id}"][data-status=trashed]`);
+  assert.equal(q1('SELECT COUNT(*) c FROM news_items WHERE id=?', tram.id).c, 0);
+  assert.equal(q1('SELECT COUNT(*) c FROM cms_news WHERE ingest_item_id=?', tram.id).c, 0);
+  assert.ok(!ok(await call('GET', '/v1/news?category=Politics'), 'strip').items.some((x) => x.id === tram.id));
+  await eventShows(pub, OLD, false);
+  await stripShows(pub, false);
+  assert.equal((await fetchNow(harbor.id)).new_items, 0, 'an item in the Trash is not ingested again');
+  const trashed = ok(await call('GET', '/v1/admin/content_index/trash'), 'trash').items.find((x) => x.type === 'news_items' && x.key === tram.id);
+  assert.equal(trashed.step_up, true, 'deleting approved news for good needs a step-up');
+  // Restore from the Trash tab -> back on the event page and in the strip.
+  await page.goto(`${BASE}/admin/content/trash`);
+  const trow = page.locator(`[data-testid=ci-trash-row][data-type=news_items][data-key="${tram.id}"]`);
+  await trow.locator('[data-testid=ci-trash-restore]').click();
+  await confirm(page, 'publisher reinstated the story');
+  await trow.waitFor({ state: 'detached' });
+  assert.equal(item('%waterfront tram vote').status, 'approved');
+  await eventShows(pub, OLD, true);
+  await stripShows(pub, true);
+  assert.deepEqual(D.q("SELECT action FROM content_revisions WHERE type='news_items' AND key=? ORDER BY version", tram.id).map((x) => x.action), ['update', 'update', 'restore_version', 'trash', 'restore']);
+
+  // Market texts: listed with their CMS versions (reused, not copied), edited, trashed and restored.
+  await page.goto(`${BASE}/admin/content/all?type=market_content&q=${TRAM}`);
+  await page.locator(`[data-testid=ci-row][data-type=market_content][data-key="${TRAM}"][data-status=published] [data-testid=ci-history-link]`).click();
+  const v3 = page.locator('[data-testid=ci-rev][data-version="3"][data-action=rollback]');
+  await v3.waitFor();
+  assert.match(await v3.getAttribute('data-id'), /^c:\d+$/);
+  assert.match(await v3.locator('tr[data-field=description] [data-testid=ci-after]').textContent(), /Edited by the content desk\./);
+  assert.equal(await page.locator('[data-testid=ci-rev][data-version="1"][data-action=publish]').count(), 1);
+  assert.equal(q1("SELECT COUNT(*) c FROM content_revisions WHERE type='market_content'").c, 0, 'no duplicate revisions');
+  assert.equal((await call('PUT', '/v1/admin/content_index/item', { type: 'market_content', key: TRAM, data: { description: 'See <a href="https://x.example.test">this</a>' }, reason: 'markup' })).status, 400);
+  ok(await call('PUT', '/v1/admin/content_index/item', { type: 'market_content', key: TRAM, data: { description: 'Harbor City council votes on the waterfront tram before March 2027.' }, reason: 'tighter opening' }), 'edit text');
+  await pub.goto(BASE + evUrl(TRAM));
+  await pub.waitForSelector('[data-testid=market-content][data-version="4"]');
+  assert.match(await pub.textContent('[data-testid=market-content-description]'), /votes on the waterfront tram/);
+  ok(await call('POST', '/v1/admin/content_index/trash', { items: [{ type: 'market_content', key: TRAM }], reason: 'texts under review' }), 'trash text');
+  assert.equal(ok(await call('GET', `/v1/events/${TRAM}/content`), 'content').content, null);
+  await pub.waitForSelector('[data-testid=market-content]', { state: 'detached' });
+  const mt = ok(await call('GET', '/v1/admin/content_index/trash'), 'trash').items.find((x) => x.type === 'market_content' && x.key === TRAM);
+  assert.equal(mt.step_up, true);
+  ok(await call('POST', '/v1/admin/content_index/trash/restore', { ids: [mt.id], reason: 'texts are fine' }), 'restore text');
+  assert.equal(ok(await call('GET', `/v1/events/${TRAM}/content`), 'content').content.version, 4);
+  await pub.waitForSelector('[data-testid=market-content][data-version="4"]');
+  // An event with only a pending queue item is a draft: reviewed in the queue, not trashed.
+  const draft = ok(await call('GET', '/v1/admin/content_index?type=market_content&status=draft&limit=1'), 'drafts').items[0];
+  assert.ok(draft, 'a pending queue item is listed as a draft');
+  assert.equal(ok(await call('POST', '/v1/admin/content_index/trash', { items: [{ type: 'market_content', key: draft.key }], reason: 'try a draft' }), 'draft').results[0].code, 'cannot_trash');
+
+  // Sources and rules: the queue's delete moves them to the Trash; restore brings them (and the fetch log) back.
+  const caseSrc = source('Case /page.html');
+  const logs = q1('SELECT COUNT(*) c FROM news_fetch_log WHERE source_id=?', caseSrc.id).c;
+  assert.ok(ok(await call('POST', `/v1/admin/content_queue/sources/${caseSrc.id}/delete`, { reason: 'not a feed' }), 'delete source').trashed);
+  assert.equal(source('Case /page.html'), undefined);
+  const rule = q1("SELECT * FROM news_category_rules WHERE category='Crypto' ORDER BY keyword LIMIT 1");
+  ok(await call('PUT', '/v1/admin/content_index/item', { type: 'news_rules', key: rule.id, data: { weight: 3 }, reason: 'stronger crypto signal' }), 'rule weight');
+  assert.equal(q1("SELECT action FROM content_revisions WHERE type='news_rules' AND key=? ORDER BY version DESC LIMIT 1", rule.id).action, 'update');
+  assert.ok(ok(await call('POST', `/v1/admin/content_queue/rules/${rule.id}/delete`, { reason: 'rule retired' }), 'delete rule').trashed);
+  assert.ok(!ok(await call('GET', '/v1/admin/content_queue/rules'), 'rules').rules.some((r) => r.id === rule.id));
+  const ids = D.q("SELECT id FROM content_trash WHERE (type='news_sources' AND key=?) OR (type='news_rules' AND key=?)", caseSrc.id, rule.id).map((x) => x.id);
+  assert.equal(ids.length, 2);
+  assert.ok(ok(await call('POST', '/v1/admin/content_index/trash/restore', { ids, reason: 'restored after review' }), 'restore').results.every((x) => x.ok));
+  assert.equal(source('Case /page.html').feed_url, caseSrc.feed_url);
+  assert.equal(q1('SELECT COUNT(*) c FROM news_fetch_log WHERE source_id=?', caseSrc.id).c, logs);
+  assert.equal(q1('SELECT weight FROM news_category_rules WHERE id=?', rule.id).weight, 3);
+  assert.deepEqual(page.errors, []);
+  await H.assertClean(assert, pub);
+  await page.context().close(); await pub.context().close();
 });

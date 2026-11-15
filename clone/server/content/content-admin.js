@@ -30,6 +30,10 @@ const STRINGS = {
   'type.election_candidates': 'Election candidates',
   'type.election_races': 'Election races',
   'type.election_elections': 'Elections',
+  'type.news_items': 'News queue items',
+  'type.news_sources': 'News sources',
+  'type.news_rules': 'News keyword rules',
+  'type.market_content': 'Market texts (About this market)',
   // errors
   'error.unknown_type': 'There is no such content type.',
   'error.not_found': 'This item does not exist (it may be in the Trash).',
@@ -49,6 +53,10 @@ const STRINGS = {
   'why.redeemed': 'it has been redeemed; switch it off instead.',
   'why.published': 'it is live on the exchange; use market operations to pause or close it.',
   'why.no_trash': 'this content type has no Trash; edit or hide it instead.',
+  'why.from_queue': 'it comes from the news queue; move the news queue item to the Trash instead.',
+  'why.fetching': 'its feed is being fetched right now; try again in a moment.',
+  'why.generating': 'new texts are being written for this event right now; try again in a moment.',
+  'why.review_in_queue': 'it has no published text yet; review it in Admin › Content queue.',
   // default reasons
   'reason.purged': 'kept in the Trash for {days} days (owner setting)',
 };

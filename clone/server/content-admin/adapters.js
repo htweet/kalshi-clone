@@ -107,6 +107,10 @@ function registerBuiltins({ registry, db, app, admin, dispatch }) {
     promos: (r) => (!r.active || past(r.ends_at) ? 'hidden' : future(r.starts_at) ? 'scheduled' : 'published'),
     help: (r) => (!r.active ? 'hidden' : !r.published ? 'draft' : 'published'),
   };
+  // Market news approved in the news queue (cms_news rows with ingest_item_id) belongs to the queue's `news_items` type
+  // (server/content-queue-registry.js): not listed here and not trashed on its own.
+  const ingest = !!db.prepare("SELECT 1 FROM pragma_table_info('cms_news') WHERE name='ingest_item_id'").get();
+  const fromQueue = (name, r) => name === 'news' && ingest && !!r.ingest_item_id;
   for (const name of Object.keys(FIELDS)) {
     const c = COLL[name];
     const row = (id) => db.prepare(`SELECT * FROM ${c.table} WHERE id=?`).get(String(id));
@@ -121,11 +125,12 @@ function registerBuiltins({ registry, db, app, admin, dispatch }) {
     };
     registry.register({
       type: name, perms: CONTENT, fields: FIELDS[name], editor: () => `/admin/content/${name}`,
-      list: () => db.prepare(`SELECT * FROM ${c.table}`).all().map(vo),
+      list: () => db.prepare(`SELECT * FROM ${c.table}`).all().filter((r) => !fromQueue(name, r)).map(vo),
       get: (key) => { const r = row(key); return r ? { ...vo(r), data: registry.types.get(name).pick(r) } : null; },
       update,
       setPublished: (req, key, on, reason) => update(req, key, name === 'help' ? { active: on, published: on } : { active: on }, reason),
       trash: {
+        refuse: (key) => (fromQueue(name, row(key)) ? S('why.from_queue') : null),
         take: (key) => { const r = row(key); db.prepare(`DELETE FROM ${c.table} WHERE id=?`).run(r.id); return { row: r }; },
         put: (snap) => {
           if (name === 'help' && db.prepare('SELECT 1 FROM cms_help WHERE slug=?').get(snap.row.slug)) throw E.conflict('key_taken', S('error.key_taken', { key: snap.row.slug }));

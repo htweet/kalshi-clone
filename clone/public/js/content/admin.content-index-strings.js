@@ -5,7 +5,7 @@
 import { register } from '../i18n.js';
 
 export const STRINGS = /* CONTENT_JSON_BEGIN */ {
-  "admin.content_index.index.intro": "Every piece of content on the site in one list: pages, help guides, texts, templates, banners, cards, news, navigation, elections, waitlist questions, status incidents, promo codes and market copy. Open an item to edit it, see its history or move it to the Trash.",
+  "admin.content_index.index.intro": "Every piece of content on the site in one list: pages, help guides, texts, templates, banners, cards, news, the news queue and its sources and keyword rules, navigation, elections, waitlist questions, status incidents, promo codes, market copy and market texts. Open an item to edit it, see its history or move it to the Trash.",
   "admin.content_index.index.search": "Search titles and keys",
   "admin.content_index.index.type": "Type",
   "admin.content_index.index.status": "Status",
@@ -64,7 +64,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.content_index.trash.purge": "Delete forever",
   "admin.content_index.trash.restore_title": "Restore {count} items?",
   "admin.content_index.trash.purge_title": "Delete {count} items forever?",
-  "admin.content_index.trash.purge_body": "This cannot be undone. Legal pages and market news ask you to confirm it is you first.",
+  "admin.content_index.trash.purge_body": "This cannot be undone. Legal pages, market news and published market texts ask you to confirm it is you first.",
   "admin.content_index.trash.deleted": "Deleted",
   "admin.content_index.trash.reason": "Reason",
   "admin.content_index.trash.purge_at": "Deleted for good",
@@ -109,6 +109,10 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.content_index.type.election_candidates": "Election candidates",
   "admin.content_index.type.election_races": "Election races",
   "admin.content_index.type.election_elections": "Elections",
+  "admin.content_index.type.news_items": "News queue items",
+  "admin.content_index.type.news_sources": "News sources",
+  "admin.content_index.type.news_rules": "News keyword rules",
+  "admin.content_index.type.market_content": "Market texts (About this market)",
   "admin.content_index.field.content": "Text",
   "admin.content_index.field.link": "Link",
   "admin.content_index.field.visibility": "Visible to",
@@ -162,7 +166,17 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.content_index.field.alt": "Alt text",
   "admin.content_index.field.tagline": "Tagline",
   "admin.content_index.field.columns": "Columns",
-  "admin.content_index.field.social": "Social links"
+  "admin.content_index.field.social": "Social links",
+  "admin.content_index.field.excerpt": "Excerpt",
+  "admin.content_index.field.feed_url": "Feed address",
+  "admin.content_index.field.default_category": "Default category",
+  "admin.content_index.field.enabled": "On",
+  "admin.content_index.field.interval_minutes": "Fetch every (minutes)",
+  "admin.content_index.field.weight": "Weight",
+  "admin.content_index.field.background": "Background",
+  "admin.content_index.field.resolution_notes": "Resolution notes",
+  "admin.content_index.field.generator": "Written by",
+  "admin.content_index.field.queue_id": "Queue item"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

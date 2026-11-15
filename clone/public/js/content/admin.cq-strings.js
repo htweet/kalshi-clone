@@ -124,7 +124,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.cq.sources.switch_on_title": "Start fetching {name}?",
   "admin.cq.sources.edit_title": "Edit {name}",
   "admin.cq.sources.delete_title": "Delete {name}?",
-  "admin.cq.sources.delete_body": "The source and its fetch log are removed. Items already in the queue stay.",
+  "admin.cq.sources.delete_body": "The source and its fetch log move to the Trash (Admin › Content › Trash), where they can be restored. Items already in the queue stay.",
   "admin.cq.rules.category": "Category",
   "admin.cq.rules.keyword": "Keyword or phrase",
   "admin.cq.rules.weight": "Weight",

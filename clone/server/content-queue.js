@@ -27,6 +27,9 @@
 //   review      approve (edited or not), reject, regenerate; owner setting content.autogen_require_review (on by
 //               default) — off publishes generated text at once (still versioned and audited). Published text is the
 //               CMS entry market_content/<event> (versions, history, restore any earlier version).
+// All content (CLONE_SPEC.md §43): news items, sources, keyword rules and the published market content are registered
+// in the content registry (server/content-queue-registry.js, through registerContent below): listed, edited through the
+// functions here (same validation and audit), with revisions / CMS versions, and moved to the Trash.
 // Permissions: content.write reads the queues, rejects pending items, regenerates, runs and fetches now; content.publish
 // approves, unpublishes, restores, and manages sources and keyword rules. Every write carries a reason and writes one
 // hash-chained audit row.
@@ -40,6 +43,7 @@ const NF = require('./news-fetch');
 const { createLimiter } = require('./content-rate');
 const { s: CQ } = require('./content/content-queue');
 const { ROLE_PERMS } = require('./admin');
+const { registerQueueContent } = require('./content-queue-registry');
 
 const COMBO_SERIES = 'PLXCOMBO';
 const FLASH_SERIES = 'PLXFLASH';
@@ -214,6 +218,13 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
   }
 
   // ---------------------------------------------------------------- fetching
+  // Already known: a queued, decided or trashed item (an item in the Trash is not fetched again while it can be restored).
+  function seen(un, th) {
+    if (db.prepare('SELECT 1 FROM news_items WHERE url_norm=? OR title_hash=?').get(un, th)) return true;
+    try {
+      return !!db.prepare("SELECT 1 FROM content_trash WHERE type='news_items' AND (json_extract(snapshot_json,'$.row.url_norm')=? OR json_extract(snapshot_json,'$.row.title_hash')=?) LIMIT 1").get(un, th);
+    } catch { return false; } // no Trash table (content-admin not mounted)
+  }
   const inflight = new Map();
   function fetchSource(id, trigger = 'schedule') {
     if (inflight.has(id)) return inflight.get(id);
@@ -228,10 +239,10 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
         if (closed) return null;
         const un = normUrl(it.link); const th = titleHash(it.title);
         if (!un || !normTitle(it.title)) continue;
-        if (db.prepare('SELECT 1 FROM news_items WHERE url_norm=? OR title_hash=?').get(un, th)) { dups++; continue; }
+        if (seen(un, th)) { dups++; continue; }
         let c = classifyRules(it, src.default_category);
         if (c.method === 'source' && aiCalls < 10) { aiCalls++; c = (await classifyAi(it)) || c; if (closed) return null; }
-        if (db.prepare('SELECT 1 FROM news_items WHERE url_norm=? OR title_hash=?').get(un, th)) { dups++; continue; } // a concurrent fetch took it meanwhile
+        if (seen(un, th)) { dups++; continue; } // a concurrent fetch took it meanwhile
         const pub = Math.min(it.published_ts || now, now);
         db.prepare(`INSERT INTO news_items(id,source_id,publisher,url,url_norm,title_hash,guid,headline_orig,excerpt_orig,headline,excerpt,published_ts,fetched_ts,category,category_method,category_score,suggested_json,status)
           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')`).run(newId('nwi_'), src.id, src.name, it.link, un, th, it.guid || null, it.title, it.excerpt, it.title, it.excerpt, pub, now, c.category, c.method, c.score, JSON.stringify(suggestEvents(it.title, it.excerpt, c.category)));
@@ -477,7 +488,7 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
       db.prepare("UPDATE news_items SET status='approved', headline=?, excerpt=?, category=?, events_json=?, edited=?, decided_by=?, decided_email=?, decided_ts=?, decision_reason=? WHERE id=?")
         .run(headline, excerpt, category, JSON.stringify(events), edited, req.auth.user.id, req.auth.user.email, Date.now(), reason, item.id);
       touched = attach({ ...item, headline, excerpt }, events);
-      audit(req, 'content_queue.news.approve', 'news_item', item.id, { status: item.status, headline: item.headline, category: item.category, events: json(item.events_json, []) }, { status: 'approved', headline, excerpt, category, events }, reason);
+      audit(req, 'content_queue.news.approve', 'news_item', item.id, { status: item.status, headline: item.headline, excerpt: item.excerpt, category: item.category, events: json(item.events_json, []) }, { status: 'approved', headline, excerpt, category, events }, reason);
     });
     return touched;
   }
@@ -488,6 +499,23 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
       db.prepare('DELETE FROM cms_news WHERE ingest_item_id=?').run(item.id);
       db.prepare("UPDATE news_items SET status='rejected', decided_by=?, decided_email=?, decided_ts=?, decision_reason=? WHERE id=?").run(req.auth.user.id, req.auth.user.email, Date.now(), reason, item.id);
       audit(req, 'content_queue.news.reject', 'news_item', item.id, { status: item.status }, { status: 'rejected' }, reason);
+    });
+    return touched;
+  }
+  // Edits an item's headline, excerpt and category without changing its review state (All content, §43); an approved
+  // item's event rows follow at once. Same checks as approving.
+  function editNews(req, item, b, reason) {
+    // An unchanged value is kept as stored (it was cleaned at ingest), so saving one field never trips another's checks.
+    const headline = b.headline !== undefined && b.headline !== item.headline ? humanText(b.headline, 200, 'headline', { min: 3 }) : item.headline;
+    const excerpt = b.excerpt !== undefined && b.excerpt !== item.excerpt ? humanText(b.excerpt, 300, 'excerpt') : item.excerpt;
+    const category = b.category !== undefined ? String(b.category) : item.category;
+    if (!CATEGORIES.includes(category)) throw fieldError({ category: 'must be one of the site categories' });
+    const edited = headline !== item.headline_orig || excerpt !== item.excerpt_orig ? 1 : 0;
+    let touched = [];
+    tx(db, () => {
+      db.prepare('UPDATE news_items SET headline=?, excerpt=?, category=?, edited=? WHERE id=?').run(headline, excerpt, category, edited, item.id);
+      if (item.status === 'approved') touched = attach({ ...item, headline, excerpt }, json(item.events_json, []));
+      audit(req, 'content_queue.news.edit', 'news_item', item.id, { headline: item.headline, excerpt: item.excerpt, category: item.category }, { headline, excerpt, category }, reason);
     });
     return touched;
   }
@@ -553,18 +581,23 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
     audit(req, 'content_queue.source.create', 'news_source', id, null, v, reason);
     res.status(201).json({ source: sourceVo(sourceOf(id)) });
   });
-  v1.put(`${A}/sources/:id`, can('content.publish'), (req, res) => {
-    const b = onlyKeys(req.body, SOURCE_FIELDS); const reason = reasonOf(b);
-    const cur = sourceOf(req.params.id);
+  function updateSource(req, cur, b, reason) {
     const v = sourceInput(b, cur);
     const urlChanged = v.feed_url !== cur.feed_url;
     db.prepare(`UPDATE news_sources SET name=?, feed_url=?, default_category=?, enabled=?, interval_minutes=?, position=?, updated_ts=?${urlChanged ? ', etag=NULL, last_modified=NULL' : ''} WHERE id=?`).run(v.name, v.feed_url, v.default_category, v.enabled, v.interval_minutes, v.position, Date.now(), cur.id);
     audit(req, 'content_queue.source.update', 'news_source', cur.id, { name: cur.name, feed_url: cur.feed_url, default_category: cur.default_category, enabled: !!cur.enabled, interval_minutes: cur.interval_minutes }, { ...v, enabled: !!v.enabled }, reason);
+  }
+  v1.put(`${A}/sources/:id`, can('content.publish'), (req, res) => {
+    const b = onlyKeys(req.body, SOURCE_FIELDS); const reason = reasonOf(b);
+    const cur = sourceOf(req.params.id);
+    updateSource(req, cur, b, reason);
     res.json({ source: sourceVo(sourceOf(cur.id)) });
   });
-  v1.post(`${A}/sources/:id/delete`, can('content.publish'), (req, res) => {
+  // Delete moves the source (and its fetch log) to the Trash when the content registry is mounted (§43).
+  v1.post(`${A}/sources/:id/delete`, can('content.publish'), async (req, res) => {
     const b = onlyKeys(req.body, new Set(['reason'])); const reason = reasonOf(b);
     const cur = sourceOf(req.params.id);
+    if (admin.hooks?.trash) { await admin.hooks.trash(req, 'news_sources', cur.id, reason); return res.json({ ok: true, trashed: true }); }
     db.prepare('DELETE FROM news_sources WHERE id=?').run(cur.id);
     db.prepare('DELETE FROM news_fetch_log WHERE source_id=?').run(cur.id);
     audit(req, 'content_queue.source.delete', 'news_source', cur.id, sourceVo(cur), null, reason);
@@ -597,20 +630,23 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
     audit(req, 'content_queue.rule.create', 'news_rule', id, null, { category: b.category, keyword: kw, weight: w }, reason);
     res.status(201).json({ rule: { id, category: b.category, keyword: kw, weight: w, active: true } });
   });
-  v1.put(`${A}/rules/:id`, can('content.publish'), (req, res) => {
-    const b = onlyKeys(req.body, new Set(['weight', 'active', 'reason'])); const reason = reasonOf(b);
-    const cur = ruleOf(req.params.id);
+  function updateRule(req, cur, b, reason) {
     const w = weightOf(b.weight, cur.weight);
     if (b.active !== undefined && typeof b.active !== 'boolean') throw fieldError({ active: 'must be true or false' });
     const active = b.active === undefined ? cur.active : (b.active ? 1 : 0);
     db.prepare('UPDATE news_category_rules SET weight=?, active=?, updated_ts=? WHERE id=?').run(w, active, Date.now(), cur.id);
     invalidateRules();
     audit(req, 'content_queue.rule.update', 'news_rule', cur.id, { weight: cur.weight, active: !!cur.active }, { weight: w, active: !!active }, reason);
-    res.json({ rule: { id: cur.id, category: cur.category, keyword: cur.keyword, weight: w, active: !!active } });
+    return { id: cur.id, category: cur.category, keyword: cur.keyword, weight: w, active: !!active };
+  }
+  v1.put(`${A}/rules/:id`, can('content.publish'), (req, res) => {
+    const b = onlyKeys(req.body, new Set(['weight', 'active', 'reason'])); const reason = reasonOf(b);
+    res.json({ rule: updateRule(req, ruleOf(req.params.id), b, reason) });
   });
-  v1.post(`${A}/rules/:id/delete`, can('content.publish'), (req, res) => {
+  v1.post(`${A}/rules/:id/delete`, can('content.publish'), async (req, res) => {
     const b = onlyKeys(req.body, new Set(['reason'])); const reason = reasonOf(b);
     const cur = ruleOf(req.params.id);
+    if (admin.hooks?.trash) { await admin.hooks.trash(req, 'news_rules', cur.id, reason); return res.json({ ok: true, trashed: true }); }
     db.prepare('DELETE FROM news_category_rules WHERE id=?').run(cur.id);
     invalidateRules();
     audit(req, 'content_queue.rule.delete', 'news_rule', cur.id, { category: cur.category, keyword: cur.keyword, weight: cur.weight }, null, reason);
@@ -669,6 +705,27 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
     audit(req, 'content_queue.content.run', 'market_content', 'batch', null, { queued: r.queued, remaining: r.remaining }, String(b.reason || 'run now').slice(0, 500));
     res.json({ queued: r.queued, remaining: r.remaining, results: r.results });
   });
+  // Republishes version n (0 = no published text) of an event's market content as a new version.
+  function restoreContent(req, t, version, reason) {
+    const n = Number(version);
+    if (!Number.isInteger(n) || n < 0) throw fieldError({ version: 'must be a version number (0 = no published text)' });
+    const before = publishedContent(t);
+    const entry = store.rollback(req, TYPE, t, { version: n, reason });
+    audit(req, 'content_queue.content.restore', 'market_content', t, before ? { version: before.version } : null, { version: entry.published_version, restored_from: n }, reason);
+    return entry;
+  }
+  // Edits the published market content directly (All content, §43): same checks as approving an edited text; a new
+  // CMS version, generator "edited".
+  function editContent(req, t, b, reason) {
+    const cur = publishedContent(t);
+    if (!cur) throw new ApiError(409, 'not_published', 'there is no published text to edit', 'review the event\'s texts in Admin › Content queue first');
+    const v = {};
+    for (const f of Object.keys(CAPS)) v[f] = b[f] !== undefined && b[f] !== cur[f] ? humanText(b[f], CAPS[f], f, { min: 1, multiline: true }) : cur[f];
+    if (Object.keys(CAPS).every((f) => v[f] === cur[f])) return cur;
+    const entry = store.publish(req, TYPE, t, { reason, value: { ...v, generator: 'edited', queue_id: cur.queue_id || null } });
+    audit(req, 'content_queue.content.edit', 'market_content', t, { version: cur.version }, { version: entry.published_version }, reason);
+    return entry;
+  }
   v1.get(`${A}/market_content/events/:ticker/history`, can('content.write'), (req, res) => {
     const t = String(req.params.ticker).toUpperCase();
     if (!getEvent(t)) throw E.notFound();
@@ -678,16 +735,21 @@ function mountContentQueue({ v1, db, engine, admin, flags, ownerSettings: os, cm
     const b = onlyKeys(req.body, new Set(['version', 'reason'])); const reason = reasonOf(b);
     const t = String(req.params.ticker).toUpperCase();
     if (!getEvent(t)) throw E.notFound();
-    const n = Number(b.version);
-    if (!Number.isInteger(n) || n < 0) throw fieldError({ version: 'must be a version number (0 = no published text)' });
-    const before = publishedContent(t);
-    const entry = store.rollback(req, TYPE, t, { version: n, reason });
-    audit(req, 'content_queue.content.restore', 'market_content', t, before ? { version: before.version } : null, { version: entry.published_version, restored_from: n }, reason);
+    restoreContent(req, t, b.version, reason);
     res.json({ event_ticker: t, published: publishedContent(t), versions: versionsOf(t) });
   });
 
+  // All content (§43): registers news items, sources, keyword rules and market content (called after the registry mounts).
+  function registerContent(registry) {
+    registerQueueContent({
+      registry, db, store, getEvent, TYPE, CAPS, categories: CATEGORIES,
+      news: { approveOne, rejectOne, editNews, emitEvents }, sources: { updateSource, busy: (id) => inflight.has(id) },
+      rules: { updateRule, invalidateRules }, content: { publishedContent, restoreContent, editContent, busy: (t) => genInflight.has(t) },
+    });
+  }
+
   return {
-    fetchSource, runBatch, generate, tick, classifyRules, suggestEvents, normUrl, titleHash, publishedContent,
+    fetchSource, runBatch, generate, tick, classifyRules, suggestEvents, normUrl, titleHash, publishedContent, registerContent,
     close() { closed = true; if (timer) clearInterval(timer); timer = null; NF.stop().catch(() => {}); },
   };
 }
