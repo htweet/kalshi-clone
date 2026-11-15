@@ -5887,8 +5887,15 @@ The second program of the reusable referral module (`server/referrals.js`, §34.
   of the service worker's precache, so visitors' phones no longer download the admin (an admin page fetches its chunks
   from the network as before), and are budgeted apart as staff_js ≤ 240 KB. With the batch of 2026-11-15 (Pro terminal,
   Help Center, news queue, category pages, landing page, all content) the visitor total is 264.9 KB (it would have been
-  408.9 KB with the admin precached), staff_js 144.1 KB, initial 157.3 KB of 160 — the next feature on the first render
-  needs a split or a trim first. `tests/perf.e2e.test.js` runs the same check and, on a
+  408.9 KB with the admin precached), staff_js 144.1 KB, initial 157.3 KB of 160. **First-render split** (2026-11-15):
+  the views the first render of home, an event page, Browse and the category pages does not need are no longer imported
+  statically by `main.js` but loaded on demand like the other routes (`lazy(() => import(…))`, each with its text
+  catalog): Portfolio, Watchlist, sign-in / sign-up, Calendar / Live, Account (and its sections), Notifications, Pro,
+  Perps and Combos; the onboarding module (identity banner and compliance dialog) loads when first needed (a signed-in
+  session, a compliance error, an identity notification). A member in Trader mode lands on Pro: on `/` its chunk starts
+  loading at once, as the landing view does for visitors. Initial scripts 157.3 → 92.9 KB (22 → 20 files), the visitor
+  total 264.9 → 276.2 KB (more, smaller chunks compress a little less well), the largest lazy chunk 12 → 17.8 KB (Perps).
+  `tests/perf.e2e.test.js` runs the same check and, on a
   390 px phone with a 4× slower CPU and a 3G link (1.44 Mbit/s, 562 ms round trip, cold cache, production bundle),
   requires LCP ≤ 2.5 s on home, an event and all markets (≈ 1.8 s measured: the server-rendered content paints first)
   and INP ≤ 200 ms for tabs, side and amount on the event page (≈ 50 ms).
