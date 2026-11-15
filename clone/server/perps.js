@@ -457,13 +457,22 @@ function mountPerps({ v1, db, engine, requireUser, requireAdmin, notify = () => 
   }
 
   // ---------------------------------------------------------------- book + quotes
+  // Price levels from the running totals kept by triggers on perp_orders (migration 0010, CLONE_SPEC.md §39.20).
+  const levelSt = new Map();
+  const levels = (side, order, limit) => {
+    const sql = `SELECT price_cc p, units n FROM perp_book_levels WHERE ticker=? AND side=? ORDER BY price_cc ${order}${limit ? ' LIMIT ?' : ''}`;
+    let st = levelSt.get(sql); if (!st) { st = db.prepare(sql); levelSt.set(sql, st); }
+    return st;
+  };
   function best(t, side) {
-    return db.prepare(`SELECT price_cc p, SUM(remaining_count) n FROM perp_orders WHERE ticker=? AND status='resting' AND side=? GROUP BY price_cc ORDER BY price_cc ${side === 'bid' ? 'DESC' : 'ASC'} LIMIT 1`).get(t, side) || null;
+    return levels(side, side === 'bid' ? 'DESC' : 'ASC', true).get(t, side, 1) || null;
   }
   function book(t, depth = 0) {
-    const lv = (side) => db.prepare(`SELECT price_cc p, SUM(remaining_count) n FROM perp_orders WHERE ticker=? AND status='resting' AND side=? GROUP BY price_cc ORDER BY price_cc ${side === 'bid' ? 'DESC' : 'ASC'}${depth > 0 ? ` LIMIT ${Number(depth)}` : ''}`).all(t, side).map((r) => [cc$(r.p), ufp(r.n)]);
+    const d = Number(depth) > 0 ? Number(depth) : 0;
+    const lv = (side) => (d ? levels(side, side === 'bid' ? 'DESC' : 'ASC', true).all(t, side, d) : levels(side, side === 'bid' ? 'DESC' : 'ASC', false).all(t, side)).map((r) => [cc$(r.p), ufp(r.n)]);
     return { bids: lv('bid'), asks: lv('ask') };
   }
+
   const bookMsg = (t) => ({ market_ticker: String(t).toUpperCase(), ...book(String(t).toUpperCase(), 20), ts_ms: Date.now() });
 
   function stats(m) {

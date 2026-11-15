@@ -12,6 +12,7 @@
 //        • no negative collateral anywhere (free, reserved, margin), also right after liquidations;
 //        • insurance and backstop accounting balances (fund + backstop = liquidation fees − shortfalls; fund ≥ 0);
 //        • every funding event sums to zero across longs and shorts; open interest is symmetric;
+//        • the order-book levels kept by triggers (migration 0010) equal a recount of resting orders;
 //        • after every mark change nothing stays open under maintenance margin (isolated per position, cross per
 //          subaccount).
 const { test, before, after } = require('node:test');
@@ -112,6 +113,10 @@ function invariants(srv, { afterMarkMove = false } = {}) {
   assert.equal(bad, undefined, `funding event not zero-sum: ${JSON.stringify(bad)}`);
   assert.equal(PL.balanceOf(db, PL.H.funding), 0);
   for (const r of db.prepare('SELECT ticker, SUM(qty) s FROM perp_positions GROUP BY ticker').all()) assert.equal(r.s, 0, `open interest of ${r.ticker}`);
+  // (e2) the order-book levels kept by triggers (migration 0010) equal a full recount of resting orders.
+  const levels = db.prepare('SELECT ticker, side, price_cc, units FROM perp_book_levels ORDER BY ticker, side, price_cc').all().map((r) => `${r.ticker}|${r.side}|${r.price_cc}|${r.units}`);
+  const recount = db.prepare("SELECT ticker, side, price_cc, SUM(remaining_count) u FROM perp_orders WHERE status='resting' GROUP BY ticker, side, price_cc HAVING u<>0 ORDER BY ticker, side, price_cc").all().map((r) => `${r.ticker}|${r.side}|${r.price_cc}|${r.u}`);
+  assert.deepEqual(levels, recount, 'perps book levels equal a recount of resting orders');
   // (f) after a mark change nothing stays open under maintenance margin.
   if (afterMarkMove) {
     const markOf = (t) => { const m = q('SELECT index_price, contract_size FROM perp_markets WHERE ticker=?', t); return Math.max(1, Math.round(m.index_price * m.contract_size * 10000)); };
