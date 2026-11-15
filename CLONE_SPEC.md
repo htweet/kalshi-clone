@@ -6737,7 +6737,7 @@ customary terms of public feeds (headline-and-link aggregation with attribution)
 `pending` → `approved` (headline / excerpt edited or not, category, 0–5 events) or `rejected`. Approving writes one
 `cms_news` row per attached event (new columns `url`, `ingest_item_id`), so the item shows in the event page's news list
 (with the publisher link) and feeds the AI summary (§29.6); every approved item shows in its category's news strip
-(`GET /v1/news?category=`, newest first, at most 20). Rejecting an approved item (`content.publish`) removes its rows.
+(`GET /v1/news?category=`, newest first, at most 20; in both category layouts, §42 and the classic Browse). Rejecting an approved item (`content.publish`) removes its rows.
 Bulk approve publishes each item with its own category and no events; bulk reject hides them.
 
 ### 41.4 Auto-written market content

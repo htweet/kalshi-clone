@@ -235,7 +235,7 @@ test('review: approve with an edited headline and an attached event (event page 
   await pub.goto(`${BASE}/category/crypto`);
   await pub.waitForSelector('[data-testid=category-news-item]:has-text("Bitcoin trading volumes")');
   await pub.goto(`${BASE}/category/sports`);
-  await pub.waitForSelector('[data-testid=empty-results], .card');
+  await pub.waitForSelector('[data-testid=empty-results], #results .card');
   assert.equal(await pub.locator('[data-testid=category-news-item]').count(), 0, 'the rejected item is hidden');
   assert.deepEqual((await call('GET', '/v1/news?category=Sports')).body.items, []);
   await H.assertClean(assert, pub);

@@ -13,6 +13,7 @@ import { socket } from '../ws.js';
 import { esc, cents, prob, multiplier, previewPct, eventHref, catFromSlug, catLabel, catColor, scrollMotion, toast } from '../lib.js';
 import { eventCard, evIcon, ocAvatar, multiChart, seriesColor, money0 } from './components.js';
 import { groupIcon, citiesStrip, citiesHtml, gamesStrip, bannerHtml, underlyingHtml } from './category-cards.js';
+import { mountCategoryNews } from './news.js'; // approved publisher news for the category (CLONE_SPEC.md §41)
 
 const FREQ_LABEL = { fifteen_min: 'category.freq.fifteen_min', hourly: 'category.freq.hourly', daily: 'category.freq.daily', weekly: 'category.freq.weekly', monthly: 'category.freq.monthly', annual: 'category.freq.annual', one_off: 'category.freq.one_off' };
 const ORDERS = [['trending', 'category.order.trending'], ['event-volume', 'category.order.volume'], ['newest', 'category.order.newest'], ['closing-soon', 'category.order.closing_soon']];
@@ -82,6 +83,7 @@ export async function render(ctx) {
         <div class="targeted-promos" data-testid="category-promos"></div>
         ${kinds}
         ${data.featured.length ? `<section class="card cp-feat" id="cp-feat" aria-roledescription="${te('category.featured.carousel')}" aria-label="${te('category.featured.label')}" data-testid="cp-featured"></section>` : ''}
+        <section class="news-strip" data-testid="category-news" hidden></section>
         <div class="faint m-count" id="result-count" data-testid="cp-count">${te('category.count', { n: esc(data.total) })}</div>
         <div class="grid cp-grid" id="results">${data.events.map(eventCard).join('') || `<div class="card empty" data-testid="empty-results">${te('category.empty')}</div>`}</div>
         <div class="ta-c mt-16"><button class="btn" id="more" type="button"${data.next_cursor ? '' : ' hidden'}>${te('category.load_more')}</button></div>
@@ -91,6 +93,7 @@ export async function render(ctx) {
   const $ = (s) => el.querySelector(s);
   const cleanups = [];
   import('./social2.js').then((m) => m.renderPromos($('[data-testid=category-promos]'), { category })).catch(() => {}); // targeted promos (G8)
+  mountCategoryNews($('[data-testid=category-news]'), category); // the news strip, as in the classic layout (§41.3)
 
   // ---------- sidebar, tools, layout, load more ----------
   for (const b of el.querySelectorAll('.cp-exp')) b.onclick = () => { const box = document.getElementById(b.getAttribute('aria-controls')); const open = b.getAttribute('aria-expanded') !== 'true'; b.setAttribute('aria-expanded', String(open)); box.hidden = !open; };
