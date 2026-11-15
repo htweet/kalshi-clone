@@ -22,6 +22,7 @@ const { sanitize, safeHref, plainProblem, esc } = require('./sanitize');
 const catalog = require('../content/catalog');
 const pwaContent = require('../content/pwa');
 const { PAGES, FOOTER } = require('../content/pages');
+const { CATEGORIES: HELP_CATEGORIES } = require('../content/help');
 const { createLimiter } = require('../content-rate');
 const { check } = require('../validate');
 const { ApiError, E, newId, nowIso } = require('../util');
@@ -116,6 +117,18 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
       const str = (f, min, max) => { const s = String(v[f] ?? '').trim(); if (s.length < min || s.length > max) errs[f] = min ? `${min}-${max} characters` : `at most ${max} characters`; else { const p = plainProblem(s); if (p) errs[f] = p; else out[f] = s; } };
       str('title', 1, 140); str('seo_title', 0, 90); str('seo_description', 0, 200);
       out.section = ['legal', 'help', 'info'].includes(v.section) ? v.section : PAGES[key]?.section || 'info';
+      if (key.startsWith('help/')) { // help guides (CLONE_SPEC.md §40): topic, one-line summary, order, related guides, hidden
+        out.category = HELP_CATEGORIES.includes(v.category) ? v.category : (v.category ? (errs.category = `one of: ${HELP_CATEGORIES.join(', ')}`, undefined) : PAGES[key]?.category || 'getting-started');
+        str('summary', 0, 240);
+        const pos = Number(v.position ?? PAGES[key]?.position ?? 100);
+        if (!Number.isInteger(pos) || pos < 0 || pos > 9999) errs.position = 'a whole number from 0 to 9999'; else out.position = pos;
+        const rel = Array.isArray(v.related) ? v.related : String(v.related ?? '').split(',');
+        const related = [...new Set(rel.map((x) => String(x).trim().toLowerCase().replace(/^help\//, '')).filter(Boolean))];
+        if (related.length > 6) errs.related = 'at most 6 related guides';
+        else if (related.some((r) => !/^[a-z0-9][a-z0-9-]{0,59}$/.test(r) || `help/${r}` === key)) errs.related = 'guide slugs (lowercase letters, digits and dashes), not this guide';
+        else out.related = related;
+        out.hidden = !!v.hidden;
+      }
       const body = String(v.body ?? '');
       if (body.length > 100000) errs.body = 'at most 100000 characters'; else out.body = sanitize(body, 'page');
       if (Object.keys(errs).length) throw errs;
@@ -198,7 +211,9 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
     const def = PAGES[slug];
     if (!ov && !def) return null;
     const p = ov || def;
-    return { slug, section: p.section || 'info', title: p.title, body: p.body || '', seo_title: p.seo_title || p.title, seo_description: p.seo_description || '', customised: !!ov };
+    const out = { slug, section: p.section || 'info', title: p.title, body: p.body || '', seo_title: p.seo_title || p.title, seo_description: p.seo_description || '', customised: !!ov };
+    if (slug.startsWith('help/')) Object.assign(out, { category: p.category || def?.category || 'getting-started', summary: p.summary ?? def?.summary ?? '', position: p.position ?? def?.position ?? 100, related: p.related || def?.related || [], hidden: !!p.hidden });
+    return out;
   }
   function pageList(preview = false) {
     const m = preview ? store.withDrafts('page') : store.published('page');
@@ -335,7 +350,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   };
   // Help articles (CLONE_SPEC.md §32.7): CMS pages under help/<slug> are served by /v1/help(/:slug) too, after the §18.5
   // help collection (whose own rows keep their markdown-like rendering).
-  app.locals.cmsHelp = { list: () => pageList(false).filter((p) => p.slug.startsWith('help/')).map((p) => ({ slug: p.slug.slice(5), title: p.title })), get: (slug) => { const p = pageOf(`help/${slug}`); return p && p.body ? { ...p, body: sanitize(p.body, 'page') } : null; } };
+  app.locals.cmsHelp = { list: () => pageList(false).filter((p) => p.slug.startsWith('help/') && !p.hidden).map((p) => ({ slug: p.slug.slice(5), title: p.title })), get: (slug) => { const p = pageOf(`help/${slug}`); return p && p.body && !p.hidden ? { ...p, body: sanitize(p.body, 'page') } : null; } };
   v1.get('/pages/:a', pageRoute);
   v1.get('/pages/:a/:b', pageRoute);
   // Classic script loaded before the app modules: strings read while modules evaluate already see the published text.
@@ -551,7 +566,7 @@ function mountCms({ v1, app, db, engine, admin, auth, options = {} }) {
   const timer = setInterval(tick, options.tickMs ?? 1000);
   timer.unref?.();
 
-  return { store, hooks, invalidate: () => { bundleCache.clear(); templateCache.clear(); }, bundle, renderNotification, renderNotificationEmail, renderSystem, templateOverride: (key) => tplOverride(key), mountStatic, pwaConfig, pageTransform, pageOf, brand, mediaMap, close: () => clearInterval(timer), SLOTS, contrast };
+  return { store, hooks, invalidate: () => { bundleCache.clear(); templateCache.clear(); }, bundle, renderNotification, renderNotificationEmail, renderSystem, templateOverride: (key) => tplOverride(key), mountStatic, pwaConfig, pageTransform, pageOf, pageList, brand, mediaMap, close: () => clearInterval(timer), SLOTS, contrast };
 }
 
 module.exports = { mountCms, SLOTS, contrast, BRAND_DEFAULT };

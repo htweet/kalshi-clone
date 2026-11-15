@@ -4,6 +4,8 @@
 // /incentives/terms the page `incentives/terms`, /help/:slug a help article (`help/<slug>`, merged with the help CMS).
 // Bodies are limited rich text (sanitised allowlist: headings, paragraphs, lists, bold, italic, quotes, safe links).
 // Sections: legal (publishing needs a fresh step-up), help, info. The footer columns are data here too.
+const { HELP_PAGES } = require('./help');
+
 const PAGES = {
   'legal/terms': {
     section: 'legal', title: 'Terms of service', seo_title: 'Terms of service · Parlance', seo_description: 'The terms that apply when you use Parlance Exchange, a sandbox demonstration exchange.',
@@ -19,7 +21,8 @@ const PAGES = {
   },
   'support/help-center': {
     section: 'help', title: 'Help center', seo_title: 'Help center · Parlance', seo_description: 'Answers to common questions about trading on Parlance.',
-    body: '<h2>Frequently asked questions</h2><h3>What is an event contract?</h3><p>A contract that pays a fixed amount if an outcome happens, and nothing if it does not.</p><h3>How are fees charged?</h3><p>See the <a href="/support/fees">fee schedule</a>.</p><h3>Is this real money?</h3><p>No. Parlance is a sandbox: every amount is simulated.</p>',
+    // The Help Center home (CLONE_SPEC.md §40) shows this body as its introduction, above search and the topics.
+    body: '<p>Step-by-step guides for everything you can do on Parlance. Search, or pick a topic below.</p>',
   },
   'support/fees': {
     section: 'info', title: 'Fee schedule', seo_title: 'Fee schedule · Parlance', seo_description: 'How trading fees are calculated on Parlance.',
@@ -69,6 +72,7 @@ const PAGES = {
     body: '', // empty: the program's built-in terms (server/incentives.js) are shown until an admin publishes a body
   },
 };
+Object.assign(PAGES, HELP_PAGES); // help/<slug>: the step-by-step guides (server/content/help.js, CLONE_SPEC.md §40)
 // Footer (A18, CLONE_SPEC.md §38.8): Product · Company · Help columns and social links. The social links point at each
 // network's home page until an admin enters Parlance's own handles (Admin › Content › Pages & footer): no handle is invented.
 const FOOTER = {

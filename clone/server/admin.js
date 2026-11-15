@@ -394,18 +394,7 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
     const banners = db.prepare('SELECT * FROM cms_banners WHERE active=1 ORDER BY created_at DESC').all().filter((b) => windowOk(b) && (b.visibility === 'all' || b.visibility === who));
     res.json({ banners: banners.map(bannerVo), nav: navConfig(), features: features(), display_currency: currency.descriptor() });
   });
-  v1.get('/help', (req, res) => {
-    const pages = db.prepare('SELECT slug,title,updated_at FROM cms_help WHERE published=1 AND active=1 ORDER BY position, title').all().map((p) => ({ slug: p.slug, title: p.title, updated_time: p.updated_at }));
-    const seen = new Set(pages.map((p) => p.slug));
-    for (const p of app?.locals?.cmsHelp?.list() || []) if (!seen.has(p.slug)) pages.push({ ...p, format: 'html' }); // CMS help pages (§32.7)
-    res.json({ pages });
-  });
-  v1.get('/help/:slug', (req, res) => {
-    const p = db.prepare('SELECT * FROM cms_help WHERE slug=? AND published=1 AND active=1').get(String(req.params.slug).toLowerCase());
-    if (!p) { const c = app?.locals?.cmsHelp?.get(String(req.params.slug).toLowerCase()); if (c) return res.json({ page: { slug: c.slug.slice(5), title: c.title, html: c.body, format: 'html' } }); }
-    if (!p) throw E.notFound();
-    res.json({ page: { slug: p.slug, title: p.title, body: p.body, updated_time: p.updated_at } });
-  });
+  // /v1/help(/…): the Help Center API moved to server/help-center.js (CLONE_SPEC.md §40).
 
   // User-facing: report a post or comment (spec evidence: social-admin moderation endpoints; reporting is a design choice).
   v1.post('/users/:uid/social/reports', (req, res) => {
@@ -1619,4 +1608,4 @@ function mountAdmin({ v1, app, db, engine, notify, eventFull, rate = {}, rolling
   return { decorateEvent, rolesOf, asUser, requote, can, rollingWindowSec: persistedRollingWindow, audit, deskRow, executeResolve, validateResolve, hooks, setting, putSetting, getMarket };
 }
 
-module.exports = { schema, SCHEMA, mountAdmin, ROLE_PERMS, PERMS, parseCsv, IMPORT_COLUMNS };
+module.exports = { schema, SCHEMA, mountAdmin, ROLE_PERMS, PERMS, parseCsv, IMPORT_COLUMNS, FieldError };

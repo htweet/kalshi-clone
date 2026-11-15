@@ -163,7 +163,24 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.cms.hub.rails_limits_and_providers": "Rails, limits and providers",
   "admin.cms.hub.home_banners_navigation": "Home, banners & navigation",
   "admin.cms.hub.hero_promos_info_cards_news": "Hero, promos, info cards, news, help",
-  "admin.cms.tabs.languages": "Languages"
+  "admin.cms.tabs.languages": "Languages",
+  "admin.cms.tabs.help_feedback": "Help feedback",
+  "admin.cms.page_editor.help_guide": "Help guide",
+  "admin.cms.page_editor.help_topic": "Topic",
+  "admin.cms.page_editor.help_summary": "Summary (one line under the title in lists and search)",
+  "admin.cms.page_editor.help_position": "Order in the topic (smaller first)",
+  "admin.cms.page_editor.help_related": "Related guides (slugs, comma-separated, up to 6)",
+  "admin.cms.page_editor.help_hidden": "Hide this guide from the Help Center",
+  "admin.cms.page_editor.help_body_hint": "Write steps as a numbered list, tips as a quote. For a screenshot add a figure with an image from /help-img/ (captured by npm run help:screenshots) or from the media library (/media/), with alt text and a caption.",
+  "admin.cms.help_feedback.intro": "“Was this guide helpful?” votes from the Help Center. Guides with many No votes need attention: select Edit to improve them.",
+  "admin.cms.help_feedback.guide": "Guide",
+  "admin.cms.help_feedback.yes": "Yes",
+  "admin.cms.help_feedback.no": "No",
+  "admin.cms.help_feedback.helpful": "Helpful",
+  "admin.cms.help_feedback.last_vote": "Last vote",
+  "admin.cms.help_feedback.edit": "Edit",
+  "admin.cms.help_feedback.comments": "Latest comments",
+  "admin.cms.help_feedback.no_comments": "No comments yet."
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

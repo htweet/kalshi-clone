@@ -70,7 +70,8 @@ const EXPECT = {
   'GET /trade-api/v2/series/:ticker': P,
   // (the candlestick route's series parameter is :series_ticker since Phase 7's route registry; classified below)
   // ---- public site data
-  'GET /v1/site_config': P, 'GET /v1/help': P, 'GET /v1/help/:slug': P,
+  'GET /v1/site_config': P, 'GET /v1/help': P, 'GET /v1/help/:slug': P, 'GET /v1/help/search': P, 'POST /v1/help/:slug/feedback': P, // Help Center (CLONE_SPEC.md §40): visitors vote too
+  'GET /v1/admin/help/feedback': perm('content.write'),
   'GET /v1/bff/home': P, 'GET /v1/events/:ticker/related': P, 'GET /v1/live_data/count': P, 'GET /v1/search/series': P,
   'GET /v1/categories': P, 'GET /v1/calendar': P, 'GET /v1/rolling/current': P, 'GET /v1/rolling/determined': P,
   'GET /v1/social/profile': P, 'GET /v1/social/profile/holdings': P, 'GET /v1/social/posts': P, 'GET /v1/social/posts/:pid': P,

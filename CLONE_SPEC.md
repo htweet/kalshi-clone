@@ -6487,6 +6487,79 @@ classes, their days and the last purge. Test: `retention.e2e` (defaults, chat ke
 
 ---
 
+## 40. Help Center with step-by-step guides (owner request 2026-11-15)
+The owner asked for "a detailed Help Center … with a clear step by step user guide". Kalshi's help centre is a hosted
+knowledge base we cannot see from the outside; this is our design (recommended standard for product help: a searchable
+home grouped by topic, task-oriented guides with numbered steps that use the app's own labels, screenshots, "Was this
+helpful?" and a contact path), managed in the CMS.
+
+### 40.1 Routes and views
+| Route | What it shows |
+|---|---|
+| `/help`, `/support/help-center` | Home: the CMS page `support/help-center` as the introduction, search, six topic cards (icon, description, first five guides, "See all N guides"), contact card (Contact support, FAQ, System status). The footer and ☰ menu link keep pointing at `/support/help-center`. |
+| `/help?q=…` | Search results (title, then the summary or a snippet), "Browse all topics". |
+| `/help?topic=<key>` | Every guide in a topic, in order. |
+| `/help/<slug>` | A guide: breadcrumb (Help center › topic), the topic's guides on the left (hidden on phones), title, one-line summary, the body (numbered steps as numbered badges, tips as highlighted quotes, screenshots with captions), "Was this guide helpful?" Yes / No (No opens "What was missing or unclear?"), related guides, search and contact. Unknown or hidden guides show "We couldn't find that guide" with search. |
+
+Topics (`server/content/help.js` `CATEGORIES`; names and descriptions are text-catalog keys `help.category.<key>.*`):
+Getting started, Trading, Money, Account & security, Features, Troubleshooting. Rows of the older help collection
+(`cms_help`, §18.5) still render at `/help/<slug>` and are listed under "More help".
+
+### 40.2 The guides (code defaults, 31)
+Getting started: create-account, verify-identity, how-play-money-works, find-markets, install-the-app.
+Trading: how-prices-work, place-your-first-trade, limit-orders, sell-a-position, manage-open-orders, price-alerts,
+how-markets-settle, trading-fees. Money: add-funds, withdraw-funds, statements-and-documents. Account & security:
+two-factor-login, passkeys, reset-password, secure-your-account, trading-limits, notifications,
+download-or-delete-your-data. Features: elections-hub, rewards-and-referrals, social-profile, api-keys,
+real-money-waitlist. Troubleshooting: request-timed-out, order-rejected, verification-problems.
+
+Every step names the control exactly as the app labels it (collected by walking the running app: e.g. your name ›
+**Account & security** › **Identity & privacy** › **Verify your identity**; ticket **NAIRA ▾** › **Limit order**;
+**Review · Buy Yes** › **Place order**). The suite checks that every in-app link in a guide is a route the app serves.
+
+### 40.3 Content model (CMS)
+Each guide is a CMS page `help/<slug>` (Admin › Content › Pages): title, SEO title / description, body, and help fields
+`category` (one of the topics), `summary` (≤ 240 characters), `position` (order in the topic), `related` (≤ 6 guide
+slugs; the page fills up to three from the same topic) and `hidden` (unpublish without deleting). Drafts, preview
+(`?cms_preview=1`), publish with a reason, scheduling, history and rollback are the CMS's own (§32). New guides: New
+page with a `help/…` slug; the editor shows the help fields as soon as the slug starts with `help/`.
+
+Screenshots: the page allowlist (server/cms/sanitize.js) now accepts `figure`, `figcaption` and `img`; an image keeps
+only `src` — `/help-img/<name>.(jpg|png|webp)` or a media-library upload `/media/<id>.(png|jpg)` — and plain `alt`, and
+is emitted with `loading="lazy" decoding="async"`; any other source (another site, `javascript:`, `data:`) drops the
+image, and every other attribute is dropped. `/help-img/*` is served from `public/help-img` (image types only, one day
+of caching). `npm run help:screenshots [names…]` starts Parlance on a temporary database, walks each guide's flow in
+Chromium as a new member (sign-up, deposit, a trade, a limit order, selling, settings pages) and rewrites the JPEGs, so
+the pictures can be refreshed whenever a screen changes; the guides keep their paths.
+
+### 40.4 Feedback ("Was this helpful?")
+Table `help_feedback` (migration 0005): one row per guide and voter — `u:<user id>` for a member, `a:` + SHA-256 of a
+random token the visitor's browser keeps for a signed-out visitor (no IP address or other personal data) — with
+`helpful`, an optional plain-text comment (≤ 500 characters, markup refused) and times. A later vote replaces the earlier
+one. The guide page shows the visitor's own vote after a reload. Admin › Content › Help feedback
+(`GET /v1/admin/help/feedback`, `content.write`): per guide Yes / No / % helpful / last vote, newest first comments, and
+an Edit button that opens the guide in the page editor.
+
+### 40.5 API
+`GET /v1/help` (topics and guides: slug, title, category, summary, position; hidden left out), `GET /v1/help/search?q=`
+(words in titles count most, then summaries, then bodies; all words found and the whole phrase in a title rank higher;
+top 20 with a snippet), `GET /v1/help/:slug` (sanitised HTML, topic, related, `your_vote`), `POST /v1/help/:slug/feedback`
+(`{helpful, comment?, voter?}`; 201 new, 200 replaced; public, rate-limited like other writes). Search engines: `/help`
+and every guide are server-rendered for crawlers (breadcrumb structured data on guides) and listed in
+`/sitemaps/pages.xml`; hidden guides are left out of both.
+
+### 40.6 Verification
+`help-center.e2e` (real server + SQLite + Chromium): every guide has a summary, related guides that exist and steps; every
+in-app link resolves to a guide or an app route; every screenshot exists, is served as an image and is not empty; search;
+a visitor reaches the Help Center from the footer, searches, opens a guide (breadcrumb, steps, loaded screenshot, related,
+contact), votes No with a comment (stored with a hashed token, kept after a reload); topic page; no results; phone width
+without sideways scroll; a member's changed vote replaces the first (one row); invalid votes and markup refused; a
+publisher changes a guide's summary, topic and related guides and hides another in Admin › Content › Pages (lists,
+search, the guide page and the sitemap follow); Help feedback report; unsafe images dropped when saved; a bad topic
+refused; everything kept after a restart; crawler rendering and the sitemap.
+
+---
+
 ## Appendix A. Evidence per view (requests and scripts)
 
 | View | Requests (observed or recovered) | Scripts (chunk → string) |

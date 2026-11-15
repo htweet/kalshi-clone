@@ -332,6 +332,9 @@ function createSecurity({ app, db, rate, parseCookies, options = {} }) {
       target.use('/fonts', onlyExt(['.woff2', '.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400')));
     }
     target.use('/fonts', onlyExt(['.txt']), express.static(path.join(PUBLIC, 'fonts'), staticOpts('public, max-age=86400'))); // OFL licences
+    // Help Center screenshots (CLONE_SPEC.md §40), captured by `npm run help:screenshots`; a day of caching (they are
+    // replaced in place when the screens change).
+    target.use('/help-img', onlyExt(['.jpg', '.png', '.webp']), express.static(path.join(PUBLIC, 'help-img'), staticOpts('public, max-age=86400')));
     // The manifest is built from the CMS brand and app-icon slot when present (CLONE_SPEC.md §32.8), else PWA_CONFIG.
     mountPwaStatic(target, { assets, notFound, config: () => (app.locals.pwaConfig ? app.locals.pwaConfig() : pwaConfigDefault) }); // /manifest.webmanifest, /sw.js, /offline.html, /icons/* (CLONE_SPEC §31)
     target.use(spa);
