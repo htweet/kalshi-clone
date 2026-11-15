@@ -76,6 +76,7 @@ ${fig('identity-phone.jpg', 'The verification step asking for your phone number 
 <li>On <b>Browse Markets</b>, switch between grid and list views and filter by how often markets close.</li>
 <li>To search, type a word (for example <i>Lagos</i>) in the search box and press Enter.</li>
 <li>Select <b>Live</b> for markets with games and events happening now, or open <b>More</b> › <b>Calendar</b> for what closes next.</li>
+<li>Each category page lists its markets with filters on the left; see <a href="/help/browse-a-category">Browse a category page</a>.</li>
 </ol>
 ${fig('browse.jpg', 'The Browse Markets page showing market cards with prices', 'Browse Markets.')}
 <h2>Build a watchlist</h2>
@@ -131,7 +132,7 @@ ${fig('browse.jpg', 'The Browse Markets page showing market cards with prices', 
 ${fig('ticket-buy.jpg', 'The trade ticket with BUY selected, YES chosen, an amount entered and the Review button', 'The trade ticket, ready to review.')}
 <h2>What happens next</h2>
 <ul><li>A message confirms how many contracts were filled. Your position appears under <b>Portfolio</b> › <b>Positions</b>.</li><li>If not everything can be filled at once, the rest waits as a resting order. See <a href="/help/manage-open-orders">Manage open orders</a>.</li></ul>
-<blockquote>Prefer to buy a set number of contracts or name your own price? Open the <b>NAIRA ▾</b> menu in the ticket and choose <b>Contracts</b> or <b>Limit order</b>.</blockquote>`,
+<blockquote>Prefer to buy a set number of contracts or name your own price? Open the <b>NAIRA ▾</b> menu in the ticket and choose <b>Contracts</b> or <b>Limit order</b>. Trading often? See <a href="/help/one-click-trading">Trade with 1-Click</a>.</blockquote>`,
   },
   'limit-orders': {
     category: 'trading', position: 30, title: 'Use limit orders',
@@ -481,6 +482,96 @@ ${fig('rewards.jpg', 'The Rewards page with Refer a friend and Promo codes', 'Re
 <li><b>Out of attempts</b>: the screen shows how many attempts are left. When none are left, <a href="/support/contact">contact support</a>.</li>
 <li><b>QR code expired</b>: the code works once and expires in 10 minutes. Start again, or select <b>Continue on this device instead</b>.</li>
 </ul>`,
+  },
+
+  // ------------------------------------------------------------------ Added 2026-11-15 (Pro terminal, 1-Click, view mode, category pages, 15-minute markets, news)
+  'browse-a-category': {
+    category: 'getting-started', position: 45, title: 'Browse a category page',
+    summary: 'Filter a category by how often markets close, flip through featured markets and trade from the list.',
+    related: ['find-markets', 'how-prices-work', 'place-your-first-trade'],
+    body: `<ol>
+<li>Pick a category in the strip under the header, for example <b>Economics</b> or <b>Climate</b>.</li>
+<li>On the left, choose <b>All markets</b> or how often markets close (for example <b>Daily</b> or <b>Weekly</b>), then a group such as a series or a state. The number beside each shows how many markets are open.</li>
+<li>At the top, the featured market shows <b>Market</b>, <b>Pays out</b> and <b>Odds</b> for its leading outcomes, with a price chart. Use ‹ › to move between featured markets (<b>1 of 3</b>).</li>
+<li><b>Pays out</b> is what ₦1 returns if you are right: 2.50x means ₦2.50 back for every ₦1. Select an <b>Odds</b> button to open the trade ticket for that outcome.</li>
+<li>Scroll for every market in the category. Change the order with <b>Trending</b> or <b>Volume</b>, and use <b>Frequency</b> to narrow the list.</li>
+</ol>
+<h2>Good to know</h2>
+<ul><li><b>Climate</b> shows <b>Top cities</b> with today’s and tomorrow’s temperature markets; <b>Sports</b> shows the day’s <b>Games</b> at the top.</li><li>On a phone the groups on the left become a row you can scroll.</li><li>Some categories show a short banner; select <b>Dismiss</b> to hide it.</li></ul>`,
+  },
+  'one-click-trading': {
+    category: 'trading', position: 25, title: 'Trade with 1-Click',
+    summary: 'Place orders straight from the ticket, without the review step. Off until you turn it on.',
+    related: ['place-your-first-trade', 'use-the-pro-terminal', 'trading-limits'],
+    body: `<p>Every order shows a review step first. If you trade often you can turn that step off. It stays off until you choose otherwise, and it applies to the trade ticket and the Pro terminal alike.</p>
+<h2>Turn it on</h2>
+<ol>
+<li>Open any market and, in the trade ticket, open the <b>NAIRA ▾</b> menu.</li>
+<li>Switch on <b>Submit order with 1-Click</b>.</li>
+<li>Read the confirmation and select <b>Turn on 1-Click</b>. You are asked only the first time.</li>
+<li>The main button now reads <b>⚡ Buy with 1-Click</b> (or <b>⚡ Sell with 1-Click</b>): one press places the order.</li>
+</ol>
+<h2>Turn it off</h2>
+<ol><li>Open the <b>NAIRA ▾</b> menu again and switch <b>Submit order with 1-Click</b> off. The review step is back at once.</li></ol>
+<blockquote>Your limits, identity checks and security confirmations still apply to every order. If the switch is missing, the exchange has turned 1-Click off for everyone and every order is reviewed.</blockquote>`,
+  },
+  'use-the-pro-terminal': {
+    category: 'features', position: 5, title: 'Use the Pro terminal',
+    summary: 'A screener, order book, charts and a fast ticket on one screen, for active traders.',
+    related: ['one-click-trading', 'choose-your-home-view', 'limit-orders'],
+    body: `<p>Open <b>Pro</b> in the top menu. The terminal puts everything for active trading on one screen: <b>Screener</b>, <b>Chart</b>, <b>Order book</b>, <b>Quick ticket</b>, <b>Open orders</b>, <b>Positions</b>, <b>Recent trades</b> and <b>Price alerts</b>.</p>
+<h2>Find markets with the screener</h2>
+<ol>
+<li>Choose a <b>Category</b>, when markets <b>Close</b> (for example <b>Within 7 days</b>), a <b>Min volume</b>, a <b>Max spread</b> and a <b>Min 24h move</b>, then select <b>Apply</b>.</li>
+<li>Sort by any column (Bid, Ask, Last, 24h, Volume, Spread, Closes) by selecting its heading.</li>
+<li>To keep the filters, enter a <b>Screen name</b> and select <b>Save screen</b>. Pick it again later from the saved screens list.</li>
+</ol>
+<h2>Trade</h2>
+<ol>
+<li>Select a market in the screener. The chart, order book and ticket switch to it.</li>
+<li>In the <b>Order book</b>, select a price to load the <b>Quick ticket</b> at that price.</li>
+<li>Choose <b>Buy</b> or <b>Sell</b>, <b>Yes</b> or <b>No</b>, <b>Limit</b> or <b>Market</b>, and the number of <b>Contracts</b>.</li>
+<li>Select <b>Review</b>, check the order, and place it. With <a href="/help/one-click-trading">one-click trading</a> on, the order is placed at once.</li>
+</ol>
+<h2>Keyboard shortcuts</h2>
+<ul><li><b>B</b> buy, <b>S</b> sell, <b>Y</b> / <b>N</b> side, <b>Enter</b> review, <b>Esc</b> cancel. Shortcuts pause while you type in a field.</li></ul>
+<h2>Arrange the screen</h2>
+<ol><li>Drag a panel by its handle, or select <b>Layout</b> to move or hide panels.</li><li>Select <b>Reset layout</b> to start again. Your layout and saved screens follow you to any browser you sign in on.</li></ol>`,
+  },
+  'choose-your-home-view': {
+    category: 'account-security', position: 65, title: 'Choose Prediction or Trader view',
+    summary: 'Decide what the home address opens: featured markets and news, or the Pro terminal.',
+    related: ['use-the-pro-terminal', 'notifications'],
+    body: `<ol>
+<li>On the home page, find <b>Customize your view</b> on the right (or go to your name › <b>Settings</b> › <b>Home view</b>).</li>
+<li>Choose <b>Prediction</b> for the home page with featured markets, odds and news.</li>
+<li>Or choose <b>Trader</b>: the home address opens the Pro terminal and the trade ticket starts on limit orders.</li>
+<li>The choice is saved at once and follows you to other browsers. Change it back the same way any time.</li>
+</ol>`,
+  },
+  'fifteen-minute-markets': {
+    category: 'trading', position: 65, title: 'Trade 15-minute markets',
+    summary: 'Will the price be above or below the target when the window closes? A new window opens every 15 minutes.',
+    related: ['how-prices-work', 'how-markets-settle', 'one-click-trading'],
+    body: `<ol>
+<li>On the home page, find <b>15 Min Markets</b>. The red timer shows when the current window closes.</li>
+<li>Each card shows the <b>Target</b> and how far the price is above or below it right now.</li>
+<li>Select <b>Above · N%</b> if you think the price will finish above the target, or <b>Below · N%</b> if below. N% is the market’s chance.</li>
+<li>Choose an amount in the ticket and place the order.</li>
+<li>When the window closes the market settles at once on the price at that moment, and a new window opens.</li>
+</ol>
+<blockquote>These markets move fast. Set a <a href="/help/trading-limits">trading limit</a> if you want a ceiling on what you spend each day.</blockquote>`,
+  },
+  'market-news-and-notes': {
+    category: 'features', position: 60, title: 'Read market news and notes',
+    summary: 'Headlines from Nigerian publishers and Parlance’s notes on each market, reviewed before they appear.',
+    related: ['how-prices-work', 'how-markets-settle', 'find-markets'],
+    body: `<ol>
+<li>Open a market and scroll to <b>About this market</b> for its description, <b>Background</b> and <b>Resolution notes</b>.</li>
+<li>Under the news list, each headline names its publisher. Select it to <b>Read the full story at</b> the publisher’s own site; it opens in a new tab.</li>
+<li>Category pages show <b>In the news</b> with the latest headlines for that category and the markets they relate to.</li>
+</ol>
+<blockquote>News and notes are context, not advice. Every headline and note is reviewed by the Parlance team before it appears, and the market’s <b>Rules</b> alone decide how it settles.</blockquote>`,
   },
 };
 

@@ -6644,13 +6644,14 @@ Topics (`server/content/help.js` `CATEGORIES`; names and descriptions are text-c
 Getting started, Trading, Money, Account & security, Features, Troubleshooting. Rows of the older help collection
 (`cms_help`, §18.5) still render at `/help/<slug>` and are listed under "More help".
 
-### 40.2 The guides (code defaults, 31)
-Getting started: create-account, verify-identity, how-play-money-works, find-markets, install-the-app.
-Trading: how-prices-work, place-your-first-trade, limit-orders, sell-a-position, manage-open-orders, price-alerts,
-how-markets-settle, trading-fees. Money: add-funds, withdraw-funds, statements-and-documents. Account & security:
+### 40.2 The guides (code defaults, 37)
+Getting started: create-account, verify-identity, how-play-money-works, find-markets, browse-a-category, install-the-app.
+Trading: how-prices-work, place-your-first-trade, one-click-trading, limit-orders, sell-a-position, manage-open-orders, price-alerts,
+how-markets-settle, fifteen-minute-markets, trading-fees. Money: add-funds, withdraw-funds, statements-and-documents. Account & security:
 two-factor-login, passkeys, reset-password, secure-your-account, trading-limits, notifications,
-download-or-delete-your-data. Features: elections-hub, rewards-and-referrals, social-profile, api-keys,
-real-money-waitlist. Troubleshooting: request-timed-out, order-rejected, verification-problems.
+choose-your-home-view, download-or-delete-your-data. Features: use-the-pro-terminal, elections-hub, rewards-and-referrals, social-profile, market-news-and-notes, api-keys,
+real-money-waitlist (six added 2026-11-15 for the Pro terminal, 1-Click, the home view, category pages, 15-minute
+markets and market news). Troubleshooting: request-timed-out, order-rejected, verification-problems.
 
 Every step names the control exactly as the app labels it (collected by walking the running app: e.g. your name ›
 **Account & security** › **Identity & privacy** › **Verify your identity**; ticket **NAIRA ▾** › **Limit order**;
