@@ -65,8 +65,9 @@ export const csrf = {
 export const newIdempotencyKey = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`);
 const idem = () => ({ idempotencyKey: newIdempotencyKey() });
 
-export async function request(method, url, body, { raw = false, timeoutMs = 15000, stepUpDone = false, idempotencyKey = null, quietCompliance = false } = {}, retried = false) {
-  const headers = { Accept: 'application/json' };
+// `headers`: extra request headers (the Pro terminal marks an order placed without its review step: X-Plx-One-Click).
+export async function request(method, url, body, { raw = false, timeoutMs = 15000, stepUpDone = false, idempotencyKey = null, quietCompliance = false, headers: extra = null } = {}, retried = false) {
+  const headers = { Accept: 'application/json', ...(extra || {}) };
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const t = csrf.get();
@@ -92,12 +93,12 @@ export async function request(method, url, body, { raw = false, timeoutMs = 1500
   const rotated = res.headers.get('x-csrf-token'); if (rotated) csrf.set(rotated);
   if (raw) return res;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok && !retried && isClientTokenError(res.status, data)) { await refreshClientToken(true); return request(method, url, body, { raw, timeoutMs, stepUpDone, idempotencyKey, quietCompliance }, true); }
+  if (!res.ok && !retried && isClientTokenError(res.status, data)) { await refreshClientToken(true); return request(method, url, body, { raw, timeoutMs, stepUpDone, idempotencyKey, quietCompliance, headers: extra }, true); }
   // Sensitive action: confirm with password / two-factor code in a modal, then retry once (§22.6).
   if (!res.ok && data?.error?.code === 'step_up_required' && !stepUpDone) {
     const { stepUp } = await import('./views/stepup.js');
     await stepUp(new ApiError(res.status, data));
-    return request(method, url, body, { raw, timeoutMs, stepUpDone: true, idempotencyKey, quietCompliance }, retried);
+    return request(method, url, body, { raw, timeoutMs, stepUpDone: true, idempotencyKey, quietCompliance, headers: extra }, retried);
   }
   if (res.status === 401 && data?.error?.code === 'token_authentication_failure') window.dispatchEvent(new Event('parlance:session-ended'));
   // Identity verification / location / closed account (CLONE_SPEC.md §25): one shared explanation dialog.
@@ -139,13 +140,14 @@ export const api = {
   series: (t) => request('GET', `/trade-api/v2/series/${encodeURIComponent(t)}`),
   orderbook: (t) => request('GET', `/trade-api/v2/markets/${encodeURIComponent(t)}/orderbook`),
   trades: (t) => request('GET', `/trade-api/v2/markets/trades${qs({ ticker: t, limit: 20 })}`),
+  market: (t) => request('GET', `/trade-api/v2/markets/${encodeURIComponent(t)}`),
   candles: (s, t, o) => request('GET', `/trade-api/v2/series/${encodeURIComponent(s)}/markets/${encodeURIComponent(t)}/candlesticks${qs(o)}`),
   balance: (uid) => request('GET', u(uid, '/balance')),
   properties: (uid) => request('GET', u(uid, '/properties')),
   setProperties: (uid, properties) => request('PUT', u(uid, '/properties'), { properties }),
   deposit: (uid, amount) => request('POST', u(uid, '/deposits'), { amount_dollars: amount }, idem()),
   withdraw: (uid, amount) => request('POST', u(uid, '/withdrawals'), { amount_dollars: amount }, idem()),
-  submitOrder: (uid, b) => request('POST', u(uid, '/orders'), b, idem()),
+  submitOrder: (uid, b, { oneClick = false } = {}) => request('POST', u(uid, '/orders'), b, { ...idem(), headers: oneClick ? { 'X-Plx-One-Click': '1' } : null }),
   cancelOrder: (uid, oid) => request('DELETE', u(uid, `/orders/${encodeURIComponent(oid)}`)),
   orders: (uid, status) => request('GET', u(uid, `/orders${qs({ status })}`)),
   positions: (uid) => request('GET', u(uid, '/positions')),
@@ -286,5 +288,14 @@ export const api = {
   removeAccountSub: (uid, nickname) => request('DELETE', u(uid, `/notifications/social_account_subscriptions${qs({ nickname })}`)),
   chatPostWith: (uid, t, b) => request('POST', u(uid, `/chat/${encodeURIComponent(t)}/messages`), b),
   chatEdit: (uid, t, id, body) => request('PUT', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}`), { body }),
+  // Pro trading terminal (CLONE_SPEC.md §15.6)
+  proScreener: (o) => request('GET', `/v1/pro/screener${qs(o || {})}`),
+  proCandles: (ticker, tf) => request('GET', `/v1/pro/candles${qs({ ticker, tf })}`),
+  proScreens: (uid) => request('GET', u(uid, '/pro/screens')),
+  proSaveScreen: (uid, b) => request('POST', u(uid, '/pro/screens'), b),
+  proUpdateScreen: (uid, id, b) => request('PUT', u(uid, `/pro/screens/${encodeURIComponent(id)}`), b),
+  proDeleteScreen: (uid, id) => request('DELETE', u(uid, `/pro/screens/${encodeURIComponent(id)}`)),
+  proPrefs: (uid) => request('GET', u(uid, '/pro/preferences')),
+  proSetPrefs: (uid, b) => request('PUT', u(uid, '/pro/preferences'), b),
   chatReact: (uid, t, id, reaction, on) => request(on ? 'PUT' : 'DELETE', u(uid, `/chat/${encodeURIComponent(t)}/messages/${encodeURIComponent(id)}/reactions/${encodeURIComponent(reaction)}`), on ? {} : undefined),
 };

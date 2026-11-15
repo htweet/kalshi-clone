@@ -962,15 +962,83 @@ The engine owns these SQLite tables, created with `CREATE TABLE IF NOT EXISTS`: 
   - At close the window is determined (`yes` if close > target) and then settled by the normal lifecycle.
   - Endpoints: `GET /v1/rolling/current` (window, target, distance, price path) and `GET /v1/rolling/determined`. The Live page shows the card and the latest Determined window; `/live` shows only the live section, while `/calendar` adds the dated sections.
 
-### 15.6 Pro (UNKNOWN content; the nav item is OBSERVED)
+### 15.6 Pro trading terminal (UNKNOWN content on the live site; the nav item is OBSERVED)
 
-The PRO destination was not captured. Design choice: `/pro` is a dense, sortable table of every open market (bid, ask, last, 24h change, volume), updated live over the `ticker` channel, with one-click links to the pre-selected ticket.
+The PRO destination was not captured. Until 2026-11-15 `/pro` was a sortable, live table of the open markets. Since then it
+is the **Pro trading terminal**, our own design (owner-approved 2026-11-15, built on `pro-terminal`). It reuses the
+exchange's own order, amend / cancel, positions, order book, trades and price-alert endpoints and WebSocket channels; what
+it adds lives in `clone/server/pro.js`, migration `0005-pro-terminal`, `clone/public/js/views/pro.js` and `clone/public/pro.css`.
+
+**Panels** (one page, a 12-column grid; on phones one column in the member's order):
+
+| Panel | What it does | Data |
+|---|---|---|
+| Screener | Open markets filtered by category, closing time (24 h / 7 d / 30 d), minimum volume, maximum spread and minimum 24-hour move (both in price units, 64 = ₦64 = 64¢); sortable by market, bid, ask, last, 24 h, volume, spread, close; live over `ticker`. A row selects the market for the other panels; "Trade" opens the event ticket. Filters save as named **screens** per member (at most 50, unique names), and the active screen comes back after a reload or on another browser. | `GET /v1/pro/screener`, `/v1/users/:uid/pro/screens` |
+| Chart | Candlesticks of the YES price with volume bars; timeframes 1H (1-minute candles), 1D (hourly), 1W (4-hourly), ALL (daily, at most two years); the shared hover readout (§15.4) shows open / high / low / close and volume. | `GET /v1/pro/candles` |
+| Order book (ladder) | One row per YES price: YES bids, and NO bids shown at the YES price they offer (100 minus the NO price), with depth bars; the spread between them; live over `orderbook`. Clicking a level loads the quick ticket as a limit at that price (in the ticket side's terms: the NO price on the NO side). | trade API order book + `orderbook` |
+| Quick ticket | Buy / sell, Yes / No, limit / market, price, contracts, cost, fee and payout estimates; the event ticket's **review step** (§28 A7) before every order; step-up rules as everywhere (`api.js`). | `POST /v1/users/:uid/orders` |
+| Open orders | Resting orders of the member: amend (price and total size) and cancel; live over `user_orders` / `fill`. | orders, amend, cancel |
+| Positions | Open positions: **Close at market** (sell the whole position at market) or **Close at bid** (a limit sell of the whole position at the current best bid of the held side). | positions, orders |
+| Recent trades | The selected market's tape, newest first, live over `trade`. | trade API trades + `trade` |
+| Price alerts | The member's alerts on the selected market: create (above / below a whole price) and delete. | §24 price targets |
+
+**Keyboard** (quick ticket): **B** buy, **S** sell, **Y** / **N** side, **Enter** review (or, with one-click on, place),
+**Esc** close the review. Shortcuts are focus-safe: nothing fires while the focus is in an input, select, text area or
+editable element (there Esc only leaves the field), with Ctrl / Cmd / Alt held, while a dialog (step-up, one-click
+confirmation) is open, or while the ticket panel is hidden. Enter on a focused button or link is that control's own
+action, and Enter never confirms an open review: placing a reviewed order takes the Place order button.
+
+**One-click safety rule.** One-click trading (an order placed without the review step) is a per-member preference that is
+**off by default**. Switching it on shows a confirmation ("Place orders without review?") and the server refuses it
+without `confirm: true`; the time of the confirmation is stored. The owner switch `pro.one_click` (Admin › Feature flags,
+recommended on: each member still decides) turns it off for everyone at once: open terminals show the review again live,
+switching it on is refused, and an order the terminal sends without review carries `X-Plx-One-Click: 1`, which the server
+refuses (`403 feature_disabled` while the flag is off, `403 one_click_not_enabled` while the member's preference is off).
+Closing a position from the Positions panel is an explicit one-button action without review, as on Portfolio.
+
+**Layout.** Panels are dragged by their handle (HTML5 drag and drop) or moved with the Layout menu's ↑ / ↓ buttons, and
+shown / hidden there or with each panel's ×; Reset restores the default. Order, hidden panels, chart timeframe and screener
+sort are stored per member in the database and follow the member to another browser; signed-out layouts are not kept.
+
+**Access.** Behind the `pro` flag (default on; off: the managed "not available" page, the nav item hidden, the Pro API
+answers `403 feature_disabled`). Signed-out visitors see the screener, chart, ladder and trades; the ticket, orders,
+positions and alerts panels ask them to sign in.
+
+**Endpoints** (flag `pro`; `pro.one_click` where noted):
+
+| Method and path | Purpose |
+|---|---|
+| `GET /v1/pro/screener?category=&closes_within_hours=&min_volume=&max_spread_cents=&min_move_cents=&query=` | Public. Active markets passing the filters, by volume (at most 300 rows, `total_count`), with bid / ask / last / previous-day price, volume, `spread_cents`, `move_24h_cents`. Unknown or invalid filters: `400 validation_failed` with `fields`. |
+| `GET /v1/pro/candles?ticker=&tf=1H\|1D\|1W\|ALL` | Public. `{ticker, tf, period_seconds, candles:[{start_ts, end_ts, open/high/low/close_dollars, volume_fp, trades}]}`; empty buckets after the first trade carry the previous close with volume 0. |
+| `GET / POST /v1/users/:uid/pro/screens`, `PUT / DELETE /v1/users/:uid/pro/screens/:id` | Saved screens `{name, filters}` (`409 screen_name_taken`, `409 too_many_screens`). |
+| `GET / PUT /v1/users/:uid/pro/preferences` | `{layout:{order, hidden, chart_tf, sort}, active_screen_id, one_click, confirm}`; the answer adds `one_click_available` and `one_click_effective`. `one_click: true` needs `confirm: true` (`400 one_click_confirmation_required`) and the `pro.one_click` flag. |
+| `POST /v1/users/:uid/orders` with `X-Plx-One-Click: 1` | An unreviewed order from the terminal: refused unless `pro.one_click` is on and the member's one-click preference is on. |
+
+**Data model** (migration `0005-pro-terminal`, self-contained): `pro_screens(id, user_id, name, filters_json, created_at,
+updated_at, UNIQUE(user_id, name))`; `pro_prefs(user_id PK, one_click, one_click_confirmed_at, layout_json, active_screen_id,
+updated_at)`; `market_candles(market_ticker, period_s, bucket_ts, open_cc, high_cc, low_cc, close_cc, open_ts, close_ts,
+volume_units, trades, dirty, PK(market_ticker, period_s, bucket_ts)) WITHOUT ROWID`. The candle table holds hourly and
+daily UTC buckets and is kept by triggers on `trades` the way migration 0004 keeps the running volume: an insert updates
+its two buckets in O(1) (open = first trade by time then insert order, close = the last); a row written without a cc price
+is counted when the cc trigger fills it in; an update or delete adjusts volume and count in O(1) and marks the bucket
+`dirty`, and the reader recomputes a dirty bucket from that one hour or day of trades. So no request scans a market's
+history: 1D / 1W / ALL read an index range of `market_candles` (≤ 168 hourly or ≤ 730 daily rows), 1H reads the last hour of
+`trades` through `idx_trades_market`. Existing trades are counted once by the migration. The member's Pro data is in the
+account data export (`pro_terminal`) and cleared by a seed reset.
+
+**Verification:** `clone/tests/pro-terminal.e2e.test.js` (8 scenarios, real server + SQLite + Chromium): candles equal a
+recount for all four timeframes after inserts, the cc fill, an update and deletes, with index-search query plans; screener
+filters and a saved screen restored after a reload; ladder click → ticket price; B / Y / Enter → review → Place order
+creates the order, no shortcut while typing; one-click off by default, confirmation, Enter places at once, and the owner
+switch in Admin turns it off (UI live and API); amend and cancel; close at market and at the bid; alert create / delete;
+layout hide / move / drag stored and restored after a reload and in another browser; signed-out panels and 390 px without
+horizontal scroll; the `pro` flag off; no page errors or CSP violations.
 
 ### 15.7 Clone verification for §15
 
 `clone/tests/redesign.e2e.test.js` has 7 browser scenarios:
 - Shell, MORE menu, dark default; home sections; the Upcoming star persisting to the watchlist.
-- Frequency filter; Pro sort and its links into the ticket.
+- Frequency filter; Pro screener sort and its links into the ticket (the full terminal: §15.6).
 - Head-to-head; `.ics` and CSV downloads and their formats; related events.
 - Dollars buy, SELL netting and the oversell refusal.
 - One interest accrual per day.

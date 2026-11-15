@@ -222,6 +222,9 @@ const STRINGS = {
   'flag.ops.traces': 'Request traces (OpenTelemetry format) for slow-request analysis, sampled by the trace-sampling setting. Recommended: off.',
   'flag.ops.backups': 'The backup schedule and continuous WAL shipping. Recommended: on (off turns the backup check red).',
   'flag.ops.alerts': 'Alert evaluation and delivery to the confirmed contacts. Recommended: on.',
+  // Pro trading terminal (CLONE_SPEC.md §15.6).
+  'flag.pro': 'The Pro trading terminal at /pro: screener with saved screens, order-book ladder, candlestick charts, quick ticket with keyboard shortcuts, open orders, positions, trades and price alerts in one arrangeable layout. Signed-out visitors see the screener and charts. Recommended: on.',
+  'flag.pro.one_click': 'One-click trading in the Pro terminal: a member who switches it on (off by default, confirmed once each time) places orders without the review step. Off: every Pro order shows the review step again, for everyone. Recommended: on (each member still decides for themselves).',
 };
 
 const s = catalog.scoped('server.switches.', STRINGS);

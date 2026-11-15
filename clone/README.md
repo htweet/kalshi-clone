@@ -354,6 +354,21 @@ everything is audited, and the switch catalogue at the bottom lists every featur
 | Content › Languages | Each language (Pidgin, Hausa, Yoruba, Igbo) | off until translated, reviewed and covered |
 | Owner settings › Simulated markets | Simulated trading activity (`simulation.activity`: off / low / normal) | low |
 | Owner settings › Backups | Keep at most this many interval backups (`backups.keep_interval_count`, password) | 8 |
+| Feature flags › Pro trading terminal | The Pro terminal (`pro`) | on |
+| Feature flags › Pro trading terminal | One-click trading, members still opt in (`pro.one_click`) | on |
+
+## Pro trading terminal (owner guide)
+
+`/pro` (nav item PRO) is the terminal for active traders (`../CLONE_SPEC.md` §15.6): a screener whose filters members can
+save as named screens, a live order-book ladder (click a price to load the ticket there), candlestick charts (1H / 1D / 1W /
+ALL), a quick ticket with keyboard shortcuts (B buy, S sell, Y / N side, Enter review, Esc cancel), and open orders,
+positions, recent trades and price alerts below. Members drag panels by their handle or use **Layout** to move, hide and
+reset them; the layout, saved screens and one-click choice are stored in the database and follow them to any browser.
+Every order shows the review step unless the member switches **one-click trading** on in the ticket (off by default, with a
+confirmation each time it is switched on). Two switches in **Admin › Feature flags › Pro trading terminal**: `pro` turns
+the whole terminal off (visitors see "not available", the nav item disappears), `pro.one_click` turns one-click trading off
+for everyone at once — open terminals show the review step again immediately, whatever members chose. Both default to on.
+Wording is in Content › Texts (`pro.…` and `server.pro.…`).
 
 ## Keeping the database small (owner guide)
 

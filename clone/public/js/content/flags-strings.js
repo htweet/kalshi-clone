@@ -18,6 +18,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "flags.feature.social.chat": "Live chat",
   "flags.feature.social.group_chat": "Group chats",
   "flags.feature.watchlist": "Watchlist",
+  "flags.feature.pro": "The Pro terminal",
   "flags.feature.payments.deposits": "Deposits",
   "flags.feature.payments.withdrawals": "Withdrawals",
   "flags.feature.ballot": "Ballot lookup",

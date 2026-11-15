@@ -6,6 +6,7 @@ const { tx } = require('./db');
 const { nowIso, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, encCursor, decCursor } = require('./util');
 const { marketVo, eventVo, orderVo, fillVo } = require('./serialize');
 const { mountFeatures, CATEGORIES } = require('./features');
+const { mountPro } = require('./pro'); // Pro trading terminal (CLONE_SPEC.md §15.6)
 const { perContractFeeCapCc } = require('./engine');
 const P = require('./pricing'); // Phase 5A price grids and centi-cent prices (CLONE_SPEC.md §28)
 const { mountRolling } = require('./rolling');
@@ -208,6 +209,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   // Phase 5D (CLONE_SPEC.md §33): flag admin + bundle, play mode and money controls, Central Bank and the Vault Heist.
   mountFlags({ v1, db, flags, admin, auth, identity: app.locals.identity });
   mountOwnerSettings({ v1, db, os: ownerSettings, admin, auth, flags }); // Admin › Owner settings (CLONE_SPEC.md §38.1)
+  // Pro trading terminal (CLONE_SPEC.md §15.6): screener, candles, saved screens, layout and one-click preferences. Mounted
+  // before the order route: its one-click check runs ahead of POST /users/:uid/orders.
+  app.locals.pro = mountPro({ v1, db, flags, requireUser, eventCards, categories: CATEGORIES });
   app.locals.centralBank = mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, options: centralBankOptions || {} });
   app.locals.playMode = mountPlayMode({ v1, app, db, engine, auth, admin, flags, feat, payments: app.locals.payments, centralBank: app.locals.centralBank, keyDir, options: playModeOptions || {} });
   // Phase 6 (CLONE_SPEC.md §34): margin tiers / risk limits / APY / waitlist / referral settings, the user side of the
