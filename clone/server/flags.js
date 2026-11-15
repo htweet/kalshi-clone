@@ -261,6 +261,7 @@ const MODULE_FLAGS = {
   mountElections: 'elections.hub', // Phase 7B (CLONE_SPEC.md §37)
   mountOwnerSettings: 'core', // ground rule 6 (CLONE_SPEC.md §38.1)
   mountPredictionReferrals: 'referrals.predictions', mountShareLinks: 'share_links', mountSeo: 'ssr', mountI18n: 'i18n', mountReach: 'data_saver', // Phase 8 (§38)
+  mountLanding: 'core', // layout variants (CLONE_SPEC.md §41): their switches are owner settings (layout.*)
   mountOperations: 'core', // Phase 9A (§39): Admin › System, Launch readiness, operating switches (ops.* flags are the modes)
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.

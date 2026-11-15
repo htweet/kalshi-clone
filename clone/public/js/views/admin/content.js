@@ -8,7 +8,7 @@ import { CATEGORIES, catLabel } from '../../lib.js';
 
 // Promo targeting lists are stored as JSON arrays; the form edits them as comma-separated text.
 const listText = (v) => { try { return (Array.isArray(v) ? v : JSON.parse(v || '[]')).join(', '); } catch { return ''; } };
-const TABS = [['hero', ts('admin.content.tabs.hero_carousel')], ['hubs', ts('admin.content.tabs.hubs')], ['promos', ts('admin.content.tabs.promo_cards')], ['banners', ts('admin.content.tabs.site_banner')], ['nav', ts('admin.content.tabs.navigation')], ['info_cards', ts('admin.content.tabs.info_cards')], ['news', ts('admin.content.tabs.news_items')], ['help', ts('admin.content.tabs.help_pages')]];
+const TABS = [['hero', ts('admin.content.tabs.hero_carousel')], ['hubs', ts('admin.content.tabs.hubs')], ['promos', ts('admin.content.tabs.promo_cards')], ['banners', ts('admin.content.tabs.site_banner')], ['nav', ts('admin.content.tabs.navigation')], ['info_cards', ts('admin.content.tabs.info_cards')], ['news', ts('admin.content.tabs.news_items')], ['help', ts('admin.content.tabs.help_pages')], ['landing', ts('admin.content.tabs.landing_page')]];
 const active = (r) => (r.active ? badge('active', 'ok') : badge('off'));
 const windowText = (r) => (r.starts_at || r.ends_at ? `${r.starts_at ? fmtTime(r.starts_at) : '…'} → ${r.ends_at ? fmtTime(r.ends_at) : '…'}` : tx('admin.content.window_text.always'));
 const COLL = {
@@ -23,7 +23,10 @@ const COLL = {
       // Targeting (gap G8, spec §13.11): untargeted cards show on home; series / category cards on those pages.
       { name: 'series_tickers', label: tx('admin.content.coll_promos_fields.show_on_series_tickers_comma'), value: listText(r.series_tickers), placeholder: tx('admin.content.coll_promos_fields.plxcouncil_plxstate'), span: true, hint: tx('admin.content.coll_promos_fields.event_pages_of_these_series') },
       { name: 'categories', label: tx('admin.content.coll_promos_fields.show_on_categories_comma_separated'), value: listText(r.categories), placeholder: tx('admin.content.coll_promos_fields.politics_crypto'), span: true, hint: tx('admin.content.coll_promos_fields.category_pages_show_the_card') },
-      { name: 'hide_logged_out', label: tx('admin.content.coll_promos_fields.hide_from_signed_out_visitors'), type: 'checkbox', value: !!r.hide_logged_out }],
+      { name: 'hide_logged_out', label: tx('admin.content.coll_promos_fields.hide_from_signed_out_visitors'), type: 'checkbox', value: !!r.hide_logged_out },
+      // Layout variants (CLONE_SPEC.md §41): the card's illustration and which home page shows an untargeted card.
+      { name: 'art', label: tx('admin.content.coll_promos_fields.illustration'), type: 'select', options: [['', tx('admin.content.coll_promos_fields.art_none')], ['candles', tx('admin.content.coll_promos_fields.art_candles')], ['coins', tx('admin.content.coll_promos_fields.art_coins')], ['map', tx('admin.content.coll_promos_fields.art_map')], ['bars', tx('admin.content.coll_promos_fields.art_bars')]], value: r.art || '' },
+      { name: 'placement', label: tx('admin.content.coll_promos_fields.placement'), type: 'select', options: [['all', tx('admin.content.coll_promos_fields.placement_all')], ['home', tx('admin.content.coll_promos_fields.placement_home')], ['landing', tx('admin.content.coll_promos_fields.placement_landing')]], value: r.placement || 'all' }],
     cols: [{ key: 'position', label: '#', num: true }, { key: 'title', label: ts('admin.content.coll_promos_cols_label.title'), render: (r) => `<i class="adm-swatch v-bg"${vars({ '--bg': r.color })}></i>${r.overline ? `<span class="faint">${esc(r.overline)} · </span>` : ''}${esc(r.title)}` }, { key: 'link', label: ts('admin.content.coll_promos_cols_label.link') },
       { key: 'series_tickers', label: ts('admin.content.coll_promos_cols_label.targeting'), render: (r) => esc([listText(r.series_tickers), listText(r.categories), r.hide_logged_out ? 'signed-in only' : ''].filter(Boolean).join(' · ') || tx('admin.content.coll_promos_cols_render.home')) }, { key: 'starts_at', label: ts('admin.content.coll_promos_cols_label.window'), render: (r) => esc(windowText(r)) }, { key: 'active', label: 'State', render: active }] },
   banners: { noun: 'banner', hint: ts('admin.content.coll_banners_hint.a_message_bar_in_the'),
@@ -53,6 +56,7 @@ export async function render({ el, parts }) {
   const body = el.querySelector('#ct-body');
   if (tab === 'hero') return renderHero(body);
   if (tab === 'nav') return renderNav(body);
+  if (tab === 'landing') return import('./landing.js').then((m) => m.render(body)); // layout variants (CLONE_SPEC.md §41)
   return renderCollection(body, tab);
 }
 

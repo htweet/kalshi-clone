@@ -60,7 +60,7 @@ export async function render({ el, params, query, navigate }) {
     selected: (query && ev.markets.find((m) => m.ticker === query.get('market'))?.ticker) || ev.markets.find((m) => m.status === 'active')?.ticker || ev.markets[0].ticker,
     side: query && query.get('side') === 'no' ? 'no' : 'yes',
     action: 'buy',
-    mode: MODES.some(([k]) => k === props.ticket_mode) || (props.ticket_mode === 'rfq' && props.rfq_enabled) ? props.ticket_mode : 'dollars',
+    mode: MODES.some(([k]) => k === props.ticket_mode) || (props.ticket_mode === 'rfq' && props.rfq_enabled) ? props.ticket_mode : props.view_mode === 'trader' && MODES.some(([k]) => k === 'limit') ? 'limit' : 'dollars', // Trader mode starts on limit orders (CLONE_SPEC.md §41.3)
     range: RANGES[props.chart_range] ? props.chart_range : '1w',
     bottomTab: TABS.some(([k]) => k === props.event_bottom_tab) ? props.event_bottom_tab : 'ideas',
     book: { yes: new Map(), no: new Map() },

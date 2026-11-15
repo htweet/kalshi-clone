@@ -25,6 +25,7 @@
   --fs-3xl: 28px; --lh-3xl: 34px;
   --fs-4xl: 36px; --lh-4xl: 40px;
   --fs-5xl: 44px; --lh-5xl: 48px;
+  --fs-6xl: 56px; --lh-6xl: 56px;   /* landing page hero titles only (CLONE_SPEC.md §41) */
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;

@@ -29,6 +29,7 @@ const AREA_ROUTES = {
   waitlist: '/waitlist', // Phase 7A (CLONE_SPEC.md §36)
   elections: '/category/elections/nigeria-2027', // Phase 7B (CLONE_SPEC.md §37)
   share: '/browse', referrals: '/rewards', locale: '/', reach: '/account/settings', // Phase 8 (CLONE_SPEC.md §38)
+  landing: '/', 'home-new': '/', // layout variants (CLONE_SPEC.md §41)
 };
 
 function block(src, b, e, file) {

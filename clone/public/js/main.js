@@ -28,7 +28,7 @@ import { site, loadSite, featureGate } from './views/admin/site.js';
 import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (CLONE_SPEC.md §25)
 import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
-import { initFlags, loadFlags, routeFlagOff, unavailableHtml, renderPlayBanner, renderOpsBanner, onFlags, flagOn, playOn } from './flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
+import { initFlags, loadFlags, routeFlagOff, unavailableHtml, renderPlayBanner, renderOpsBanner, onFlags, flagOn, playOn, ownerSetting } from './flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
 import { initLocale, flagsReady } from './locale.js'; // languages, Intl formatting, data saver, referral links (CLONE_SPEC.md §38)
 import { initA11y } from './a11y.js'; // tab semantics on every tab list (WCAG 2.2 AA, CLONE_SPEC.md §38.6)
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
@@ -56,8 +56,28 @@ const waitlistView = lazy(() => import('./views/waitlist.js')); // Phase 7A real
 // Phase 7B elections hub v2 (CLONE_SPEC.md §37): /category/elections/<hub>; an unknown slug falls back to the category tag page.
 const electionsView = { render: (ctx) => import('./views/elections.js').then((m) => m.render({ ...ctx, fallback: browse })) };
 
+// Layout variants (CLONE_SPEC.md §41): the home address shows, per the owner settings, the classic home or the new
+// variant — the landing page for visitors (layout.home_visitors, new by default), the new member home for members
+// (layout.home_members, classic by default). A member in Trader mode (Customize your view / Settings) lands on Pro.
+const landingView = lazy(() => import('./views/landing.js'));
+const homeNewView = lazy(() => import('./views/home-new.js'));
+const rootView = {
+  render: (ctx) => {
+    if (session.user) {
+      if (session.props.view_mode === 'trader') {
+        history.replaceState({}, '', '/pro');
+        drawnFor = '/pro';
+        renderCategoryStrip(new URL(location.href)); markNav(new URL(location.href));
+        return pro.render({ ...ctx, params: {}, query: new URLSearchParams() });
+      }
+      return (ownerSetting('layout.home_members', 'classic') === 'new' ? homeNewView : home).render(ctx);
+    }
+    return (ownerSetting('layout.home_visitors', 'new') === 'new' ? landingView : home).render(ctx);
+  },
+};
+
 const routes = [
-  [/^\/$/, home],
+  [/^\/$/, rootView],
   [/^\/browse$/, browse],
   [/^\/live$/, calendar, () => ({ live: true })],
   [/^\/pro$/, pro],

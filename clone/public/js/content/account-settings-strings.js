@@ -68,7 +68,13 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "account-settings.render.collateral_return": "Collateral return",
   "account-settings.render.get_cash_back_early_for": "Get cash back early for hedged positions on mutually exclusive outcomes.",
   "account-settings.render.create_and_respond_to_request": "Create and respond to “Request for quotes”",
-  "account-settings.render.ask_market_makers_for_a": "Ask market makers for a price on combos and large orders, and answer other traders’ requests."
+  "account-settings.render.ask_market_makers_for_a": "Ask market makers for a price on combos and large orders, and answer other traders’ requests.",
+  "account-settings.render.home_view": "Home view",
+  "account-settings.render.home_view_help": "Choose what opens when you go to the home page. The same choice is on the home page's Customize your view card.",
+  "account-settings.render.prediction": "Prediction",
+  "account-settings.render.prediction_hint": "The home page with featured markets, odds and news.",
+  "account-settings.render.trader": "Trader",
+  "account-settings.render.trader_hint": "The home address opens the Pro screener, and the ticket starts on limit orders."
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);
