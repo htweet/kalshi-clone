@@ -30,6 +30,7 @@ const AREA_ROUTES = {
   elections: '/category/elections/nigeria-2027', // Phase 7B (CLONE_SPEC.md §37)
   share: '/browse', referrals: '/rewards', locale: '/', reach: '/account/settings', // Phase 8 (CLONE_SPEC.md §38)
   news: '/browse', // content operations: category news strip, event news and market content (CLONE_SPEC.md §41)
+  category: '/category/economics', // category pages (CLONE_SPEC.md §42)
 };
 
 function block(src, b, e, file) {
@@ -55,6 +56,7 @@ function serverModules() {
   out.push(['ops', require('../content/ops').STRINGS]); // Phase 9A: operating switches, Admin › System, Launch readiness, alerts (CLONE_SPEC.md §39)
   out.push(['content_queue', require('../content/content-queue').STRINGS]); // content operations: the template generator's wording (CLONE_SPEC.md §41)
   out.push(['pro', require('../content/pro').STRINGS]); // Pro trading terminal (CLONE_SPEC.md §15.6)
+  out.push(['category_pages', require('../content/category-pages').STRINGS]); // category pages (CLONE_SPEC.md §42)
   return out;
 }
 

@@ -6802,6 +6802,98 @@ generic; a feed host that resolves to a public address may still serve slowly up
 
 ---
 
+## 42. Category pages (owner request 2026-11-15)
+The owner asked for "new category pages" with eleven screenshots of the live site's category pages, signed out, dark
+theme (Finance, Mentions, Economics, Climate with a Top-cities strip, Commodities with an underlying-price chart, Crypto
+with a banner and an up/down window, Culture, Politics, Sports with a games strip and a docked ticket, the ticket's mode
+menu, Elections). Built from those screenshots only; our own catalogue, art and wording; naira and WAT. Mentions and
+Commodities are not Parlance categories: the commodities variant lives in Finance (`Financials`), mentions are not built.
+
+### 42.1 Layout (`/category/<slug>`, `/category/<slug>/<tag>`)
+| Part | What it shows |
+|---|---|
+| Sidebar | **All markets (N)**, one link per frequency that has open events (15 min, Hourly, Daily, Weekly, Monthly, Annual, One time) with counts; a divider; the groups (icon, label, count, ▾ to show or hide its series with their counts); on Sports a **Featured** list of featured leagues; the hub link (Economics → Rates outlook hub, Elections → Elections hub, Sports → Live scores, Crypto → Invest ↗). At ≤ 900 px it is one row of chips that scrolls sideways (series and ▾ hidden). |
+| Head | Condensed title; **Trending ▾** (Trending = last 24 hours of volume, Volume, Newest, Closing soon; saved per member as before), **Frequency ▾**, **⋯** (Status: Open, Upcoming, Closed, Settled, All), grid / list (saved per member); Sports adds ⚙ (display settings). |
+| Featured carousel | Shown on the unfiltered page. Series icon (category colour + initial, or the CMS category icon) and uppercase series name, "1 of N" with ‹ › (wraps), title, table **Market · Pays out · Odds**: up to four outcomes by chance, optional initials avatar in the outcome colour, a coloured underline as long as the chance, the multiplier **1 / YES ask** (`multiplier()`, §11.1), the % pill (preview price setting) linking to the event ticket for that outcome; "₦N vol" and "N more" (or "Trade"). Right side: legend (dot, name, bold %), the Parlance wordmark and the week's multi-line chart (candlesticks API, hover readout, text alternative) — or the underlying panel (41.3). |
+| Cards | Two columns of the shared market card (icon, title, LIVE with red dot or the close date, two outcomes with underline, multiplier and % pill, volume); one column at ≤ 900 px; "N events"; Load more (24 a page). |
+| Strips | Climate: **Top cities** (41.4). Sports: games grouped by league, "GPL 2 OF 4", LIVE or "15 Nov @ 13:54", two or three teams with generated badges and %, ‹ ›. Sports also has kind chips **Games (N) · Spreads & totals (N) · Futures (N)**. |
+| Banner | Per category, dismissible (×); Crypto by default: "Understanding Invest … Get started (/perps) · Learn about Invest". |
+| Docked ticket | Sports, ≥ 1200 px: a right column with **Combo** (the combos builder) and the event page's own ticket (41.5). |
+
+Live: the page subscribes to the public `ticker` channel and updates every pill, the Up/Down pair, multipliers, the
+legend and the chart's end points without a reload; the underlying panel re-reads every 15 s while visible. Targeted
+promos (G8) keep their slot under the title. Light and dark themes; WCAG 2.2 AA (axe in the suite).
+
+### 42.2 Data: `GET /v1/bff/category/:slug`
+One request: `layout`, `filters`, `sidebar` {all, frequencies, groups (id, label, icon, type, count, children), hub},
+`featured` (events with `underlying`), `carousel_size`, `events` (one page), `total`, `next_cursor`, `top_cities`,
+`sports` {strip, featured_leagues, kinds}, `banner`, `docked_ticket`, `outcome_avatars`. Query: `status`, `frequency`,
+`order_by`, `series`, `tag`, `group`, `kind`, `cursor` (a cursor returns only the next page). Every query is bounded and
+indexed (migration 0009 indexes events and series by category): counts by `GROUP BY` on the category's events, volumes
+from the running totals `market_volume` / `market_volume_hourly` (never a market's trade history), at most 200
+candidates for the automatic featured pick, 24 cards per page. Sidebar counts follow the status filter only, so "All
+markets (N)" never shrinks under a frequency filter. `GET /v1/bff/category/:slug/underlying/:event` refreshes the panel;
+`POST /v1/bff/category/:slug/banner/dismiss` stores a member's dismissal.
+
+### 42.3 Underlying price
+- **Strike** (a ladder with strikes, e.g. Harbor crude): price now (`₦8,856` by the ×100 display rule), ▲/▼ change over 24
+  hours, "updated N ago", a price chart (right-hand price axis, dotted grid, date axis) and the leading outcome's strike
+  as a dashed labelled line ("₦9,001 or above"). History in `underlying_prices` (invented index; a point a minute, 30 days kept).
+- **Target** (the rolling PLX 15-minute window, §15.6): rows **Up** (YES) and **Down** (NO, pays 1 / NO ask, pill opens
+  the NO side); "TO BEAT" the window's target and open time, "NOW" the index with the gap in naira and %, an area chart
+  since the window opened with a dashed **Target** line labelled with the % gap. Data from `flash_windows` / `flash_prices`.
+
+### 42.4 Invented seed markets (`npm start`; tests opt in with `categoryPages: { seed: true }`)
+- Climate: six Nigerian cities (Lagos, Abuja, Kano, Port Harcourt, Ibadan, Enugu). For each WAT day (today and
+  tomorrow, rolled over hourly) a daily-high event (four mutually exclusive °C brackets, series `PLXHI<city>`) and a rain
+  event (series `PLXRAINDAY`), with a day of prints and resting liquidity through the engine; listed in
+  `category_city_events`. They close at the end of their WAT day and resolve through the resolution desk like every
+  other seeded market. Top cities card: city, "High", the leading bracket (big), its % pill, "Rain N%"; Today / Tomorrow.
+- Finance: Harbor crude (`PLXCRUDE`, tags Commodities, Oil & Gas): "How high will Harbor crude get by the end of next
+  month?" with four "₦X or above" strikes and its underlying price history.
+Everything is invented (cities are places, not organisations; no weather service, brand or person is named).
+
+### 42.5 Admin controls (ground rule 6)
+- Owner settings (Admin › Owner settings, group Category pages; CMS label/help `server.switches.setting.category.*`):
+  **Category page layout** `category.layout` new | classic (recommended **new**; classic is the earlier Browse layout with
+  chips and filters, kept as it was) and **Featured carousel size** `category.carousel_size` 1–10 (recommended 3). Both
+  public (flag bundle), audited `owner_settings.update`, live on the next page load, kept in `admin_settings`.
+- Admin › Category pages (`content.write`; `GET/PUT /v1/admin/category_pages[/:slug]`), per category, each with its
+  CMS label and help (`server.category_pages.admin.*`) and recommended default: layout (site default / new / classic);
+  carousel size (empty = site default); pinned featured events in order (event tickers or `series:TICKER` = the newest
+  open event of a series, e.g. the current 15-minute window) and never-feature list (the rest: automatic by 24-hour
+  volume, then volume, then newest); sidebar groups automatic (first tag; Elections by office from the country model
+  plus one group per election series and International; Crypto one PLX coin group) or custom (`Label | type:values |
+  glyph or img:<media id> | #colour`, types series, tag, office, country, kind; glyph from a fixed set or a square image
+  from the media library); hub link; Top-cities strip (recommended on for Climate); docked ticket (on for Sports);
+  outcome avatars (on for Politics, Elections, Culture, Sports, Companies); banner (enabled, title, text, two buttons;
+  default texts `server.category_pages.banner.*`; changing it shows it again to everyone who dismissed it). Every save
+  needs a reason, is validated (unknown tickers, other categories' events, off-site links, markup refused with the field
+  named), stored in `category_page_config` (migration 0009, JSON per category) and audited `category_pages.update`;
+  "Reset to recommended" deletes the row. Featured now, the series, the automatic groups and the history are shown.
+- Banner dismissals: members in `category_banner_dismissals` (per banner version), visitors in local storage.
+
+### 42.6 Ticket and one-click
+The % pill links to `<event>?side=yes|no&market=<ticker>`, which opens the event page's ticket on that outcome
+(signed out: "Sign up to trade" → sign-up). With the docked ticket the click is caught and the event view renders in
+**dock mode** (`render({ params: { event, dock: true } })`: only its ticket and position card; the page's other panels
+draw into a detached element), so the dock *is* the event ticket: Dollars / Contracts / Limit, review step, fees. One-click
+trading (screenshot 43) is not built here: it belongs to the Pro terminal branch (per-member preference, off by
+default, owner switch); whatever that branch adds to the event ticket appears in the dock unchanged.
+
+### 42.7 Verification
+`category-pages.e2e` (real server + SQLite + Chromium): sidebar counts equal the database and frequency / series / tag
+links change the list; carousel 1 of 3, ‹ › and wrap, chart, legend = pill, multipliers = 1 / ask, "N more"; pill →
+ticket → a member's order in the database, and the same through the docked ticket on Sports; LIVE and date subtitles,
+kind chips; a trade moves a pill without a reload; crude strike line and price; PLX target to beat, Up/Down;
+Top cities today / tomorrow against the WAT days; banner dismissal (visitor browser, member database); 390 px without
+sideways scroll, light and dark, axe WCAG 2.2 AA, no page errors; Admin › Category pages pin + custom group → visitor,
+audited, after a restart; layout switch classic ↔ new (owner setting) with a per-category override, after a restart.
+Existing suites changed where the page changed: `features` (the Basketball tag link is a sidebar group now),
+`e2e` (waits for the category page), `sports` (sports are sidebar groups).
+
+---
+
 ## Appendix A. Evidence per view (requests and scripts)
 
 | View | Requests (observed or recovered) | Scripts (chunk → string) |

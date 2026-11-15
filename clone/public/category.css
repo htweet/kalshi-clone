@@ -1,0 +1,107 @@
+/* Category pages, new layout (owner request 2026-11-15, CLONE_SPEC.md §42): sidebar, featured carousel, card grid,
+   Top-cities and games strips, banner, underlying-price panel, docked ticket. Tokens only (CLONE_SPEC §27); every
+   dynamic size or colour arrives through data-vars (public/js/dynstyle.js). */
+.cp-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-8); align-items: start; }
+.cp-body.has-dock { grid-template-columns: 220px minmax(0, 1fr) 340px; }
+.cp-main { display: flex; flex-direction: column; gap: var(--space-4); }
+.cp-side { position: sticky; top: calc(var(--header-h) + var(--strip-h) + var(--space-4)); display: flex; flex-direction: column; gap: var(--space-half); max-height: calc(100vh - var(--header-h) - var(--strip-h) - var(--space-8)); overflow-y: auto; padding-right: var(--space-2); }
+.cp-side-link { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-md); padding: 0 var(--space-2); border-radius: var(--rounded-x10); color: var(--text-x10); font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); }
+.cp-side-link:hover { background: var(--fill-x40); }
+.cp-side-link.on { color: var(--brand); }
+.cp-side-link .cnt, .cp-kinds .cnt { color: var(--text-x30); font-weight: var(--fw-regular); }
+.cp-side-h { margin: var(--space-3) var(--space-2) var(--space-1); color: var(--text-x30); }
+.cp-side-hr { width: 100%; margin: var(--space-3) 0; border: 0; border-top: 1px solid var(--line); }
+.cp-group-row { display: flex; align-items: center; }
+.cp-group-row .cp-side-link { flex: 1; min-width: 0; }
+.cp-exp { width: var(--control-sm); height: var(--control-sm); border: 0; border-radius: var(--rounded-x10); background: none; color: var(--text-x30); cursor: pointer; }
+.cp-exp:hover { background: var(--fill-x40); color: var(--text-x10); }
+.cp-exp[aria-expanded=false] { transform: rotate(-90deg); }
+.cp-lbl { min-width: 0; }
+.cp-children { display: flex; flex-direction: column; padding-left: var(--space-4); }
+.cp-children .cp-side-link { min-height: var(--control-sm); font-weight: var(--fw-medium); }
+.cp-gi { display: inline-grid; place-items: center; flex: none; width: 20px; height: 20px; color: var(--color, var(--text-x20)); }
+.cp-gi-img img { width: 20px; height: 20px; border-radius: var(--rounded-x05); object-fit: cover; }
+
+.cp-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
+.cp-head .page-title { margin: 0; font-family: var(--font-display); font-size: var(--fs-4xl); line-height: var(--lh-4xl); font-weight: var(--fw-bold); }
+.cp-tools { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.cp-more { position: relative; }
+.cp-more > summary { list-style: none; cursor: pointer; }
+.cp-more > summary::-webkit-details-marker { display: none; }
+.cp-more-menu { position: absolute; right: 0; top: calc(var(--control-md) + var(--space-1)); z-index: 20; padding: var(--space-3); min-width: 200px; }
+.cp-more-menu .field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.cp-kinds { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+
+/* featured carousel */
+.cp-feat { padding: var(--space-6) var(--space-8); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: var(--space-4) var(--space-8); background: var(--surface-x10); }
+.cp-feat h2 { margin: var(--space-2) 0 0; font-family: var(--font-display); font-size: var(--fs-4xl); line-height: var(--lh-4xl); font-weight: var(--fw-bold); letter-spacing: var(--ls-display); }
+.cp-feat .pill { min-width: 88px; justify-content: center; }
+.cp-feat .oc-av { width: 36px; height: 36px; }
+.cp-body.has-dock .cp-feat { grid-template-columns: minmax(0, 1fr); }
+.cp-feat-right { display: flex; flex-direction: column; gap: var(--space-2); }
+.cp-chart .chart, .cp-und-chart { width: 100%; height: auto; }
+.cp-und-stats { display: flex; align-items: flex-start; gap: var(--space-6); }
+.cp-und-stats > div { display: flex; flex-direction: column; gap: var(--space-half); }
+.cp-und-now { padding-left: var(--space-6); border-left: 1px solid var(--line); }
+.cp-und-big { font-family: var(--font-display); font-size: var(--fs-3xl); line-height: var(--lh-3xl); font-weight: var(--fw-bold); }
+.cp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.cp-grid.list { grid-template-columns: minmax(0, 1fr); }
+
+/* strips above the title */
+.cp-strip { margin-bottom: var(--space-6); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
+.cp-strip-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.cp-strip-games { position: relative; }
+.cp-strip-nav { position: absolute; right: 0; top: calc(-1 * var(--space-1)); display: flex; gap: var(--space-1); }
+.cp-strip-head h2 { margin: 0; font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-bold); }
+.cp-city { flex: 0 0 236px; scroll-snap-align: start; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); background: linear-gradient(135deg, color-mix(in srgb, var(--warn, #f59f00) 18%, var(--surface-x20)), var(--surface-x20) 60%); color: var(--text-x10); }
+.cp-city-name { font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-bold); }
+.cp-city-row { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-2); }
+.cp-city-temp { font-family: var(--font-display); font-size: var(--fs-3xl); line-height: var(--lh-3xl); font-weight: var(--fw-bold); }
+.cp-city-sub { font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.cp-league { flex: 0 0 auto; scroll-snap-align: start; display: flex; flex-direction: column; gap: var(--space-2); }
+.cp-league-h { white-space: nowrap; min-height: var(--control-sm); display: flex; align-items: center; gap: var(--space-1); }
+.cp-league-cards { display: flex; gap: var(--space-3); }
+.cp-game { width: 236px; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); color: var(--text-x10); }
+.cp-game-when { color: var(--text-x30); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.cp-team { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--fw-semibold); }
+.cp-team-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-badge { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: var(--rounded-pill); background: var(--bg); color: var(--color, #fff); font-size: var(--fs-3xs); line-height: var(--lh-3xs); font-weight: var(--fw-bold); }
+
+/* banner */
+.cp-banner { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-5) var(--space-12) var(--space-5) var(--space-6); background: linear-gradient(100deg, color-mix(in srgb, var(--brand) 22%, var(--surface-x20)), var(--surface-x20) 70%); }
+.cp-banner h2 { margin: 0; font-family: var(--font-display); font-size: var(--fs-3xl); line-height: var(--lh-3xl); font-weight: var(--fw-bold); }
+.cp-banner p { margin: var(--space-1) 0 0; color: var(--text-x20); }
+.cp-banner-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.cp-banner [data-banner-close] { position: absolute; top: var(--space-2); right: var(--space-2); }
+
+/* docked ticket (Sports) */
+.cp-dock-col { position: sticky; top: calc(var(--header-h) + var(--strip-h) + var(--space-4)); display: flex; flex-direction: column; gap: var(--space-3); }
+.cp-combo { width: 100%; justify-content: center; }
+.ev-dock { display: flex; flex-direction: column; gap: var(--space-3); }
+
+@media (max-width: 1199px) {
+  .cp-body.has-dock { grid-template-columns: 220px minmax(0, 1fr); }
+  .cp-dock-col { display: none; }
+}
+@media (max-width: 960px) {
+  .cp-feat { grid-template-columns: minmax(0, 1fr); padding: var(--space-5); }
+  .cp-feat h2 { font-size: var(--fs-3xl); line-height: var(--lh-3xl); }
+}
+/* Tablets and phones: the sidebar becomes a row of chips that scrolls sideways; groups show without their children. */
+@media (max-width: 900px) {
+  .cp-body, .cp-body.has-dock { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .cp-side { position: static; flex-direction: row; align-items: center; max-height: none; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 0 0 var(--space-1); }
+  .cp-side::-webkit-scrollbar { display: none; }
+  .cp-side-link { flex: none; min-height: var(--control-sm); padding: 0 var(--space-3); border: 1px solid var(--line); border-radius: var(--rounded-pill); white-space: nowrap; }
+  .cp-side-link.on { border-color: var(--brand); }
+  .cp-side-h, .cp-side-hr, .cp-exp, .cp-children { display: none; }
+  .cp-group { flex: none; }
+  .cp-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .cp-head .page-title { font-size: var(--fs-3xl); line-height: var(--lh-3xl); }
+  .cp-feat { padding: var(--space-4); }
+  .cp-feat .pill { min-width: 64px; }
+  .cp-city, .cp-game { flex-basis: 200px; width: 200px; }
+  .cp-und-now { padding-left: var(--space-3); }
+}

@@ -30,6 +30,11 @@ const REGISTRY = [
   ['data_saver.default_on', 'reach', 'bool', false, { pub: true, where: '/admin/owner_settings' }],
   ['sms.per_user_per_day', 'reach', 'int', 10, { min: 1, max: 100, unit: 'count', stepUp: true, where: '/admin/owner_settings' }],
   // Database growth fix (CLONE_SPEC.md §39.17): the built-in liquidity accounts' write rate (server/sim-activity.js).
+  // Category pages (owner request 2026-11-15, CLONE_SPEC.md §42): the layout of /category/<slug> (new or classic; each
+  // category can override it in Admin › Category pages) and the default size of the featured carousel. Public: the page
+  // reads them from the flag bundle, so a change reaches open pages live.
+  ['category.layout', 'category_pages', 'enum', 'new', { values: ['new', 'classic'], pub: true, where: '/admin/category_pages' }],
+  ['category.carousel_size', 'category_pages', 'int', 3, { min: 1, max: 10, unit: 'count', pub: true, where: '/admin/category_pages' }],
   ['simulation.activity', 'simulation', 'enum', 'low', { values: ['off', 'low', 'normal'], where: '/admin/owner_settings' }],
   // Pro page layout (owner request 2026-11-15, CLONE_SPEC.md §15.6): the Pro trading terminal or the classic screener table at /pro.
   ['pro.layout', 'pro', 'enum', 'terminal', { values: ['terminal', 'classic'], pub: true, where: '/admin/owner_settings' }],

@@ -24,6 +24,7 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.sections.catalog": "Catalog",
   "admin.sections.system": "System",
   "admin.sections.launch_readiness": "Launch readiness",
+  "admin.sections.category_pages": "Category pages",
   "admin.sections.resolution_desk": "Resolution desk",
   "admin.sections.content": "Content",
   "admin.sections.market_ops": "Market ops",

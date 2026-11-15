@@ -73,7 +73,7 @@ function listen(server, port, fallback) {
 // npm start), tickMs, news: { allow: ['127.0.0.1:<port>'] (tests: a local fixture feed over http), only (refuse every other
 // host), limits: { timeoutMs, maxBytes, maxRedirects, maxItems }, inline }, ai: { adapter } (tests: a fake provider) }`.
 async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'parlance.db'), rate, tickMs = 1000, rollingWindowSec = Number(process.env.ROLLING_WINDOW_SEC || 900), perps, combos, sports,
-  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, content, waitlists, elections, owner, growth, seo, reach, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src'), ops = {}, logs = false } = {}) {
+  admin, demoPassword = process.env.DEMO_PASSWORD, auth, quiet = false, security, identity, payments, marketsContent, push, cms, flags, playMode, centralBank, api, fix, content, waitlists, elections, categoryPages, owner, growth, seo, reach, env = 'main', demo, assets = process.env.ASSETS || (process.env.NODE_ENV === 'production' ? 'dist' : 'src'), ops = {}, logs = false } = {}) {
   const explicit = port != null || !!process.env.PORT;
   if (port == null) port = process.env.PORT ? Number(process.env.PORT) : defaultPort;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT "${process.env.PORT ?? port}"`);
@@ -104,7 +104,7 @@ async function start({ port, defaultPort = DEFAULT_PORT, dbFile = process.env.DB
   const keyDir = dbFile === ':memory:' ? undefined : path.dirname(path.resolve(dbFile)); // secret.key lives next to the database
   let app; let boot;
   try {
-    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, content, waitlists, elections, owner, growth, seo, reach, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) },
+    app = createApp({ db, engine, rollingWindowSec, perps, combos, sports, auth, keyDir, identity, marketsContent, push, cms, flags, playMode, centralBank, api, content, waitlists, elections, categoryPages, owner, growth, seo, reach, env, payments: { quiet, ...(payments || {}) }, security: { ...(security || {}), assets }, rate: rate || { burst: Number(process.env.RATE_BURST || 300), perSec: Number(process.env.RATE_PER_SEC || 150) },
       dbFile, logger, ops: { ...ops, mediaStorage, backupStorage } });
     srvRef.app = app;
     const envAdmin = process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD ? { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD } : null;
@@ -168,7 +168,7 @@ if (require.main === module) {
   // programmatic start() leaves it off unless `identity: { kycRequired: true }`, KYC_REQUIRED=1 or NODE_ENV=production.
   // Production logs are JSON lines (scrubbed); LOG_FORMAT=pretty for a terminal. Every console line goes through them.
   if (process.env.NODE_ENV === 'production' || process.env.LOG_FORMAT) installConsole(createLogger({ level: process.env.LOG_LEVEL || 'info' }));
-  start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, elections: { seed: true },
+  start({ identity: { kycRequired: process.env.KYC_REQUIRED !== '0' }, sports: process.env.SPORTS === '0' ? false : {}, marketsContent: { seedHubs: true }, elections: { seed: true }, categoryPages: { seed: true },
     flags: process.env.NODE_ENV === 'production' ? undefined : { defaults: { 'elections.simulator': true } }, demo: process.env.DEMO_API === '0' ? null : {}, assets: process.argv.includes('--dev') ? 'src' : (process.env.ASSETS || 'dist'),
     // npm start: the first backup waits 2 minutes, so start-up stays quick.
     ops: { schedule: process.env.BACKUPS !== 'off', firstBackupDelayMs: 120000 },

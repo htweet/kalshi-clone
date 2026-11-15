@@ -358,7 +358,7 @@ test('/sports hub: MORE menu + Sports category links, league tabs, sport chips, 
   await page.waitForSelector('[data-testid=page-error]');
   await page.goto(BASE + '/category/sports');
   await page.waitForSelector('[data-testid=sports-hub-link]:not([hidden])');
-  assert.ok((await page.$$eval('[data-testid=subcategories] a', (els) => els.map((e) => e.textContent))).includes('Soccer'));
+  assert.ok((await page.$$eval('[data-testid=side-group]', (els) => els.map((e) => e.textContent))).some((t) => t.startsWith('Soccer')), 'sports are sidebar groups (CLONE_SPEC.md §42)');
   await page.click('[data-testid=sports-hub-link]');
   await page.waitForURL(BASE + '/sports');
   assert.equal(page.errors.filter((e) => !/Unknown league/.test(e)).length, 0, page.errors.join('\n'));

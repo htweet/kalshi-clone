@@ -113,15 +113,17 @@ test('layout: header nav, 360px card grid, Yes/No buttons preselect the ticket, 
   await page.context().close();
 });
 
-test('browse: grid/list layout persists in the DB, subcategory chips filter, live page', async () => {
+// The category page has the new layout since 2026-11-15 (CLONE_SPEC.md §42): the subcategory (tag) links moved from a
+// chip row to the sidebar groups, which keep the /category/<slug>/<tag> address.
+test('browse: grid/list layout persists in the DB, sidebar tag groups filter, live page', async () => {
   const page = await newPage();
   await signUp(page, erin);
   await page.goto(BASE + '/category/sports');
-  await page.waitForSelector('[data-testid=subcategories] a:has-text("Basketball")');
-  const before = await page.locator('[data-testid=event-card]').count();
-  await page.click('[data-testid=subcategories] a:has-text("Basketball")');
+  await page.waitForSelector('[data-testid=side-group]:has-text("Basketball")');
+  const before = await page.locator('#results [data-testid=event-card]').count();
+  await page.click('[data-testid=side-group]:has-text("Basketball")');
   await page.waitForURL(BASE + '/category/sports/Basketball');
-  await page.waitForFunction(() => document.querySelectorAll('[data-testid=event-card]').length === 1);
+  await page.waitForFunction(() => document.querySelectorAll('#results [data-testid=event-card]').length === 1);
   assert.ok(before > 1);
   assert.match(await page.textContent('[data-testid=event-card] .mcard-title'), /Pro hoops/);
   await page.click('[data-layout=list]');
