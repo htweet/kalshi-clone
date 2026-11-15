@@ -400,6 +400,25 @@ everything is audited, and the switch catalogue at the bottom lists every featur
 | Owner settings › Content operations | Markets per run / minutes between runs (`content.autogen_batch_size`, `content.autogen_interval_minutes`) | 10 / 30 |
 | Owner settings › Content operations | AI provider for market texts / news categories (`content.autogen_use_ai`, `content.news_ai_classify`) | on (when configured) |
 | Owner settings › Content operations | AI provider requests a day (`content.ai_daily_requests`) | 200 |
+| Feature flags › Pro trading terminal | The Pro terminal (`pro`) | on |
+| Feature flags › Trading | One-click trading in the ticket and the Pro terminal, members still opt in (`trading.one_click`) | on |
+| Owner settings › Pro page | What /pro shows: the terminal or the classic screener (`pro.layout`) | terminal |
+
+## Pro trading terminal (owner guide)
+
+`/pro` (nav item PRO) is the terminal for active traders (`../CLONE_SPEC.md` §15.6): a screener whose filters members can
+save as named screens, a live order-book ladder (click a price to load the ticket there), candlestick charts (1H / 1D / 1W /
+ALL), a quick ticket with keyboard shortcuts (B buy, S sell, Y / N side, Enter review, Esc cancel), and open orders,
+positions, recent trades and price alerts below. Members drag panels by their handle or use **Layout** to move, hide and
+reset them; the layout, saved screens and one-click choice are stored in the database and follow them to any browser.
+Every order shows the review step unless the member switches **one-click trading** on — in the terminal's ticket or with
+"Submit order with 1-Click" at the bottom of the trade ticket's mode menu on any market (one setting for both, off by
+default, a confirmation the first time; the button then reads "⚡ Buy with 1-Click"). **Admin › Feature flags › Trading ›
+`trading.one_click`** turns one-click off for everyone at once: the switch disappears and the review step is back
+immediately, whatever members chose. **Admin › Feature flags › `pro`** turns the whole terminal off (visitors see "not
+available", the nav item disappears). **Admin › Owner settings › Pro page layout** (`pro.layout`) shows the earlier
+classic screener table at /pro instead of the terminal (recommended: terminal). All default to the recommendation.
+Wording is in Content › Texts (`pro.…` and `server.pro.…`).
 
 ## Keeping the database small (owner guide)
 

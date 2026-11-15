@@ -174,7 +174,10 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.flags.label.ops.alerts": "Alert delivery",
   "admin.flags.label.content.news_ingest": "News fetching (publisher feeds)",
   "admin.flags.label.content.autogen": "Market content generator",
-  "admin.flags.group.operations": "Operations"
+  "admin.flags.group.operations": "Operations",
+  "admin.flags.label.pro": "Pro trading terminal (/pro)",
+  "admin.flags.label.trading.one_click": "One-click trading in the ticket and the Pro terminal (members opt in)",
+  "admin.flags.group.pro": "Pro trading terminal"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

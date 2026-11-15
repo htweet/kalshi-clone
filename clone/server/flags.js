@@ -149,6 +149,11 @@ const REGISTRY = [
   // and writing market descriptions, background and resolution notes into the review queue (on).
   ['content.news_ingest', 'content', null, 'server'],
   ['content.autogen', 'content', null, 'server'],
+  // Pro trading terminal (owner design 2026-11-15, CLONE_SPEC.md §15.6). trading.one_click is the owner's global switch for
+  // one-click trading (orders without the review step) in the event ticket and the Pro terminal alike; each member still
+  // opts in and confirms once (off by default).
+  ['pro', 'pro', null, 'both'],
+  ['trading.one_click', 'trading', 'trading', 'both'],
 ];
 const FLAGS = new Map(REGISTRY.map(([key, group, parent, scope, def = true]) => [key, { key, group, parent, scope, default: def }]));
 const GROUPS = [...new Set(REGISTRY.map((r) => r[1]))];
@@ -240,6 +245,11 @@ const ROUTE_RULES = {
   // Content operations (CLONE_SPEC.md §41): "Fetch now" and "Generate now" / "Regenerate" follow their job switches.
   'content.news_ingest': [R('POST', /^\/admin\/content_queue\/sources\/[^/]+\/fetch$/, { admin: true })],
   'content.autogen': [R('POST', /^\/admin\/content_queue\/market_content\/(run|regenerate)$/, { admin: true })],
+  // Pro trading terminal (CLONE_SPEC.md §15.6): the screener and candles are public reads. One-click (ticket and terminal)
+  // covers orders sent without review (X-Plx-One-Click: 1), reading the preference and switching it on.
+  pro: [R('GET', /^\/pro\/(screener|candles)$/), R('*', /^\/users\/[^/]+\/pro\//)],
+  'trading.one_click': [R('POST', ORDERS, { when: (req) => typeof req.get === 'function' && req.get('x-plx-one-click') === '1' }), R('PUT', /^\/users\/[^/]+\/pro\/preferences$/, { when: (req) => bodyOf(req).one_click === true }),
+    R('GET', /^\/users\/[^/]+\/one_click$/), R('PUT', /^\/users\/[^/]+\/one_click$/, { when: (req) => bodyOf(req).one_click === true })], // switching it off always works
 };
 // Platform core without a flag: sessions and sign-out, the account and its security, market data and portfolio reads,
 // cancelling orders (always possible), responsible-trading limits, notifications inbox, content, admin. Used by the
@@ -271,6 +281,7 @@ const MODULE_FLAGS = {
   mountPredictionReferrals: 'referrals.predictions', mountShareLinks: 'share_links', mountSeo: 'ssr', mountI18n: 'i18n', mountReach: 'data_saver', // Phase 8 (§38)
   mountOperations: 'core', // Phase 9A (§39): Admin › System, Launch readiness, operating switches (ops.* flags are the modes)
   mountContentQueue: 'core', // content operations (§41): the queues are core; their jobs follow content.news_ingest / content.autogen
+  mountPro: 'pro', // Pro trading terminal (CLONE_SPEC.md §15.6)
 };
 // Background jobs per flag (paused while the flag is globally off). The modules ask jobOn(key) in their tick handlers.
 const JOB_FLAGS = ['trading.rolling', 'combos', 'perps', 'perps.apy', 'perps.referrals', 'sports', 'social', 'social.chat', 'interest', 'incentives', 'notify.email', 'notify.push', 'pwa.push', 'heist', 'central_bank',

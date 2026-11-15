@@ -182,7 +182,16 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "event.render.limit_gtc": " · good til canceled",
   "event.render.trading_unavailable": "Trading is not available right now.",
   "event.share.text": "{title}: {chance}% chance on Parlance",
-  "event.share.position": "Share"
+  "event.share.position": "Share",
+  "event.oneclick.switch": "Submit order with 1-Click",
+  "event.oneclick.buy": "⚡ Buy with 1-Click",
+  "event.oneclick.sell": "⚡ Sell with 1-Click",
+  "event.oneclick.confirm_title": "Submit orders with 1-Click?",
+  "event.oneclick.confirm_body": "With 1-Click on, the trade button places your order immediately: there is no review step to catch a wrong side, price or size. This applies here and in the Pro terminal. You can switch it off at any time in this menu.",
+  "event.oneclick.accept": "Turn on 1-Click",
+  "event.oneclick.cancel": "Keep reviewing",
+  "event.oneclick.turned_on": "1-Click is on",
+  "event.oneclick.turned_off": "1-Click is off"
 } /* CONTENT_JSON_END */;
 export const META = /* CONTENT_META_BEGIN */ {} /* CONTENT_META_END */;
 register(STRINGS, META);

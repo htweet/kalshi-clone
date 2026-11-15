@@ -75,6 +75,13 @@ export async function render({ el, params, query, navigate }) {
   // Order types follow their feature flags (trading.<type>_orders, combos.rfq; CLONE_SPEC.md §33).
   const modes = () => (session.props.rfq_enabled && !isCombo && flagOn('combos.rfq') ? [...MODES, RFQ_MODE] : MODES).filter(([k]) => k === 'rfq' || flagOn(`trading.${k}_orders`));
   const reviewOn = () => flagOn('trading.order_review') && !tp().trade_skip_review; // A7 review step (setting + flag)
+  // 1-Click (owner request 2026-11-15, CLONE_SPEC.md §15.6): "Submit order with 1-Click" in the mode menu places orders
+  // without the review step. One DB preference shared with the Pro terminal, off by default, confirmed the first time it
+  // is switched on; the owner switch `trading.one_click` hides it and brings the review back. The server refuses an
+  // unreviewed order (X-Plx-One-Click) unless both are on; step-up, limits and compliance checks apply as to any order.
+  const ocAvail = () => !!session.user && flagOn('trading.one_click');
+  const oneClickOn = () => ocAvail() && !!(state.oneClick && state.oneClick.one_click && state.oneClick.available);
+  if (ocAvail()) { try { state.oneClick = (await api.oneClick(session.uid)).one_click; } catch { state.oneClick = null; } }
   if (session.user) {
     try { state.watching = (await api.watchlist(session.uid)).events.some((e) => e.event_ticker === ev.event_ticker); } catch { /* ignore */ }
   }
@@ -307,7 +314,8 @@ export async function render({ el, params, query, navigate }) {
     const held = state.held[state.side];
     t.innerHTML = `<div class="tkt-head"><button data-action="buy" class="${!selling ? 'on' : ''}">${te('event.render.buy_2')}</button><button data-action="sell" class="${selling ? 'on' : ''}" data-testid="sell-tab">${te('event.render.sell_2')}</button>
         <div class="mode"><button id="t-mode-btn" data-menu-btn class="on" aria-haspopup="true">${esc(modeLabel(mode, MODE_LIST.find(([k]) => k === mode)[1]).toUpperCase())} ▾</button>
-        <div class="menu mode-menu" id="t-mode-menu" hidden>${MODE_LIST.map(([k, l]) => `<button data-otype="${esc(k)}" ${selling && (k === 'dollars' || k === 'rfq') ? 'disabled' : ''}>${esc(modeLabel(k, l))}</button>`).join('')}</div></div></div>
+        <div class="menu mode-menu" id="t-mode-menu" hidden>${MODE_LIST.map(([k, l]) => `<button data-otype="${esc(k)}" ${selling && (k === 'dollars' || k === 'rfq') ? 'disabled' : ''}>${esc(modeLabel(k, l))}</button>`).join('')}
+          ${ocAvail() && state.oneClick && state.oneClick.available ? `<hr class="mode-sep"><button type="button" role="switch" class="oc-switch" id="t-oneclick" aria-checked="${oneClickOn()}" data-testid="one-click-toggle"><span>${te('event.oneclick.switch')}</span><span class="oc-knob" aria-hidden="true"></span></button>` : ''}</div></div></div>
       <div class="tkt-body">
         <div class="tkt-q">${esc(state.ev.title)}</div>
         <div class="tkt-out">${ocAvatar(m, 'sm')}<h3>${esc(m.yes_sub_title)}</h3></div>
@@ -325,8 +333,8 @@ export async function render({ el, params, query, navigate }) {
         ${isScalar(m) ? `<div class="tkt-scalar faint" data-testid="t-scalar-note">${te('event.render.scalar_yes_pays_value', { fmt_val: esc(fmtVal(m, m.floor_strike)), fmt_val_2: esc(fmtVal(m, m.cap_strike - m.floor_strike)), t: esc(T('ticket.scalar_note_tail', { value: contractValue() })) })}</div>` : ''}
         <div id="t-summary"></div>
         <div class="form-error" id="t-error" role="alert"></div>
-        <div id="t-review"></div>
-        <button class="cta" id="t-submit" data-testid="submit-order">${!session.user ? te('event.render.sign_up_to_trade') : mode === 'rfq' ? te('event.render.request_quote') : `${reviewOn() ? (te('event.render.review') + ' ') : ''}${selling ? te('event.render.sell') : te('event.render.buy')} ${state.side === 'yes' ? te('event.render.yes_2') : te('event.render.no_2')}`}</button>
+        <div id="t-review"></div><div id="t-oneclick-confirm"></div>
+        <button class="cta${oneClickOn() && mode !== 'rfq' ? ' cta-oneclick' : ''}" id="t-submit" data-testid="submit-order" data-one-click="${oneClickOn() && mode !== 'rfq' ? 1 : 0}">${!session.user ? te('event.render.sign_up_to_trade') : mode === 'rfq' ? te('event.render.request_quote') : oneClickOn() ? (selling ? te('event.oneclick.sell') : te('event.oneclick.buy')) : `${reviewOn() ? (te('event.render.review') + ' ') : ''}${selling ? te('event.render.sell') : te('event.render.buy')} ${state.side === 'yes' ? te('event.render.yes_2') : te('event.render.no_2')}`}</button>
         <div id="t-after"></div>
       </div>`;
     for (const b of t.querySelectorAll('[data-side]')) b.onclick = () => { state.side = b.dataset.side; drawRows(); drawTicket(defaultPrice()); };
@@ -335,6 +343,27 @@ export async function render({ el, params, query, navigate }) {
     t.querySelector('#t-mode-btn').onclick = () => { menu.hidden = !menu.hidden; };
     for (const b of t.querySelectorAll('[data-otype]')) {
       b.onclick = () => { state.mode = b.dataset.otype; menu.hidden = true; if (session.user) session.setProp('ticket_mode', state.mode).catch(() => {}); drawTicket(); };
+    }
+    // 1-Click switch: off at once; on directly when confirmed before (here or in the Pro terminal), else after the one-time question.
+    const ocBtn = t.querySelector('#t-oneclick');
+    if (ocBtn) {
+      const setOc = async (body) => {
+        try { state.oneClick = (await api.setOneClick(session.uid, body)).one_click; toast(state.oneClick.one_click ? tx('event.oneclick.turned_on') : tx('event.oneclick.turned_off')); } catch (e) { toast(e.message, 'error'); }
+        t.classList.remove('tkt-focus'); // the confirmation had the ticket to itself
+        drawTicket();
+      };
+      ocBtn.onclick = () => {
+        menu.hidden = true;
+        if (oneClickOn()) { setOc({ one_click: false }); return; }
+        if (state.oneClick && state.oneClick.confirmed_time) { setOc({ one_click: true }); return; }
+        const box = t.querySelector('#t-oneclick-confirm');
+        box.innerHTML = `<section class="tkt-review oc-confirm" role="dialog" aria-labelledby="oc-title" data-testid="one-click-confirm"><h4 id="oc-title">${te('event.oneclick.confirm_title')}</h4><p class="faint">${te('event.oneclick.confirm_body')}</p>
+          <div class="tkt-review-actions"><button class="btn" type="button" data-testid="one-click-cancel">${te('event.oneclick.cancel')}</button><button class="btn btn-primary" type="button" data-testid="one-click-accept">${te('event.oneclick.accept')}</button></div></section>`;
+        focusPanel('#t-oneclick-confirm');
+        box.querySelector('[data-testid=one-click-cancel]').onclick = () => { box.innerHTML = ''; focusPanel(null); };
+        box.querySelector('[data-testid=one-click-accept]').onclick = () => setOc({ one_click: true, confirm: true });
+        box.querySelector('[data-testid=one-click-accept]').focus();
+      };
     }
     t.querySelector('#interest-btn').onclick = async () => {
       if (!session.user) { toast(tx('event.render.cash_and_open_positions_earn')); return; }
@@ -453,14 +482,14 @@ export async function render({ el, params, query, navigate }) {
         } catch (ex) { err.textContent = ex.message; }
       };
     };
-    const place = async (body) => {
+    const place = async (body, oneClick = false) => {
       const btn = t.querySelector('#t-submit');
       const errEl = t.querySelector('#t-error');
       errEl.textContent = '';
       const label = btn.textContent;
       btn.disabled = true; btn.textContent = tx('event.render.submitting');
       try {
-        const r = await api.submitOrder(session.uid, body);
+        const r = await api.submitOrder(session.uid, body, { oneClick });
         const o = r.order;
         if (selling) toast(r.flip ? tx('event.render.flip_sell_closed_opening', { qty: qty(r.flip.closed_fp), qty_2: qty(r.flip.opened_fp), to_upper_case: r.flip.opened_side.toUpperCase(), value: o.status === 'resting' ? tx('event.render.resting', { qty: qty(o.remaining_count_fp) }) : 'filled' }) : tx('event.render.sold', { qty: qty(o.fill_count_fp), to_upper_case: state.side.toUpperCase(), value: o.status === 'resting' ? tx('event.render.listed', { qty: qty(o.remaining_count_fp) }) : '' }));
         else toast(o.status === 'executed' ? tx('event.render.filled', { qty: qty(o.fill_count_fp), to_upper_case: o.side.toUpperCase() }) : o.status === 'resting' ? tx('event.render.order_resting_filled_open', { qty: qty(o.fill_count_fp), qty_2: qty(o.remaining_count_fp) }) : tx('event.render.order_filled', { status: o.status, qty: qty(o.fill_count_fp) }));
@@ -483,7 +512,9 @@ export async function render({ el, params, query, navigate }) {
         return;
       }
       const body = buildBody();
-      if (reviewOn() || (state.review && state.review.flip && mode !== 'dollars')) { showReview(body); return; }
+      const flipAsk = state.review && state.review.flip && mode !== 'dollars'; // a flip sell always asks, 1-Click included
+      if (oneClickOn() && !flipAsk) { await place(body, true); return; }
+      if (reviewOn() || flipAsk) { showReview(body); return; }
       await place(body);
     };
   }

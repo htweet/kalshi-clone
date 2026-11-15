@@ -23,3 +23,13 @@
 /* Review / auto-sell take the ticket over while open (the ticket is sticky; it must not outgrow the viewport). */
 .tkt-focus .tkt-body > * { display: none; }
 .tkt-focus .tkt-body > .tkt-keep { display: block; }
+/* 1-Click (owner request 2026-11-15, CLONE_SPEC.md §15.6): the switch at the foot of the ticket's mode menu and the outlined
+   "⚡ Buy with 1-Click" button that places the order without the review step. */
+.mode-menu .oc-switch { justify-content: space-between; gap: var(--space-3); white-space: nowrap; }
+.oc-knob { position: relative; flex: none; width: 32px; height: 18px; border-radius: var(--rounded-pill); background: var(--fill-x50); }
+.oc-knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-x10); }
+.oc-switch[aria-checked="true"] .oc-knob { background: var(--brand); }
+.oc-switch[aria-checked="true"] .oc-knob::after { left: 16px; }
+.cta.cta-oneclick { background: transparent; color: var(--brand); box-shadow: inset 0 0 0 2px var(--brand); }
+.cta.cta-oneclick:hover { background: var(--brand-x20); }
+.oc-confirm p { margin: 0 0 var(--space-2); font-size: var(--fs-sm); line-height: var(--lh-sm); }

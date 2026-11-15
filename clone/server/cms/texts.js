@@ -54,6 +54,7 @@ function serverModules() {
   out.push(['growth', require('../content/growth').STRINGS]); // Phase 8: referrals, share links, SEO, languages, SMS (CLONE_SPEC.md §38)
   out.push(['ops', require('../content/ops').STRINGS]); // Phase 9A: operating switches, Admin › System, Launch readiness, alerts (CLONE_SPEC.md §39)
   out.push(['content_queue', require('../content/content-queue').STRINGS]); // content operations: the template generator's wording (CLONE_SPEC.md §41)
+  out.push(['pro', require('../content/pro').STRINGS]); // Pro trading terminal (CLONE_SPEC.md §15.6)
   return out;
 }
 

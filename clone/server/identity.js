@@ -689,6 +689,8 @@ function mountIdentity({ v1, app, db, engine, auth, admin, security, notify, key
       account_area: ctx.accountArea ? ctx.accountArea.exportFor(uid) : null,
       // Phase 7A (CLONE_SPEC.md §36): waitlist entries with their consent record and survey answers.
       waitlists: ctx.waitlists ? ctx.waitlists.exportFor(uid) : [],
+      // Pro trading terminal (CLONE_SPEC.md §15.6): layout, one-click preference, saved screens.
+      pro_terminal: has('pro_prefs') ? { preferences: all('SELECT one_click, one_click_confirmed_at, layout_json, active_screen_id, updated_at FROM pro_prefs WHERE user_id=?', uid)[0] || null, screens: all('SELECT id, name, filters_json, created_at, updated_at FROM pro_screens WHERE user_id=? ORDER BY created_at', uid) } : null,
     };
     logEvent(uid, 'data_export', req, {});
     res.setHeader('Content-Disposition', `attachment; filename="parlance-data-${uid.slice(-8)}.json"`);

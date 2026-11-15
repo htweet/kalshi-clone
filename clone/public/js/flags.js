@@ -29,6 +29,7 @@ const ROUTE_FLAGS = [
   [/^\/docs(\/|$)/, 'developer_portal'], [/^\/status$/, 'status_page'], [/^\/account\/api-keys$/, 'api.keys'], // Phase 7 (CLONE_SPEC.md §35)
   [/^\/waitlist(\/confirm)?$/, 'waitlist.launch'], // Phase 7A (CLONE_SPEC.md §36); /waitlist/unsubscribe and /manage always work
   [/^\/category\/elections\/[a-z0-9][a-z0-9-]{2,40}$/, 'elections.hub'], // Phase 7B (CLONE_SPEC.md §37)
+  [/^\/pro$/, 'pro'], // Pro trading terminal (CLONE_SPEC.md §15.6)
 ];
 export function routeFlagOff(pathname) {
   const hit = ROUTE_FLAGS.find(([re, k]) => re.test(pathname) && !flagOn(k));
