@@ -336,10 +336,11 @@ test('admin content pages fit 390 px in light and dark themes', async () => {
   await H.logInUi(page, BASE, ADMIN.email, ADMIN.password);
   await page.waitForSelector('[data-testid=account-menu]');
   for (const theme of ['light', 'dark']) {
-    for (const p of ['/admin/cms', '/admin/cms/texts', '/admin/cms/templates', '/admin/cms/media', '/admin/cms/pages', '/admin/cms/branding', '/admin/cms/transfer', '/legal/terms', '/support/help-center']) {
+    for (const p of ['/admin/cms', '/admin/cms/texts', '/admin/cms/templates', '/admin/cms/media', '/admin/cms/pages', '/admin/cms/help', '/admin/cms/branding', '/admin/cms/transfer', '/legal/terms', '/support/help-center']) {
       await page.goto(BASE + p);
       await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
-      await page.waitForSelector(p.startsWith('/admin') ? '[data-testid^=cms-]' : '[data-testid=cms-page]');
+      // /support/help-center is the Help Center home since 2026-11-15 (CLONE_SPEC.md §40), not a plain CMS page.
+      await page.waitForSelector(p.startsWith('/admin') ? '[data-testid^=cms-]' : p === '/support/help-center' ? '[data-testid=help-topics]' : '[data-testid=cms-page]');
       const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       assert.ok(over <= 0, `${p} (${theme}) overflows by ${over}px`);
     }
