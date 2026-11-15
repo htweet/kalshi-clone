@@ -41,6 +41,7 @@ const MAX_BODY = 8192;
 const MAX_BUFFER = 32768;
 const RAW_RATE = 100; // inbound messages per second per session (burst 2×)
 const TARGETS = { PARLANCE: 'order', PARLANCEDC: 'dropcopy' };
+const RETIRED_KEEP = 500; // final orders a FIX session keeps in memory (see Session.retired)
 const ADMIN_TYPES = new Set(['0', '1', '2', '3', '4', '5', 'A']);
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fix_session_state (session_key TEXT PRIMARY KEY, key_id TEXT NOT NULL, sender_comp_id TEXT NOT NULL, target_comp_id TEXT NOT NULL,
@@ -112,6 +113,7 @@ function parse(buf) {
 function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = null, env = 'main', options = {} }) {
   db.exec(SCHEMA);
   const sessions = new Map(); // id -> Session
+  engine.memory?.set('fix_session_orders', () => { let n = 0; for (const x of sessions.values()) n += x.orders.size + x.clIds.size; return n; });
   let server = null; let boundPort = null; let starting = null;
   const wantPort = options.port != null ? Number(options.port) : process.env.FIX_PORT != null ? Number(process.env.FIX_PORT) : 0;
   const host = options.host || process.env.FIX_HOST || '127.0.0.1'; // FIX_HOST=0.0.0.0 in the container: TLS ends at the proxy (deploy/)
@@ -129,6 +131,12 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       this.tokens = RAW_RATE * 2; this.tokTs = Date.now(); this.badCount = 0; this.msgsIn = 0; this.msgsOut = 0;
       this.orders = new Map(); // order id -> { cl, orig, product, filled, status, price, initial, remaining, known }
       this.clIds = new Set(); this.md = new Map(); this.rfqs = new Map(); this.lastBooks = new Map();
+      // Memory (soak review 2026-11-15, CLONE_SPEC.md §39.20): `orders` kept every order of the session (and a logon
+      // loaded the session key's whole history); `clIds` every ClOrdID sent. Orders that reached a final state leave the
+      // map once RETIRED_KEEP later ones have (late events on them are long over by then; fix_orders keeps the record),
+      // a logon loads only resting orders, and a ClOrdID leaves `clIds` once its order is tracked (the duplicate check
+      // also reads fix_orders).
+      this.retired = [];
       socket.setNoDelay(true);
       socket.on('data', (d) => this.onData(d));
       socket.on('error', () => this.destroy());
@@ -264,7 +272,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       Object.assign(this, { state: 'active', key: { ...k, scopes }, user: db.prepare('SELECT * FROM users WHERE id=?').get(k.user_id), type, sender: v(49), target: v(56), sessionKey, hb, inSeq: row.in_seq, outSeq: row.out_seq, loggedOn: now });
       this.principal = { user: this.user, key: this.key, tier };
       clearTimeout(this.logonTimer);
-      for (const o of db.prepare('SELECT * FROM fix_orders WHERE session_key=?').all(sessionKey)) this.orders.set(o.order_id, { cl: o.cl_ord_id, orig: o.orig_cl_ord_id, product: o.product, known: true, ...this.snapshot(o.order_id, o.product) });
+      for (const o of restingOf(sessionKey)) this.orders.set(o.order_id, { cl: o.cl_ord_id, orig: o.orig_cl_ord_id, product: o.product, known: true, ...this.snapshot(o.order_id, o.product) });
       const gap = seq > this.inSeq;
       if (!gap) { this.inSeq = seq + 1; this.saveIn(); }
       apiKeys.bumpUsage(k.id, 'fix', 1, this.ip);
@@ -332,7 +340,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       if (perp) {
         const body = { ticker: sym.toUpperCase(), side: side === '1' ? 'bid' : 'ask', type: ordType === '1' ? 'market' : 'limit', count: Number(qty), client_order_id: cl, ...(ordType === '2' ? { price: v(44) } : {}), ...(v(1) ? { subaccount: Number(v(1)) } : {}), ...(v(20002) ? { leverage: Number(v(20002)) } : {}), ...(String(v(18) || '').includes('6') ? { post_only: true } : {}), ...(v(20004) ? { order_group_id: v(20004) } : {}) };
         r = await tradeApi.dispatch(this.principal, 'POST', '/perps/orders', body, this.ctx());
-        if (r.status < 400) this.track(r.body.order.order_id, cl, null, 'perps');
+        if (r.status < 400) { this.track(r.body.order.order_id, cl, null, 'perps'); this.clIds.delete(cl); }
       } else {
         const contract = (v(20001) || 'Y').toUpperCase() === 'N' ? 'no' : 'yes';
         const body = { ticker: sym, side: contract, action: side === '1' ? 'buy' : 'sell', type: ordType === '1' ? 'market' : 'limit', count_fp: qty, client_order_id: cl };
@@ -341,7 +349,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
         if (String(v(18) || '').includes('6')) body.post_only = true;
         if (v(20004)) body.order_group_id = v(20004); // an order group made over REST (CLONE_SPEC.md §35.8)
         r = await tradeApi.createOrder(this.principal, body, this.ctx());
-        if (r.status < 400) this.track(r.body.order.order_id, cl, null, 'predictions');
+        if (r.status < 400) { this.track(r.body.order.order_id, cl, null, 'predictions'); this.clIds.delete(cl); }
       }
       if (r.status >= 400) { this.clIds.delete(cl); this.execReject(cl, sym, side, qty, this.errText(r)); }
     }
@@ -349,7 +357,13 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       const cur = this.orders.get(orderId) || { known: false, ...this.snapshot(orderId, product) };
       Object.assign(cur, { cl, orig, product });
       this.orders.set(orderId, cur);
+      this.retire(orderId, cur);
       db.prepare('INSERT INTO fix_orders(order_id,session_key,product,cl_ord_id,orig_cl_ord_id,created_ts) VALUES(?,?,?,?,?,?) ON CONFLICT(order_id,session_key) DO UPDATE SET cl_ord_id=excluded.cl_ord_id, orig_cl_ord_id=excluded.orig_cl_ord_id').run(orderId, this.sessionKey, product, cl, orig, Date.now());
+    }
+    retire(orderId, t) {
+      if (!t || t.retiring || !t.status || t.status === 'resting') return;
+      t.retiring = true; this.retired.push(orderId);
+      while (this.retired.length > RETIRED_KEEP) { const id = this.retired.shift(); const x = this.orders.get(id); if (x && x.status !== 'resting') this.orders.delete(id); else if (x) x.retiring = false; }
     }
     snapshot(orderId, product) {
       if (product === 'perps') { const o = db.prepare('SELECT * FROM perp_orders WHERE id=?').get(orderId); return o ? { filled: o.filled_count, status: o.status, price: o.price_cc, initial: o.initial_count, remaining: o.remaining_count } : {}; }
@@ -456,6 +470,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       if (now.status === 'canceled' && t.status !== 'canceled') this.report(orderId, product, now.status === 'canceled' && this.snapshotReason(orderId, product) === 'expired' ? 'C' : '4');
       else if (now.status === 'resting' && t.status === 'resting' && (now.price !== t.price || now.initial !== t.initial || (now.remaining < t.remaining && now.filled === t.filled))) this.report(orderId, product, '5');
       Object.assign(t, now);
+      this.retire(orderId, t);
     }
     snapshotReason(orderId, product) { try { return (product === 'perps' ? db.prepare('SELECT cancel_reason r FROM perp_orders WHERE id=?') : db.prepare('SELECT cancel_reason r FROM orders WHERE id=?')).get(orderId)?.r; } catch { return null; } }
     onFill(f) {
@@ -467,6 +482,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       const userCc = o && o.action === 'sell' ? P.CC - f.price_cc : f.price_cc;
       this.report(f.order_id, 'predictions', 'F', [[31, P.ccToDollars(userCc)], [32, (f.count / 100).toFixed(2)], [1003, f.trade_id]]);
       Object.assign(t, this.snapshot(f.order_id, 'predictions'));
+      this.retire(f.order_id, t);
     }
     fillsFor(orderId, t) {
       const seen = t.fills || (t.fills = new Set());
@@ -541,6 +557,12 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       this.send('S', [[131, this.rfqs.get(q.rfq_id)], [117, q.id], [55, q.market_ticker], [132, q.yes_bid_dollars || '0'], [133, q.no_bid_dollars ? P.ccToDollars(P.CC - P.ccFromDollars(q.no_bid_dollars)) : '0'], [134, q.yes_contracts_fp || '0'], [135, q.no_contracts_fp || '0']]);
     }
   }
+  // A logon's orders: those of the session key still resting (final ones get no more events).
+  const restingOf = (sessionKey) => {
+    const out = db.prepare("SELECT f.* FROM fix_orders f JOIN orders o ON o.id=f.order_id WHERE f.session_key=? AND f.product='predictions' AND o.status='resting'").all(sessionKey);
+    try { out.push(...db.prepare("SELECT f.* FROM fix_orders f JOIN perp_orders o ON o.id=f.order_id WHERE f.session_key=? AND f.product='perps' AND o.status='resting'").all(sessionKey)); } catch { /* no perps tables */ }
+    return out;
+  };
   const isPerpOrder = (id, uid) => { try { return !!db.prepare('SELECT 1 FROM perp_orders WHERE id=? AND user_id=?').get(id, uid); } catch { return false; } };
 
   // ---------------------------------------------------------------- engine events → sessions

@@ -179,7 +179,9 @@ function mountSocial2({ v1, db, engine, requireUser, can, rolesOf, getFeat, circ
   }
   function evaluate(uid) {
     if (!uid || isSystem(uid)) return;
-    const fills = db.prepare('SELECT COUNT(*) c FROM fills WHERE user_id=?').get(uid).c;
+    // At most 10 rows are counted (the highest threshold): this runs for every trader with a fill, twice a second, and
+    // counting a heavy trader's whole history each time grew with it (soak review 2026-11-15, CLONE_SPEC.md §39.20).
+    const fills = db.prepare('SELECT COUNT(*) c FROM (SELECT 1 FROM fills WHERE user_id=? LIMIT 10)').get(uid).c;
     if (fills >= 1) award(uid, 'first_trade');
     if (fills >= 10) award(uid, 'ten_trades');
     const month = db.prepare('SELECT substr(created_at,1,7) m, SUM(payout_cents-cost_cents) p FROM settlements WHERE user_id=? GROUP BY m HAVING p>0 ORDER BY m LIMIT 1').get(uid);

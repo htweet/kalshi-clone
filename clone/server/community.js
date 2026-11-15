@@ -19,6 +19,7 @@ function mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEven
   let social = null;
   const isMuted = (a, b) => (social ? social.isMuted(a, b) : false);
   const circle = mountCircle({ v1, db, requireUser, rolesOf, getFeat, isMuted });
+  engine.memory?.set('circle_write_buckets', circle.buckets);
   social = mountSocial2({ v1, db, engine, requireUser, can, rolesOf, getFeat, circle, getEvent });
   social.attachFeatures(feat);
   const prefs = mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getFeat, isMuted, webpush });
@@ -27,7 +28,7 @@ function mountCommunity({ v1, app, db, engine, feat, admin, requireUser, getEven
   let chatExtras = null;
   return {
     social, circle, prefs, groups,
-    attachChat(chat) { if (chat && chat.hooks) chatExtras = mountChatExtras({ v1, db, chat, social, requireUser, rolesOf, can }); return chat; },
+    attachChat(chat) { if (chat && chat.hooks) { chatExtras = mountChatExtras({ v1, db, chat, social, requireUser, rolesOf, can }); engine.memory?.set('chat_reaction_buckets', chatExtras.buckets); } return chat; },
     get chatExtras() { return chatExtras; },
   };
 }

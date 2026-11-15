@@ -29,6 +29,9 @@ const CHANNELS = {
   perps: { public: ['orderbook_delta', 'ticker', 'trade'], private: ['fill', 'user_orders', 'order_group_updates', 'market_positions', 'account'] },
 };
 const PATHS = { '/trade-api/ws/v2': 'predictions', '/trade-api/ws/v2/margin': 'perps' };
+// Markets per subscription: `add_markets` could grow one subscription's market set without limit (any string of up to 64
+// characters, 200 per command, 20 commands a second) for as long as the socket stayed open (CLONE_SPEC.md §39.20).
+const MAX_TICKERS = 1000;
 const ERR = { bad_json: [1, 'invalid json'], params: [2, 'params.channels required'], unknown_cmd: [5, 'unknown command'], unknown_channel: [8, 'unknown channel'], ticker_required: [10, 'market_ticker or market_tickers required for this channel'], unknown_sid: [11, 'unknown subscription id'], rate: [12, 'command rate exceeded'], too_many: [13, 'too many subscriptions'] };
 const HEARTBEAT_MS = 10000;
 
@@ -64,6 +67,7 @@ function attachTradeWs({ db, engine, apiKeys, flags, tradeApi, registry, env = '
   declareChannels(registry);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   const clients = new Set();
+  engine.memory?.set(env === 'demo' ? 'trade_ws_state_demo' : 'trade_ws_state', () => { let n = 0; for (const c of clients) { n += c.subs.size + c.lastBooks.size + c.sentFills.size; for (const x of c.subs.values()) n += x.tickers ? x.tickers.size : 0; } return n; });
   const refuse = (socket, status, body) => {
     const text = JSON.stringify(body);
     socket.end(`HTTP/1.1 ${status} ${status === 401 ? 'Unauthorized' : status === 429 ? 'Too Many Requests' : 'Forbidden'}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(text)}\r\n\r\n${text}`);
@@ -87,6 +91,9 @@ function attachTradeWs({ db, engine, apiKeys, flags, tradeApi, registry, env = '
   }
 
   const send = (c, obj) => { if (c.ws.readyState === 1) c.ws.send(JSON.stringify(obj)); };
+  // The last perps book sent per subscription and market (for deltas) goes with the subscription or the market: it was
+  // kept for the socket's lifetime, so subscribing and unsubscribing on one socket grew it (CLONE_SPEC.md §39.20).
+  const dropBooks = (c, sid, tickers) => { if (tickers) { for (const t of tickers) c.lastBooks.delete(`${sid}:${t}`); } else { for (const k of [...c.lastBooks.keys()]) if (k.startsWith(`${sid}:`)) c.lastBooks.delete(k); } };
   const err = (c, id, k, detail) => send(c, { id, type: 'error', msg: { code: ERR[k][0], msg: detail || ERR[k][1] } });
   function endClient(c, reason, code = 4401) {
     send(c, { type: 'session_revoked', msg: { reason } });
@@ -126,7 +133,7 @@ function attachTradeWs({ db, engine, apiKeys, flags, tradeApi, registry, env = '
         }
       } else if (m.cmd === 'unsubscribe') {
         const sids = Array.isArray(params.sids) ? params.sids : [];
-        for (const sid of sids) { if (c.subs.delete(sid)) send(c, { id, type: 'unsubscribed', sid }); else err(c, id, 'unknown_sid', `unknown subscription id ${String(sid).slice(0, 20)}`); }
+        for (const sid of sids) { const gone = c.subs.get(sid); if (c.subs.delete(sid)) { dropBooks(c, sid, gone.tickers); send(c, { id, type: 'unsubscribed', sid }); } else err(c, id, 'unknown_sid', `unknown subscription id ${String(sid).slice(0, 20)}`); }
       } else if (m.cmd === 'update_subscription') {
         const sids = Array.isArray(params.sids) ? params.sids : params.sid != null ? [params.sid] : [];
         const tickers = tickersOf() || [];
@@ -136,8 +143,9 @@ function attachTradeWs({ db, engine, apiKeys, flags, tradeApi, registry, env = '
           if (!sub) { err(c, id, 'unknown_sid', `unknown subscription id ${String(sid).slice(0, 20)}`); continue; }
           if (!sub.tickers) sub.tickers = new Set();
           for (const t of tickers) {
+            if (params.action === 'add_markets' && !sub.tickers.has(t) && sub.tickers.size >= MAX_TICKERS) { err(c, id, 'too_many', `at most ${MAX_TICKERS} markets per subscription`); break; }
             if (params.action === 'add_markets' && !sub.tickers.has(t)) { sub.tickers.add(t); if (sub.channel === 'orderbook_delta') snapshot(c, sid, sub, t); }
-            if (params.action === 'delete_markets') sub.tickers.delete(t);
+            if (params.action === 'delete_markets') { sub.tickers.delete(t); c.lastBooks.delete(`${sid}:${t}`); }
           }
           send(c, { id, type: 'ok', sid, seq: sub.seq, market_tickers: [...sub.tickers] });
         }

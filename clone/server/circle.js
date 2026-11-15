@@ -137,7 +137,7 @@ function mountCircle({ v1, db, requireUser, rolesOf, getFeat, isMuted }) {
     res.json({ ok: true, relation: null });
   });
 
-  return { isMember, membersOf, relation, prune: () => writes.prune() };
+  return { isMember, membersOf, relation, prune: () => writes.prune(), buckets: () => writes.size };
 }
 
 module.exports = { mountCircle, MAX_CIRCLE };

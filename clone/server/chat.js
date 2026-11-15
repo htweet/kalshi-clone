@@ -12,6 +12,7 @@
 const { tx } = require('./db');
 const { nowIso, newId, ApiError, E } = require('./util');
 const { ROLE_PERMS } = require('./admin');
+const { bucket } = require('./community-util'); // token buckets that drop their full entries (CLONE_SPEC.md §39.20)
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS chat_rooms (event_ticker TEXT PRIMARY KEY, slow_mode_sec INTEGER NOT NULL DEFAULT 0, locked INTEGER NOT NULL DEFAULT 0, lock_reason TEXT NOT NULL DEFAULT '',
@@ -36,24 +37,6 @@ const CONTROL = new RegExp('[\\x00-\\x1F\\x7F-\\x9F' + String.fromCodePoint(0x20
 const BIDI = new RegExp(`[${String.fromCodePoint(0x061c, 0x200e, 0x200f)}${String.fromCodePoint(0x202a)}-${String.fromCodePoint(0x202e)}${String.fromCodePoint(0x2066)}-${String.fromCodePoint(0x2069)}]`);
 const ZALGO = /\p{M}{6,}/u;
 const TICKER = /^[A-Z0-9][A-Z0-9._-]{0,63}$/;
-
-// Token bucket keyed by user id or IP; take() returns 0 when allowed, else seconds until the next token.
-function bucket(burst, perSec) {
-  const m = new Map();
-  return {
-    take(key) {
-      const now = Date.now();
-      const b = m.get(key) || { tokens: burst, ts: now };
-      b.tokens = Math.min(burst, b.tokens + ((now - b.ts) / 1000) * perSec);
-      b.ts = now;
-      m.set(key, b);
-      if (b.tokens < 1) return Math.max(1, Math.ceil((1 - b.tokens) / perSec));
-      b.tokens -= 1;
-      return 0;
-    },
-    prune() { const now = Date.now(); for (const [k, b] of m) if (b.tokens + ((now - b.ts) / 1000) * perSec >= burst) m.delete(k); },
-  };
-}
 
 // API error with extra machine-readable fields (retry_after_sec, muted_until) inside the standard envelope.
 class ChatError extends ApiError {
@@ -86,6 +69,7 @@ function mountChat({ v1, app, db, engine, requireUser, rolesOf, notify }) {
   const limits = { userBurst: env('CHAT_USER_BURST', 8), userPerSec: env('CHAT_USER_PER_SEC', 0.5), ipBurst: env('CHAT_IP_BURST', 30), ipPerSec: env('CHAT_IP_PER_SEC', 3) };
   const userBucket = bucket(limits.userBurst, limits.userPerSec);
   const ipBucket = bucket(limits.ipBurst, limits.ipPerSec);
+  engine.memory?.set('chat_buckets', () => userBucket.size + ipBucket.size);
 
   // ------------------------------------------------------------ helpers
   const getEvent = (t) => db.prepare('SELECT ticker, title, series_ticker FROM events WHERE ticker=?').get(t) || (hooks.room ? hooks.room(t) || undefined : undefined);

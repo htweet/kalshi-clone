@@ -208,9 +208,15 @@ function mountCentralBank({ v1, db, engine, auth, admin, flags, feat, keyDir, op
     for (const h of ended) afterEnd(h);
   }
   // In-process rate limit per user: guesses (10 per 5 s) and starts (6 per minute).
+  // Keys whose last attempt is older than the longest window are swept once a minute (they kept one entry per player
+  // ever seen; CLONE_SPEC.md §39.20).
   const buckets = new Map();
+  let swept = 0;
+  engine.memory?.set('heist_rate', () => buckets.size);
   function limited(key, max, windowMs) {
-    const t = now(); const list = (buckets.get(key) || []).filter((x) => t - x < windowMs);
+    const t = now();
+    if (Math.abs(t - swept) >= 60000) { swept = t; for (const [k, l] of buckets) if (!l.length || t - l[l.length - 1] >= 60000) buckets.delete(k); }
+    const list = (buckets.get(key) || []).filter((x) => t - x < windowMs);
     if (list.length >= max) { buckets.set(key, list); return true; }
     list.push(t); buckets.set(key, list); return false;
   }

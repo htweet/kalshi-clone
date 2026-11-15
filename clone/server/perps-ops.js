@@ -137,6 +137,7 @@ function mountPerpsOps({ v1, db, engine, auth, admin, flags, feat, centralBank, 
       }
       putState({ last_ts: apyState().last_ts, next_payout_ts: now + s.payout_interval_ms });
     });
+    { const t = Date.now(); for (const [k, ts] of lastApyNotice) if (t - ts >= 3600000) lastApyNotice.delete(k); } // past the hourly throttle: no longer needed (§39.20)
     for (const x of done) {
       P.emitUser(x.uid, []);
       P.emitEvent(x.uid, 'perp_apy', { subaccount: x.sub, amount_dollars: dollars(x.cents), status: x.status });

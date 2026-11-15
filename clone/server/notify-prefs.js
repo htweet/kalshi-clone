@@ -128,7 +128,7 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
   // New-account default channels (Admin › Currency & defaults, CLONE_SPEC.md §30) switch a channel off on every row offering it.
   currency.hooks.channelTypes = () => TYPES.map(([key, , , offered]) => ({ key, offered }));
   const writes = bucket(30, 1); // preference / subscription writes per user
-  const delivered = new Map(); // per-user push / email counters for the hourly cap
+  const delivered = new Map(); // per-user push / email counters for the hourly cap (entries of past hours pruned each minute)
   const CAP_PER_HOUR = 120;
 
   v1.use(schemaGuard([
@@ -379,8 +379,11 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
   const canceledNow = new Map(); // ticker -> [{uid, order, ts}]
   engine.on('user_order', (uid, o) => {
     if (o && o.status === 'canceled' && !o.cancel_reason && !isSystem(uid)) {
-      const a = canceledNow.get(o.market_ticker) || [];
-      a.push({ uid, o, ts: Date.now() });
+      // Only cancels of the last 2 s are notified (below), so older ones are dropped here: a market whose immediate-or-
+      // cancel orders kept expiring unfilled, with no lifecycle event, grew this list without limit (CLONE_SPEC.md §39.20).
+      const now = Date.now();
+      const a = (canceledNow.get(o.market_ticker) || []).filter((x) => now - x.ts <= 2000);
+      a.push({ uid, o, ts: now });
       canceledNow.set(o.market_ticker, a);
     }
   });
@@ -501,13 +504,14 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
   // ---------------------------------------------------------------- sports major events (live_data transitions)
   // First observation of a game sets its baseline (no alert); later scheduled→live and →final transitions notify the
   // users with positions in (or, by preference, watching) the game's event.
-  const gameStatus = new Map();
+  const gameStatus = new Map(); // milestone id -> { st, ts }
+  engine.memory?.set('notify_state', () => delivered.size + canceledNow.size + gameStatus.size);
   engine.on('live_data', (id, msg) => {
     try {
       if (!msg || !msg.event_ticker) return;
       const st = msg.status === 'complete' ? 'final' : msg.status;
-      const prev = gameStatus.get(id);
-      gameStatus.set(id, st);
+      const prev = gameStatus.get(id)?.st;
+      gameStatus.set(id, { st, ts: Date.now() });
       if (!prev || prev === st || !['live', 'final'].includes(st)) return;
       const which = st === 'live' ? 'game_start' : 'final';
       const holders = new Set(db.prepare('SELECT DISTINCT p.user_id FROM positions p JOIN markets m ON m.ticker=p.market_ticker WHERE m.event_ticker=? AND (p.yes_count>0 OR p.no_count>0)').all(msg.event_ticker).map((r) => r.user_id));
@@ -533,6 +537,11 @@ function mountNotifyPrefs({ v1, app, db, engine, requireUser, rolesOf, can, getF
       if (now - lastPrune > 60000) {
         lastPrune = now; writes.prune();
         for (const [k, v] of canceledNow) if (!v.length || now - v[v.length - 1].ts > 5000) canceledNow.delete(k);
+        // Memory (CLONE_SPEC.md §39.20): hourly-cap counters of past hours and games not heard from for a day (finished
+        // and rolled off the scoreboard) are dropped; both maps otherwise kept an entry per member / game ever seen.
+        const hour = Math.floor(now / 3600000);
+        for (const [k, c] of delivered) if (c.hour !== hour) delivered.delete(k);
+        for (const [k, g] of gameStatus) if (now - g.ts > 86400000) gameStatus.delete(k);
         db.prepare('DELETE FROM notif_order_done WHERE created_ts<?').run(now - 7 * 86400000);
       }
     } catch (e) { if (!/database is not open/i.test(String(e && e.message))) console.error('notify flush', e); }
