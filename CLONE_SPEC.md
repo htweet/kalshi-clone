@@ -6212,7 +6212,7 @@ assets, 2026-11-09:
 | smoke | 8 traders, 60 orders/s target, 50 WS, 12 s | 57–58 (saturated) | 180–240 ms / 5.4–9 s | 4 ms | 310–490 ms | 480–560 ms |
 | full | 40 traders, 200 orders/s target, 2,000 WS, 16 page workers, 60 s | 17.8 (saturated) | 836 ms / 70 s | 203 ms | 1.1 s | 32 s |
 
-Server memory stayed at ~195 MB in every run (no growth over the runs). The soak runs of 2026-11-13 → 15 and the fixes they led to are in §39.20.
+Server memory stayed at ~195 MB in every run (no growth over the runs). The soak runs of 2026-11-13 → 16 and the fixes they led to are in §39.20.
 **The P9.5 targets are not met on this machine:** one Node process does roughly 10 ms of CPU work per order (gates,
 session and rate accounting, idempotency rows, matching, journal, notifications, fan-out), so the ceiling is about
 60 orders/s with light fan-out and it falls sharply when every trade is fanned out to thousands of sockets (4.5 million
@@ -6321,7 +6321,7 @@ starts Phase 9B. The load test result recorded in Launch readiness must be withi
   setting and job (`logs.retention_days`, audited). Chat history, waitlist guests (already purged by the Phase 7A setting
   for unconfirmed entries) and closed accounts' personal data after a legal hold (closure today destroys the member's data
   key at once, §25) have no new settings; a legal-hold period needs the 9C regulatory decision first.
-- The one-hour soak run (P9.5) after the 2026-11-15 fixes is still to do; the 20-minute soaks and their fixes are in §39.20.
+- The one-hour soak run (P9.5) was done on 2026-11-16: its two event-loop stalls (WAL checkpoints on the request thread) are fixed and the latency drift reduced (§39.20 items 9 and 10); what is still open is listed under §39.20 Capacity.
 
 ### 39.15 Verification
 
@@ -6587,7 +6587,7 @@ classes, their days and the last purge. Test: `retention.e2e` (defaults, chat ke
 
 ---
 
-### 39.20 Soak runs and what they found (2026-11-13 → 2026-11-15)
+### 39.20 Soak runs and what they found (2026-11-13 → 2026-11-16)
 
 The soak profile (`npm run load -- --profile soak`: 20 traders crossing on 6 markets at 40 orders/s, 500 WebSocket
 clients subscribed to ticker / trade / order-book channels, 4 page workers, signed Trade API calls; server and load
@@ -6666,6 +6666,50 @@ generator on the same 4-vCPU VM, `dist` assets) was run until it stayed flat. Ea
    (`fills WHERE order_id=? AND user_id=?`, its average price) and `fills` had no index on `order_id`, so every order
    scanned all of the trader's fills (0.35 s → 1.9 s of every 20 s). `idx_fills_order` makes it a lookup (also for the
    Trade API socket, FIX and order history). The badge check after each fill counts at most 10 fills instead of all.
+9. **Event-loop stalls: WAL checkpoints on the request thread** (2026-11-16, one-hour soak). The first one-hour soak
+   (40 orders/s for the hour, order p50 126 ms / p99 547 ms, memory flat at 312–315 MB) had two server event-loop stalls
+   of 7.3 s (window ending 590 s) and 6.1 s (1,870 s); each pushed order p99 to 14–28 s for ~40 s and caused 9
+   `fetch failed` order errors. A probe server (every SQLite call timed, WAL size every 2 s, event-loop blocks, worker
+   transactions logged) caught the same thing at 1,899 s: one `COMMIT` on the request thread took **1,987 ms** (event
+   loop blocked 2.3 s), followed by commits of 412, 552, 298 ms and single-row inserts of 372 ms. Cause: SQLite's
+   automatic checkpoint runs inside whichever commit takes the WAL past 1,000 pages — on this server always the
+   request thread — and copies the WAL into the database file and fsyncs both. At 40 orders/s the server writes about
+   20 MB of WAL a second (~125 pages per order across a few commits), so the request thread checkpointed every ~0.2 s;
+   usually tens of milliseconds, seconds when the disk was busy (the database grows 18 MB a minute). The commit cost was
+   the fastest-growing item in the CPU profile (19.5 → 25.7 s of every 5 minutes between minute 4 and minute 30). The
+   ledger audit made it worse: its read snapshot (whole-journal GROUP BYs) lasted 0.4 s at 10 minutes, 0.9 s at 20,
+   1.6 s at 30 and kept growing; while it was held nothing could be copied back (the WAL file reached 36 MB by 30
+   minutes), and the next checkpoint on the request thread copied the backlog. Both original stalls, and the reproduced
+   one, came within ~100 s after a ledger audit (they run every 10 minutes from the server's start). The WAL never grew
+   to hundreds of MB at this load; it is the synchronous copy-and-fsync on the request thread that stalled.
+   Fix (`server/backups.js`, `server/ops-worker.js`):
+   - the server's connection never checkpoints (`wal_autocheckpoint = 0`) unless WAL shipping is on (then
+     `server/backups.js` keeps checkpointing right after each shipment, as before, because a checkpoint must not copy
+     frames that were not shipped);
+   - every 250 ms the operations worker runs PASSIVE checkpoints on its own connection (they never take the write lock
+     and never wait for a reader), repeating while new frames arrived during a pass. SQLite only starts the WAL over in a
+     write transaction that began after every frame was copied, which with commits every few milliseconds almost never
+     happens by itself (in a test the WAL grew to 2 GB in 8 s), so once a pass has caught up the worker writes one
+     `meta` row itself in a transaction taken without waiting (skipped when the server is writing) — that write starts
+     the WAL over; `journal_size_limit` (64 MB) gives back the file after a long reader;
+   - a snapshot waits for an in-flight worker checkpoint and none runs while the main file is copied; if the worker
+     fails, the automatic checkpoint is switched back on until it works again;
+   - the scheduled ledger audit is incremental (`journal.audit` `prefix`): the worker keeps the per-account posting sums
+     of its last recount and reads only postings with a higher id (a rowid range); new entries are still checked for
+     balance, and postings are append-only (one transaction per entry, AUTOINCREMENT ids; only `db:compact`, with the
+     server stopped, deletes any). A full recount runs for Admin › Payments › "Run now", after every worker start, every
+     6 hours, and whenever the first posting or the posting at the recount's end is no longer the one counted.
+10. **Order latency drift, second pass** (2026-11-16, migration 0014). Per-statement totals per minute over a
+    30-minute soak (every SQLite call timed by statement text) showed three reads of resting orders growing while every
+    other statement stayed flat: a member's reserved total on the balance view (`SUM(reserved_cents)` of resting
+    orders, 1.7 → 8.2 ms a call), matching's crossing makers (209 → 686 ms a minute: `ORDER BY price_cc DESC, seq ASC`
+    against an index ordered `price_cc, seq` both ascending, so every crossing resting order was read and sorted before
+    the first was used) and the queue position (→ 3.5 ms a call). Migration 0014 adds
+    `idx_orders_resting_level (market_ticker, side, price_cc DESC, seq, remaining_count) WHERE status='resting'` (matching
+    reads in matching order and `placeOrder` stops once the makers read can fill the order; the queue position is read
+    from the index alone) and the covering `idx_orders_resting_user_reserved (user_id, reserved_cents)` (replaces
+    `idx_orders_resting_user`). `quote()` reads its best price and size from `book_levels` instead of summing the
+    resting orders of the best level.
 
 Tests: `market-volume.e2e` — volume totals and book levels equal full recounts after inserts, updates, deletes, member
 orders, fills, amendments, decreases, cancels and expiry; `quote()` fast with 300,000 trades; `book()` + `quote()` fast
@@ -6674,7 +6718,13 @@ behaviour check fails on the code before 2026-11-16): buckets drop 5,000 keys a 
 session-time map and their row keeps the time; a web socket stops at 200 subscriptions and leaves none after closing;
 the web app (Chromium) releases subscriptions it dropped before the answer; a FIX drop copy keeps ≤ 500 of 600 finished
 orders, a logon loads only resting orders, a reused ClOrdID is refused; every structure is on the metrics port; an
-order's fills are read by index with 200,000 fills of its trader.
+order's fills are read by index with 200,000 fills of its trader. `market-volume.e2e` also: with 60,000 resting orders at
+one price an order crossing them fills in < 25 ms (486 ms on the old code), and the queue position and a member's
+reserved total stay fast. `checkpoints.e2e` (2, both fail on the old code): the server connection never checkpoints; a
+reader holds the WAL while ~200 MB is written, then lets go, and no request-sized write transaction in the next 3 s takes
+300 ms (595 ms on the old code, whose first commit copied the backlog), then the WAL starts over and its file is trimmed
+to 64 MB while writes continue; the scheduled ledger audit counts only new postings (`recount: incremental`, totals equal
+a full recount), still reports an unbalanced new entry, and recounts everything once a counted posting is gone.
 
 | Soak (40 orders/s, 500 WS clients) | Duration | Orders/s | Order p50 / p99 | WS fan-out p99 | Pages p95 | Server memory start → end |
 |---|---|---|---|---|---|---|
@@ -6684,9 +6734,33 @@ order's fills are read by index with 200,000 fills of its trader.
 | diagnostics run (event-loop delay per window) | 15 min | 40 | 281 ms / 7.5 s (41 s at the end) | 19 ms | 539 ms | 211 → 309 MB |
 | book levels + statement reuse + corked fan-out | 20 min | 40 | 41 ms / 161 ms | 34 ms | 97 ms | 231 → 324 MB |
 | 2026-11-16, probe server, memory fixes, before the fills index | 20 min | 40 | 319 ms / 1.45 s (p50 78 → 720 ms) | 50 ms | 641 ms | 197 → 307 (90 s) → 324 MB, flat after 10 min |
-| **+ fills index (migration 0013)** | 20 min | **40** | **114 ms / 361 ms (p50 80 → 119 ms)** | **45 ms** | **224 ms** | 181 → 289 (90 s) → 312 → 311 MB |
+| + fills index (migration 0013) | 20 min | 40 | 114 ms / 361 ms (p50 80 → 119 ms) | 45 ms | 224 ms | 181 → 289 (90 s) → 312 → 311 MB |
+| 2026-11-16, main, machine otherwise idle | 20 min | 40 | 107 ms / 373 ms (p50 93 → 121 ms; event loop ≤ 500 ms) | 42 ms | 217 ms | 231 → 320 → 321 MB |
+| 2026-11-16, main, one hour (item 9) | 60 min | 40 | 126 ms / 547 ms (p50 84 → 192 ms by 10-minute average; stalls of 7.3 s and 6.1 s; 13 windows with p99 > 2 s, worst 28.7 s; 9 order errors) | 42 ms | 258 ms | 233 → 312 → 315 MB |
+| + checkpoints in the worker, incremental audit (probe server and CPU profiler on) | 60 min | 40 | 135 ms / 581 ms (p50 82 → 237 ms; event loop ≤ 601 ms; 17 windows > 2 s, worst 4.8 s; no errors) | 33 ms | 284 ms | 262 → 349 → 370 MB |
+| **+ migration 0014 (item 10), one hour, no probe** | 60 min | **40** | **69.5 ms / 332 ms (p50 64 → 104 ms; event loop ≤ 512 ms; 1 window with p99 > 2 s (2.56 s), 10 > 1 s; no errors)** | **29 ms** | **164 ms** | 250 → 319 (10 min) → 335 MB |
 
-**Capacity.** after the last fix the server keeps up at 40 orders/s with 500 subscribers for 20 minutes: 4 of 120 ten-second windows had an order p99 above 1 s (worst 1.9 s), the server's event-loop delay was 132 ms at the median window (826 ms worst), signed API p99 143 ms, no errors other than cancels of already-filled orders (`cancel_409`, expected). Still open: (a) memory levels off (item 7) and the steep latency drift is fixed (item 8; the 2026-11-16 runs used a probe server and a load generator on the same busy 4-vCPU machine, so their absolute latencies are higher than the run above — compare within the rows); order p50 still rises ~50% over 20 minutes as the tables grow (1 of 120 windows with p99 above 1 s) — the one-hour soak (P9.5) has to show where it settles before real money; (b) the 200 orders/s target of §39.9 is still above one process's ceiling (the capacity plan stands: fan-out off the matching process, then 9B); (c) the perps book had the same pattern (resting orders summed per level on every order and order-book read): its levels are now kept by triggers on `perp_orders` too (`perp_book_levels`, migration 0010; the perps invariants property suite checks them against a recount after every random action).
+**Capacity.** After items 9 and 10 the server keeps up at 40 orders/s with 500 subscribers for the whole hour with no
+event-loop stall: the server's event-loop delay was at most 512 ms in any 10-second window (211 ms at the median window;
+7.3 s before), order p50 / p99 69.5 / 332 ms, signed API p99 270 ms, WebSocket fan-out p99 29 ms, no errors other than
+cancels of already-filled orders (`cancel_409`, expected), while the page workers (closed loop: they take whatever CPU
+is free) loaded 153,561 pages against 98,738 in the hour before the fix. Order p50 by 10-minute average: 64, 60, 61, 67,
+86, 104 ms (84 → 192 ms before). Still open: (a) the owner's bar for the hour was every 10-second window under 2 s: one
+window of 360 reached 2.56 s (at 2,960 s; the server's event-loop delay in it was 318 ms, so a burst of queued work, not
+a stall — not yet attributed) and 10 were above 1 s; order p50 still rises ~60% over the hour, mostly in the last 20
+minutes, as the tables grow (database ~1.1 GB after an hour at this load) — the next statement-level pass should start
+from the 30-minute per-statement profile in item 10 (quote() runs ~1,400 times a second for the page workers' event
+lists; its open-interest and previous-price reads are the largest flat costs); (b) memory: 319 MB at 10 minutes, 335 MB
+at the end (the original run: 312 → 315); the operations worker now runs from the start (its own V8 heap and SQLite
+connection) instead of from the first audit; (c) with WAL shipping on (`npm start`, production) `server/backups.js`
+still checkpoints on the request thread right after each shipment (a TRUNCATE once the WAL passes 16 MB; shipments are
+10 s apart, ~200 MB of WAL at this load; busy timeout 0): the soak runs without shipping, so that path is unmeasured and
+likely to stall the same way; moving it off the request
+thread needs the shipping itself (read the frames, then checkpoint) in the worker under the write lock; (d) the 200
+orders/s target of §39.9 is still above one process's ceiling (the capacity plan stands: fan-out off the matching
+process, then 9B); (e) the perps book had the same pattern (resting orders summed per level on every order and
+order-book read): its levels are kept by triggers on `perp_orders` too (`perp_book_levels`, migration 0010; the perps
+invariants property suite checks them against a recount after every random action).
 
 ---
 
