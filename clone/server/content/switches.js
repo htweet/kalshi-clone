@@ -55,6 +55,8 @@ const STRINGS = {
   'setting.backups.keep_interval_hours.help': 'Hours the 15-minute snapshots are kept before only the nightly ones remain. 48 hours covers a weekend.',
   'setting.backups.keep_interval_count.label': 'Keep at most this many interval backups',
   'setting.backups.keep_interval_count.help': 'The newest interval snapshots kept, whatever their age (the hours above still apply). Each snapshot is about the size of the database, so on a laptop with a large database 8 keeps the backup folder from filling the disk; nightly, manual and pre-production backups are not counted. Needs step-up: backups hold personal data.',
+  'setting.backups.wal_keep_days.label': 'Point-in-time restore window',
+  'setting.backups.wal_keep_days.help': 'Days the shipped database changes (WAL) are kept, so the database can be restored to any 10-second point in that window. Older snapshots stay and restore as they were taken. At a sustained 40 orders a second the changes are about 5 GB an hour (compressed), so a long window costs storage; real traffic is far lower. Recommended standard: 7 days. Needs step-up: backups hold personal data.',
   'setting.backups.retention_daily.label': 'Nightly backups kept (days)',
   'setting.backups.retention_daily.help': 'The newest nightly backup of each of this many days is kept. Recommended standard: 7.',
   'setting.backups.retention_weekly.label': 'Weekly backups kept',

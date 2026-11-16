@@ -6,6 +6,12 @@
 //   npm run load -- --profile full --report r.json  2 minutes at the target order rate with 2,000 WebSocket clients
 //   npm run load -- --profile soak --duration 3600  one hour; memory sampled every 10 s (growth is reported)
 //   npm run load -- --base https://staging.example.ng --traders 40 ...   against a running server (see below)
+//   --backups (or LOAD_BACKUPS=1), self mode: the server runs its backup schedule as under `npm start` — WAL shipping to a
+//   local store in the temporary folder every few seconds, interval snapshots, drills (CLONE_SPEC.md §39.3, §39.20 item 11).
+//   At 40 orders/s that store grows ~90 MB a minute (PLXB3 segments; ~1 GB with the old PLXB1 ones, CLONE_SPEC.md §39.20
+//   item 11) plus a snapshot every 15 minutes, so the generator deletes shipped WAL
+//   segments older than --backups-keep-min minutes (default 3) and all but the newest snapshot, each object with its
+//   manifest and metadata sidecars. Test-only: the product's own retention (server/backups.js prune) is not changed.
 //
 // Scenarios, all at once: (1) order placement and cancels by N traders on K markets, crossing so trades happen
 // (order-to-ack latency = request to response, client side); (2) WebSocket fan-out to M clients subscribed to the ticker
@@ -74,7 +80,7 @@ async function main() {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'parlance-load-'));
     dbFile = path.join(tmp, 'load.db');
     metricsPort = await freePort();
-    srv = child = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1'), '--token-ttl', String(a['token-ttl'] || '')], { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, METRICS_PORT: String(metricsPort), METRICS_HOST: '127.0.0.1' } });
+    srv = child = spawn(process.execPath, ['--no-warnings', __filename, '--serve', dbFile, '--assets', String(a.assets || 'dist'), '--sports', String(a.sports || '1'), '--token-ttl', String(a['token-ttl'] || ''), '--backups', a.backups || process.env.LOAD_BACKUPS === '1' ? '1' : '0'], { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, METRICS_PORT: String(metricsPort), METRICS_HOST: '127.0.0.1' } });
     const port = await new Promise((resolve, reject) => {
       let buf = '';
       srv.stdout.on('data', (d) => { buf += d; const m = /PORT (\d+)/.exec(buf); if (m) resolve(Number(m[1])); });
@@ -82,6 +88,21 @@ async function main() {
     });
     base = `http://127.0.0.1:${port}`;
   }
+  // The backup store of self mode with --backups (see the header): bounded by deleting old objects.
+  const storeSweep = !a.base && (a.backups || process.env.LOAD_BACKUPS === '1') ? setInterval(() => {
+    const root = path.join(tmp, 'backups'); const keepMs = Number(a['backups-keep-min'] || 3) * 60000; const t = Date.now();
+    const files = [];
+    const walk = (d) => { let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else { try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone */ } } } };
+    walk(root);
+    // An object is its file plus `.json` (manifest) and `.meta.json` (the local store's metadata) sidecars, removed together.
+    const del = (obj) => { for (const f of [obj, `${obj}.meta.json`, `${obj}.json`, `${obj}.json.meta.json`]) { try { fs.unlinkSync(f); } catch { /* gone */ } } };
+    const isTmp = (f) => f.includes('.tmp-');
+    const snaps = files.filter((x) => x.f.endsWith('.plxb') && !isTmp(x.f)).sort((x, y) => y.m - x.m);
+    for (const x of files) if (x.f.endsWith('.plxw') && !isTmp(x.f) && t - x.m > keepMs) del(x.f);
+    for (const x of snaps.slice(1)) del(x.f);
+    // Sidecars whose object is already gone (from a sweep before this filter covered them).
+    for (const x of files) { const m = /^(.*\.plx[wb])(\.json)?(\.meta\.json)$|^(.*\.plx[wb])\.json$/.exec(x.f); const obj = m && (m[1] || m[4]); if (obj && t - x.m > keepMs && !fs.existsSync(obj)) { try { fs.unlinkSync(x.f); } catch { /* gone */ } } }
+  }, 30000) : null;
   const q = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).all(...x); } finally { d.close(); } };
   const run = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).run(...x); } finally { d.close(); } };
   const stamp = Date.now();
@@ -145,7 +166,7 @@ async function main() {
   // Order latency per 10-second window (p50 / p99 / count, by when the order completed), so a stall can be placed in time.
   // Event-loop delay of this load process and of the server (its metrics port, self mode) per window: tells a slow
   // server from a load generator that is late reading its own responses. Each window: [p50 ms, p99 ms, orders,
-  // load-process loop delay max ms, server loop delay max ms].
+  // load-process loop delay max ms, server loop delay max ms, (self mode) WAL file MB].
   let win = new Hist(); const windows = [];
   const eld = require('node:perf_hooks').monitorEventLoopDelay({ resolution: 10 }); eld.enable();
   const serverEld = async () => {
@@ -155,7 +176,9 @@ async function main() {
   const memTimer = setInterval(async () => {
     mem.push(process.memoryUsage().rss); if (srv) { const r = serverRss(); if (r != null) srvMem.push(r); }
     const w = [pct(win, 0.5), pct(win, 0.99), win.length, Math.round(eld.max / 1e6)]; win = new Hist(); eld.reset();
-    w.push(await serverEld()); windows.push(w);
+    w.push(await serverEld());
+    if (srv && dbFile) { try { w.push(Math.round(fs.statSync(`${dbFile}-wal`).size / 1048576)); } catch { w.push(0); } } // the WAL file's size (MB)
+    windows.push(w);
   }, 10000);
   const t0 = Date.now(); const end = t0 + prof.duration * 1000;
   // One example message per error kind goes into the report (error_samples), so a refusal can be traced to its cause.
@@ -230,6 +253,14 @@ async function main() {
     page_p50_ms: pct(pageLat, 0.5), page_p95_ms: pct(pageLat, 0.95), pages: pageLat.length, api_p50_ms: pct(apiLat, 0.5), api_p99_ms: pct(apiLat, 0.99), api_requests: apiLat.length,
     errors, error_samples: errorSamples, client_rss_mb: mem.map((x) => Math.round(x / 1048576)), server_rss_mb: srvMem, order_ms_by_10s: windows,
   };
+  if (srv && (a.backups || process.env.LOAD_BACKUPS === '1')) {
+    // What the backup schedule did during the run (self mode with --backups): shipped WAL segments and snapshots.
+    try {
+      const seg = q('SELECT COUNT(*) n, COALESCE(SUM(bytes),0) b, COUNT(DISTINCT generation) g FROM ops_wal_segments')[0];
+      results.backups = { wal_segments: seg.n, wal_mb: Math.round(seg.b / 1048576), wal_generations: seg.g,
+        snapshots: q('SELECT kind, status, COUNT(*) n FROM ops_backups GROUP BY kind, status'), drills: q('SELECT status, COUNT(*) n FROM ops_restore_drills GROUP BY status') };
+    } catch (e) { results.backups = { error: e.message }; }
+  }
   if (srv) {
     try { results.server_rss_mb_end = Math.round(Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${srv.pid}/status`, 'utf8'))[1]) / 1024); } catch { /* not Linux */ }
   }
@@ -240,6 +271,7 @@ async function main() {
     results, targets: TARGETS, within_targets: within };
   if (a.report) fs.writeFileSync(path.resolve(String(a.report)), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
+  if (storeSweep) clearInterval(storeSweep);
   if (srv) { srv.kill('SIGTERM'); await new Promise((r) => { srv.once('exit', r); setTimeout(r, 5000); }); }
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   // Smoke (CI): fail on errors that mean something broke, not on the machine's speed.
@@ -251,16 +283,18 @@ async function main() {
 
 // --serve <db>: the server process of self mode (rate limits and the bot challenge relaxed for the load host).
 // tokenTtl (--token-ttl seconds): a shorter signed client token lifetime, to exercise token renewal in a short run.
-async function serve(dbFile, assets, sportsSpeed, tokenTtl) {
+// backups ('1'): the backup schedule and WAL shipping as under `npm start` (store: <temporary folder>/backups).
+async function serve(dbFile, assets, sportsSpeed, tokenTtl, backups) {
   const { start } = require('../server/index.js');
   const HIGH = { burst: 1e9, per_second: 1e9 };
   const s = await start({ port: 0, dbFile, quiet: true, tickMs: 500, sports: sportsSpeed === 'off' ? false : { speed: Number(sportsSpeed) || 1 }, rate: { burst: 1e9, perSec: 1e9 }, security: { challengeMode: 'off', ...(Number(tokenTtl) ? { bot: { client_token_ttl_seconds: Number(tokenTtl) } } : {}), authRate: HIGH, writeRate: HIGH, anonRate: HIGH, readRate: HIGH },
-    admin: { email: 'root.ops@example.test', password: PW }, flags: { defaults: { 'perps.waitlist': false } }, assets });
+    admin: { email: 'root.ops@example.test', password: PW }, flags: { defaults: { 'perps.waitlist': false } }, assets,
+    ...(backups === '1' ? { ops: { schedule: true, firstBackupDelayMs: 120000 } } : {}) });
   process.stdout.write(`PORT ${s.port}\n`);
   const stop = () => s.close().then(() => process.exit(0), () => process.exit(0));
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
 }
 
 const argv = process.argv.slice(2);
-if (argv[0] === '--serve') serve(argv[1], argv[3] || 'dist', argv[5] || '1', argv[7] || '').catch((e) => { console.error(e); process.exit(1); });
+if (argv[0] === '--serve') serve(argv[1], argv[3] || 'dist', argv[5] || '1', argv[7] || '', argv[9] || '0').catch((e) => { console.error(e); process.exit(1); });
 else main().catch((e) => { console.error(`load failed: ${e.stack || e.message}`); if (child) child.kill('SIGTERM'); process.exit(1); });

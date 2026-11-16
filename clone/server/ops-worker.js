@@ -125,12 +125,16 @@ function checkpointTask({ dbFile, passes = 6, restartFrames = 1000, walSizeLimit
 }
 function checkpointClose({ dbFile }) {
   auditPrefix.delete(dbFile); // the server closed this database: the next one at this path starts with a full recount
+  require('./backups').walShipClose(dbFile); // the WAL shipping connections (pin, checkpoint), when shipping is on
   const d = ckptConns.get(dbFile);
   ckptConns.delete(dbFile);
   if (d) { try { d.close(); } catch { /* already closed */ } }
   return true;
 }
 tasks.checkpoint = checkpointTask;
+// WAL shipping and its checkpoints with shipping on (CLONE_SPEC.md §39.20 item 11; server/backups.js walShipTask): read the
+// committed frames, seal and upload them, and checkpoint only what was shipped, on this thread's own connections.
+tasks.shipWal = (args) => require('./backups').walShipTask(args);
 tasks.checkpointClose = checkpointClose;
 
 // A read-only connection inside one read transaction: every query sees the same WAL snapshot while the server writes.

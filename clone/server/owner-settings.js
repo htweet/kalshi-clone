@@ -60,6 +60,9 @@ const REGISTRY = [
   ['backups.wal_ship_seconds', 'backups', 'int', 10, { min: 1, max: 300, unit: 'seconds', stepUp: true, where: '/admin/system' }],
   ['backups.keep_interval_hours', 'backups', 'int', 48, { min: 1, max: 720, unit: 'hours', stepUp: true, where: '/admin/system' }],
   ['backups.keep_interval_count', 'backups', 'int', 8, { min: 1, max: 1000, unit: 'count', stepUp: true, where: '/admin/system' }], // CLONE_SPEC.md §39.17
+  // Point-in-time window (WAL volume fix 2026-11-16, CLONE_SPEC.md §39.3 / §39.20 item 11): shipped WAL is kept this long,
+  // whatever older snapshots are kept (they restore as they were taken).
+  ['backups.wal_keep_days', 'backups', 'int', 7, { min: 1, max: 90, unit: 'days', stepUp: true, where: '/admin/system' }],
   ['backups.retention_daily', 'backups', 'int', 7, { min: 1, max: 90, unit: 'count', stepUp: true, where: '/admin/system' }],
   ['backups.retention_weekly', 'backups', 'int', 4, { min: 0, max: 52, unit: 'count', stepUp: true, where: '/admin/system' }],
   ['backups.retention_monthly', 'backups', 'int', 12, { min: 0, max: 120, unit: 'count', stepUp: true, where: '/admin/system' }],
