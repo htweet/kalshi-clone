@@ -108,8 +108,10 @@ class Engine extends EventEmitter {
   // Best prices, last trade and volumes. `*_cc` fields are exact (centi-cents); the unsuffixed fields are the legacy
   // whole-cent view (rounded) used by integer-cent callers (simulated liquidity, alerts).
   quote(ticker) {
-    const best = (side) => this.st("SELECT MAX(price_cc) p FROM orders WHERE market_ticker=? AND status='resting' AND side=?").get(ticker, side).p;
-    const sizeAt = (side, p) => (p == null ? 0 : this.st("SELECT COALESCE(SUM(remaining_count),0) c FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cc=?").get(ticker, side, p).c);
+    // From the book levels (running totals kept by triggers on `orders`, migration 0005): summing the resting orders of
+    // the best level got slower as the level filled up (order latency drift in the one-hour soak, CLONE_SPEC.md §39.20).
+    const best = (side) => this.st('SELECT MAX(price_cc) p FROM book_levels WHERE market_ticker=? AND side=?').get(ticker, side).p;
+    const sizeAt = (side, p) => (p == null ? 0 : this.st('SELECT units c FROM book_levels WHERE market_ticker=? AND side=? AND price_cc=?').get(ticker, side, p)?.c ?? 0);
     const yb = best('yes');
     const nb = best('no');
     const last = this.st('SELECT yes_price_cc p FROM trades WHERE market_ticker=? ORDER BY created_ts DESC, rowid DESC LIMIT 1').get(ticker);

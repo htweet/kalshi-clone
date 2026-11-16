@@ -44,10 +44,11 @@ function playModeChecks(db, got) {
 const CHECKS = { perps: perpsChecks, play_mode: playModeChecks };
 
 // The audit with an explicit list of module checks (the worker's path; also usable on any database).
-function auditWith(db, { checks = [], payments = true } = {}) {
+// `prefix` / `onPrefix`: an incremental audit (journal.audit; the worker keeps the recount between runs).
+function auditWith(db, { checks = [], payments = true, prefix = null, onPrefix = null } = {}) {
   const extraChecks = checks.map((n) => CHECKS[n]).filter(Boolean);
   const pp = payments && hasTable(db, 'payment_transactions') ? (rail) => pendingPayouts(db, rail) : null;
-  return journal.audit(db, { pendingPayouts: pp, hooks: false, extraChecks });
+  return journal.audit(db, { pendingPayouts: pp, hooks: false, extraChecks, prefix, onPrefix });
 }
 // Admin › Perps ops › Ledger: the Perps audit (with the bridge to the main journal) and the house balances.
 function perpsLedger(db) {
@@ -60,10 +61,13 @@ const fileOf = (db) => (db && db.__file ? db.__file : null);
 let opsWorker = null;
 const worker = () => (opsWorker = opsWorker || require('./ops-worker'));
 // `payments`: whether the payouts check applies (the payments module is mounted). Resolves to journal.audit's result.
-async function runAudit(db, { payments = true, inline = false } = {}) {
+// `full`: recount every posting; otherwise the worker reads only the postings added since its previous recount of this
+// database (a full recount at least every `ops-worker` FULL_AUDIT_MS, and after every worker start) — the read snapshot
+// stays short however large the journal grows (soak finding 2026-11-16, CLONE_SPEC.md §39.20 item 9).
+async function runAudit(db, { payments = true, inline = false, full = false } = {}) {
   const file = fileOf(db);
   if (file && !inline) {
-    try { return await worker().run('ledgerAudit', { dbFile: path.resolve(file), checks: journal.enabledChecks(db), payments }); } catch (e) { if (!/worker/i.test(e.message)) throw e; }
+    try { return await worker().run('ledgerAudit', { dbFile: path.resolve(file), checks: journal.enabledChecks(db), payments, full }); } catch (e) { if (!/worker/i.test(e.message)) throw e; }
   }
   return journal.audit(db, { pendingPayouts: payments && hasTable(db, 'payment_transactions') ? (rail) => pendingPayouts(db, rail) : null });
 }

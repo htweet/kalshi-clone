@@ -45,7 +45,7 @@ function mountPaymentsAdmin({ v1, db, engine, auth, admin, sandbox, settings, sa
   async function runAudit(trigger = 'job') {
     if (trigger === 'job' && jobRun) return jobRun;
     const p = (async () => {
-      const r = await LA.runAudit(db, { payments: true });
+      const r = await LA.runAudit(db, { payments: true, full: trigger !== 'job' }); // a manual run recounts everything
       const id = journal.recordAudit(db, r, trigger);
       if (!r.ok && trigger === 'job' && !options.quiet) console.error(`ledger audit: ${r.problems.length} problem(s) — see Admin › Payments › Ledger audit`);
       return { id, ...r };

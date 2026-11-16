@@ -215,12 +215,23 @@ const postingSum = (db, account) => { init(db); return db.prepare('SELECT COALES
 // `pendingPayouts(rail)` (from server/payments.js) gives the expected payouts:<rail> balance. `hooks: false` skips the
 // in-process module hooks and `extraChecks` runs explicit ones instead (the operations worker, server/ledger-audit.js).
 // On a large database this reads every posting: callers on the request thread go through server/ledger-audit.js.
-function audit(db, { pendingPayouts = null, hooks: useHooks = true, extraChecks = [] } = {}) {
+// `prefix` ({ upto, sums }: the per-account posting sums of every posting with id <= upto, recounted by an earlier audit
+// of the same database) makes the two posting scans incremental: only postings above `upto` are read (soak finding
+// 2026-11-16, CLONE_SPEC.md §39.20 item 9). Postings are append-only (an entry and all its postings are written in one
+// transaction, AUTOINCREMENT ids never reused; only `npm run db:compact`, with the server stopped, deletes any), so the
+// prefix's sums and balanced entries cannot change. `onPrefix(next)` receives this audit's recount to pass next time.
+function audit(db, { pendingPayouts = null, hooks: useHooks = true, extraChecks = [], prefix = null, onPrefix = null } = {}) {
   init(db);
   const problems = [];
   const entries = db.prepare('SELECT COUNT(*) c FROM journal_entries').get().c;
-  for (const r of db.prepare('SELECT entry_id, SUM(amount_cents) s, COUNT(*) n FROM journal_postings GROUP BY entry_id HAVING s<>0 OR n<2 LIMIT 50').all()) problems.push({ check: 'entry_balanced', entry_id: r.entry_id, expected_cents: 0, actual_cents: r.s, detail: 'postings of this entry do not sum to zero' });
-  const sums = new Map(db.prepare('SELECT account, SUM(amount_cents) s FROM journal_postings GROUP BY account').all().map((r) => [r.account, r.s]));
+  const { top, low } = db.prepare('SELECT COALESCE(MAX(id),0) top, COALESCE(MIN(id),0) low FROM journal_postings').get();
+  // The prefix applies only to the same rows: same first posting and the same posting at `upto` (a compaction or another
+  // database at the same path fails this and gets a full recount).
+  const rowAt = (id) => { const r = db.prepare('SELECT entry_id, account, amount_cents FROM journal_postings WHERE id=?').get(id); return r ? `${r.entry_id}|${r.account}|${r.amount_cents}` : ''; };
+  const from = prefix && prefix.upto > 0 && prefix.upto <= top && prefix.low === low && prefix.tail === rowAt(prefix.upto) ? prefix.upto : 0;
+  for (const r of db.prepare('SELECT entry_id, SUM(amount_cents) s, COUNT(*) n FROM journal_postings WHERE id>? GROUP BY entry_id HAVING s<>0 OR n<2 LIMIT 50').all(from)) problems.push({ check: 'entry_balanced', entry_id: r.entry_id, expected_cents: 0, actual_cents: r.s, detail: 'postings of this entry do not sum to zero' });
+  const sums = new Map(from ? prefix.sums : []);
+  for (const r of db.prepare('SELECT account, SUM(amount_cents) s FROM journal_postings WHERE id>? GROUP BY account').all(from)) sums.set(r.account, (sums.get(r.account) || 0) + r.s);
   const got = (a) => sums.get(a) || 0;
   for (const r of db.prepare('SELECT account, balance_cents b FROM journal_balances').all()) if (r.b !== got(r.account)) problems.push({ check: 'materialised_balance', account: r.account, expected_cents: got(r.account), actual_cents: r.b, detail: 'journal_balances differs from the posting sum' });
   const cmp = (check, account, expected, detail, actual = got(account)) => { if (actual !== expected) problems.push({ check, account, expected_cents: expected, actual_cents: actual, detail }); };
@@ -262,7 +273,8 @@ function audit(db, { pendingPayouts = null, hooks: useHooks = true, extraChecks 
   }
   const grand = [...sums.values()].reduce((a, b) => a + b, 0);
   if (grand !== 0) problems.push({ check: 'trial_balance', expected_cents: 0, actual_cents: grand, detail: 'all postings together do not sum to zero' });
-  return { ok: problems.length === 0, entries, problems, totals, accounts_checked: users.length * 4 + markets.size };
+  if (onPrefix) onPrefix({ upto: top, low, tail: rowAt(top), sums: new Map(sums), incremental: from > 0 });
+  return { ok: problems.length === 0, entries, problems, totals, accounts_checked: users.length * 4 + markets.size, recount: from ? 'incremental' : 'full' };
 }
 
 function recordAudit(db, result, trigger = 'job') {

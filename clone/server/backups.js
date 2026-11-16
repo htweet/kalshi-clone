@@ -270,8 +270,33 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   const S = (k, d) => { try { const v = settings ? settings(k) : undefined; return v == null ? d : v; } catch { return d; } };
   const metaGet = (k) => db.prepare('SELECT value FROM meta WHERE key=?').get(k)?.value;
   const metaSet = (k, v) => db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));
+  const opsWorker = require('./ops-worker');
   const shipping = !!(file && storage && options.walShipping !== false);
   if (shipping) db.exec('PRAGMA wal_autocheckpoint = 0'); // this module checkpoints, right after shipping (see above)
+  // Without WAL shipping, checkpoints run in the operations worker (soak finding 2026-11-16, CLONE_SPEC.md §39.20 item 9;
+  // server/ops-worker.js `checkpoint`): SQLite's automatic checkpoint ran inside whichever COMMIT crossed 1,000 pages —
+  // on the request thread — copying the WAL into the database file and fsyncing both (up to 2 s with the disk busy, more
+  // after a reader had held the WAL). The server's connection never checkpoints now; every `checkpointMs` the worker runs
+  // a PASSIVE checkpoint on its own connection (no write lock, no waiting for readers), and the server's next write
+  // restarts the WAL once it is fully copied. journal_size_limit gives back the disk of a WAL that grew while a long
+  // reader held it. With WAL shipping, shipWal / snapshot keep checkpointing here (a checkpoint must follow the shipping
+  // of the frames it copies). If the worker fails, the automatic checkpoint is switched back on until it works again.
+  const ckptInWorker = !!(file && !shipping && options.checkpointInWorker !== false);
+  const autoPages = () => (ckptInWorker && !ckptFallback ? 0 : 1000);
+  const walLimit = Number(options.walSizeLimitBytes || 64 * 1048576);
+  let ckptFallback = false; let ckptRun = null; let ckptTimer = null;
+  const ckptStats = { runs: 0, restarts: 0, failures: 0, max_ms: 0, last: null };
+  function bgCheckpoint() {
+    if (ckptRun || copying || !ckptTimer) return ckptRun;
+    ckptRun = opsWorker.run('checkpoint', { dbFile: file, walSizeLimitBytes: walLimit }).then((r) => {
+      ckptStats.runs += 1; if (r.restarted) ckptStats.restarts += 1; ckptStats.last = r; if (r.ms > ckptStats.max_ms) ckptStats.max_ms = r.ms;
+      if (ckptFallback) { ckptFallback = false; try { db.exec(`PRAGMA wal_autocheckpoint = ${autoPages()}`); } catch { /* closed */ } }
+    }, (e) => {
+      ckptStats.failures += 1;
+      if (!ckptFallback) { ckptFallback = true; try { db.exec(`PRAGMA wal_autocheckpoint = ${autoPages()}`); } catch { /* closed */ } log({ level: 'error', msg: 'checkpoint in the operations worker failed; automatic checkpoints are back on', error: e.message }); }
+    }).finally(() => { ckptRun = null; });
+    return ckptRun;
+  }
   let state = (() => { try { return JSON.parse(metaGet('wal_ship_state') || 'null'); } catch { return null; } })() || { generation: 0, salt: null, frames: 0 };
   const saveState = () => metaSet('wal_ship_state', JSON.stringify(state));
   let busy = Promise.resolve();
@@ -282,7 +307,6 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   // hashing and uploading a large database must neither hold up requests nor hold the database in memory. The worker
   // rebuilds the storage driver from its config; an injected driver (tests) or `useWorker: false` keeps the streaming
   // on this thread.
-  const opsWorker = require('./ops-worker');
   // `release()` is called once the main file has been read (sealed into the staging file), before the upload.
   async function sealSnapshot(key, meta, release) {
     const cfg = storage.config ? storage.config() : null;
@@ -372,10 +396,18 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   // ---- snapshots
   // `copying`: the main file is being read for a snapshot — no checkpoint may change it until the read ends.
   let copying = false; let current = null;
+  if (ckptInWorker) {
+    db.exec('PRAGMA wal_autocheckpoint = 0');
+    db.exec(`PRAGMA journal_size_limit = ${walLimit}`);
+    ckptTimer = setInterval(bgCheckpoint, Number(options.checkpointMs || 250));
+    ckptTimer.unref?.();
+  }
   function snapshot(kind = 'interval', opts = {}) {
     if (!file || !storage) return Promise.reject(new Error('backups need a database file and a storage adapter'));
     // One snapshot reads the main file at a time; a second request starts when the first has finished reading.
     if (copying && current) return current.then(() => snapshot(kind, opts), () => snapshot(kind, opts));
+    // A checkpoint in the worker holds SQLite's checkpoint lock: the snapshot's own checkpoint starts once it is done.
+    if (ckptRun) return ckptRun.then(() => snapshot(kind, opts));
     const { note = '', actor = null } = opts;
     const id = newId('bk_');
     const t0 = now();
@@ -389,7 +421,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
       // checkpoints stay off (always off while WAL shipping runs; switched off here otherwise) and shipWal waits.
       copying = true;
       if (!shipping) db.exec('PRAGMA wal_autocheckpoint = 0');
-      const release = () => { if (!copying) return; copying = false; if (!shipping) { try { db.exec('PRAGMA wal_autocheckpoint = 1000'); } catch { /* closed */ } } };
+      const release = () => { if (!copying) return; copying = false; if (!shipping) { try { db.exec(`PRAGMA wal_autocheckpoint = ${autoPages()}`); } catch { /* closed */ } } };
       db.prepare('INSERT INTO ops_backups(id,kind,status,created_ts,schema_version,wal_generation,note) VALUES(?,?,?,?,?,?,?)').run(id, kind, 'running', t0, schemaVersion, generation, String(note).slice(0, 200));
       if (shipping) { state = { generation: state.generation, salt: '__checkpointed__', frames: 0 }; saveState(); } // next header = next generation
       const key = `snapshots/${new Date(t0).toISOString().slice(0, 10).replace(/-/g, '/')}/${stamp(t0)}-${kind}-${id}.plxb`;
@@ -410,7 +442,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
       current = p.catch(() => {});
       return p;
     } catch (e) {
-      if (copying) { copying = false; if (!shipping) { try { db.exec('PRAGMA wal_autocheckpoint = 1000'); } catch { /* closed */ } } }
+      if (copying) { copying = false; if (!shipping) { try { db.exec(`PRAGMA wal_autocheckpoint = ${autoPages()}`); } catch { /* closed */ } } }
       try { db.prepare("INSERT INTO ops_backups(id,kind,status,created_ts,finished_ts,error) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status='failed', error=excluded.error").run(id, kind, 'failed', t0, now(), String(e.message).slice(0, 500)); } catch { /* closed */ }
       return Promise.reject(e);
     }
@@ -483,8 +515,11 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   }
   async function close() {
     timers.splice(0).forEach(clearInterval);
+    if (ckptTimer) { clearInterval(ckptTimer); ckptTimer = null; }
     try { const p = shipWal({ force: false }); if (p) await p; } catch { /* best effort at shutdown */ }
     await busy;
+    if (ckptRun) await ckptRun;
+    if (ckptInWorker) await opsWorker.closeCheckpoints(file);
   }
 
   const status = () => {
@@ -501,7 +536,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   };
   const list = (limit = 50) => db.prepare('SELECT * FROM ops_backups ORDER BY created_ts DESC LIMIT ?').all(limit);
 
-  return { snapshot, shipWal, prune, tick, startSchedule, close, status, list, keys, flush: () => busy, storage, shipping };
+  return { snapshot, shipWal, prune, tick, startSchedule, close, status, list, keys, flush: () => busy, storage, shipping, checkpoint: bgCheckpoint, checkpointStats: () => ({ in_worker: ckptInWorker && !ckptFallback, ...ckptStats }) };
 }
 
 // ------------------------------------------------------------------------------------------------ restore (no DB needed)
