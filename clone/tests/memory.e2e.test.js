@@ -135,15 +135,17 @@ test('a FIX session keeps at most 500 finished orders in memory; a logon loads o
   assert.equal(mem('fix_session_orders'), 3, 'three tracked orders, no ClOrdIDs left over');
   fx.send('F', [[11, 'M-4'], [41, 'M-1']]);
   await fx.waitFor((m) => m.type === '8' && m.get(150) === '4');
+  // A ClOrdID already used in this session is still refused after its order was canceled (the used ones are kept in
+  // fix_session_clordids, not in memory).
+  fx.send('D', [[11, 'M-1'], [55, T], [54, '1'], [38, '1'], [40, '2'], [44, '0.0200']]);
+  await fx.waitFor((m) => m.type === '8' && m.get(150) === '8' && m.get(58) === 'duplicate ClOrdID');
+  assert.equal(mem('fix_session_orders'), 3);
   fx.send('5', []); fx.close(); await fx.closedP;
   await eventually(() => mem('fix_session_orders') === 0);
   const again = new FixClient(port, { sender: 'MEMFIRM', keyId: k.id, privateKey: k.privateKey });
   await again.connect(); again.logon();
   await again.waitFor((m) => m.type === 'A');
   assert.equal(mem('fix_session_orders'), 2, 'only the resting orders were loaded');
-  // A duplicate ClOrdID is still refused (the record is in fix_orders).
-  again.send('D', [[11, 'M-1'], [55, T], [54, '1'], [38, '1'], [40, '2'], [44, '0.0200']]);
-  await again.waitFor((m) => m.type === '8' && m.get(150) === '8' && m.get(58) === 'duplicate ClOrdID');
   again.close(); await again.closedP;
 });
 

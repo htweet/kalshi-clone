@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS fix_session_state (session_key TEXT PRIMARY KEY, key_
 CREATE TABLE IF NOT EXISTS fix_outbound (session_key TEXT NOT NULL, seq INTEGER NOT NULL, msg_type TEXT NOT NULL, fields TEXT NOT NULL, sent_ts INTEGER NOT NULL, PRIMARY KEY (session_key, seq));
 CREATE TABLE IF NOT EXISTS fix_orders (order_id TEXT NOT NULL, session_key TEXT NOT NULL, product TEXT NOT NULL, cl_ord_id TEXT NOT NULL, orig_cl_ord_id TEXT, created_ts INTEGER NOT NULL, PRIMARY KEY (order_id, session_key));
 CREATE INDEX IF NOT EXISTS idx_fix_orders_cl ON fix_orders(session_key, cl_ord_id);
+-- ClOrdIDs used by each open session (unique within a session), kept here rather than in memory; rows go with the session.
+CREATE TABLE IF NOT EXISTS fix_session_clordids (session_id TEXT NOT NULL, cl_ord_id TEXT NOT NULL, PRIMARY KEY (session_id, cl_ord_id));
 CREATE TABLE IF NOT EXISTS fix_session_log (id TEXT PRIMARY KEY, session_key TEXT NOT NULL, key_id TEXT, user_id TEXT, event TEXT NOT NULL, detail TEXT, ts INTEGER NOT NULL);
 `;
 
@@ -113,6 +115,10 @@ function parse(buf) {
 function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = null, env = 'main', options = {} }) {
   db.exec(SCHEMA);
   const sessions = new Map(); // id -> Session
+  db.exec('DELETE FROM fix_session_clordids'); // sessions do not survive a restart
+  const clUsed = db.prepare('SELECT 1 FROM fix_session_clordids WHERE session_id=? AND cl_ord_id=?');
+  const clUse = db.prepare('INSERT OR IGNORE INTO fix_session_clordids(session_id,cl_ord_id) VALUES(?,?)');
+  const clFree = db.prepare('DELETE FROM fix_session_clordids WHERE session_id=? AND cl_ord_id=?');
   engine.memory?.set('fix_session_orders', () => { let n = 0; for (const x of sessions.values()) n += x.orders.size + x.clIds.size; return n; });
   let server = null; let boundPort = null; let starting = null;
   const wantPort = options.port != null ? Number(options.port) : process.env.FIX_PORT != null ? Number(process.env.FIX_PORT) : 0;
@@ -134,8 +140,8 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       // Memory (soak review 2026-11-15, CLONE_SPEC.md §39.20): `orders` kept every order of the session (and a logon
       // loaded the session key's whole history); `clIds` every ClOrdID sent. Orders that reached a final state leave the
       // map once RETIRED_KEEP later ones have (late events on them are long over by then; fix_orders keeps the record),
-      // a logon loads only resting orders, and a ClOrdID leaves `clIds` once its order is tracked (the duplicate check
-      // also reads fix_orders).
+      // a logon loads only resting orders, and a ClOrdID leaves `clIds` once its order is tracked (the session's used
+      // ClOrdIDs are in fix_session_clordids for the duplicate check).
       this.retired = [];
       socket.setNoDelay(true);
       socket.on('data', (d) => this.onData(d));
@@ -191,6 +197,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       if (this.state === 'closed') return;
       if (this.sessionKey) logEv(this, 'disconnected', {});
       this.state = 'closed'; clearTimeout(this.logonTimer); sessions.delete(this.id);
+      try { db.prepare('DELETE FROM fix_session_clordids WHERE session_id=?').run(this.id); } catch { /* closing */ }
       try { this.socket.destroy(); } catch { /* ignore */ }
     }
     // ---- inbound
@@ -331,11 +338,11 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
       if (!['1', '2'].includes(side)) return this.execReject(cl, sym, side, qty, s('fix.bad_value', { tag: 54 }));
       if (!['1', '2'].includes(ordType)) return this.execReject(cl, sym, side, qty, s('fix.bad_value', { tag: 40 }));
       if (ordType === '2' && !v(44)) return this.execReject(cl, sym, side, qty, s('fix.required_tag', { tag: 44 }));
-      if (this.clIds.has(cl) || db.prepare('SELECT 1 FROM fix_orders WHERE session_key=? AND cl_ord_id=?').get(this.sessionKey, cl)) return this.execReject(cl, sym, side, qty, 'duplicate ClOrdID');
+      if (this.clIds.has(cl) || clUsed.get(this.id, cl) || db.prepare('SELECT 1 FROM fix_orders WHERE session_key=? AND cl_ord_id=?').get(this.sessionKey, cl)) return this.execReject(cl, sym, side, qty, 'duplicate ClOrdID');
       const perp = isPerp(sym);
       if (!perp && !isMarket(sym)) return this.execReject(cl, sym, side, qty, `unknown symbol ${sym}`);
       if (perp && !this.key.scopes.includes('perps')) return this.execReject(cl, sym, side, qty, s('forbidden.scope', { scope: 'perps' }));
-      this.clIds.add(cl);
+      this.clIds.add(cl); clUse.run(this.id, cl);
       let r;
       if (perp) {
         const body = { ticker: sym.toUpperCase(), side: side === '1' ? 'bid' : 'ask', type: ordType === '1' ? 'market' : 'limit', count: Number(qty), client_order_id: cl, ...(ordType === '2' ? { price: v(44) } : {}), ...(v(1) ? { subaccount: Number(v(1)) } : {}), ...(v(20002) ? { leverage: Number(v(20002)) } : {}), ...(String(v(18) || '').includes('6') ? { post_only: true } : {}), ...(v(20004) ? { order_group_id: v(20004) } : {}) };
@@ -351,7 +358,7 @@ function createFixGateway({ db, engine, apiKeys, tradeApi, flags, security = nul
         r = await tradeApi.createOrder(this.principal, body, this.ctx());
         if (r.status < 400) { this.track(r.body.order.order_id, cl, null, 'predictions'); this.clIds.delete(cl); }
       }
-      if (r.status >= 400) { this.clIds.delete(cl); this.execReject(cl, sym, side, qty, this.errText(r)); }
+      if (r.status >= 400) { this.clIds.delete(cl); clFree.run(this.id, cl); this.execReject(cl, sym, side, qty, this.errText(r)); }
     }
     track(orderId, cl, orig, product) {
       const cur = this.orders.get(orderId) || { known: false, ...this.snapshot(orderId, product) };
