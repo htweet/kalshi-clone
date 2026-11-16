@@ -8,8 +8,10 @@
 //   npm run load -- --base https://staging.example.ng --traders 40 ...   against a running server (see below)
 //   --backups (or LOAD_BACKUPS=1), self mode: the server runs its backup schedule as under `npm start` — WAL shipping to a
 //   local store in the temporary folder every few seconds, interval snapshots, drills (CLONE_SPEC.md §39.3, §39.20 item 11).
-//   At 40 orders/s that store grows ~25 GB an hour, so the generator deletes shipped objects older than
-//   --backups-keep-min minutes (default 3) and all but the newest snapshot, as a store's lifecycle rule would.
+//   At 40 orders/s that store grows ~90 MB a minute (PLXB3 segments; ~1 GB with the old PLXB1 ones, CLONE_SPEC.md §39.20
+//   item 11) plus a snapshot every 15 minutes, so the generator deletes shipped WAL
+//   segments older than --backups-keep-min minutes (default 3) and all but the newest snapshot, each object with its
+//   manifest and metadata sidecars. Test-only: the product's own retention (server/backups.js prune) is not changed.
 //
 // Scenarios, all at once: (1) order placement and cancels by N traders on K markets, crossing so trades happen
 // (order-to-ack latency = request to response, client side); (2) WebSocket fan-out to M clients subscribed to the ticker
@@ -92,9 +94,14 @@ async function main() {
     const files = [];
     const walk = (d) => { let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else { try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone */ } } } };
     walk(root);
-    const snaps = files.filter((x) => x.f.endsWith('.plxb')).sort((x, y) => y.m - x.m);
-    for (const x of files) if ((x.f.endsWith('.plxw') || x.f.endsWith('.plxw.json')) && t - x.m > keepMs) { try { fs.unlinkSync(x.f); } catch { /* gone */ } }
-    for (const x of snaps.slice(1)) { try { fs.unlinkSync(x.f); } catch { /* gone */ } }
+    // An object is its file plus `.json` (manifest) and `.meta.json` (the local store's metadata) sidecars, removed together.
+    const del = (obj) => { for (const f of [obj, `${obj}.meta.json`, `${obj}.json`, `${obj}.json.meta.json`]) { try { fs.unlinkSync(f); } catch { /* gone */ } } };
+    const isTmp = (f) => f.includes('.tmp-');
+    const snaps = files.filter((x) => x.f.endsWith('.plxb') && !isTmp(x.f)).sort((x, y) => y.m - x.m);
+    for (const x of files) if (x.f.endsWith('.plxw') && !isTmp(x.f) && t - x.m > keepMs) del(x.f);
+    for (const x of snaps.slice(1)) del(x.f);
+    // Sidecars whose object is already gone (from a sweep before this filter covered them).
+    for (const x of files) { const m = /^(.*\.plx[wb])(\.json)?(\.meta\.json)$|^(.*\.plx[wb])\.json$/.exec(x.f); const obj = m && (m[1] || m[4]); if (obj && t - x.m > keepMs && !fs.existsSync(obj)) { try { fs.unlinkSync(x.f); } catch { /* gone */ } } }
   }, 30000) : null;
   const q = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).all(...x); } finally { d.close(); } };
   const run = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).run(...x); } finally { d.close(); } };
