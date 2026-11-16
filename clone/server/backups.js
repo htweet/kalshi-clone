@@ -18,20 +18,23 @@
 // so a restore can list and check backups with no database at all.
 //
 // Snapshots ("interval" every N minutes, "nightly" once a day at the owner-set hour, "pre_production" before the play →
-// real-money switch, "pre_compaction" before `npm run db:compact`, "manual"): ship pending WAL frames and checkpoint
-// (TRUNCATE) so the main file holds every committed page and the WAL is empty — synchronously, so no write of this process
-// (the only writer: server/db.js instance lock) can slip in between. The operations worker then reads the main file as a
-// stream, seals it (PLXB2) into a staging file and uploads that as a stream. Checkpoints wait while the main file is read
-// (new writes go to the WAL), so a snapshot sits exactly at the start of a WAL generation; no plaintext copy is written
-// and memory stays bounded whatever the database size (CLONE_SPEC.md §39.17).
+// real-money switch, "pre_compaction" before `npm run db:compact`, "manual"). Without WAL shipping: checkpoint (TRUNCATE)
+// so the main file holds every committed page and the WAL is empty, synchronously. With WAL shipping (CLONE_SPEC.md
+// §39.20 item 11): a shipment in the operations worker first ships and checkpoints what is committed; the snapshot then
+// records which generation applies on top of the main file (`wal_generation`) and how many of its frames the file may
+// already hold (`wal_frame`). Either way the operations worker then reads the main file as a stream, seals it (PLXB2)
+// into a staging file and uploads that as a stream; no checkpoint runs while the main file is read (new writes go to the
+// WAL); no plaintext copy is written and memory stays bounded whatever the database size (CLONE_SPEC.md §39.17).
 //
 // WAL shipping (Litestream-style): automatic checkpoints are switched off on the server's connection; every few seconds
-// the new frames of the -wal file, up to the last commit frame, are sealed and uploaded as a segment of the current
-// generation; when the WAL grows past a threshold it is checkpointed (TRUNCATE) right after shipping, and the next write
-// starts a new generation (new salts). Restore to a time T: the newest snapshot taken at or before T, then every segment
-// of the following generations shipped at or before T, applied generation by generation as a WAL file that SQLite
-// recovers on open (checksummed frames; a partial generation stops cleanly at its last shipped commit). Loss window: the
-// shipping interval (default 10 s).
+// the operations worker reads the new frames of the -wal file up to the last commit frame (checksums checked, as SQLite's
+// recovery does), seals and uploads them as segments of the current generation, and when the generation is past a
+// threshold checkpoints (PASSIVE) only frames it has shipped; once everything is copied back the WAL starts over and the
+// next frames are a new generation (new salts) — walShipTask below. Restore to a time T: the newest snapshot taken at or
+// before T, then every segment of its generation and the following ones shipped at or before T, applied generation by
+// generation as a WAL file that SQLite recovers on open (checksummed frames; a partial generation stops cleanly at its
+// last shipped commit; replaying frames the main file already holds rewrites the same pages). Loss window: the shipping
+// interval (default 10 s).
 //
 // Retention (owner settings): interval snapshots for `backups.keep_interval_hours` and at most the newest
 // `backups.keep_interval_count` of them (a large database cannot fill a laptop's disk); nightly snapshots 7 daily / 4 weekly
@@ -262,6 +265,230 @@ function readWal(walFile) {
   } finally { fs.closeSync(fd); }
 }
 
+// ------------------------------------------------------------------------------------------------ WAL shipping (worker)
+// WAL shipping runs in the operations worker (soak follow-up 2026-11-16, CLONE_SPEC.md §39.20 item 11): reading the new
+// frames (up to ~200 MB per shipment at 40 orders/s), sealing and uploading them, and the checkpoint that follows took
+// the request thread for seconds when the disk was busy. The worker reads the -wal file while the server keeps writing,
+// so a frame is shipped only when SQLite itself would recover it: its salt matches the header and its cumulative
+// checksum (SQLite's WAL checksum, words big- or little-endian as the header's magic says) matches; a frame still being
+// written fails the checksum and waits for the next shipment.
+//
+// Ordering guarantee (the reason the old code checkpointed on the request thread): SQLite starts the WAL over — and
+// overwrites frames — only in a write transaction that began when every frame had been copied into the database file.
+// The worker's checkpoints are PASSIVE (never the write lock, never wait) and run while its own read transaction (the
+// "pin", begun before the frames were read) is open: a checkpoint never copies a frame newer than an open reader's
+// snapshot, so it never copies a frame that was not read — and the WAL cannot start over before every frame is shipped.
+// Frames read for a checkpoint are uploaded before it runs; only the short tail read in the catch-up passes that end
+// with the WAL starting over is uploaded right after (as the old code uploaded after its TRUNCATE).
+const WAL_MAGIC_LE = 0x377f0682; const WAL_MAGIC_BE = 0x377f0683;
+const LE_HOST = os.endianness() === 'LE';
+// SQLite's WAL checksum over `len` bytes of `buf` from `off` (len a multiple of 8), continuing from [s1, s2].
+function walSum(buf, off, len, s, be) {
+  let s1 = s[0]; let s2 = s[1];
+  if (!be && LE_HOST && (buf.byteOffset + off) % 4 === 0) {
+    const w = new Uint32Array(buf.buffer, buf.byteOffset + off, len >> 2);
+    for (let i = 0; i < w.length; i += 2) { s1 = (s1 + w[i] + s2) >>> 0; s2 = (s2 + w[i + 1] + s1) >>> 0; }
+  } else {
+    const rd = be ? (i) => buf.readUInt32BE(i) : (i) => buf.readUInt32LE(i);
+    for (let i = off; i < off + len; i += 8) { s1 = (s1 + rd(i) + s2) >>> 0; s2 = (s2 + rd(i + 4) + s1) >>> 0; }
+  }
+  return [s1, s2];
+}
+// The -wal header if it is complete and valid: { salt, pageSize, be, header, ck (the first frame's running checksum) }.
+function walHeader(fd) {
+  const h = Buffer.alloc(WAL_HEADER);
+  if (fs.readSync(fd, h, 0, WAL_HEADER, 0) < WAL_HEADER) return null;
+  const magic = h.readUInt32BE(0);
+  if (magic !== WAL_MAGIC_LE && magic !== WAL_MAGIC_BE) return null;
+  const be = magic === WAL_MAGIC_BE;
+  const ck = walSum(h, 0, 24, [0, 0], be);
+  if (ck[0] !== h.readUInt32BE(24) || ck[1] !== h.readUInt32BE(28)) return null; // torn or not yet written
+  const ps = h.readUInt32BE(8);
+  return { salt: h.subarray(16, 24).toString('hex'), pageSize: ps === 1 ? 65536 : ps, be, header: h, ck };
+}
+function walHeaderOf(walFile) {
+  let fd;
+  try { fd = fs.openSync(walFile, 'r'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  try { return walHeader(fd); } finally { fs.closeSync(fd); }
+}
+// Reads the next segment of committed frames after `state` (at most about `maxBytes`, always ending at a commit frame).
+// → null (no valid WAL) or { next (the shipping state after this segment), seg (null when nothing new is committed) }.
+function readSegment(walFile, state, { maxBytes = Infinity, ts = Date.now() } = {}) {
+  let fd;
+  try { fd = fs.openSync(walFile, 'r'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  try {
+    const h = walHeader(fd);
+    if (!h) return null;
+    const frameSize = FRAME_HEADER + h.pageSize;
+    let g = state;
+    if (h.salt !== state.salt) g = { generation: (state.generation || 0) + 1, salt: h.salt, frames: 0, header: h.header.toString('base64'), page_size: h.pageSize, ck: h.ck };
+    const size = fs.fstatSync(fd).size;
+    const total = Math.floor((size - WAL_HEADER) / frameSize);
+    // A state saved before the checksums were tracked: the running checksum is recomputed from the first frame.
+    if (!Array.isArray(g.ck)) {
+      let s = h.ck; const b = Buffer.allocUnsafeSlow(frameSize);
+      for (let i = 0; i < Math.min(g.frames, total); i++) { fs.readSync(fd, b, 0, frameSize, WAL_HEADER + i * frameSize); s = walSum(b, FRAME_HEADER, h.pageSize, walSum(b, 0, 8, s, h.be), h.be); }
+      g = { ...g, ck: s, page_size: h.pageSize };
+    }
+    if (total <= g.frames) return { next: g, seg: null };
+    const chunks = []; let n = 0; let commit = 0; let ckCommit = g.ck; let s = g.ck; let done = false;
+    const BATCH = 256;
+    for (let at = g.frames; at < total && !done;) {
+      const k = Math.min(BATCH, total - at);
+      const b = Buffer.allocUnsafeSlow(k * frameSize);
+      const got = Math.floor(fs.readSync(fd, b, 0, k * frameSize, WAL_HEADER + at * frameSize) / frameSize);
+      let i = 0;
+      for (; i < got; i++) {
+        const o = i * frameSize;
+        if (b.subarray(o + 8, o + 16).toString('hex') !== g.salt) { done = true; break; }
+        s = walSum(b, o + FRAME_HEADER, h.pageSize, walSum(b, o, 8, s, h.be), h.be);
+        if (s[0] !== b.readUInt32BE(o + 16) || s[1] !== b.readUInt32BE(o + 20)) { done = true; break; } // being written
+        n += 1;
+        if (b.readUInt32BE(o + 4) !== 0) { commit = n; ckCommit = s; if (commit * frameSize >= maxBytes) { done = true; i += 1; break; } }
+      }
+      chunks.push(b.subarray(0, i * frameSize));
+      if (got < k) done = true;
+      at += k;
+    }
+    if (!commit) return { next: g, seg: null };
+    const data = Buffer.concat(chunks, commit * frameSize);
+    const seg = { generation: g.generation, first_frame: g.frames, frames: commit, header: Buffer.from(g.header, 'base64'), page_size: h.pageSize, data, ts };
+    return { next: { ...g, frames: g.frames + commit, ck: ckCommit, page_size: h.pageSize }, seg };
+  } finally { fs.closeSync(fd); }
+}
+const segKey = (seg) => `wal/${String(seg.generation).padStart(8, '0')}/${String(seg.first_frame).padStart(10, '0')}-${new Date(seg.ts).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}.plxw`;
+// Seals a segment (PLXB1, same bytes as seal() of its plaintext, without joining the plaintext first) and uploads it with
+// its manifest → the manifest fields recorded in ops_wal_segments.
+async function putSegment(store, keys, seg) {
+  // Segment plaintext: JSON line with the geometry, newline, then the WAL header (first segment only) and the frames.
+  const head = Buffer.from(`${JSON.stringify({ v: 1, generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, page_size: seg.page_size, ts: seg.ts })}\n`);
+  const parts = [head, seg.first_frame === 0 ? seg.header : Buffer.alloc(0), seg.data];
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', keys.active, iv);
+  c.setAAD(MAGIC);
+  const ph = crypto.createHash('sha256'); const ct = [];
+  for (const p of parts) { ph.update(p); ct.push(c.update(p)); }
+  ct.push(c.final());
+  const kid = Buffer.from(keys.activeId, 'ascii');
+  const body = Buffer.concat([MAGIC, Buffer.from([kid.length]), kid, iv, ...ct, c.getAuthTag()]);
+  ct.length = 0;
+  const key = segKey(seg);
+  const manifest = { type: 'wal', generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, ts: seg.ts, page_size: seg.page_size, key_id: keys.activeId, plain_sha256: ph.digest('hex'), sha256: sha(body), bytes: body.length };
+  await store.put(key, body, { contentType: 'application/octet-stream', meta: { sha256: manifest.sha256 } });
+  await store.put(`${key}.json`, Buffer.from(JSON.stringify(manifest)), { contentType: 'application/json' });
+  return { key, generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, ts: seg.ts, bytes: manifest.bytes, sha256: manifest.sha256 };
+}
+// Contiguous segments of one generation joined into one (the catch-up passes read a few frames each).
+function joinSegments(list) {
+  const out = [];
+  for (const s of list) {
+    const last = out[out.length - 1];
+    if (last && last.generation === s.generation && last.first_frame + last.frames === s.first_frame) { last.data = Buffer.concat([last.data, s.data]); last.frames += s.frames; } else out.push({ ...s });
+  }
+  return out;
+}
+
+// The connections WAL shipping uses, per database file and thread: `pin`, read-only, holds the read transaction that
+// bounds the checkpoint; `ck`, read-write, runs the PASSIVE checkpoints and the one-row write that starts the WAL over.
+const shipConns = new Map();
+const shipPending = new Map(); // dbFile → segments read and copied back but not uploaded yet (an upload failed)
+function shipConnsOf(dbFile, walSizeLimitBytes) {
+  let c = shipConns.get(dbFile);
+  if (!c) {
+    const pin = new DatabaseSync(dbFile, { readOnly: true });
+    pin.exec('PRAGMA busy_timeout = 2000'); // a read transaction only waits out a recovery (off the request thread)
+    const ck = new DatabaseSync(dbFile);
+    ck.exec('PRAGMA busy_timeout = 0');
+    ck.exec('PRAGMA synchronous = NORMAL'); // the restart commit does not wait for the disk (checkpoints still sync)
+    ck.exec(`PRAGMA journal_size_limit = ${Number(walSizeLimitBytes) || 64 * 1048576}`); // the restarting commit trims the file
+    c = { pin, ck, ckSt: ck.prepare('PRAGMA wal_checkpoint(PASSIVE)'), pinSt: pin.prepare('SELECT 1 FROM sqlite_schema LIMIT 1') };
+    shipConns.set(dbFile, c);
+  }
+  return c;
+}
+function walShipClose(dbFile) {
+  const c = shipConns.get(dbFile);
+  shipConns.delete(dbFile); shipPending.delete(dbFile);
+  if (c) { for (const d of [c.pin, c.ck]) { try { d.close(); } catch { /* already closed */ } } }
+  return true;
+}
+// One shipment (the operations worker's `shipWal` task; on the request thread only as the fallback):
+//   1. segments read earlier but not uploaded (a failed upload) go first, in order;
+//   2. with the pin held: every committed frame after `state` is read and uploaded (segments of at most `segmentBytes`);
+//      when `checkpoint` is allowed (no snapshot is reading the main file) and the generation is past `thresholdBytes`
+//      (or `force`), a PASSIVE checkpoint copies what the pin allows — only shipped frames;
+//   3. catch-up passes (at most `passes`): pin, read the few frames committed since, checkpoint, unpin; once a pass has
+//      copied every frame, one meta row written by this connection starts the WAL over (a new generation) — skipped
+//      without waiting when the server is writing; the server's own next write then starts it over instead;
+//   4. the frames read in step 3 are uploaded.
+// Returns { state, segments (uploaded, in order), pending, checkpoint, error? }; progress made before an error is kept.
+async function walShipTask({ dbFile, storageConfig, storage = null, keyHex, keyId, keys: liveKeys = null, state, ts = Date.now(), checkpoint = true, force = false, thresholdBytes = 16 * 1048576, segmentBytes = 64 * 1048576, walSizeLimitBytes, passes = 12 }) {
+  const t0 = Date.now();
+  const walFile = `${dbFile}-wal`;
+  const keys = liveKeys || { active: Buffer.from(keyHex, 'hex'), activeId: keyId };
+  const store = storage || require('./storage').create(storageConfig);
+  const c = shipConnsOf(dbFile, walSizeLimitBytes);
+  const out = { state: { ...state }, segments: [], pending: 0, checkpoint: null };
+  const pending = shipPending.get(dbFile) || [];
+  shipPending.set(dbFile, pending);
+  const pin = () => { c.pin.exec('BEGIN'); c.pinSt.get(); };
+  const unpin = () => { try { c.pin.exec('COMMIT'); } catch { /* not in a transaction */ } };
+  const salt = () => { const h = walHeaderOf(walFile); return h ? h.salt : null; };
+  try {
+    while (pending.length) { out.segments.push(await putSegment(store, keys, pending[0])); pending.shift(); }
+    let r = null;
+    pin();
+    try {
+      for (;;) {
+        const x = readSegment(walFile, out.state, { maxBytes: segmentBytes, ts });
+        if (!x) break;
+        if (!x.seg) { out.state = x.next; break; }
+        out.segments.push(await putSegment(store, keys, x.seg));
+        out.state = x.next;
+      }
+      const genBytes = out.state.frames * (FRAME_HEADER + (out.state.page_size || 4096));
+      if (!checkpoint || !(force || genBytes > thresholdBytes)) return out;
+      r = c.ckSt.get();
+      // The pin bounds the copy: never more than the frames shipped (checked, never expected to fire).
+      if (salt() === out.state.salt && r.checkpointed > out.state.frames) out.violation = { checkpointed: r.checkpointed, shipped: out.state.frames };
+    } finally { unpin(); }
+    const cp = { busy: r.busy, log: r.log, checkpointed: r.checkpointed, passes: 1, restarted: false };
+    const gen = out.state.salt;
+    for (let n = 0; n < passes && r.busy === 0; n++) {
+      pin();
+      try {
+        const x = readSegment(walFile, out.state, { ts });
+        if (x) { if (x.seg) pending.push(x.seg); out.state = x.next; } // read: uploaded below (or by the next shipment)
+        r = c.ckSt.get(); cp.passes += 1;
+      } finally { unpin(); }
+      cp.log = r.log; cp.checkpointed = r.checkpointed;
+      const cur = salt();
+      if (cur && cur !== gen) { cp.restarted = true; break; } // the server's own write started it over (all was copied)
+      if (r.busy !== 0 || r.log !== r.checkpointed || r.log !== out.state.frames || cur !== out.state.salt) continue;
+      // Every frame is copied and read: a write that begins now starts the WAL over.
+      const before = out.state.salt;
+      try {
+        c.ck.exec('BEGIN IMMEDIATE');
+        try { c.ck.prepare("INSERT INTO meta(key,value) VALUES('wal_restart_ts',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(Date.now())); c.ck.exec('COMMIT'); } catch (e) { try { c.ck.exec('ROLLBACK'); } catch { /* none */ } throw e; }
+      } catch (e) { if (!/locked|busy/i.test(e.message)) throw e; }
+      // Not started over (a reader still held old frames, or the server wrote first): that row is a frame of this
+      // generation, read by the next pass.
+      const now = salt();
+      if (now && now !== before) { cp.restarted = true; break; }
+    }
+    out.checkpoint = cp;
+    const joined = joinSegments(pending); pending.length = 0; pending.push(...joined);
+    while (pending.length) { out.segments.push(await putSegment(store, keys, pending[0])); pending.shift(); }
+  } catch (e) {
+    out.error = e.message || String(e);
+  } finally {
+    unpin();
+    out.pending = pending.length;
+    out.ms = Date.now() - t0;
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------------------------------------ the service
 function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}, log = () => {}, now = () => Date.now(), options = {} }) {
   const file = dbFile && dbFile !== ':memory:' ? path.resolve(dbFile) : null;
@@ -272,18 +499,21 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   const metaSet = (k, v) => db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, String(v));
   const opsWorker = require('./ops-worker');
   const shipping = !!(file && storage && options.walShipping !== false);
-  if (shipping) db.exec('PRAGMA wal_autocheckpoint = 0'); // this module checkpoints, right after shipping (see above)
+  // With WAL shipping the server's connection never checkpoints: the shipments in the operations worker do, copying
+  // back only shipped frames (walShipTask above); journal_size_limit trims the -wal file when it starts over.
+  const walLimit = Number(options.walSizeLimitBytes || 64 * 1048576);
+  if (shipping) { db.exec('PRAGMA wal_autocheckpoint = 0'); db.exec(`PRAGMA journal_size_limit = ${walLimit}`); }
   // Without WAL shipping, checkpoints run in the operations worker (soak finding 2026-11-16, CLONE_SPEC.md §39.20 item 9;
   // server/ops-worker.js `checkpoint`): SQLite's automatic checkpoint ran inside whichever COMMIT crossed 1,000 pages —
   // on the request thread — copying the WAL into the database file and fsyncing both (up to 2 s with the disk busy, more
   // after a reader had held the WAL). The server's connection never checkpoints now; every `checkpointMs` the worker runs
   // a PASSIVE checkpoint on its own connection (no write lock, no waiting for readers), and the server's next write
   // restarts the WAL once it is fully copied. journal_size_limit gives back the disk of a WAL that grew while a long
-  // reader held it. With WAL shipping, shipWal / snapshot keep checkpointing here (a checkpoint must follow the shipping
-  // of the frames it copies). If the worker fails, the automatic checkpoint is switched back on until it works again.
+  // reader held it. With WAL shipping the shipments checkpoint instead (a checkpoint must follow the shipping of the
+  // frames it copies), also in the worker. If the worker fails, the automatic checkpoint is switched back on until it
+  // works again (without shipping) or the next shipment runs on this thread (with shipping).
   const ckptInWorker = !!(file && !shipping && options.checkpointInWorker !== false);
   const autoPages = () => (ckptInWorker && !ckptFallback ? 0 : 1000);
-  const walLimit = Number(options.walSizeLimitBytes || 64 * 1048576);
   let ckptFallback = false; let ckptRun = null; let ckptTimer = null;
   const ckptStats = { runs: 0, restarts: 0, failures: 0, max_ms: 0, last: null };
   function bgCheckpoint() {
@@ -325,73 +555,45 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
       return manifest;
     } finally { await fs.promises.unlink(staging).catch(() => {}); }
   }
-  async function putObject(key, plain, meta) {
-    const body = seal(plain, keys);
-    const manifest = { ...meta, key_id: keys.activeId, plain_sha256: sha(plain), sha256: sha(body), bytes: body.length };
-    await storage.put(key, body, { contentType: 'application/octet-stream', meta: { sha256: manifest.sha256 } });
-    await storage.put(`${key}.json`, Buffer.from(JSON.stringify(manifest)), { contentType: 'application/json' });
-    return manifest;
+  // ---- WAL shipping in the operations worker (walShipTask above; CLONE_SPEC.md §39.20 item 11). This thread only starts a
+  // shipment, then records what it reports: the uploaded segments (ops_wal_segments) and the shipping state (meta). The
+  // worker rebuilds the store from its config; an injected driver (tests), `useWorker: false`, or a worker that failed
+  // (the next shipment) runs the same task on this thread.
+  let shipRun = null; let shipInline = false; let lastInline = false;
+  const shipStats = { runs: 0, inline_runs: 0, segments: 0, bytes: 0, failures: 0, max_ms: 0, last: null };
+  function shipNow({ force = false } = {}) {
+    if (!shipping) return Promise.resolve(null);
+    if (shipRun) return shipRun.then(() => shipNow({ force }), () => shipNow({ force }));
+    const cfg = storage.config ? storage.config() : null;
+    const inline = !cfg || options.useWorker === false || shipInline;
+    const args = { dbFile: file, storageConfig: cfg, keyHex: keys.active.toString('hex'), keyId: keys.activeId, state, ts: now(),
+      checkpoint: !copying, force, thresholdBytes: Number(S('backups.wal_checkpoint_mb', 16)) * 1048576,
+      segmentBytes: Number(options.walSegmentBytes || 64 * 1048576), walSizeLimitBytes: walLimit };
+    if (inline) { args.storage = storage; args.keys = keys; }
+    shipRun = opsWorker.run('shipWal', args, { inline }).then((r) => {
+      if (inline) shipStats.inline_runs += 1;
+      lastInline = inline;
+      shipInline = false;
+      const ins = db.prepare('INSERT INTO ops_wal_segments(id,generation,first_frame,frames,last_commit_ts,object_key,bytes,sha256,created_ts) VALUES(?,?,?,?,?,?,?,?,?)');
+      for (const m of r.segments) { ins.run(newId('wal_'), m.generation, m.first_frame, m.frames, m.ts, m.key, m.bytes, m.sha256, now()); shipStats.segments += 1; shipStats.bytes += m.bytes; }
+      if (JSON.stringify(r.state) !== JSON.stringify(state)) { state = r.state; saveState(); }
+      shipStats.runs += 1; if (r.ms > shipStats.max_ms) shipStats.max_ms = r.ms;
+      shipStats.last = { ms: r.ms, segments: r.segments.length, pending: r.pending, generation: state.generation, frames: state.frames, checkpoint: r.checkpoint, error: r.error || null };
+      if (r.checkpoint) { const c = r.checkpoint; ckptStats.runs += 1; if (c.restarted) ckptStats.restarts += 1; ckptStats.last = { ...c, ms: r.ms }; if (r.ms > ckptStats.max_ms) ckptStats.max_ms = r.ms; }
+      if (r.violation) log({ level: 'error', msg: 'wal checkpoint copied frames that were not shipped', ...r.violation });
+      if (r.error) { shipStats.failures += 1; throw new Error(r.error); }
+      return r;
+    }, (e) => {
+      // The worker itself failed (it exited or could not start): the next shipment runs on this thread.
+      shipStats.failures += 1; shipInline = true;
+      throw e;
+    }).finally(() => { shipRun = null; });
+    return shipRun;
   }
-
-  // ---- WAL shipping. Synchronous read of new frames; the upload is queued (ordered) and recorded when it lands.
-  function collectFrames() {
-    if (!shipping) return null;
-    const w = readWal(walFile);
-    if (!w || !w.header) return null;
-    if (w.salt !== state.salt) { state = { generation: state.generation + 1, salt: w.salt, frames: 0, header: w.header.toString('base64') }; saveState(); }
-    const frameSize = FRAME_HEADER + w.pageSize;
-    const total = Math.floor((w.size - WAL_HEADER) / frameSize);
-    if (total <= state.frames) return null;
-    // Only up to the last commit frame (bytes 4-7 of a frame header: database size after a commit, 0 otherwise), and only
-    // frames whose salt matches the header (stale frames of an earlier generation can sit past the valid end).
-    const buf = w.read(WAL_HEADER + state.frames * frameSize, (total - state.frames) * frameSize);
-    let lastCommit = -1;
-    for (let i = 0; i < total - state.frames; i++) {
-      const fh = buf.subarray(i * frameSize, i * frameSize + FRAME_HEADER);
-      if (fh.subarray(8, 16).toString('hex') !== w.salt) break;
-      if (fh.readUInt32BE(4) !== 0) lastCommit = i;
-    }
-    if (lastCommit < 0) return null;
-    const n = lastCommit + 1;
-    const seg = { generation: state.generation, first_frame: state.frames, frames: n, header: Buffer.from(state.header, 'base64'), page_size: w.pageSize, data: buf.subarray(0, n * frameSize), ts: now() };
-    state.frames += n;
-    saveState();
-    return seg;
-  }
-  function queueSegment(seg) {
-    const id = newId('wal_');
-    const key = `wal/${String(seg.generation).padStart(8, '0')}/${String(seg.first_frame).padStart(10, '0')}-${stamp(seg.ts)}.plxw`;
-    // Segment plaintext: JSON line with the geometry, newline, then the WAL header (first segment only) and the frames.
-    const head = Buffer.from(`${JSON.stringify({ v: 1, generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, page_size: seg.page_size, ts: seg.ts })}\n`);
-    const plain = Buffer.concat([head, seg.first_frame === 0 ? seg.header : Buffer.alloc(0), seg.data]);
-    return serial(async () => {
-      const m = await putObject(key, plain, { type: 'wal', generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, ts: seg.ts, page_size: seg.page_size });
-      db.prepare('INSERT INTO ops_wal_segments(id,generation,first_frame,frames,last_commit_ts,object_key,bytes,sha256,created_ts) VALUES(?,?,?,?,?,?,?,?,?)')
-        .run(id, seg.generation, seg.first_frame, seg.frames, seg.ts, key, m.bytes, m.sha256, now());
-      return key;
-    });
-  }
-  // Checkpoint (TRUNCATE) once everything is collected: the main file then holds every committed page and the next
-  // write starts a new generation. Returns true when the WAL is empty.
-  // Never waits: a TRUNCATE checkpoint calls the busy handler until every reader has moved past the WAL, and the
-  // operations worker's read snapshot (ledger audit, verifiers) can last seconds — with the connection's 5 s busy timeout
-  // that held the request thread. Busy now means "try again at the next tick".
-  function checkpoint() {
-    db.exec('PRAGMA busy_timeout = 0');
-    try {
-      const r = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
-      return r && r.busy === 0;
-    } finally { db.exec('PRAGMA busy_timeout = 5000'); }
-  }
-  function shipWal({ force = false } = {}) {
-    if (!shipping) return null;
-    const seg = collectFrames();
-    const p = seg ? queueSegment(seg) : null;
-    const w = readWal(walFile);
-    // No checkpoint while a snapshot is being copied: the copy reads the main file, which only a checkpoint changes.
-    if (w && !copying && (force || w.size > Number(S('backups.wal_checkpoint_mb', 16)) * 1048576)) checkpoint();
-    return p;
-  }
+  // Ships what is committed (and, past the threshold or with `force`, checkpoints in the worker). Resolves when recorded.
+  const shipWal = ({ force = false } = {}) => shipNow({ force });
+  // Waits for the shipment in flight and the queued snapshot uploads.
+  async function flush() { while (shipRun) await shipRun.catch(() => {}); await busy; }
 
   // ---- snapshots
   // `copying`: the main file is being read for a snapshot — no checkpoint may change it until the read ends.
@@ -402,32 +604,53 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
     ckptTimer = setInterval(bgCheckpoint, Number(options.checkpointMs || 250));
     ckptTimer.unref?.();
   }
+  // TRUNCATE checkpoint on this thread, never waiting (busy → false): only for a snapshot without WAL shipping (with
+  // shipping, checkpoints happen in the worker's shipments). A TRUNCATE checkpoint calls the busy handler until every
+  // reader has moved past the WAL, and the operations worker's read snapshot can last seconds, so busy means "retry".
+  function checkpoint() {
+    db.exec('PRAGMA busy_timeout = 0');
+    try {
+      const r = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+      return r && r.busy === 0;
+    } finally { db.exec('PRAGMA busy_timeout = 5000'); }
+  }
   function snapshot(kind = 'interval', opts = {}) {
     if (!file || !storage) return Promise.reject(new Error('backups need a database file and a storage adapter'));
     // One snapshot reads the main file at a time; a second request starts when the first has finished reading.
     if (copying && current) return current.then(() => snapshot(kind, opts), () => snapshot(kind, opts));
     // A checkpoint in the worker holds SQLite's checkpoint lock: the snapshot's own checkpoint starts once it is done.
     if (ckptRun) return ckptRun.then(() => snapshot(kind, opts));
+    // With WAL shipping: first a shipment that checkpoints everything shipped (in the worker), so the copy is recent; a
+    // failed shipment does not stop the snapshot (the copy is valid whatever was copied back, see below). Then no
+    // shipment may be running when the copy starts: none checkpoints until the main file has been read.
+    if (shipping && !opts.shipped) return shipNow({ force: true }).catch(() => {}).then(() => snapshot(kind, { ...opts, shipped: true }));
+    if (shipRun) return shipRun.then(() => snapshot(kind, opts), () => snapshot(kind, opts));
     const { note = '', actor = null } = opts;
     const id = newId('bk_');
     const t0 = now();
     const schemaVersion = (() => { try { return require('./migrations').version(db); } catch { return null; } })();
     try {
-      const seg = shipping ? collectFrames() : null;
-      if (seg) queueSegment(seg);
-      if (!checkpoint()) throw new Error('could not checkpoint the database (busy); will retry');
-      const generation = shipping ? state.generation + 1 : null; // the next write opens this generation
-      // From here the main file is read as it was checkpointed (WAL segments of later generations apply to it): automatic
-      // checkpoints stay off (always off while WAL shipping runs; switched off here otherwise) and shipWal waits.
+      // Which WAL generation applies on top of the copy. Without shipping: none. With shipping the main file holds the
+      // current generation's frames up to some frame (checkpoints copy only shipped frames, the worker's pin) — a restore
+      // replays that generation from its first frame (replaying frames the file already holds is what SQLite's own
+      // recovery does) and every later one. If the -wal file shows a generation the worker has not read yet, nothing of
+      // it is copied back yet: the file is the end of the previous one, i.e. the start of this one. `wal_frame`: at most
+      // this many frames of the generation are in the copy, so a restore never replays fewer (CLONE_SPEC.md §39.3).
+      let generation = null; let walFrame = 0;
+      if (shipping) {
+        const h = walHeaderOf(walFile);
+        if (h && h.salt === state.salt) { generation = state.generation; walFrame = state.frames; } else generation = state.generation + 1;
+      } else if (!checkpoint()) throw new Error('could not checkpoint the database (busy); will retry');
+      // From here the main file is read as it is: automatic checkpoints stay off (always off while WAL shipping runs, and
+      // shipments do not checkpoint while `copying`; switched off here otherwise).
       copying = true;
       if (!shipping) db.exec('PRAGMA wal_autocheckpoint = 0');
       const release = () => { if (!copying) return; copying = false; if (!shipping) { try { db.exec(`PRAGMA wal_autocheckpoint = ${autoPages()}`); } catch { /* closed */ } } };
       db.prepare('INSERT INTO ops_backups(id,kind,status,created_ts,schema_version,wal_generation,note) VALUES(?,?,?,?,?,?,?)').run(id, kind, 'running', t0, schemaVersion, generation, String(note).slice(0, 200));
-      if (shipping) { state = { generation: state.generation, salt: '__checkpointed__', frames: 0 }; saveState(); } // next header = next generation
       const key = `snapshots/${new Date(t0).toISOString().slice(0, 10).replace(/-/g, '/')}/${stamp(t0)}-${kind}-${id}.plxb`;
       const p = serial(async () => {
         try {
-          const m = await sealSnapshot(key, { type: 'snapshot', id, kind, ts: t0, schema_version: schemaVersion, wal_generation: generation }, release);
+          const m = await sealSnapshot(key, { type: 'snapshot', id, kind, ts: t0, schema_version: schemaVersion, wal_generation: generation, ...(shipping ? { wal_frame: walFrame } : {}) }, release);
           db.prepare("UPDATE ops_backups SET status='ok', finished_ts=?, object_key=?, bytes=?, sha256=?, plain_sha256=?, key_id=? WHERE id=?").run(now(), key, m.bytes, m.sha256, m.plain_sha256, m.key_id, id);
           log({ msg: 'backup written', kind, id, bytes: m.bytes, ms: now() - t0 });
           audit({ action: 'ops.backup', target_id: id, after: { kind, object_key: key, bytes: m.bytes, sha256: m.sha256 }, reason: note || kind, actor });
@@ -499,7 +722,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
     if (!file || !storage) return;
     const t = now();
     try {
-      if (shipping && t - lastShip >= Number(S('backups.wal_ship_seconds', 10)) * 1000) { lastShip = t; const p = shipWal(); if (p) p.catch((e) => log({ level: 'error', msg: 'wal shipping failed', error: e.message })); }
+      if (shipping && !shipRun && t - lastShip >= Number(S('backups.wal_ship_seconds', 10)) * 1000) { lastShip = t; shipWal().catch((e) => log({ level: 'error', msg: 'wal shipping failed', error: e.message })); }
       const last = db.prepare("SELECT MAX(created_ts) t FROM ops_backups WHERE status IN ('ok','running') AND kind IN ('interval','nightly','manual','pre_production')").get().t || 0;
       const lastNightly = db.prepare("SELECT MAX(created_ts) t FROM ops_backups WHERE status IN ('ok','running') AND kind='nightly'").get().t || 0;
       const settled = t - startedAt >= Number(options.firstSnapshotDelayMs || 0);
@@ -516,10 +739,10 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   async function close() {
     timers.splice(0).forEach(clearInterval);
     if (ckptTimer) { clearInterval(ckptTimer); ckptTimer = null; }
-    try { const p = shipWal({ force: false }); if (p) await p; } catch { /* best effort at shutdown */ }
+    try { await shipWal({ force: false }); } catch { /* best effort at shutdown */ }
     await busy;
     if (ckptRun) await ckptRun;
-    if (ckptInWorker) await opsWorker.closeCheckpoints(file);
+    if (ckptInWorker || shipping) await opsWorker.closeCheckpoints(file);
   }
 
   const status = () => {
@@ -536,7 +759,8 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
   };
   const list = (limit = 50) => db.prepare('SELECT * FROM ops_backups ORDER BY created_ts DESC LIMIT ?').all(limit);
 
-  return { snapshot, shipWal, prune, tick, startSchedule, close, status, list, keys, flush: () => busy, storage, shipping, checkpoint: bgCheckpoint, checkpointStats: () => ({ in_worker: ckptInWorker && !ckptFallback, ...ckptStats }) };
+  return { snapshot, shipWal, prune, tick, startSchedule, close, status, list, keys, flush, storage, shipping, checkpoint: bgCheckpoint,
+    checkpointStats: () => ({ in_worker: shipping ? !(lastInline || shipInline) : ckptInWorker && !ckptFallback, ...ckptStats, ...(shipping ? { shipping: { ...shipStats } } : {}) }) };
 }
 
 // ------------------------------------------------------------------------------------------------ restore (no DB needed)
@@ -583,7 +807,7 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
   log({ msg: 'snapshot restored', key: snap.key, ts: snap.ts });
   // WAL generations after the snapshot, each from its first frame, segments contiguous, shipped at or before the target.
   const segs = manifests.filter((m) => m.type === 'wal' && snap.wal_generation != null && m.generation >= snap.wal_generation && m.ts <= targetTs)
-    .sort((a, b) => a.generation - b.generation || a.first_frame - b.first_frame);
+    .sort((a, b) => a.generation - b.generation || a.first_frame - b.first_frame || b.frames - a.frames);
   const byGen = new Map();
   for (const s of segs) { if (!byGen.has(s.generation)) byGen.set(s.generation, []); byGen.get(s.generation).push(s); }
   let applied = 0; let reached = snap.ts; let generations = 0;
@@ -598,18 +822,29 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
     let expect = 0; let header = null; let fd = null;
     try {
       for (const s of list) {
-        if (s.first_frame !== expect) break; // a gap: stop at the last contiguous segment
+        if (s.first_frame > expect) break; // a gap: stop at the last contiguous segment
+        // A segment shipped twice (a shipment whose result was not recorded before the process stopped is shipped again,
+        // possibly longer): the frames are the same bytes; only the ones not written yet are added.
+        if (s.first_frame + s.frames <= expect) continue;
         const plain = await getChecked(s);
         const nl = plain.indexOf(10);
         const meta = JSON.parse(plain.subarray(0, nl).toString('utf8'));
         let body = plain.subarray(nl + 1);
-        if (meta.first_frame === 0) { header = body.subarray(0, WAL_HEADER); body = body.subarray(WAL_HEADER); fd = fs.openSync(`${tmp}-wal`, 'w', 0o600); fs.writeSync(fd, header); }
+        if (meta.first_frame === 0) { body = body.subarray(WAL_HEADER); if (!header) { header = plain.subarray(nl + 1, nl + 1 + WAL_HEADER); fd = fs.openSync(`${tmp}-wal`, 'w', 0o600); fs.writeSync(fd, header); } }
         if (fd == null) break;
-        fs.writeSync(fd, body);
-        expect += meta.frames; applied += 1; reached = Math.max(reached, meta.ts);
+        const skip = expect - meta.first_frame;
+        fs.writeSync(fd, body.subarray(skip * (FRAME_HEADER + meta.page_size)));
+        expect = meta.first_frame + meta.frames; applied += 1; reached = Math.max(reached, meta.ts);
       }
     } finally { if (fd != null) fs.closeSync(fd); }
     if (!header) break;
+    // The snapshot's own generation: its copy already holds up to `wal_frame` of these frames (shipping in the worker,
+    // CLONE_SPEC.md §39.20 item 11). Replaying fewer would put older pages over newer ones: the copy stays as it is.
+    if (gen === snap.wal_generation && expect < Number(snap.wal_frame || 0)) {
+      log({ level: 'warn', msg: 'wal generation shorter than the snapshot, stopping', generation: gen, frames: expect, wal_frame: snap.wal_frame });
+      for (const f of [`${tmp}-wal`, `${tmp}-shm`]) { try { fs.unlinkSync(f); } catch { /* none */ } }
+      break;
+    }
     const d = new DatabaseSync(tmp); // recovery replays the valid, committed frames of the WAL
     try { d.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } finally { d.close(); }
     generations += 1;
@@ -622,4 +857,4 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
   return { snapshot: { key: snap.key, time: new Date(snap.ts).toISOString(), id: snap.id }, generations, segments: applied, target_ts: targetTs, reached_ts: reached };
 }
 
-module.exports = { createBackups, restore, backupKeys, seal, open, keyId, readWal, sealFile, openFile, hashFile, createSealStream, createOpenStream, CHUNK };
+module.exports = { createBackups, restore, backupKeys, seal, open, keyId, readWal, readSegment, walHeaderOf, walShipTask, walShipClose, sealFile, openFile, hashFile, createSealStream, createOpenStream, CHUNK };

@@ -6058,12 +6058,20 @@ gzip SQL to `tests/fixtures/schemas/` (about 320 kB each; the fixtures' master k
 script). The suite upgrades each and runs the verifiers.
 
 **Backups** (`server/backups.js`): snapshots every `backups.interval_minutes` (15), a nightly full at
-`backups.nightly_hour_wat` (02:00 WAT), one before the production switch, and manual ones. A snapshot ships pending WAL,
-checkpoints (TRUNCATE) and copies the main file page for page, synchronously (this process is the only writer), so it sits
-exactly at the start of a WAL generation; the copy is then sealed and uploaded asynchronously. **WAL shipping**
-(Litestream-style): automatic checkpoints are off; every `backups.wal_ship_seconds` (10) the new frames up to the last
-commit are sealed and uploaded as a segment; past 16 MB the WAL is checkpointed right after shipping and the next write
-opens a new generation. **Encryption:** AES-256-GCM under the backup key (`BACKUP_KEY` / `BACKUP_KEY_FILE`, separate from
+`backups.nightly_hour_wat` (02:00 WAT), one before the production switch, and manual ones. Without WAL shipping a snapshot
+checkpoints (TRUNCATE) and copies the main file, so it sits exactly at the start of a WAL generation. With WAL shipping
+(§39.20 item 11) a shipment first ships and checkpoints what is committed, in the operations worker; the snapshot records
+the generation that applies on top of the copy (`wal_generation`) and at most how many of its frames the copy already
+holds (`wal_frame`, in the manifest): a restore replays that generation from its first frame (rewriting pages the copy
+already has, as SQLite's own recovery does) or, if fewer than `wal_frame` frames of it were shipped, keeps the copy as it
+is. No checkpoint runs while the main file is read; the copy is sealed and uploaded as a stream in the operations
+worker. **WAL shipping** (Litestream-style): automatic checkpoints are off on the server's connection; every
+`backups.wal_ship_seconds` (10) the operations worker reads the new frames up to the last commit (salt and checksum
+checked, as SQLite's recovery does), seals and uploads them as segments (at most 64 MB each), and past
+`backups.wal_checkpoint_mb` (16 MB) of the generation runs PASSIVE checkpoints that copy only frames it has shipped (its own
+read transaction, begun before the frames were read, bounds them); once everything is copied back the WAL starts over and
+the next write opens a new generation. The request thread only starts a shipment and records its segments and state.
+Restore skips a segment shipped twice (a shipment whose result was not recorded before a stop). **Encryption:** AES-256-GCM under the backup key (`BACKUP_KEY` / `BACKUP_KEY_FILE`, separate from
 the master key; `BACKUP_KEY_PREVIOUS` opens objects after a backup-key change); object = `PLXB1` | key id | IV |
 ciphertext | tag, with a JSON manifest (SHA-256 of plaintext and ciphertext, time, kind, generation) so a restore needs
 nothing but the store and the key. **Retention** (owner settings): interval snapshots 48 h; nightly 7 daily / 4 weekly /
