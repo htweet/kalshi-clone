@@ -12,20 +12,10 @@ import { setCurrency, onCurrency } from './currency.js'; // display currency (CL
 import * as home from './views/home.js';
 import * as browse from './views/browse.js';
 import * as eventView from './views/event.js';
-import * as portfolio from './views/portfolio.js';
-import * as watchlist from './views/watchlist.js';
-import * as auth from './views/auth.js';
-import * as calendar from './views/calendar.js';
 import * as social from './views/social.js';
-import * as account from './views/account.js';
-import * as notifications from './views/notifications.js';
-import * as pro from './views/pro.js';
-import * as perps from './views/perps.js';
-import * as combos from './views/combos.js';
 import * as sports from './views/sports.js';
 import { startLivePatcher } from './views/scoreboard.js';
 import { site, loadSite, featureGate } from './views/admin/site.js';
-import { initIdentityUi } from './views/onboarding.js'; // identity banner + compliance dialog (CLONE_SPEC.md §25)
 import { menuHtml, wireMenu, guestMenuButton, guestMenuHtml, wireGuestMenu, categoryIndexButton, categoryIndexList } from './views/account-menu.js'; // ☰ menu, category index (§25.7)
 import { initPwa, thisDevice } from './pwa.js'; // service worker, install, Web Push (CLONE_SPEC.md §31)
 import { initFlags, loadFlags, routeFlagOff, unavailableHtml, renderPlayBanner, renderOpsBanner, onFlags, flagOn, playOn, ownerSetting } from './flags.js'; // feature flags, play mode (CLONE_SPEC.md §33)
@@ -35,6 +25,8 @@ import { initA11y } from './a11y.js'; // tab semantics on every tab list (WCAG 2
 // its data at once, in parallel with the session and flag requests (a 3G phone saves two round trips before the first
 // paint). The view uses the same query-cache entry; for a member or the classic variant the prefetch is simply unused.
 try { if (location.pathname === '/' && !localStorage.getItem('plx-member')) { import('./views/landing.js').catch(() => {}); queries.fetch(['landing'], api.landing, { staleTime: 10000 }).catch(() => {}); } } catch { /* storage unavailable */ }
+// A member in Trader mode lands on Pro (rootView below): its chunk starts loading at once too, as the landing view does.
+try { if (location.pathname === '/' && localStorage.getItem('plx-member') && localStorage.getItem('plx-trader')) import('./views/pro.js').catch(() => {}); } catch { /* storage unavailable */ }
 watchVars(); // strict style CSP (PLAN G13): data-vars -> CSS custom properties via the CSSOM (dynstyle.js)
 // Admin panel is loaded on demand (public/js/views/admin.js).
 const adminView = { render: (ctx) => import('./views/admin.js').then((m) => m.render(ctx)) };
@@ -44,6 +36,17 @@ const socialManageView = { render: (ctx) => import('./views/social-manage.js').t
 const notifSettingsView = { render: (ctx) => import('./views/notification-settings.js').then((m) => m.render(ctx)) };
 // Phase 3 views (CLONE_SPEC.md §25), loaded on demand; literal import()s so the bundler splits them.
 const lazy = (load) => ({ render: (ctx) => load().then((m) => m.render(ctx)) });
+// Views the first render of the common pages (home, an event page, Browse, a category) does not need are loaded on demand
+// too, so the scripts fetched before the first paint stay small (performance budgets, CLONE_SPEC.md §38.7).
+const portfolio = lazy(() => import('./views/portfolio.js'));
+const watchlist = lazy(() => import('./views/watchlist.js'));
+const auth = lazy(() => import('./views/auth.js'));
+const calendar = lazy(() => import('./views/calendar.js'));
+const account = lazy(() => import('./views/account.js'));
+const notifications = lazy(() => import('./views/notifications.js'));
+const pro = lazy(() => import('./views/pro.js'));
+const perps = lazy(() => import('./views/perps.js'));
+const combos = lazy(() => import('./views/combos.js'));
 const onboardingView = lazy(() => import('./views/onboarding.js'));
 const docvPhoneView = lazy(() => import('./views/docv-phone.js'));
 const identityPagesView = lazy(() => import('./views/identity-pages.js'));
@@ -71,7 +74,9 @@ const homeNewView = lazy(() => import('./views/home-new.js'));
 const rootView = {
   render: (ctx) => {
     if (session.user) {
-      if (session.props.view_mode === 'trader') {
+      const trader = session.props.view_mode === 'trader';
+      try { if (trader) localStorage.setItem('plx-trader', '1'); else localStorage.removeItem('plx-trader'); } catch { /* storage unavailable */ } // the Pro prefetch above
+      if (trader) {
         history.replaceState({}, '', '/pro');
         drawnFor = '/pro';
         renderCategoryStrip(new URL(location.href)); markNav(new URL(location.href));
@@ -356,7 +361,14 @@ session.subscribe(() => {
 });
 
 applyTheme(localTheme());
-initIdentityUi();
+// Identity banner and compliance dialog (CLONE_SPEC.md §25, views/onboarding.js). The onboarding module is loaded when
+// first needed (a signed-in session, a compliance error, an identity notification), not before the first render.
+let identityUi = null;
+const withIdentityUi = (fn) => { identityUi ||= import('./views/onboarding.js'); identityUi.then(fn).catch(() => {}); };
+window.addEventListener('parlance:compliance', (e) => withIdentityUi((m) => { m.complianceDialog(e.detail || {}); if (e.detail && e.detail.code === 'geo_restricted') m.refreshIdentityBanner(); }));
+window.addEventListener('parlance:notification', (e) => { if (e.detail && e.detail.type === 'identity') withIdentityUi((m) => m.refreshIdentityBanner()); });
+let identityUid; // refresh on sign-in / sign-out only, not on every balance update
+session.subscribe(() => { if (session.uid !== identityUid) { identityUid = session.uid; if (session.user || identityUi) withIdentityUi((m) => m.refreshIdentityBanner()); } });
 document.getElementById('category-strip').addEventListener('click', (e) => {
   const b = e.target.closest('[data-category-index]');
   if (!b) return;

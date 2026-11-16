@@ -488,6 +488,7 @@ export async function render({ el, query, navigate }) {
 }
 
 // ------------------------------------------------------------------ banner ("Not now" → finish later) + compliance dialog
+// Wired up by main.js, which loads this module when first needed (a signed-in session, a compliance error).
 let bannerEl = null;
 let bannerSeq = 0;
 export async function refreshIdentityBanner() {
@@ -527,7 +528,7 @@ export async function refreshIdentityBanner() {
 }
 
 let dialogOpen = false;
-function complianceDialog(err) {
+export function complianceDialog(err) {
   if (dialogOpen) return;
   dialogOpen = true;
   const d = document.createElement('dialog');
@@ -551,11 +552,4 @@ function complianceDialog(err) {
   d.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
   document.body.appendChild(d);
   d.showModal();
-}
-
-export function initIdentityUi() {
-  window.addEventListener('parlance:compliance', (e) => { complianceDialog(e.detail || {}); if (e.detail && e.detail.code === 'geo_restricted') refreshIdentityBanner(); });
-  window.addEventListener('parlance:notification', (e) => { if (e.detail && e.detail.type === 'identity') refreshIdentityBanner(); });
-  let lastUid; // refresh on sign-in / sign-out only, not on every balance update
-  session.subscribe(() => { if (session.uid !== lastUid) { lastUid = session.uid; refreshIdentityBanner(); } });
 }
