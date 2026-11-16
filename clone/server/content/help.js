@@ -496,6 +496,7 @@ ${fig('rewards.jpg', 'The Rewards page with Refer a friend and Promo codes', 'Re
 <li><b>Pays out</b> is what ₦1 returns if you are right: 2.50x means ₦2.50 back for every ₦1. Select an <b>Odds</b> button to open the trade ticket for that outcome.</li>
 <li>Scroll for every market in the category. Change the order with <b>Trending</b> or <b>Volume</b>, and use <b>Frequency</b> to narrow the list.</li>
 </ol>
+${fig('category-page.jpg', 'A category page with the sidebar filters and a featured market with its chart', 'A category page.')}
 <h2>Good to know</h2>
 <ul><li><b>Climate</b> shows <b>Top cities</b> with today’s and tomorrow’s temperature markets; <b>Sports</b> shows the day’s <b>Games</b> at the top.</li><li>On a phone the groups on the left become a row you can scroll.</li><li>Some categories show a short banner; select <b>Dismiss</b> to hide it.</li></ul>`,
   },
@@ -511,6 +512,7 @@ ${fig('rewards.jpg', 'The Rewards page with Refer a friend and Promo codes', 'Re
 <li>Read the confirmation and select <b>Turn on 1-Click</b>. You are asked only the first time.</li>
 <li>The main button now reads <b>⚡ Buy with 1-Click</b> (or <b>⚡ Sell with 1-Click</b>): one press places the order.</li>
 </ol>
+${fig('one-click-menu.jpg', 'The trade ticket mode menu with the Submit order with 1-Click switch', 'The 1-Click switch in the ticket menu.')}
 <h2>Turn it off</h2>
 <ol><li>Open the <b>NAIRA ▾</b> menu again and switch <b>Submit order with 1-Click</b> off. The review step is back at once.</li></ol>
 <blockquote>Your limits, identity checks and security confirmations still apply to every order. If the switch is missing, the exchange has turned 1-Click off for everyone and every order is reviewed.</blockquote>`,
@@ -520,6 +522,7 @@ ${fig('rewards.jpg', 'The Rewards page with Refer a friend and Promo codes', 'Re
     summary: 'A screener, order book, charts and a fast ticket on one screen, for active traders.',
     related: ['one-click-trading', 'choose-your-home-view', 'limit-orders'],
     body: `<p>Open <b>Pro</b> in the top menu. The terminal puts everything for active trading on one screen: <b>Screener</b>, <b>Chart</b>, <b>Order book</b>, <b>Quick ticket</b>, <b>Open orders</b>, <b>Positions</b>, <b>Recent trades</b> and <b>Price alerts</b>.</p>
+${fig('pro-terminal.jpg', 'The Pro terminal with the screener, chart, order book and quick ticket', 'The Pro terminal.')}
 <h2>Find markets with the screener</h2>
 <ol>
 <li>Choose a <b>Category</b>, when markets <b>Close</b> (for example <b>Within 7 days</b>), a <b>Min volume</b>, a <b>Max spread</b> and a <b>Min 24h move</b>, then select <b>Apply</b>.</li>

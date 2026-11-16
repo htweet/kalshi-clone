@@ -95,6 +95,11 @@ async function main() {
     await page.click('#t-mode-btn'); await page.click('[data-otype=limit]');
     await shot('ticket-limit', '#ticket');
     await page.click('#t-mode-btn'); await page.click('[data-otype=dollars]').catch(async () => { await page.keyboard.press('Escape'); });
+    // The ticket's mode menu with the 1-Click switch (guide: one-click-trading).
+    await page.click('#t-mode-btn');
+    await page.waitForSelector('[data-testid=one-click-toggle]', { timeout: 10000 }).catch(() => {});
+    await shot('one-click-menu', '#ticket');
+    await page.keyboard.press('Escape');
     await page.click('[data-testid=sell-tab]');
     await page.waitForSelector('[data-testid=held]');
     await shot('ticket-sell', '#ticket');
@@ -114,6 +119,14 @@ async function main() {
     await shot('documents', null, { maxH: 520 });
     await go('/rewards');
     await shot('rewards', null, { maxH: 680 });
+    // New pages of 2026-11-15 (guides: browse-a-category, use-the-pro-terminal).
+    await go('/category/economics');
+    await shot('category-page', null, { maxH: 700 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await go('/pro');
+    await page.waitForSelector('[data-testid=pro-terminal]', { timeout: 20000 }).catch(() => {});
+    await shot('pro-terminal', null, { maxH: 820 });
+    await page.setViewportSize({ width: 1280, height: 860 });
     await go('/category/elections/nigeria-2027');
     await page.waitForSelector('[data-testid=elections-hub], [data-testid=el-hub], .el-hub', { timeout: 20000 }).catch(() => {});
     await shot('elections', null, { maxH: 680 });
