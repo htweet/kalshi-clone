@@ -8,11 +8,19 @@ const { ROLE_PERMS } = require('./admin');
 const auditChain = require('./audit-chain');
 
 // Token bucket keyed by user id or IP; take() → 0 when allowed, else whole seconds until the next token.
+// Memory (soak review 2026-11-15, CLONE_SPEC.md §39.20): a full bucket is the same as no bucket, so full ones are dropped
+// by prune(), which take() itself runs at most once a minute — some callers (circle writes, chat reactions) never
+// called prune(), and their maps kept one entry per user or IP ever seen. The map holds only the keys seen in about
+// the last minute plus the ones still refilling.
+const BUCKET_PRUNE_MS = 60000;
 function bucket(burst, perSec) {
   const m = new Map();
+  let lastPrune = Date.now();
+  const prune = (now = Date.now()) => { lastPrune = now; for (const [k, b] of m) if (b.tokens + ((now - b.ts) / 1000) * perSec >= burst) m.delete(k); };
   return {
     take(key) {
       const now = Date.now();
+      if (now - lastPrune >= BUCKET_PRUNE_MS) prune(now);
       const b = m.get(key) || { tokens: burst, ts: now };
       b.tokens = Math.min(burst, b.tokens + ((now - b.ts) / 1000) * perSec);
       b.ts = now;
@@ -21,7 +29,8 @@ function bucket(burst, perSec) {
       b.tokens -= 1;
       return 0;
     },
-    prune() { const now = Date.now(); for (const [k, b] of m) if (b.tokens + ((now - b.ts) / 1000) * perSec >= burst) m.delete(k); },
+    prune: () => prune(),
+    get size() { return m.size; },
   };
 }
 

@@ -67,6 +67,10 @@ class Engine extends EventEmitter {
     this.tradingActive = true;
     const row = db.prepare("SELECT value FROM meta WHERE key='order_seq'").get();
     this.seq = row ? Number(row.value) : 0;
+    // Long-lived in-memory structures that grow with users, IPs, sockets or orders register their entry count here
+    // (name → () => count): reported on the metrics port (parlance_status{name="entries_<name>"}) so a soak can see
+    // whether each one levels off (CLONE_SPEC.md §39.20).
+    this.memory = new Map();
     this.positionHooks = []; // (userId, ticker) after a fill changed a position, inside the fill's transaction
     this.settleHooks = [];   // (ticker, userIds) after a market settled or a settlement was corrected, inside its transaction
   }

@@ -9,11 +9,16 @@ const { fillVo, orderVo } = require('./serialize');
 const { ccToDollars } = require('./pricing');
 
 const PUBLIC = new Set(['ticker', 'orderbook', 'trade', 'market_lifecycle_v2', 'perp_ticker', 'perp_orderbook', 'perp_trade', 'live_data', 'chat', 'event_content', 'incentives', 'display_currency', 'content', 'feature_flags', 'central_bank', 'elections']);
+// Subscriptions per socket (soak review 2026-11-15, CLONE_SPEC.md §39.20): every subscribe added one and nothing bounded
+// them while the socket stayed open, and each one is walked on every publish. The web app holds a few per view and
+// unsubscribes what it leaves; a client over the cap gets error 13, as on the Trade API socket.
+const MAX_SUBS = 200;
 const PRIVATE = new Set(['user_balance', 'user_orders', 'fill', 'notifications', 'perp_positions', 'perp_orders', 'perp_account', 'communications', 'groups', 'payments', 'incentive_rewards']);
 
 function attachWs(server, { engine, auth, security, upgrade = null, onFanout = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 }); // inbound frame cap (clients only send small commands)
   const clients = new Set();
+  engine.memory?.set('ws_subscriptions', () => { let n = 0; for (const c of clients) n += c.subs.size; return n; });
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://x');
@@ -55,6 +60,7 @@ function attachWs(server, { engine, auth, security, upgrade = null, onFanout = n
         const p = m.params || {};
         const chans = Array.isArray(p.channels) ? p.channels : [];
         if (!chans.length) return send(c, { id, type: 'error', msg: { code: 2, msg: 'params.channels required' } });
+        if (c.subs.size + chans.length > MAX_SUBS) return send(c, { id, type: 'error', msg: { code: 13, msg: `too many subscriptions (at most ${MAX_SUBS} per connection)` } });
         for (const ch of chans) {
           if (!PUBLIC.has(ch) && !PRIVATE.has(ch)) return send(c, { id, type: 'error', msg: { code: 8, msg: `unknown channel ${ch}` } });
           if (PRIVATE.has(ch) && !c.userId) return send(c, { id, type: 'error', msg: { code: 9, msg: 'authentication required' } });

@@ -109,7 +109,7 @@ function mountChatExtras({ v1, db, chat, social, requireUser, rolesOf, can }) {
       edits: db.prepare('SELECT * FROM chat_message_edits WHERE message_id=? ORDER BY edited_ts').all(m.id).map((e) => ({ id: e.id, edited_time: iso(e.edited_ts), previous_body: e.prev_body, new_body: e.new_body })) });
   });
 
-  return { REACTIONS, prune: () => { rUser.prune(); rIp.prune(); } };
+  return { REACTIONS, prune: () => { rUser.prune(); rIp.prune(); }, buckets: () => rUser.size + rIp.size };
 }
 
 module.exports = { mountChatExtras, REACTIONS, EDIT_WINDOW_MS };

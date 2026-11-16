@@ -6616,10 +6616,65 @@ generator on the same 4-vCPU VM, `dist` assets) was run until it stayed flat. Ea
 6. **One write per message per subscriber** (2026-11-15): `ws.send` was 22% of server CPU. Each subscriber's socket is
    corked at its first message of the tick and uncorked once after it, so an order's frames (book deltas, ticker,
    trade) leave in one write; bytes and order unchanged.
+7. **Memory: a working set, not a leak** (2026-11-16). The server was run under the soak profile with probes (RSS, JS
+   heap after forced GC every 30 s, heap snapshots diffed by constructor, anonymous vs file-backed RSS from
+   `/proc/<pid>/status`). The JS heap after GC stays at 31–33 MB for the whole run (+0.6 MB between snapshots at 150 s
+   and 590 s, almost all compiled code; no growth in StatementSync, sockets, Maps or strings). RSS rises ~110 MB in the
+   first 90 s (V8 grows its heap reservation to ~80–100 MB, 500 sockets and their buffers, JIT code, SQLite's per-
+   connection caches and glibc arenas — 11 threads) and steps once by ~15 MB around 10 minutes, when the operations
+   worker thread first runs the verifiers; after that it is flat (310.6 MB at 20 min vs 311.8 MB at 10 min). The
+   database grows ~18 MB a minute at this load (journal, idempotency keys, ledger, notifications) — data on disk, not
+   memory (SQLite's page cache is the default 2 MB per connection). The earlier 231 → 324 MB was that warm-up plus the
+   step, sampled from process start.
+   A review of every long-lived Map / Set / array / cache in `server/` (rate-limit buckets, idempotency, session
+   accounting, WebSocket clients and subscriptions, statement caches — the engine's `st()` and the perps level cache
+   are keyed by fixed SQL text only —, landing / SEO / CMS caches, notification state, metric label maps (route groups,
+   bounded), audit, sports, content queue, FIX) found structures that were bounded only by the number of users, IPs,
+   games or orders ever seen. None explains the soak's curve (20 users, 500 sockets that stay open), but each grows for
+   as long as a production process runs; all fixed at the cause:
+   - community / chat token buckets (`server/community-util.js`, `bucket()`; chat now uses the same one) drop full
+     buckets themselves once a minute — the Inner Circle write bucket and the chat reaction buckets (per user and per
+     IP) were never pruned;
+   - session-time accounting (`server/features.js`) writes and drops members idle for 10 minutes (one entry per member
+     ever seen);
+   - notification preferences (`server/notify-prefs.js`): hourly-cap counters of past hours, game states not heard
+     from for a day, and the market auto-cancel list (only the last 2 s are notified; IOC cancels on a market with no
+     lifecycle event grew it) are pruned;
+   - heist and referral rate maps (`server/central-bank.js`, `server/referrals.js`) and the Perps APY notice map
+     (`server/perps-ops.js`) are swept;
+   - web WebSocket (`server/ws.js`): at most 200 subscriptions per socket (error 13, as on the Trade API socket); the web
+     app (`public/js/ws.js`) unsubscribes a subscription answered after the view that asked for it was left (it stayed
+     on the server, published to, for the socket's lifetime) and no longer attaches such a late answer to a newer
+     subscription with the same parameters;
+   - Trade API socket (`server/trade-ws.js`): the last perps book per subscription and market goes with the
+     subscription or market; at most 1,000 markets per subscription through `update_subscription`;
+   - FIX (`server/fix.js`): a session keeps at most 500 finished orders in memory (it kept every order), a logon loads
+     only the session key's resting orders (it loaded its whole history), and the ClOrdIDs used by an open session are
+     kept in `fix_session_clordids` (rows removed with the session) instead of memory — a reused ClOrdID is still
+     refused after its order was replaced or canceled;
+   - sports simulator (`server/sports.js`): the per-game market and line caches keep the 500 most recently loaded games
+     (the simulator adds games for as long as it runs).
+   Already bounded and left as is: bot / security / API-key / payment / health rate maps (TTL flush or size cap),
+   API key cache (5,000), SEO caches (2,000 / 300), landing cache (2 keys), CMS bundle and template caches (per
+   locale), owner settings / flags (registry keys), metric labels, OTLP span queue (500), per-WebSocket state (dropped on
+   close and error), worker request maps (settled per reply), sports event ↔ game indexes (one small entry per game,
+   mirroring a table).
+   Each structure now reports its entry count on the metrics port (`parlance_status{name="entries_<name>"}`, from
+   `engine.memory`), so the one-hour soak can watch them.
+8. **Order latency drift: a scan per order** (2026-11-16, migration 0013). CPU profiles of 20 s at 2 and 11 minutes
+   showed the server ~100% busy both times and one read growing fastest: the order route reads the new order's fills
+   (`fills WHERE order_id=? AND user_id=?`, its average price) and `fills` had no index on `order_id`, so every order
+   scanned all of the trader's fills (0.35 s → 1.9 s of every 20 s). `idx_fills_order` makes it a lookup (also for the
+   Trade API socket, FIX and order history). The badge check after each fill counts at most 10 fills instead of all.
 
 Tests: `market-volume.e2e` — volume totals and book levels equal full recounts after inserts, updates, deletes, member
 orders, fills, amendments, decreases, cancels and expiry; `quote()` fast with 300,000 trades; `book()` + `quote()` fast
-with 50,000 resting orders (each speed check fails on the old code); the event page renders.
+with 50,000 resting orders (each speed check fails on the old code); the event page renders. `memory.e2e` (7, each
+behaviour check fails on the code before 2026-11-16): buckets drop 5,000 keys a minute later; idle members leave the
+session-time map and their row keeps the time; a web socket stops at 200 subscriptions and leaves none after closing;
+the web app (Chromium) releases subscriptions it dropped before the answer; a FIX drop copy keeps ≤ 500 of 600 finished
+orders, a logon loads only resting orders, a reused ClOrdID is refused; every structure is on the metrics port; an
+order's fills are read by index with 200,000 fills of its trader.
 
 | Soak (40 orders/s, 500 WS clients) | Duration | Orders/s | Order p50 / p99 | WS fan-out p99 | Pages p95 | Server memory start → end |
 |---|---|---|---|---|---|---|
@@ -6627,9 +6682,11 @@ with 50,000 resting orders (each speed check fails on the old code); the event p
 | volume + serialisation fixes, other work on the machine (2026-11-15) | 20 min | 40 | 269 ms / 31.8 s | 16 ms | 518 ms | 218 → 261 MB |
 | same, machine otherwise idle | 20 min | 39.9 | 307 ms / 21.6 s | 16 ms | 552 ms | 219 → 251 MB |
 | diagnostics run (event-loop delay per window) | 15 min | 40 | 281 ms / 7.5 s (41 s at the end) | 19 ms | 539 ms | 211 → 309 MB |
-| **book levels + statement reuse + corked fan-out** | 20 min | **40** | **41 ms / 161 ms** | **34 ms** | **97 ms** | 231 → 324 MB |
+| book levels + statement reuse + corked fan-out | 20 min | 40 | 41 ms / 161 ms | 34 ms | 97 ms | 231 → 324 MB |
+| 2026-11-16, probe server, memory fixes, before the fills index | 20 min | 40 | 319 ms / 1.45 s (p50 78 → 720 ms) | 50 ms | 641 ms | 197 → 307 (90 s) → 324 MB, flat after 10 min |
+| **+ fills index (migration 0013)** | 20 min | **40** | **114 ms / 361 ms (p50 80 → 119 ms)** | **45 ms** | **224 ms** | 181 → 289 (90 s) → 312 → 311 MB |
 
-**Capacity.** after the last fix the server keeps up at 40 orders/s with 500 subscribers for 20 minutes: 4 of 120 ten-second windows had an order p99 above 1 s (worst 1.9 s), the server's event-loop delay was 132 ms at the median window (826 ms worst), signed API p99 143 ms, no errors other than cancels of already-filled orders (`cancel_409`, expected). Still open: (a) order p50 drifts from ~25 ms to ~60 ms over the run and server memory rose ~95 MB in 20 minutes — the one-hour soak (P9.5) has to show whether both level off before real money; (b) the 200 orders/s target of §39.9 is still above one process's ceiling (the capacity plan stands: fan-out off the matching process, then 9B); (c) the perps book had the same pattern (resting orders summed per level on every order and order-book read): its levels are now kept by triggers on `perp_orders` too (`perp_book_levels`, migration 0010; the perps invariants property suite checks them against a recount after every random action).
+**Capacity.** after the last fix the server keeps up at 40 orders/s with 500 subscribers for 20 minutes: 4 of 120 ten-second windows had an order p99 above 1 s (worst 1.9 s), the server's event-loop delay was 132 ms at the median window (826 ms worst), signed API p99 143 ms, no errors other than cancels of already-filled orders (`cancel_409`, expected). Still open: (a) memory levels off (item 7) and the steep latency drift is fixed (item 8; the 2026-11-16 runs used a probe server and a load generator on the same busy 4-vCPU machine, so their absolute latencies are higher than the run above — compare within the rows); order p50 still rises ~50% over 20 minutes as the tables grow (1 of 120 windows with p99 above 1 s) — the one-hour soak (P9.5) has to show where it settles before real money; (b) the 200 orders/s target of §39.9 is still above one process's ceiling (the capacity plan stands: fan-out off the matching process, then 9B); (c) the perps book had the same pattern (resting orders summed per level on every order and order-book read): its levels are now kept by triggers on `perp_orders` too (`perp_book_levels`, migration 0010; the perps invariants property suite checks them against a recount after every random action).
 
 ---
 

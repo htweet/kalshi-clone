@@ -78,9 +78,14 @@ function createReferrals({ db, now = () => Date.now(), epoch = () => '' }) {
     throw new Error('could not allocate a referral code');
   }
   // In-process rate limit on applying codes (stops code guessing): 5 attempts per user per minute.
+  // Members whose last attempt is over a minute old are swept once a minute (one entry per member ever seen before;
+  // CLONE_SPEC.md §39.20).
   const attempts = new Map();
+  let swept = 0;
   function limited(uid) {
-    const t = now(); const list = (attempts.get(uid) || []).filter((x) => t - x < 60000);
+    const t = now();
+    if (Math.abs(t - swept) >= 60000) { swept = t; for (const [k, l] of attempts) if (!l.length || t - l[l.length - 1] >= 60000) attempts.delete(k); }
+    const list = (attempts.get(uid) || []).filter((x) => t - x < 60000);
     if (list.length >= 5) { attempts.set(uid, list); return true; }
     list.push(t); attempts.set(uid, list); return false;
   }

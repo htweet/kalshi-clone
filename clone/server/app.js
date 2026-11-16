@@ -612,6 +612,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     for (const k of ['ops.maintenance', 'ops.trading_halt', 'ops.read_only']) set({ name: `switch_${k.slice(4)}` }, flags.globalState(k).on ? 1 : 0);
     set({ name: 'schema_version' }, migrations.version(db));
     set({ name: 'alerts_firing' }, alerts.firing().length);
+    for (const [n, size] of engine.memory) { try { set({ name: `entries_${n}` }, size()); } catch { /* a closed module */ } }
   });
 
   // Internal dispatch for the public API and FIX (server/trade-api.js): the same gates as a web request, then the router.

@@ -202,6 +202,7 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
   // each gap). At most 15 s of session time can be lost in a crash.
   const SESSION_FLUSH_MS = 15000;
   const sessionState = new Map(); // uid -> { day, last, pendingMs, wrote }
+  engine.memory?.set('session_time', () => sessionState.size);
   engine.on('session_time_cleared', (uid) => sessionState.delete(uid)); // Admin › Users › clear session time
   const flushSession = (uid, st, now) => {
     const sec = Math.floor(st.pendingMs / 1000);
@@ -209,11 +210,25 @@ function mountFeatures({ v1, db, engine, requireUser, eventFull, getEvent }) {
       .run(uid, st.day, sec, now);
     st.pendingMs -= sec * 1000; st.wrote = now;
   };
+  // Memory (soak review 2026-11-15, CLONE_SPEC.md §39.20): the map kept one entry per member who ever made a request
+  // since the start. Once a minute, members idle for SESSION_IDLE_MS (or still on a previous day) have their unwritten
+  // seconds written and their entry dropped; the next request reads `last_seen_ms` back from the row, as at a restart.
+  const SESSION_IDLE_MS = 10 * 60000;
+  let sessionSwept = Date.now();
+  const sweepSessions = (now, day) => {
+    sessionSwept = now;
+    for (const [uid, st] of sessionState) {
+      if (st.day === day && now - st.last < SESSION_IDLE_MS) continue;
+      try { if (st.pendingMs >= 1000) flushSession(uid, st, st.last); } catch (e) { if (!/not open|closed/i.test(e.message)) console.error('session time flush', e.message); continue; }
+      sessionState.delete(uid);
+    }
+  };
   function sessionMiddleware(req, res, next) {
     if (!req.auth) return next();
     const uid = req.auth.user.id;
     const now = Date.now();
     const day = dayKey(now);
+    if (now - sessionSwept >= 60000) sweepSessions(now, day);
     let st = sessionState.get(uid);
     if (!st || st.day !== day) {
       const row = db.prepare('SELECT last_seen_ms FROM session_usage WHERE user_id=? AND day=?').get(uid, day);

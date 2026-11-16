@@ -159,7 +159,10 @@ export class Socket {
     if (m.type === 'subscribed') {
       const key = this.byCmd.get(m.id);
       const s = key && this.subs.get(key);
-      if (s) { s.sids.push(m.msg.sid); this.bySid.set(m.msg.sid, key); }
+      if (s && s.pendingId === m.id) { s.sids.push(m.msg.sid); this.bySid.set(m.msg.sid, key); return; }
+      // Answer to a subscription dropped (or re-sent) before it arrived: the view was left within the round trip. Release
+      // it, or the server would keep publishing to it for as long as the socket stays open (CLONE_SPEC.md §39.20).
+      if (m.msg && m.msg.sid != null) this.send({ id: this.nextCommandId++, cmd: 'unsubscribe', params: { sids: [m.msg.sid] } });
       return;
     }
     if (m.type === 'error') { console.warn('[ws] error', m.msg); return; }
