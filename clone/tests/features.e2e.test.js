@@ -137,6 +137,8 @@ test('browse: grid/list layout persists in the DB, sidebar tag groups filter, li
   await p2.waitForSelector('#results.list [data-testid=event-card]');
   await p2.click('.primary-nav a:has-text("Live")');
   await p2.waitForURL(BASE + '/live');
+  // The Live view loads on demand (CLONE_SPEC.md §38.7): wait for it, not for a card the previous Browse list also had.
+  await p2.waitForSelector('[data-testid=live-title]');
   await p2.waitForSelector('[data-testid=event-card][data-event="PLXCUP-26FINAL"]');
   assert.equal(await p2.locator('[data-testid=event-card]').count(), 1);
   assert.deepEqual([...page.errors, ...p2.errors], []);

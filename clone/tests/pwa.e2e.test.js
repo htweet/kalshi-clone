@@ -550,7 +550,9 @@ test('sign-out clears Cache Storage and removes this browser\'s push subscriptio
   await page.click('[data-testid=account-menu]');
   await page.click('[data-testid=menu-logout]');
   await page.waitForSelector('#account-area a[href="/sign-in"]');
-  await until(() => page.evaluate(() => caches.keys().then((k) => k.length === 0)), 5000, 'caches cleared');
+  // Cleared means nothing stored: every cache is gone or empty (the browser may re-create an empty cache name right after
+  // the delete, e.g. for a service-worker lookup in flight; it holds no entry).
+  await until(() => page.evaluate(async () => { let n = 0; for (const k of await caches.keys()) n += (await (await caches.open(k)).keys()).length; return n === 0; }), 5000, 'caches cleared');
   assert.equal(dbq('SELECT COUNT(*) n FROM push_subscriptions WHERE user_id=?', uid)[0].n, 0, 'server row removed before the session ended');
   assert.equal(await page.evaluate(() => window.__unsubscribed), 1, 'browser subscription unsubscribed');
   assert.equal(await page.evaluate(() => localStorage.getItem('plx-webpush')), null);

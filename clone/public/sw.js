@@ -31,14 +31,16 @@ function cacheable(res) {
   return !/no-store|private/i.test(res.headers.get('cache-control') || '');
 }
 
+// All or nothing: every file is fetched first and the cache is created only when all of them arrived, so an interrupted
+// or failed precache never leaves a half-filled cache, and a refill racing a sign-out never re-creates an empty one.
 async function precache() {
-  const cache = await caches.open(CACHE);
-  await Promise.all(PRECACHE.map(async (path) => {
-    if (NEVER.test(path)) return;
+  const got = await Promise.all(PRECACHE.filter((path) => !NEVER.test(path)).map(async (path) => {
     const res = await fetch(new Request(path, { cache: 'reload', credentials: 'omit', redirect: 'error' }));
     if (!cacheable(res)) throw new Error(`precache failed for ${path} (${res.status})`);
-    await cache.put(path, res);
+    return [path, res];
   }));
+  const cache = await caches.open(CACHE);
+  await Promise.all(got.map(([path, res]) => cache.put(path, res)));
 }
 
 self.addEventListener('install', (event) => {
