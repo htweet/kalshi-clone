@@ -35,6 +35,8 @@ const SNOW = 'PLXSNOW-26DEC';
 let srv; let browser; let admin; let A; let B;
 const dbq = (sql, ...a) => { const d = new DatabaseSync(DB_FILE); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Checks that navigate wait for the SPA's render (up to 3 s) instead of reading the page the instant it loads: under load
+// an instant read lost the race on every retry (CI 2026-11-16, 'ballot UI hidden').
 const until = async (fn, ms = 10000, what = 'condition') => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await sleep(100); } };
 const email = (n) => `${n}.${stamp}@example.test`;
 async function newPage(viewport = { width: 1400, height: 1000 }) {
@@ -133,9 +135,9 @@ test('every flag off hides its UI and blocks its API, then on again', async () =
   const openMore = async () => { await page.click('#more-btn'); await page.waitForSelector('.menu [data-testid=more-sports]', { state: 'attached' }); };
   const P = [
     ['perps', async () => { await page.goto(BASE + '/'); return hiddenByFlag(page, '.primary-nav [data-nav=invest]'); }, ['GET', '/v1/perps/markets']],
-    ['combos', async () => { await page.goto(BASE + '/combos'); return page.isVisible('[data-testid=feature-unavailable][data-feature=combos]'); }, ['GET', '/v1/multivariate_event_collections']],
+    ['combos', async () => { await page.goto(BASE + '/combos'); return page.waitForSelector('[data-testid=feature-unavailable][data-feature=combos]', { timeout: 3000 }).then(() => true, () => false); }, ['GET', '/v1/multivariate_event_collections']],
     ['combos.rfq', async () => { await page.goto(BASE + '/portfolio'); await page.waitForSelector('#pf-tabs [data-tab=rfqs]', { state: 'attached' }); return hiddenByFlag(page, '#pf-tabs [data-tab=rfqs]'); }, ['GET', '/v1/communications/rfqs']],
-    ['sports', async () => { await page.goto(BASE + '/sports'); return page.isVisible('[data-testid=feature-unavailable][data-feature=sports]'); }, ['GET', '/v1/sports/leagues']],
+    ['sports', async () => { await page.goto(BASE + '/sports'); return page.waitForSelector('[data-testid=feature-unavailable][data-feature=sports]', { timeout: 3000 }).then(() => true, () => false); }, ['GET', '/v1/sports/leagues']],
     ['sports.lines', null, lines ? ['POST', `/v1/users/${u}/orders`, { ticker: lines, side: 'yes', type: 'limit', price: 1, count: 1 }] : null],
     ['social', async () => { await page.goto(BASE + '/'); await openMore(); return hiddenByFlag(page, '.menu [data-testid=more-social]'); }, ['GET', '/v1/social/posts']],
     ['social.group_chat', async () => { await page.goto(BASE + '/'); return hiddenByFlag(page, '[data-testid=messages-btn]'); }, ['GET', `/v1/users/${u}/groups`]],
@@ -154,18 +156,18 @@ test('every flag off hides its UI and blocks its API, then on again', async () =
     ['trading.collateral_return', null, ['GET', `/v1/users/${u}/collateral_returns`]],
     ['trading.rolling', async () => { await page.goto(BASE + '/live'); await page.waitForSelector('#flash', { state: 'attached' }); return hiddenByFlag(page, '#flash'); }, ['GET', '/v1/rolling/current']],
     // The Phase 5B elections hub is removed (owner decision 2026-11-08): the rates hub carries the hubs flags now.
-    ['hubs', async () => { await page.goto(BASE + '/hubs/economics'); return page.isVisible('[data-testid=feature-unavailable][data-feature=hubs]'); }, null],
+    ['hubs', async () => { await page.goto(BASE + '/hubs/economics'); return page.waitForSelector('[data-testid=feature-unavailable][data-feature=hubs]', { timeout: 3000 }).then(() => true, () => false); }, null],
     ['hubs.widgets', async () => { await page.goto(BASE + '/hubs/economics'); await page.waitForSelector('[data-testid=fed-outlook]', { state: 'attached' }); return hiddenByFlag(page, '[data-testid=fed-outlook]'); }, ['GET', '/v1/hubs/fed_funds_outlook']],
-    ['ballot', async () => { await page.goto(BASE + '/ballot'); return page.isVisible('[data-testid=feature-unavailable][data-feature=ballot]'); }, ['POST', '/v1/ballot/lookup', { query: '90142' }]],
+    ['ballot', async () => { await page.goto(BASE + '/ballot'); return page.waitForSelector('[data-testid=feature-unavailable][data-feature=ballot]', { timeout: 3000 }).then(() => true, () => false); }, ['POST', '/v1/ballot/lookup', { query: '90142' }]],
     ['incentives', async () => { await page.goto(BASE + '/'); await openMore(); return hiddenByFlag(page, '.menu [data-testid=more-incentives]'); }, ['GET', '/v1/incentive_programs']],
     ['rewards', async () => { await page.goto(BASE + '/'); await page.click('[data-testid=account-menu]'); await page.waitForSelector('[data-testid=menu-rewards]', { state: 'attached' }); return hiddenByFlag(page, '[data-testid=menu-rewards]'); }, ['GET', '/v1/rewards/new_user_checklist']],
     ['ai_summaries', null, ['GET', `/v1/events/${ev}/ai_summary`]],
     ['payments.deposits', async () => { await page.goto(BASE + '/funds'); await page.waitForSelector('[data-testid=go-deposit]', { state: 'attached' }); return hiddenByFlag(page, '[data-testid=go-deposit]'); }, ['POST', `/v1/users/${u}/deposits`, { amount_dollars: 1 }]],
-    ['payments.withdrawals', async () => { await page.goto(BASE + '/funds/withdraw'); return page.isVisible('[data-testid=feature-unavailable][data-feature="payments.withdrawals"]'); }, ['POST', `/v1/users/${u}/withdrawals`, { amount_dollars: 1 }]],
+    ['payments.withdrawals', async () => { await page.goto(BASE + '/funds/withdraw'); return page.waitForSelector('[data-testid=feature-unavailable][data-feature="payments.withdrawals"]', { timeout: 3000 }).then(() => true, () => false); }, ['POST', `/v1/users/${u}/withdrawals`, { amount_dollars: 1 }]],
     ['payments.card', async () => { await page.goto(BASE + '/funds/deposit'); await page.waitForSelector('[data-testid=fund-method]'); return (await page.locator('[data-method=new-card]').count()) === 0; }, ['GET', `/v1/users/${u}/debit/cards`]],
     ['payments.bank', async () => { await page.goto(BASE + '/funds/deposit'); await page.waitForSelector('[data-testid=fund-method]'); return (await page.locator('[data-method=new-bank]').count()) === 0; }, ['GET', `/v1/users/${u}/banks/all_accounts`]],
     ['payments.crypto', async () => { await page.goto(BASE + '/funds/deposit'); await page.waitForSelector('[data-testid=fund-method]'); return (await page.locator('[data-method=crypto]').count()) === 0; }, ['GET', '/v1/payments/supported_networks']],
-    ['identity.kyc', async () => { await page.goto(BASE + '/sign-up/identity'); return page.isVisible('[data-testid=feature-unavailable][data-feature="identity.kyc"]'); }, ['GET', `/v1/users/${u}/sign_up`]],
+    ['identity.kyc', async () => { await page.goto(BASE + '/sign-up/identity'); return page.waitForSelector('[data-testid=feature-unavailable][data-feature="identity.kyc"]', { timeout: 3000 }).then(() => true, () => false); }, ['GET', `/v1/users/${u}/sign_up`]],
     ['accounts.signup', async () => { await guest.goto(BASE + '/sign-in'); await guest.waitForSelector('[data-testid=sign-up-link]', { state: 'attached' }); return hiddenByFlag(guest, '[data-testid=sign-up-link]'); }, ['POST', '/v1/users', () => ({ email: email(`nobody${Math.random().toString(36).slice(2, 8)}`), password: PW, display_name: 'No Body' }), 'anon']],
     ['signin.password', async () => { await guest.goto(BASE + '/sign-in'); await guest.waitForSelector('[data-testid=forgot-link]', { state: 'attached' }); return hiddenByFlag(guest, '.auth-forgot'); }, ['POST', '/v1/log_in', { email: email('bob'), password: PW }, 'anon']],
     ['signin.oauth', async () => { await guest.goto(BASE + '/sign-in'); await guest.waitForSelector('[data-testid=oauth-google]', { state: 'attached' }); return hiddenByFlag(guest, '[data-testid=oauth-google]'); }, ['POST', '/v1/oauth/google/start', {}, 'anon']],
