@@ -296,6 +296,30 @@ test('390 px without sideways scroll; light and dark; axe WCAG 2.2 AA; no page e
   assert.deepEqual(found, []);
 });
 
+test('a live price on an odds pill updates its accessible name too (the name keeps the visible text; WCAG 2.5.3)', async () => {
+  for (const slug of ['sports', 'politics']) {
+    const page = await newPage({ width: 390 });
+    await open(page, `/category/${slug}`);
+    await page.waitForTimeout(800); // subscribed to the ticker channel
+    const pills = await page.$$eval('[data-ticker-pill], .outcome-row[data-ticker]:not([data-side]) .pill', (ns) => ns.filter((n) => n.getAttribute('aria-label')).map((n) => n.getAttribute('data-ticker-pill') || n.closest('.outcome-row').dataset.ticker));
+    assert.ok(pills.length >= 1, `${slug}: odds pills with a name`);
+    const T = pills[0];
+    for (const pc of [3, 71]) {
+      // A price change as the order engine announces it (every trade and simulated tick goes through this event).
+      srv.engine.emit('ticker', T, { ...srv.engine.quote(T), last_price_cc: pc * 100 });
+      await page.waitForFunction(([t, w]) => [...document.querySelectorAll(`[data-ticker-pill="${t}"], .outcome-row[data-ticker="${t}"]:not([data-side]) .pill`)].some((n) => n.textContent === w), [T, `${pc}%`], { timeout: 10000 });
+      const bad = await page.$$eval('[data-ticker-pill], [data-ticker-pill-no], .outcome-row .pill', (ns) => ns.filter((n) => n.getAttribute('aria-label') && !n.getAttribute('aria-label').includes(n.textContent.trim())).map((n) => `${n.getAttribute('aria-label')} | ${n.textContent}`));
+      assert.deepEqual(bad, [], `${slug} at ${pc}%: every pill's name contains its visible text`);
+      assert.ok(await page.$$eval(`[data-ticker-pill="${T}"], .outcome-row[data-ticker="${T}"]:not([data-side]) .pill`, (ns, w) => ns.every((n) => n.textContent !== w || n.getAttribute('aria-label').endsWith(w)), `${pc}%`));
+    }
+    if (!(await page.evaluate(() => !!window.axe))) await page.evaluate(AXE);
+    const r = await page.evaluate(async () => (await window.axe.run(document, { runOnly: { type: 'rule', values: ['label-content-name-mismatch'] } })).violations.map((v) => v.nodes.map((n) => n.target.join(' ')).join(', ')));
+    assert.deepEqual(r, [], `${slug}: axe label-content-name-mismatch`);
+    assert.deepEqual(page.errors, []);
+    await page.context().close();
+  }
+});
+
 test('Admin › Category pages: pin a featured event and regroup the sidebar; the visitor sees it, audited, kept after a restart', async () => {
   const ap = await newPage({ width: 1360 });
   await uiLogIn(ap, ADMIN.email);

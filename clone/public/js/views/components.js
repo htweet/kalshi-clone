@@ -7,6 +7,14 @@ import { hoverAttr, installChartHover } from '../chart-hover.js'; // pointer / t
 import { esc, pct, multiplier, prob, previewPct, showShares, eventHref, deltaCents, qty, cents, catColor, avatar, relTime, ICON, money0 as fmtMoney0, pxCents, fmtDay, fmtDateTime } from '../lib.js';
 import { scoreCols, liveSub, cardMarkets } from './scoreboard.js'; // live sports scores on cards (CLONE_SPEC §19.6)
 export { prob };
+// A live price on an odds pill: the visible text and the accessible name change together, so the name keeps containing
+// the visible text (WCAG 2.5.3) and a screen reader hears the current price. The name's trailing price (`42%`, or the
+// no-price form `— …` / `—%`) is replaced; the rest of it (outcome name, "Trade … at") stays as rendered.
+export function setPillPct(n, text) {
+  n.textContent = text;
+  const lab = n.getAttribute('aria-label');
+  if (lab) n.setAttribute('aria-label', lab.replace(/(?:\d+%|—[^—]*)$/u, text));
+}
 
 export function outcomeRows(ev, limit = 3) {
   const ms = [...ev.markets].sort((a, b) => (prob(b) ?? 0) - (prob(a) ?? 0)).slice(0, limit);

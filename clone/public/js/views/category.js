@@ -11,7 +11,7 @@ import { api, request } from '../api.js';
 import { session, queries } from '../store.js';
 import { socket } from '../ws.js';
 import { esc, cents, prob, multiplier, previewPct, eventHref, catFromSlug, catLabel, catColor, scrollMotion, toast } from '../lib.js';
-import { eventCard, evIcon, ocAvatar, multiChart, seriesColor, money0 } from './components.js';
+import { eventCard, evIcon, ocAvatar, multiChart, seriesColor, money0, setPillPct } from './components.js';
 import { groupIcon, citiesStrip, citiesHtml, gamesStrip, bannerHtml, underlyingHtml } from './category-cards.js';
 import { mountCategoryNews } from './news.js'; // approved publisher news for the category (CLONE_SPEC.md §41)
 
@@ -227,8 +227,8 @@ export async function render(ctx) {
     if (x.last_price_dollars == null) return;
     const p = cents(x.last_price_dollars);
     const sel = CSS.escape(T);
-    for (const n of el.querySelectorAll(`[data-ticker-pill="${sel}"], .outcome-row[data-ticker="${sel}"]:not([data-side]) .pill`)) n.textContent = `${p}%`;
-    for (const n of el.querySelectorAll(`[data-ticker-pill-no="${sel}"]`)) n.textContent = `${100 - p}%`;
+    for (const n of el.querySelectorAll(`[data-ticker-pill="${sel}"], .outcome-row[data-ticker="${sel}"]:not([data-side]) .pill`)) setPillPct(n, `${p}%`);
+    for (const n of el.querySelectorAll(`[data-ticker-pill-no="${sel}"]`)) setPillPct(n, `${100 - p}%`);
     for (const n of el.querySelectorAll(`[data-ticker-pct="${sel}"]`)) n.textContent = `${p}%`;
     for (const n of el.querySelectorAll(`[data-legend="${sel}"] b`)) n.textContent = `${p}%`;
     if (m) for (const n of el.querySelectorAll(`.cp-table .outcome-row[data-ticker="${sel}"][data-side="yes"] + .mult`)) { n.textContent = multiplier(m); n.dataset.ask = m.yes_ask_dollars ?? ''; }

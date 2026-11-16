@@ -8,7 +8,7 @@ import { api } from '../api.js';
 import { queries, session } from '../store.js';
 import { socket } from '../ws.js';
 import { scrollMotion, esc, eventHref, cents, multiplier, prob, previewPct, catSlug, catLabel, toast, dayKey, fmtTime, fmtDay } from '../lib.js';
-import { eventCard, rankList, ocAvatar, evIcon, multiChart, seriesColor, money0 } from './components.js';
+import { eventCard, rankList, ocAvatar, evIcon, multiChart, seriesColor, money0, setPillPct } from './components.js';
 import { waitlistCta } from '../flags.js'; // Phase 7A: "Join the real-money waitlist" while in play mode (CLONE_SPEC.md §36)
 
 const INFO = [
@@ -61,7 +61,7 @@ export function wireUpcoming(el, navigate) {
 // Live odds on every card and the hero via the shared ticker channel; returns the unsubscribe.
 export const liveOdds = (el) => socket.subscribe({ channels: ['ticker'] }, (m) => {
   if (m.type !== 'ticker' || m.msg.last_price_dollars == null) return;
-  for (const row of el.querySelectorAll(`.outcome-row[data-ticker="${CSS.escape(m.msg.market_ticker)}"] .pill, [data-ticker-pill="${CSS.escape(m.msg.market_ticker)}"]`)) row.textContent = `${cents(m.msg.last_price_dollars)}%`;
+  for (const row of el.querySelectorAll(`.outcome-row[data-ticker="${CSS.escape(m.msg.market_ticker)}"] .pill, [data-ticker-pill="${CSS.escape(m.msg.market_ticker)}"]`)) setPillPct(row, `${cents(m.msg.last_price_dollars)}%`);
 });
 
 // The hero carousel: outcome table (Market · Pays out · Odds), volume, news, multi-line chart. `more` adds "N more"
