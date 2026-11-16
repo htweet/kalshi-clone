@@ -429,6 +429,21 @@ more during a backup (the worker seals the checkpointed main file directly). `np
 trading history no member is part of) refuses to run until an encrypted `pre_compaction` backup has been written and
 records itself in the audit chain.
 
+### 23. Content operations, help, Pro and layouts (2026-11-15, `CLONE_SPEC.md` §40–§44, §15.6)
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| I/E | Server-side request forgery through a news feed URL or a redirect | Feeds are fetched in a worker thread: https on port 443 only, no credentials in the URL; every resolved address (IPv4 and IPv6, incl. IPv4-mapped, link-local, CGNAT, metadata 169.254.169.254, NAT64) must be public and the connection uses the checked address (no DNS rebinding); at most 3 redirects, each re-checked; 10 s deadline, 2 MB cap before and after decompression, 60 items (`server/news-fetch.js`) | ✅ `content-queue` suite |
+| T | Copyright or defamation from republished articles; spam in feeds | Only headline, link, ≤ 300-character plain excerpt and the publisher's name are stored; nothing is public before a reviewer approves it; take-down and Trash remove it at once | ✅ §41 |
+| T/I | Prompt injection or unsafe output from the optional AI writer / classifier | AI output is untrusted text: tags, links, markdown and invisible characters stripped, lengths capped; instruction echoes, trading advice, bare domains or non-JSON answers fall back to the template; everything waits for human review; a daily request cap (owner setting); no model identifier or key in the repository | ✅ `content-queue` suite |
+| T | Stored XSS through CMS pages, help guides and their screenshots | Allowlist sanitiser re-emits only listed elements; images keep only a same-origin `src` (`/help-img/…` or `/media/…`) and plain `alt`, anything else drops the image; strict CSP (no inline script or style) | ✅ `help-center`, `cms` suites |
+| S/D | Ballot-stuffing "Was this helpful?" | One vote per member, or per hashed browser token for visitors (no IP stored); write rate limits; comments plain text ≤ 500 characters, markup refused | ✅ `help-center` suite |
+| T/R | Content changed or deleted without trace; deletion of legal or market content | Every admin write of a registered content type is a revision (before/after, actor, reason) on top of the hash-chained audit; delete moves to a Trash (restorable for an owner-set number of days); permanent delete needs the type's purge permission and a fresh step-up for legal pages, approved news and published market content | ✅ `content-admin` suite |
+| E | Orders placed without the review step by a script or a stale preference | One-click is a server-checked member preference (off by default, confirmed once); an order sent without review carries `X-Plx-One-Click: 1` and is refused unless the owner switch `trading.one_click` and the member's preference are both on; limits, step-up and compliance checks still apply | ✅ `pro-terminal` suite |
+| I | Admin code and texts shipped to every visitor's device | Staff-only chunks (admin views and catalogs) are not precached by the service worker; visitors' Cache Storage holds only public, content-hashed assets and is cleared at sign-out | ✅ build (`staff_files` in `dist/manifest.json`), `pwa` suite (precache list, sign-out) |
+| D | Memory exhaustion through many users, IPs, sockets or subscriptions | Long-lived maps are capped or swept (rate buckets, session time, chat, notifications, WebSocket subscriptions ≤ 200 per socket, Trade API ≤ 1,000 markets, FIX order history); each reports its size on the metrics port | ✅ `memory` suite |
+| D | Expensive pages under load | Category, landing and Pro data come from bounded, indexed queries on running totals (market volume, book levels); one bundled request per page | ✅ §39.20, soak runs |
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).
@@ -464,5 +479,10 @@ records itself in the audit chain.
 - Phase 9A (`CLONE_SPEC.md` §39.13): capacity below the P9.5 targets on the test machine; snapshots copy the database
   synchronously; backups share the server's disk until a bucket is configured; HMAC lookup keys stay on the ring's first
   key across rotations; the app cannot alert that it is itself down (Prometheus + Alertmanager do); per-process state (RS1).
+
+- Content operations and layouts (`CLONE_SPEC.md` §39.20, §40–§44): news publishers' own excerpt wording is trusted
+  (human review is the control); the optional AI writer depends on a provider the owner configures; one-click trading
+  removes a human confirmation by design (member opt-in, owner switch); the one-hour soak of 2026-11-16 found two
+  6–7 s request-thread stalls at 40 orders/s (a short denial of service for every user), being fixed before real money.
 
 Review this document whenever a phase passes the §6 security gate in `PLAN.md`.
