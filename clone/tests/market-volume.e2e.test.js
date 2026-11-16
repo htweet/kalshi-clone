@@ -8,7 +8,9 @@
 //   • the order book's price levels (migration 0005, soak finding 2026-11-15) always equal a full recount of resting
 //     orders after member orders (resting, crossing, partial fills), amendments, decreases, cancels, expiry and a direct
 //     delete; engine.book() stays fast with 50,000 resting orders in one market (it summed them all, twice per order);
-//     the order book the browser shows matches the recount.
+//     the order book the browser shows matches the recount;
+//   • resting orders are read in index order (migration 0014): matching, queue position and a member's reserved total
+//     stay fast with 60,000 resting orders at one price (matching read and sorted all of them).
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -147,5 +149,33 @@ test('order-book levels equal a full recount after orders, fills, amendments, de
   await page.waitForSelector('[data-testid=event-title]');
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+test('resting orders are read in index order: matching, queue position and the reserved total stay fast with 60,000 resting orders at one price', () => {
+  // Migration 0014 (one-hour soak 2026-11-16): matching read and sorted every crossing resting order before using the
+  // first; the queue position and a member's reserved total looked up every resting row in the table.
+  const d = srv.db; const e = srv.engine;
+  const M = d.prepare("SELECT m.ticker FROM markets m JOIN events e ON e.ticker=m.event_ticker WHERE m.status='active' AND e.series_ticker NOT LIKE 'PLXFLASH%' AND e.series_ticker<>'PLXCOMBO' ORDER BY m.rowid DESC LIMIT 1").get().ticker;
+  const users = [];
+  for (let i = 0; i < 4; i++) {
+    const id = `u_idx_${i}`;
+    d.prepare('INSERT INTO users(id,email,password_hash,display_name,created_at) VALUES(?,?,?,?,?)').run(id, `idx${i}.${Date.now()}@example.test`, 'x', `Idx ${i}`, new Date().toISOString());
+    e.credit(id, 50_000_000, 'deposit', null, 'index test');
+    users.push(id);
+  }
+  const ins = d.prepare("INSERT INTO orders(id,seq,user_id,market_ticker,side,price_cents,price_cc,initial_count,remaining_count,reserved_cents,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'resting',?,?)");
+  d.exec('BEGIN');
+  for (let i = 0; i < 60000; i++) ins.run(`ix_${i}`, 20_000_000 + i, users[1 + (i % 3)], M, 'no', 40, 4000, 100, 100, 1, new Date().toISOString(), new Date().toISOString());
+  d.exec('COMMIT');
+  const med = (fn) => { const t = []; for (let i = 0; i < 7; i++) { const s = process.hrtime.bigint(); fn(i); t.push(Number(process.hrtime.bigint() - s) / 1e6); } return t.sort((a, b) => a - b)[3]; };
+  const fill = med(() => { const r = e.placeOrder(users[0], { ticker: M, side: 'yes', price: 61, count: 100 }); assert.equal(r.status, 'executed'); });
+  assert.ok(fill < 25, `a one-contract order crossing 60,000 resting orders took ${fill.toFixed(1)} ms (median)`);
+  const last = d.prepare("SELECT * FROM orders WHERE id='ix_59999'").get();
+  const qp = med(() => e.queuePosition(last));
+  assert.equal(e.queuePosition(last), d.prepare("SELECT SUM(remaining_count) n FROM orders WHERE market_ticker=? AND status='resting' AND side='no' AND price_cc=4000 AND seq<?").get(M, last.seq).n);
+  const res = med(() => d.prepare("SELECT COALESCE(SUM(reserved_cents),0) c FROM orders WHERE user_id=? AND status='resting'").get(users[1]).c);
+  assert.ok(qp < 12, `queue position behind 60,000 orders took ${qp.toFixed(1)} ms (median)`);
+  assert.ok(res < 6, `a member's reserved total over 20,000 resting orders took ${res.toFixed(1)} ms (median)`);
+  d.exec("DELETE FROM orders WHERE id LIKE 'ix_%'");
 });
 

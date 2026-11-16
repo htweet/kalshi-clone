@@ -201,7 +201,13 @@ class Engine extends EventEmitter {
       if (count % UNITS !== 0 && !m.fractional_trading_enabled && !allow_fractional) throw new ApiError(400, 'fractional_not_enabled', 'fractional contracts are not enabled on this market', 'order a whole number of contracts');
       const opp = side === 'yes' ? 'no' : 'yes';
       // match_order_id: RFQ execution crosses only the confirming maker's order (spec §17.5).
-      const makers = this.db.prepare(`SELECT * FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cc>=? AND user_id<>? ${match_order_id ? 'AND id=?' : ''} ORDER BY price_cc DESC, seq ASC`).all(ticker, opp, P.CC - pcc, userId, ...(match_order_id ? [match_order_id] : []));
+      // Read in matching order (idx_orders_resting_level, migration 0014) and only as far as the order can fill: reading
+      // and sorting every crossing resting order got slower as the book filled (soak 2026-11-16, CLONE_SPEC.md §39.20).
+      const makers = []; let avail = 0;
+      for (const mk of this.st(`SELECT * FROM orders WHERE market_ticker=? AND status='resting' AND side=? AND price_cc>=? AND user_id<>? ${match_order_id ? 'AND id=?' : ''} ORDER BY price_cc DESC, seq ASC`).iterate(ticker, opp, P.CC - pcc, userId, ...(match_order_id ? [match_order_id] : []))) {
+        makers.push(mk); avail += mk.remaining_count;
+        if (avail >= count) break;
+      }
       const feeCap = perContractFeeCapCc(pcc, m.fee_multiplier);
       const R = (n) => Math.ceil((n * (pcc + feeCap * P.CC_PER_CENT)) / P.CC); // reservation bound for n units at the limit
       // G1: the order's fee accumulator (an amend re-enters with the accumulator it already has).

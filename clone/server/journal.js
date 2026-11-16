@@ -224,14 +224,18 @@ function audit(db, { pendingPayouts = null, hooks: useHooks = true, extraChecks 
   init(db);
   const problems = [];
   const entries = db.prepare('SELECT COUNT(*) c FROM journal_entries').get().c;
-  const { top, low } = db.prepare('SELECT COALESCE(MAX(id),0) top, COALESCE(MIN(id),0) low FROM journal_postings').get();
+  const top = db.prepare('SELECT COALESCE(MAX(id),0) v FROM journal_postings').get().v; // each a single b-tree seek
+  const low = db.prepare('SELECT COALESCE(MIN(id),0) v FROM journal_postings').get().v;
   // The prefix applies only to the same rows: same first posting and the same posting at `upto` (a compaction or another
   // database at the same path fails this and gets a full recount).
   const rowAt = (id) => { const r = db.prepare('SELECT entry_id, account, amount_cents FROM journal_postings WHERE id=?').get(id); return r ? `${r.entry_id}|${r.account}|${r.amount_cents}` : ''; };
   const from = prefix && prefix.upto > 0 && prefix.upto <= top && prefix.low === low && prefix.tail === rowAt(prefix.upto) ? prefix.upto : 0;
-  for (const r of db.prepare('SELECT entry_id, SUM(amount_cents) s, COUNT(*) n FROM journal_postings WHERE id>? GROUP BY entry_id HAVING s<>0 OR n<2 LIMIT 50').all(from)) problems.push({ check: 'entry_balanced', entry_id: r.entry_id, expected_cents: 0, actual_cents: r.s, detail: 'postings of this entry do not sum to zero' });
+  // Incremental: a rowid range (NOT INDEXED: the planner would otherwise walk a whole index for the GROUP BY). Full: the
+  // covering index walk.
+  const P = from ? 'journal_postings NOT INDEXED' : 'journal_postings';
+  for (const r of db.prepare(`SELECT entry_id, SUM(amount_cents) s, COUNT(*) n FROM ${P} WHERE id>? GROUP BY entry_id HAVING s<>0 OR n<2 LIMIT 50`).all(from)) problems.push({ check: 'entry_balanced', entry_id: r.entry_id, expected_cents: 0, actual_cents: r.s, detail: 'postings of this entry do not sum to zero' });
   const sums = new Map(from ? prefix.sums : []);
-  for (const r of db.prepare('SELECT account, SUM(amount_cents) s FROM journal_postings WHERE id>? GROUP BY account').all(from)) sums.set(r.account, (sums.get(r.account) || 0) + r.s);
+  for (const r of db.prepare(`SELECT account, SUM(amount_cents) s FROM ${P} WHERE id>? GROUP BY account`).all(from)) sums.set(r.account, (sums.get(r.account) || 0) + r.s);
   const got = (a) => sums.get(a) || 0;
   for (const r of db.prepare('SELECT account, balance_cents b FROM journal_balances').all()) if (r.b !== got(r.account)) problems.push({ check: 'materialised_balance', account: r.account, expected_cents: got(r.account), actual_cents: r.b, detail: 'journal_balances differs from the posting sum' });
   const cmp = (check, account, expected, detail, actual = got(account)) => { if (actual !== expected) problems.push({ check, account, expected_cents: expected, actual_cents: actual, detail }); };
