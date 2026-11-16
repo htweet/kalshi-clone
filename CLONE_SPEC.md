@@ -6802,6 +6802,7 @@ a full recount), still reports an unbalanced new entry, and recounts everything 
 | 2026-11-16, main, one hour (item 9) | 60 min | 40 | 126 ms / 547 ms (p50 84 → 192 ms by 10-minute average; stalls of 7.3 s and 6.1 s; 13 windows with p99 > 2 s, worst 28.7 s; 9 order errors) | 42 ms | 258 ms | 233 → 312 → 315 MB |
 | + checkpoints in the worker, incremental audit (probe server and CPU profiler on) | 60 min | 40 | 135 ms / 581 ms (p50 82 → 237 ms; event loop ≤ 601 ms; 17 windows > 2 s, worst 4.8 s; no errors) | 33 ms | 284 ms | 262 → 349 → 370 MB |
 | **+ migration 0014 (item 10), one hour, no probe** | 60 min | **40** | **69.5 ms / 332 ms (p50 64 → 104 ms; event loop ≤ 512 ms; 1 window with p99 > 2 s (2.56 s), 10 > 1 s; no errors)** | **29 ms** | **164 ms** | 250 → 319 (10 min) → 335 MB |
+| main c3c444a (migration 0016, item 12), one hour, no probe | 60 min | 40 | 89.2 ms / 390 ms (p50 by 10-minute average 86, 107, 114, 83, 81, 95 ms — no upward drift; server event loop ≤ 675 ms, median window 241 ms; 3 windows with p99 > 2 s (worst 2.58 s), 18 > 1 s; no errors) | 31 ms | 199 ms | 245 → 310 (10 min) → 341 MB |
 | backups on (`--backups`), shipping on the request thread (item 11) | 20 min | 33.7 | 71.1 ms / 4.55 s (87 windows > 2 s, worst 15.2 s; event loop ≤ 1.95 s; 7,612 order timeouts) | 27 ms | 143 ms | → 1.9 GB |
 | backups on, shipping in the worker, `PLXB1` segments (18.1 GB of WAL) | 20 min | 40 | 65.7 ms / 329 ms (0 windows > 2 s, 5 > 1 s; event loop ≤ 542 ms) | 30 ms | 154 ms | → 399 MB |
 | **backups on, shipping in the worker, `PLXB3` segments (1.78 GB of WAL)** | 20 min | **40** | **64.4 ms / 298 ms (0 windows > 2 s, 2 > 1 s; event loop ≤ 445 ms)** | **30 ms** | **153 ms** | → 457 MB |
@@ -6813,7 +6814,14 @@ cancels of already-filled orders (`cancel_409`, expected), while the page worker
 is free) loaded 153,561 pages against 98,738 in the hour before the fix. Order p50 by 10-minute average: 64, 60, 61, 67,
 86, 104 ms (84 → 192 ms before). Still open: (a) the owner's bar for the hour was every 10-second window under 2 s: one
 window of 360 reached 2.56 s (at 2,960 s; the server's event-loop delay in it was 318 ms, so a burst of queued work, not
-a stall — not yet attributed) and 10 were above 1 s; order p50 still rises ~60% over the hour, mostly in the last 20
+a stall — not yet attributed) and 10 were above 1 s. Re-run on main c3c444a after item 12 (open interest by index):
+order p50 no longer drifts over the hour (86 → 95 ms by 10-minute average, against 64 → 104 before), but the tail did
+not improve: 3 windows above 2 s (worst 2.58 s at 610 s) and 18 above 1 s, clustered at 600–700 s and 3,290–3,480 s.
+In every slow window the server's event-loop delay stayed at 290–675 ms, so these are not stalls: the request thread
+is saturated (the four page workers are a closed loop and take whatever CPU is free, on the same 4 vCPUs as the load
+generator and the server) and orders queue behind page renders. The bar of every window under 2 s is still not met on
+this machine; the next step is to run the generator on a separate machine, or cap the page workers' rate, so the
+measurement separates server capacity from co-located contention; order p50 still rises ~60% over the hour, mostly in the last 20
 minutes, as the tables grow (database ~1.1 GB after an hour at this load) — the next statement-level pass should start
 from the 30-minute per-statement profile in item 10 (quote() runs ~1,400 times a second for the page workers' event
 lists; its open-interest and previous-price reads are the largest flat costs) — open interest done 2026-11-16 (item 12:
