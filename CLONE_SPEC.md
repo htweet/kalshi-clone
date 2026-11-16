@@ -7287,7 +7287,10 @@ stored in `admin_settings` (they survive restarts). A member in Trader mode land
   hub card (first CMS hub, else the Nigeria elections hub, with volume and a map-tile illustration), **Monthly forecasts**
   (chosen event, else the most traded scalar market: "1.80% forecasted", 1-day change, area sparkline) and the CMS note.
 - **Category lists**: the first N categories in navigation order (default 4), six events each in two columns: icon,
-  title, close day or live label, leading %.
+  title, close day or live label, leading %. When they come after Markets to watch in the owner's section order they
+  continue in the main column beside the rail (the rail spans both rows), so no empty band is left under the cards
+  when the rail is taller (owner report 2026-11-16); placed before Markets to watch they render full width on their
+  own. Under 1100 px: cards, rail, categories.
 - **Data**: one bundled call; per chart at most one hourly close per hour over 7 days, sampled to 60 points; cached 10 s
   per variant (signed in / out) and rebuilt at once when an admin input changes (hero pins, landing config, landing
   content, promos, hubs, news, navigation, event meta). Live: one `ticker` subscription filtered to the page's markets

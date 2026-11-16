@@ -74,8 +74,15 @@ main.lp-main { max-width: none; padding-left: 0; padding-right: 0; padding-top: 
 .lp-chg.down { color: var(--no); }
 
 /* ---------- Markets to watch + rail ---------- */
-.lp-mid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--space-8); align-items: start; margin-bottom: var(--space-10); }
-@media (max-width: 1100px) { .lp-mid { grid-template-columns: minmax(0, 1fr); } }
+.lp-mid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-areas: "watch rail"; gap: var(--space-8); align-items: start; margin-bottom: var(--space-10); }
+.lp-mid.with-cats { grid-template-areas: "watch rail" "cats rail"; grid-template-rows: auto 1fr; row-gap: var(--space-10); }
+.lp-mid > .lp-watch { grid-area: watch; }
+.lp-mid > .lp-rail { grid-area: rail; }
+.lp-mid > .lp-cats-in { grid-area: cats; margin-bottom: 0; }
+@media (max-width: 1100px) {
+  .lp-mid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "watch" "rail"; }
+  .lp-mid.with-cats { grid-template-areas: "watch" "rail" "cats"; grid-template-rows: auto; }
+}
 .lp-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
 @media (max-width: 900px) { .lp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .lp-cards { grid-template-columns: minmax(0, 1fr); } }

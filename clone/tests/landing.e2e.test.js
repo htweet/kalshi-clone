@@ -150,6 +150,43 @@ test('visitors get the landing page: carousel, Weekly forecasts ticker, Markets 
   }
 });
 
+test('no gap under Markets to watch: the category lists continue beside the rail; the owner\'s section order still applies (owner report 2026-11-16)', async () => {
+  const geo = (page) => page.evaluate(() => {
+    const r = (sel) => { const e = document.querySelector(sel); return e && e.getBoundingClientRect().toJSON(); };
+    return { cards: r('#top-markets'), cat: r('[data-testid=lp-category]'), rail: r('[data-testid=lp-rail]'), cats: r('[data-testid=lp-categories]') };
+  });
+  const page = await newPage({ width: 1440, height: 1000 });
+  await page.goto(BASE + '/');
+  await page.waitForSelector('#top-markets [data-testid=event-card]');
+  let g = await geo(page);
+  assert.ok(g.rail.bottom > g.cards.bottom + 80, 'the rail is taller than the cards (the case that left the gap)');
+  assert.ok(g.cat.top - g.cards.bottom < 80, `the first category list follows the cards: gap ${Math.round(g.cat.top - g.cards.bottom)} px`);
+  assert.ok(g.cat.right <= g.rail.left, 'the category lists sit in the main column, left of the rail');
+  assert.ok(g.cat.top < g.rail.bottom, 'beside the rail, not under it');
+  assert.equal(await page.locator('[data-testid=lp-categories]').count(), 1, 'one category block');
+  assert.ok(await noOverflow(page));
+  // The owner puts Categories before Markets to watch: they render on their own, above the cards, full width.
+  const { config } = JSON.parse((await admin.call('GET', '/v1/admin/landing')).text);
+  const order = ['hero', 'categories', ...config.sections.filter((x) => !['hero', 'categories'].includes(x))];
+  assert.equal((await admin.call('PUT', '/v1/admin/landing/config', { sections: order, reason: 'landing e2e' })).status, 200);
+  assert.deepEqual(JSON.parse(q1('SELECT value FROM admin_settings WHERE key=?', 'landing_config').value).sections, order, 'order persisted');
+  await page.reload();
+  await page.waitForSelector('#top-markets [data-testid=event-card]');
+  g = await geo(page);
+  assert.ok(g.cats.bottom <= g.cards.top, 'categories above the cards');
+  assert.ok(g.cats.width > 1000, 'full width when not beside the rail');
+  assert.equal((await admin.call('PUT', '/v1/admin/landing/config', { sections: config.sections, reason: 'landing e2e' })).status, 200);
+  // Narrow window: one column — cards, rail, then the category lists.
+  await page.setViewportSize({ width: 900, height: 1000 });
+  await page.reload();
+  await page.waitForSelector('#top-markets [data-testid=event-card]');
+  g = await geo(page);
+  assert.ok(g.rail.top >= g.cards.bottom && g.cat.top >= g.rail.bottom, 'cards, rail, categories');
+  assert.ok(await noOverflow(page));
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
 test('carousel auto-advance (owner settings), pause; reduced motion keeps the carousel and the ticker still', async () => {
   await setOwner('layout.hero_autoadvance', true);
   await setOwner('layout.hero_interval_seconds', 4);

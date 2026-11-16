@@ -97,12 +97,17 @@ export async function render({ el }) {
         <div class="lp-hero-ctl">${n > 1 ? `<button type="button" class="lp-play" id="hero-play" data-testid="hero-play" aria-pressed="false"></button>` : ''}<span class="lp-dots" aria-hidden="true">${hero.map((_, i) => `<i data-dot="${esc(i)}"></i>`).join('')}</span><span class="sr-only" data-testid="hero-pager"></span></div></section>` : ''),
     ticker: () => (L.chips.length ? `<section class="lp-ticker" aria-labelledby="lp-tk-label" data-testid="lp-ticker"><div class="lp-tk-head"><span class="lp-tk-label" id="lp-tk-label">${te('landing.ticker.label')}</span><button type="button" class="lp-tk-btn" data-testid="ticker-pause" aria-pressed="false"></button></div>
         <div class="lp-tk-view" data-testid="ticker-view"><div class="lp-tk-track" data-testid="ticker-track"><ul class="lp-tk-list">${chipsHtml(L.chips)}</ul></div></div></section>` : ''),
-    watch: () => `<section class="lp-mid lp-wrap">${L.sections.includes('watch') && L.watch.length ? `<div class="lp-watch minw-0"><h2 class="lp-h2">${te('landing.watch.heading')}</h2><div class="lp-cards" id="top-markets" data-testid="markets-to-watch">${L.watch.map(watchCard).join('')}</div></div>` : '<div></div>'}
-        <aside class="lp-rail" data-testid="lp-rail">${waitlistCta('home')}${promoHtml(L)}${monthlyHtml(L.monthly)}<div class="faint rail-note" data-testid="lp-note">${tr('landing.note')}</div></aside></section>`,
+    // Markets to watch, the rail and (when they come after it) the category lists share one grid: the rail spans both
+    // rows, so the category lists continue beside it instead of starting under the rail's last card (owner report
+    // 2026-11-16: a large empty gap under the three cards). Phones: cards, rail, categories.
+    watch: () => `<section class="lp-mid lp-wrap${catsInMid ? ' with-cats' : ''}">${L.sections.includes('watch') && L.watch.length ? `<div class="lp-watch minw-0"><h2 class="lp-h2">${te('landing.watch.heading')}</h2><div class="lp-cards" id="top-markets" data-testid="markets-to-watch">${L.watch.map(watchCard).join('')}</div></div>` : '<div class="lp-watch"></div>'}
+        <aside class="lp-rail" data-testid="lp-rail">${waitlistCta('home')}${promoHtml(L)}${monthlyHtml(L.monthly)}<div class="faint rail-note" data-testid="lp-note">${tr('landing.note')}</div></aside>${catsInMid ? `<div class="lp-cats lp-cats-in minw-0" data-testid="lp-categories">${categoriesHtml(L.categories)}</div>` : ''}</section>`,
     categories: () => (L.categories.length ? `<section class="lp-cats lp-wrap" data-testid="lp-categories">${categoriesHtml(L.categories)}</section>` : ''),
   };
   // The promo rail travels with Markets to watch: hiding the cards keeps the rail.
-  const order = [...L.sections, ...(L.sections.includes('watch') ? [] : ['watch'])];
+  const order0 = [...L.sections, ...(L.sections.includes('watch') ? [] : ['watch'])];
+  const catsInMid = L.categories.length > 0 && order0.includes('categories') && order0.indexOf('categories') > order0.indexOf('watch');
+  const order = catsInMid ? order0.filter((x) => x !== 'categories') : order0;
   el.innerHTML = `<div class="lp" data-testid="landing"><h1 class="sr-only">${te('landing.h1')}</h1>${order.map((s) => S[s]()).join('') /* eslint-disable-line parlance/no-unescaped-html -- the section builders above escape every value */}</div>`;
 
   const stop = [];
