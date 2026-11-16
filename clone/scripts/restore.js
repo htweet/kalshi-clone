@@ -42,7 +42,7 @@ async function main() {
     for (const o of objs) {
       const m = JSON.parse((await storage.get(o.key)).toString('utf8'));
       console.log(m.type === 'snapshot' ? `snapshot  ${new Date(m.ts).toISOString()}  ${m.kind.padEnd(14)} ${String(m.bytes).padStart(12)} B  generation ${m.wal_generation ?? '-'}  ${o.key.slice(0, -5)}`
-        : `wal       ${new Date(m.ts).toISOString()}  generation ${m.generation} frames ${m.first_frame}+${m.frames}`);
+        : `wal       ${new Date(m.ts).toISOString()}  generation ${m.generation} frames ${m.first_frame}+${m.frames}  ${m.format || 'PLXB1'} ${String(m.bytes).padStart(10)} B`);
     }
     return;
   }
@@ -57,6 +57,7 @@ async function main() {
   }
   const r = await restore({ storage, outFile: out, targetTs: to, keyDir: path.dirname(out), force: !!a.force, keys, log: (x) => console.error(JSON.stringify(x)) });
   console.log(`Restored ${out}\n  snapshot ${r.snapshot.key} (${r.snapshot.time})\n  WAL: ${r.segments} segment(s) in ${r.generations} generation(s); reached ${new Date(r.reached_ts).toISOString()} (asked ${new Date(r.target_ts).toISOString()})`);
+  if (!r.wal_kept) console.log('  The snapshot is older than the point-in-time window (owner setting backups.wal_keep_days): its WAL is no longer kept, so the database is as the snapshot was taken.');
   if (a.verify) {
     const d = new DatabaseSync(out);
     try {

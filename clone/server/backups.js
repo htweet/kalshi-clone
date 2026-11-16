@@ -12,7 +12,11 @@
 //         plaintext bytes | its GCM tag (16), under IV = nonce prefix | i (4, big-endian) and AAD = the header bytes | i (4)
 //         | final flag (1). Every chunk but the last holds exactly `chunk size` bytes; the last one (possibly empty) carries
 //         the final flag, so a truncated, reordered, spliced or re-headed object fails authentication.
-// Both formats always open (PLXB1 too as a stream, its tag read first). The previous key (BACKUP_KEY_PREVIOUS) still
+//   PLXB3 (WAL segments since the WAL volume fix, CLONE_SPEC.md §39.20 item 11): the PLXB1 envelope under its own magic
+//         (also the GCM AAD) around a compact segment — only the last version of each page the segment wrote, frame
+//         checksums zeroed (the restore recomputes them), compressed (zstd where Node has it, else brotli; the codec is
+//         named in the segment's first line) before sealing, since ciphertext does not compress (segment format below).
+// All formats always open (PLXB1 too as a stream, its tag read first). The previous key (BACKUP_KEY_PREVIOUS) still
 // opens older objects after a rotation.
 // Every object also carries the SHA-256 of its plaintext and of its ciphertext in a sidecar manifest (JSON, no secrets)
 // so a restore can list and check backups with no database at all.
@@ -38,9 +42,14 @@
 //
 // Retention (owner settings): interval snapshots for `backups.keep_interval_hours` and at most the newest
 // `backups.keep_interval_count` of them (a large database cannot fill a laptop's disk); nightly snapshots 7 daily / 4 weekly
-// / 12 monthly; WAL segments older than the oldest retained snapshot are deleted. Every deletion is recorded.
+// / 12 monthly; pre-production, manual and pre-compaction snapshots a year. Shipped WAL is kept for the point-in-time
+// window `backups.wal_keep_days` (7): from the generation of the oldest kept snapshot taken inside the window (or the
+// newest snapshot, if none is), whatever older snapshots are kept — those restore as they were taken (CLONE_SPEC.md
+// §39.3). Without the window every kept snapshot held all later WAL, up to a year of it (~60 GB an hour at 40 orders/s).
+// Every deletion is recorded.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const zlib = require('node:zlib');
 const os = require('node:os');
 const path = require('node:path');
 const { Transform, Writable, Readable } = require('node:stream');
@@ -49,6 +58,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { newId } = require('./util');
 
 const MAGIC = Buffer.from('PLXB1');
+const MAGIC3 = Buffer.from('PLXB3');
 const WAL_HEADER = 32;
 const FRAME_HEADER = 24;
 const dayMs = 86400000;
@@ -88,7 +98,7 @@ function seal(plain, keys) {
   const kid = Buffer.from(keys.activeId, 'ascii');
   return Buffer.concat([MAGIC, Buffer.from([kid.length]), kid, iv, ct, c.getAuthTag()]);
 }
-// Opens a whole object held in memory (PLXB1, or a PLXB2 object read into a buffer).
+// Opens a whole object held in memory (PLXB1 or PLXB3, or a PLXB2 object read into a buffer).
 function open(buf, keys) {
   if (buf && buf.length >= MAGIC2.length && buf.subarray(0, MAGIC2.length).equals(MAGIC2)) {
     const dec = chunkDecoder(keys);
@@ -96,14 +106,15 @@ function open(buf, keys) {
     out.push(dec.end());
     return Buffer.concat(out);
   }
-  if (!buf || buf.length < MAGIC.length + 1 + 12 + 16 || !buf.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('not a Parlance backup object');
+  const magic = buf && buf.length >= MAGIC3.length && buf.subarray(0, MAGIC3.length).equals(MAGIC3) ? MAGIC3 : MAGIC;
+  if (!buf || buf.length < MAGIC.length + 1 + 12 + 16 || !buf.subarray(0, MAGIC.length).equals(magic)) throw new Error('not a Parlance backup object');
   const n = buf[MAGIC.length];
   const kid = buf.subarray(MAGIC.length + 1, MAGIC.length + 1 + n).toString('ascii');
   const key = keys.all.get(kid);
   if (!key) throw new Error(`backup object sealed with key ${kid}, which is not configured (set BACKUP_KEY or BACKUP_KEY_PREVIOUS)`);
   const at = MAGIC.length + 1 + n;
   const d = crypto.createDecipheriv('aes-256-gcm', key, buf.subarray(at, at + 12));
-  d.setAAD(MAGIC);
+  d.setAAD(magic);
   d.setAuthTag(buf.subarray(buf.length - 16));
   return Buffer.concat([d.update(buf.subarray(at + 12, buf.length - 16)), d.final()]);
 }
@@ -357,23 +368,81 @@ function readSegment(walFile, state, { maxBytes = Infinity, ts = Date.now() } = 
   } finally { fs.closeSync(fd); }
 }
 const segKey = (seg) => `wal/${String(seg.generation).padStart(8, '0')}/${String(seg.first_frame).padStart(10, '0')}-${new Date(seg.ts).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}.plxw`;
-// Seals a segment (PLXB1, same bytes as seal() of its plaintext, without joining the plaintext first) and uploads it with
-// its manifest → the manifest fields recorded in ops_wal_segments.
-async function putSegment(store, keys, seg) {
-  // Segment plaintext: JSON line with the geometry, newline, then the WAL header (first segment only) and the frames.
-  const head = Buffer.from(`${JSON.stringify({ v: 1, generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, page_size: seg.page_size, ts: seg.ts })}\n`);
-  const parts = [head, seg.first_frame === 0 ? seg.header : Buffer.alloc(0), seg.data];
+// ---- WAL segment formats.
+// v1 (PLXB1): JSON line {v: 1, generation, first_frame, frames, page_size, ts}, newline, the WAL header (first segment of a
+//   generation only) and the frames exactly as SQLite wrote them.
+// v3 (PLXB3, the WAL volume fix, CLONE_SPEC.md §39.20 item 11): JSON line {v: 3, generation, first_frame, frames (the
+//   frames shipped, as numbered in the -wal file), stored (frames kept), page_size, ts, codec, raw_bytes}, newline, then
+//   codec(WAL header if first + the kept frames). Within a segment only the last version of each page is kept (a page
+//   written by many commits of the segment is stored once), in the order of those last versions — so the segment's last
+//   frame, a commit frame, stays last; the commit size of every other frame and every checksum are zeroed. Replaying the
+//   compact segment gives exactly the database the original frames give at the segment's end, and a restore always
+//   applies whole segments (it did before: a segment is applied when it was shipped at or before the target), so the
+//   point-in-time granularity stays one shipment (`backups.wal_ship_seconds`, 10 s). The restore recomputes the salts
+//   and the running checksums from the generation's header (SQLite checks them on recovery).
+// Soak 2026-11-16 at 40 orders/s: on 64 MB segments last versions alone 5.8x, with zstd 20x; over the whole run (most
+// segments are 10 s of writes) 54 GB of WAL an hour became 5.3 GB (10.2x).
+const CODECS = {
+  zstd: typeof zlib.zstdCompressSync === 'function' ? { c: (b) => zlib.zstdCompressSync(b), d: (b) => zlib.zstdDecompressSync(b) } : null,
+  br: { c: (b) => zlib.brotliCompressSync(b, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 3, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: b.length } }), d: (b) => zlib.brotliDecompressSync(b) },
+};
+const WAL_CODEC = CODECS.zstd ? 'zstd' : 'br';
+// The frames of a segment reduced to the last version of each page (commit sizes but the last and checksums zeroed).
+function compactFrames(data, pageSize) {
+  const fsz = FRAME_HEADER + pageSize;
+  const n = Math.floor(data.length / fsz);
+  const last = new Map();
+  for (let i = 0; i < n; i++) last.set(data.readUInt32BE(i * fsz), i);
+  const keep = [...last.values()].sort((a, b) => a - b);
+  const out = Buffer.allocUnsafe(keep.length * fsz);
+  keep.forEach((i, j) => {
+    data.copy(out, j * fsz, i * fsz, (i + 1) * fsz);
+    if (j < keep.length - 1) out.writeUInt32BE(0, j * fsz + 4);
+    out.fill(0, j * fsz + 16, j * fsz + FRAME_HEADER);
+  });
+  return { data: out, stored: keep.length };
+}
+// A segment's plaintext → { meta, header (WAL header or null), frames (Buffer of whole frames) } for either format.
+function parseSegment(plain) {
+  const nl = plain.indexOf(10);
+  const meta = JSON.parse(plain.subarray(0, nl).toString('utf8'));
+  let body = plain.subarray(nl + 1);
+  if (meta.v === 3) {
+    const codec = CODECS[meta.codec];
+    if (!codec) throw new Error(`WAL segment compressed with ${meta.codec}, which this Node.js cannot open (zstd needs Node.js 22.15 or later)`);
+    body = codec.d(body);
+  }
+  const header = meta.first_frame === 0 ? body.subarray(0, WAL_HEADER) : null;
+  return { meta, header, frames: header ? body.subarray(WAL_HEADER) : body };
+}
+// Seals a segment and uploads it with its manifest → the manifest fields recorded in ops_wal_segments. `format` 3 (the
+// default): PLXB3, compact and compressed; 1: PLXB1 (same bytes as seal() of its plaintext; kept for tests and to show
+// that old segments restore).
+async function putSegment(store, keys, seg, { format = 3 } = {}) {
+  let head; let parts; let magic = MAGIC; let extra = {};
+  if (format === 3) {
+    const c = compactFrames(seg.data, seg.page_size);
+    const raw = seg.first_frame === 0 ? Buffer.concat([seg.header, c.data]) : c.data;
+    const body = CODECS[WAL_CODEC].c(raw);
+    extra = { stored: c.stored, codec: WAL_CODEC, raw_bytes: seg.data.length };
+    head = Buffer.from(`${JSON.stringify({ v: 3, generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, page_size: seg.page_size, ts: seg.ts, ...extra })}\n`);
+    parts = [head, body]; magic = MAGIC3;
+  } else {
+    // Segment plaintext: JSON line with the geometry, newline, then the WAL header (first segment only) and the frames.
+    head = Buffer.from(`${JSON.stringify({ v: 1, generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, page_size: seg.page_size, ts: seg.ts })}\n`);
+    parts = [head, seg.first_frame === 0 ? seg.header : Buffer.alloc(0), seg.data];
+  }
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv('aes-256-gcm', keys.active, iv);
-  c.setAAD(MAGIC);
+  c.setAAD(magic);
   const ph = crypto.createHash('sha256'); const ct = [];
   for (const p of parts) { ph.update(p); ct.push(c.update(p)); }
   ct.push(c.final());
   const kid = Buffer.from(keys.activeId, 'ascii');
-  const body = Buffer.concat([MAGIC, Buffer.from([kid.length]), kid, iv, ...ct, c.getAuthTag()]);
+  const body = Buffer.concat([magic, Buffer.from([kid.length]), kid, iv, ...ct, c.getAuthTag()]);
   ct.length = 0;
   const key = segKey(seg);
-  const manifest = { type: 'wal', generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, ts: seg.ts, page_size: seg.page_size, key_id: keys.activeId, plain_sha256: ph.digest('hex'), sha256: sha(body), bytes: body.length };
+  const manifest = { type: 'wal', format: format === 3 ? 'PLXB3' : 'PLXB1', generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, ts: seg.ts, page_size: seg.page_size, ...extra, key_id: keys.activeId, plain_sha256: ph.digest('hex'), sha256: sha(body), bytes: body.length };
   await store.put(key, body, { contentType: 'application/octet-stream', meta: { sha256: manifest.sha256 } });
   await store.put(`${key}.json`, Buffer.from(JSON.stringify(manifest)), { contentType: 'application/json' });
   return { key, generation: seg.generation, first_frame: seg.first_frame, frames: seg.frames, ts: seg.ts, bytes: manifest.bytes, sha256: manifest.sha256 };
@@ -422,7 +491,7 @@ function walShipClose(dbFile) {
 //      without waiting when the server is writing; the server's own next write then starts it over instead;
 //   4. the frames read in step 3 are uploaded.
 // Returns { state, segments (uploaded, in order), pending, checkpoint, error? }; progress made before an error is kept.
-async function walShipTask({ dbFile, storageConfig, storage = null, keyHex, keyId, keys: liveKeys = null, state, ts = Date.now(), checkpoint = true, force = false, thresholdBytes = 16 * 1048576, segmentBytes = 64 * 1048576, walSizeLimitBytes, passes = 12 }) {
+async function walShipTask({ dbFile, storageConfig, storage = null, keyHex, keyId, keys: liveKeys = null, state, ts = Date.now(), checkpoint = true, force = false, thresholdBytes = 16 * 1048576, segmentBytes = 64 * 1048576, walSizeLimitBytes, passes = 12, format = 3 }) {
   const t0 = Date.now();
   const walFile = `${dbFile}-wal`;
   const keys = liveKeys || { active: Buffer.from(keyHex, 'hex'), activeId: keyId };
@@ -435,7 +504,7 @@ async function walShipTask({ dbFile, storageConfig, storage = null, keyHex, keyI
   const unpin = () => { try { c.pin.exec('COMMIT'); } catch { /* not in a transaction */ } };
   const salt = () => { const h = walHeaderOf(walFile); return h ? h.salt : null; };
   try {
-    while (pending.length) { out.segments.push(await putSegment(store, keys, pending[0])); pending.shift(); }
+    while (pending.length) { out.segments.push(await putSegment(store, keys, pending[0], { format })); pending.shift(); }
     let r = null;
     pin();
     try {
@@ -443,7 +512,7 @@ async function walShipTask({ dbFile, storageConfig, storage = null, keyHex, keyI
         const x = readSegment(walFile, out.state, { maxBytes: segmentBytes, ts });
         if (!x) break;
         if (!x.seg) { out.state = x.next; break; }
-        out.segments.push(await putSegment(store, keys, x.seg));
+        out.segments.push(await putSegment(store, keys, x.seg, { format }));
         out.state = x.next;
       }
       const genBytes = out.state.frames * (FRAME_HEADER + (out.state.page_size || 4096));
@@ -478,7 +547,7 @@ async function walShipTask({ dbFile, storageConfig, storage = null, keyHex, keyI
     }
     out.checkpoint = cp;
     const joined = joinSegments(pending); pending.length = 0; pending.push(...joined);
-    while (pending.length) { out.segments.push(await putSegment(store, keys, pending[0])); pending.shift(); }
+    while (pending.length) { out.segments.push(await putSegment(store, keys, pending[0], { format })); pending.shift(); }
   } catch (e) {
     out.error = e.message || String(e);
   } finally {
@@ -568,7 +637,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
     const inline = !cfg || options.useWorker === false || shipInline;
     const args = { dbFile: file, storageConfig: cfg, keyHex: keys.active.toString('hex'), keyId: keys.activeId, state, ts: now(),
       checkpoint: !copying, force, thresholdBytes: Number(S('backups.wal_checkpoint_mb', 16)) * 1048576,
-      segmentBytes: Number(options.walSegmentBytes || 64 * 1048576), walSizeLimitBytes: walLimit };
+      segmentBytes: Number(options.walSegmentBytes || 64 * 1048576), walSizeLimitBytes: walLimit, format: Number(options.walFormat || 3) };
     if (inline) { args.storage = storage; args.keys = keys; }
     shipRun = opsWorker.run('shipWal', args, { inline }).then((r) => {
       if (inline) shipStats.inline_runs += 1;
@@ -671,6 +740,19 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
     }
   }
 
+  // ---- point-in-time window (owner setting backups.wal_keep_days, CLONE_SPEC.md §39.3): shipped WAL is kept from the
+  // generation of the oldest kept snapshot taken inside the window; when no snapshot is that recent, from the newest one
+  // (so the newest snapshot always replays up to now). Snapshots older than that stay and restore as they were taken.
+  // → the base snapshot row (its generation and time: the earliest point a point-in-time restore can reach) or null.
+  function walBase(t = now()) {
+    const cut = t - Number(S('backups.wal_keep_days', 7)) * dayMs;
+    const kept = db.prepare("SELECT id, kind, created_ts, wal_generation FROM ops_backups WHERE status='ok' AND deleted_ts IS NULL AND wal_generation IS NOT NULL ORDER BY created_ts DESC, rowid DESC").all();
+    if (!kept.length) return null;
+    const inside = kept.filter((b) => b.created_ts >= cut);
+    return inside.length ? inside[inside.length - 1] : kept[0];
+  }
+  const walKeepFrom = (t) => { const b = walBase(t); return b ? b.wal_generation : null; };
+
   // ---- retention (owner settings); returns what was deleted
   async function prune() {
     const t = now();
@@ -700,7 +782,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
       db.prepare('UPDATE ops_backups SET deleted_ts=? WHERE id=?').run(now(), b.id);
       removed.snapshots += 1;
     }
-    const oldest = db.prepare("SELECT MIN(wal_generation) g FROM ops_backups WHERE status='ok' AND deleted_ts IS NULL AND wal_generation IS NOT NULL").get().g;
+    const oldest = walKeepFrom(t);
     if (oldest != null) {
       for (const s of db.prepare('SELECT * FROM ops_wal_segments WHERE generation<? AND deleted_ts IS NULL').all(oldest)) {
         await storage.delete(s.object_key); await storage.delete(`${s.object_key}.json`);
@@ -745,6 +827,17 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
     if (ckptInWorker || shipping) await opsWorker.closeCheckpoints(file);
   }
 
+  // The point-in-time window as Admin › System shows it: the setting, the WAL kept (objects, bytes), what was shipped in
+  // the last hour, and the earliest time a restore can reach with WAL (the base snapshot; older snapshots restore as taken).
+  const walWindow = () => {
+    const t = now();
+    const base = walBase(t);
+    const kept = db.prepare('SELECT COUNT(*) n, COALESCE(SUM(bytes),0) b, MIN(generation) g FROM ops_wal_segments WHERE deleted_ts IS NULL').get();
+    const hour = db.prepare('SELECT COALESCE(SUM(bytes),0) b FROM ops_wal_segments WHERE created_ts>=?').get(t - 3600000).b;
+    return { keep_days: Number(S('backups.wal_keep_days', 7)), segments: kept.n, bytes: kept.b, last_hour_bytes: hour,
+      oldest_point: base && kept.n && kept.g <= base.wal_generation ? new Date(base.created_ts).toISOString() : null,
+      oldest_kept_generation: kept.g ?? null };
+  };
   const status = () => {
     const last = db.prepare("SELECT * FROM ops_backups WHERE status='ok' AND deleted_ts IS NULL ORDER BY created_ts DESC LIMIT 1").get();
     const lastSeg = db.prepare('SELECT * FROM ops_wal_segments WHERE deleted_ts IS NULL ORDER BY created_ts DESC LIMIT 1').get();
@@ -754,6 +847,7 @@ function createBackups({ db, dbFile, storage, keyDir, settings, audit = () => {}
       last_backup: last ? { id: last.id, kind: last.kind, time: new Date(last.created_ts).toISOString(), age_sec: Math.round((now() - last.created_ts) / 1000), bytes: last.bytes, sha256: last.sha256, object_key: last.object_key } : null,
       last_wal_segment: lastSeg ? { time: new Date(lastSeg.last_commit_ts).toISOString(), age_sec: Math.round((now() - lastSeg.last_commit_ts) / 1000), generation: lastSeg.generation } : null,
       last_failure: failed ? { time: new Date(failed.created_ts).toISOString(), error: failed.error } : null,
+      wal_window: walWindow(),
       counts: db.prepare("SELECT kind, COUNT(*) n FROM ops_backups WHERE status='ok' AND deleted_ts IS NULL GROUP BY kind").all(),
     };
   };
@@ -811,6 +905,9 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
   const byGen = new Map();
   for (const s of segs) { if (!byGen.has(s.generation)) byGen.set(s.generation, []); byGen.get(s.generation).push(s); }
   let applied = 0; let reached = snap.ts; let generations = 0;
+  // Outside the point-in-time window (backups.wal_keep_days) the snapshot's own WAL generation is gone: it restores as
+  // it was taken (CLONE_SPEC.md §39.3).
+  const walKept = snap.wal_generation == null || segs.some((x) => x.generation === snap.wal_generation);
   let nextGen = snap.wal_generation;
   for (const [gen, list] of [...byGen].sort((a, b) => a[0] - b[0])) {
     // Generations apply in an unbroken run from the snapshot's own: a missing generation (never shipped, e.g. the writes
@@ -818,22 +915,32 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
     if (gen !== nextGen) { log({ level: 'warn', msg: 'wal generation missing, stopping', generation: nextGen }); break; }
     nextGen += 1;
     if (list[0].first_frame !== 0) { log({ level: 'warn', msg: 'wal generation incomplete, stopping', generation: gen }); break; }
-    // The generation's WAL file, written segment by segment (one segment in memory at a time).
-    let expect = 0; let header = null; let fd = null;
+    // The generation's WAL file, written segment by segment (one segment in memory at a time). Segments of either format
+    // (PLXB1 frames as SQLite wrote them, PLXB3 compact frames); every frame written gets the generation's salts and the
+    // running checksum from the header (unchanged bytes for PLXB1 frames; required for PLXB3, whose checksums are zeroed).
+    let expect = 0; let header = null; let fd = null; let ck = null; let be = false; let salt = null;
     try {
       for (const s of list) {
         if (s.first_frame > expect) break; // a gap: stop at the last contiguous segment
         // A segment shipped twice (a shipment whose result was not recorded before the process stopped is shipped again,
-        // possibly longer): the frames are the same bytes; only the ones not written yet are added.
+        // possibly longer): the frames are the same; only the ones not written yet are added (PLXB1), or the whole compact
+        // segment is applied again (PLXB3: its pages are the newest versions up to its end, so the result is the same).
         if (s.first_frame + s.frames <= expect) continue;
-        const plain = await getChecked(s);
-        const nl = plain.indexOf(10);
-        const meta = JSON.parse(plain.subarray(0, nl).toString('utf8'));
-        let body = plain.subarray(nl + 1);
-        if (meta.first_frame === 0) { body = body.subarray(WAL_HEADER); if (!header) { header = plain.subarray(nl + 1, nl + 1 + WAL_HEADER); fd = fs.openSync(`${tmp}-wal`, 'w', 0o600); fs.writeSync(fd, header); } }
+        const { meta, header: h, frames } = parseSegment(await getChecked(s));
+        if (h && !header) {
+          header = h; fd = fs.openSync(`${tmp}-wal`, 'w', 0o600); fs.writeSync(fd, header);
+          be = header.readUInt32BE(0) === WAL_MAGIC_BE; salt = header.subarray(16, 24);
+          ck = walSum(header, 0, 24, [0, 0], be);
+        }
         if (fd == null) break;
-        const skip = expect - meta.first_frame;
-        fs.writeSync(fd, body.subarray(skip * (FRAME_HEADER + meta.page_size)));
+        const fsz = FRAME_HEADER + meta.page_size;
+        const body = Buffer.from(meta.v === 3 ? frames : frames.subarray((expect - meta.first_frame) * fsz));
+        for (let o = 0; o + fsz <= body.length; o += fsz) {
+          salt.copy(body, o + 8);
+          ck = walSum(body, o + FRAME_HEADER, meta.page_size, walSum(body, o, 8, ck, be), be);
+          body.writeUInt32BE(ck[0], o + 16); body.writeUInt32BE(ck[1], o + 20);
+        }
+        fs.writeSync(fd, body);
         expect = meta.first_frame + meta.frames; applied += 1; reached = Math.max(reached, meta.ts);
       }
     } finally { if (fd != null) fs.closeSync(fd); }
@@ -854,7 +961,8 @@ async function restore({ storage, outFile, targetTs = Date.now(), keyDir, force 
   for (const f of [`${tmp}-wal`, `${tmp}-shm`]) { try { fs.unlinkSync(f); } catch { /* none */ } }
   if (force) for (const f of [outFile, `${outFile}-wal`, `${outFile}-shm`]) { try { fs.unlinkSync(f); } catch { /* none */ } }
   fs.renameSync(tmp, outFile);
-  return { snapshot: { key: snap.key, time: new Date(snap.ts).toISOString(), id: snap.id }, generations, segments: applied, target_ts: targetTs, reached_ts: reached };
+  if (!walKept) log({ level: 'warn', msg: 'the snapshot is older than the point-in-time window: its WAL is no longer kept; restored as the snapshot was taken', snapshot: snap.key });
+  return { snapshot: { key: snap.key, time: new Date(snap.ts).toISOString(), id: snap.id }, generations, segments: applied, target_ts: targetTs, reached_ts: reached, wal_kept: walKept };
 }
 
-module.exports = { createBackups, restore, backupKeys, seal, open, keyId, readWal, readSegment, walHeaderOf, walShipTask, walShipClose, sealFile, openFile, hashFile, createSealStream, createOpenStream, CHUNK };
+module.exports = { createBackups, restore, backupKeys, seal, open, keyId, readWal, readSegment, walHeaderOf, walShipTask, walShipClose, sealFile, openFile, hashFile, createSealStream, createOpenStream, CHUNK, parseSegment, compactFrames, WAL_CODEC };

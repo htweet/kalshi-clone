@@ -6073,9 +6073,26 @@ read transaction, begun before the frames were read, bounds them); once everythi
 the next write opens a new generation. The request thread only starts a shipment and records its segments and state.
 Restore skips a segment shipped twice (a shipment whose result was not recorded before a stop). **Encryption:** AES-256-GCM under the backup key (`BACKUP_KEY` / `BACKUP_KEY_FILE`, separate from
 the master key; `BACKUP_KEY_PREVIOUS` opens objects after a backup-key change); object = `PLXB1` | key id | IV |
-ciphertext | tag, with a JSON manifest (SHA-256 of plaintext and ciphertext, time, kind, generation) so a restore needs
-nothing but the store and the key. **Retention** (owner settings): interval snapshots 48 h; nightly 7 daily / 4 weekly /
-12 monthly; pre-production and manual a year; WAL older than the oldest kept snapshot deleted; every prune audited.
+ciphertext | tag (snapshots: the chunked `PLXB2`, §39.17), with a JSON manifest (SHA-256 of plaintext and ciphertext,
+time, kind, generation) so a restore needs nothing but the store and the key. **WAL segment format `PLXB3`** (since the
+WAL volume fix, §39.20 item 11; `PLXB1` segments still restore, also mixed in one generation): the `PLXB1` envelope under
+its own magic (also the GCM AAD) around a compact segment — a JSON line (generation, first frame and frame count as
+numbered in the -wal file, frames stored, page size, time, codec) and the compressed frames (zstd from `node:zlib` where
+Node has it, ≥ 22.15; brotli otherwise; the codec is named per segment). Only the last version of each page written in
+the segment is stored, in the order of those last versions, so the segment's commit frame stays last; the other frames'
+commit sizes and every checksum are zeroed and the restore rewrites the salts and the running checksums from the
+generation's header, which SQLite checks on recovery. Replaying a compact segment gives the same database as its original
+frames at the segment's end; a restore always applied whole segments (those shipped at or before the target), so
+**point-in-time granularity is one shipment**: `backups.wal_ship_seconds`, 10 s. **Retention** (owner settings):
+interval snapshots 48 h and at most 8; nightly 7 daily / 4 weekly / 12 monthly; pre-production, manual and pre-compaction
+a year; every prune audited (hourly). **Point-in-time window** (`backups.wal_keep_days`, 7 days, 1–90, step-up, live):
+shipped WAL is kept from the generation of the oldest kept snapshot taken inside the window (or the newest snapshot when
+none is that recent, so it always replays to now); WAL before that is deleted whatever older snapshots are kept. Those
+older snapshots stay full backups: a restore to a time before the window uses the newest snapshot at or before it as it
+was taken (`npm run restore` says so; `wal_kept: false`), and the restore drill and verifiers run on it as on any other.
+Before the window every kept snapshot held all later WAL, so a year-old pre-production snapshot kept a year of WAL (§39.20
+item 11). Admin › System › Backups shows the window, the WAL kept (size, segments, the last hour's volume) and the
+earliest point a restore can reach.
 
 **Point-in-time restore:** `npm run restore -- --to <time|now> --out <file> [--verify]` picks the newest snapshot at or
 before the time and applies each later WAL generation's shipped segments up to it (SQLite recovers the checksummed
@@ -6718,6 +6735,41 @@ generator on the same 4-vCPU VM, `dist` assets) was run until it stayed flat. Ea
     from the index alone) and the covering `idx_orders_resting_user_reserved (user_id, reserved_cents)` (replaces
     `idx_orders_resting_user`). `quote()` reads its best price and size from `book_levels` instead of summing the
     resting orders of the best level.
+11. **WAL shipping off the request thread, and the WAL volume it ships** (2026-11-16; soaks with `npm run load --
+    --profile soak --duration 1200 --backups`, which runs the backup schedule as `npm start` does, the store in the
+    temporary folder). *Shipping.* With backups on, the shipments and their TRUNCATE checkpoint ran on the request
+    thread (Still open (c) below): 33.7 orders/s instead of 40, order p99 4.5 s, 87 ten-second windows with p99 > 2 s (worst
+    15.2 s), the server's event loop blocked up to 1.9 s, 7,612 orders timed out, server memory to 1.9 GB. Shipping now
+    runs in the operations worker (§39.3): frames read with SQLite's salt and checksum checks, sealed and uploaded there;
+    PASSIVE checkpoints under the worker's own read transaction copy only shipped frames; the request thread only records
+    segments. After: 40 orders/s, p50 / p99 65.7 / 329 ms, no window over 2 s (worst 1.45 s), event loop ≤ 542 ms, no
+    errors besides `cancel_409`, server memory 399 MB at the end. *Volume.* That run shipped 18,133 MB of WAL in 20
+    minutes for 48,000 orders: **~378 KB per order, ~54 GB an hour** at 40 orders/s (it filled the 13 GB of free disk of
+    the first attempt). It is not checkpoint churn — a shipment never re-reads shipped frames — but SQLite's WAL itself:
+    every commit appends every page it changed (~14 pages of 4 KB per commit here), and the same index and table pages
+    are rewritten by commit after commit (a 64 MB segment held each page ~4 times). Retention did not bound it: WAL was
+    deleted only when older than the oldest kept snapshot, and nightly snapshots are kept 12 months and pre-production /
+    manual / pre-compaction ones a year, so the store would have kept up to a year of WAL (~0.5 PB at this load; on the
+    owner's laptop, 7.9 GB of `data/backups` after light use) with no owner setting to stop it. *Fix.* (1) The
+    point-in-time window `backups.wal_keep_days` (7 days, §39.3): WAL is kept from the oldest kept snapshot inside the
+    window; older snapshots stay and restore as taken. (2) WAL segments in the `PLXB3` format (§39.3, SECURITY.md): only
+    the last version of each page within a segment, compressed with zstd before sealing. On eight 64 MB segments of the
+    soak, keeping last versions alone was 5.8x and zstd 3.5x more (20x together); zstd level 3 compressed 143 MB/s, level 1
+    398 MB/s (3.4x), brotli 3 91 MB/s (3.5x, the fallback where Node lacks zstd), gzip 6 54 MB/s (3.1x). Over a whole
+    run, where most segments are 10 seconds of writes, the same soak shipped **1,783 MB: ~38 KB per order, ~5.3 GB an
+    hour, 10.2x less**, with order p50 / p99 64.4 / 298 ms (no window over 2 s, event loop ≤ 445 ms). With the 7-day window
+    that is ~0.9 TB of WAL at a sustained 40 orders/s (uncompressed it was ~1.3 TB a day);
+    real traffic is far below this soak. Point-in-time granularity is unchanged: one shipment (10 s). The soak's local
+    store is bounded by the load tool alone (it deletes shipped WAL older than `--backups-keep-min` minutes, default 3,
+    and all but the newest snapshot; test-only, never the product's retention).
+
+Tests: `backups.e2e` (both fail on the old code): with a year-old manual snapshot kept, `prune()` deletes the WAL before
+the window's base snapshot (the old code kept it), the year-old snapshot still restores as taken (integrity check and
+verifiers pass; `wal_kept: false`) while a restore to now replays the window; Admin › System reports the window. A
+generation of `PLXB1` segments, then `PLXB3` segments (stored frames under half the frames shipped, sealed bytes under a
+quarter of the frames) restore to a database equal to the source table by table (all but the bookkeeping of the last
+shipment itself), integrity check and verifiers (ledger / journal audit) pass, and a restore to a time between two
+shipments gives the state of the first.
 
 Tests: `market-volume.e2e` — volume totals and book levels equal full recounts after inserts, updates, deletes, member
 orders, fills, amendments, decreases, cancels and expiry; `quote()` fast with 300,000 trades; `book()` + `quote()` fast
@@ -6747,6 +6799,9 @@ a full recount), still reports an unbalanced new entry, and recounts everything 
 | 2026-11-16, main, one hour (item 9) | 60 min | 40 | 126 ms / 547 ms (p50 84 → 192 ms by 10-minute average; stalls of 7.3 s and 6.1 s; 13 windows with p99 > 2 s, worst 28.7 s; 9 order errors) | 42 ms | 258 ms | 233 → 312 → 315 MB |
 | + checkpoints in the worker, incremental audit (probe server and CPU profiler on) | 60 min | 40 | 135 ms / 581 ms (p50 82 → 237 ms; event loop ≤ 601 ms; 17 windows > 2 s, worst 4.8 s; no errors) | 33 ms | 284 ms | 262 → 349 → 370 MB |
 | **+ migration 0014 (item 10), one hour, no probe** | 60 min | **40** | **69.5 ms / 332 ms (p50 64 → 104 ms; event loop ≤ 512 ms; 1 window with p99 > 2 s (2.56 s), 10 > 1 s; no errors)** | **29 ms** | **164 ms** | 250 → 319 (10 min) → 335 MB |
+| backups on (`--backups`), shipping on the request thread (item 11) | 20 min | 33.7 | 71.1 ms / 4.55 s (87 windows > 2 s, worst 15.2 s; event loop ≤ 1.95 s; 7,612 order timeouts) | 27 ms | 143 ms | → 1.9 GB |
+| backups on, shipping in the worker, `PLXB1` segments (18.1 GB of WAL) | 20 min | 40 | 65.7 ms / 329 ms (0 windows > 2 s, 5 > 1 s; event loop ≤ 542 ms) | 30 ms | 154 ms | → 399 MB |
+| **backups on, shipping in the worker, `PLXB3` segments (1.78 GB of WAL)** | 20 min | **40** | **64.4 ms / 298 ms (0 windows > 2 s, 2 > 1 s; event loop ≤ 445 ms)** | **30 ms** | **153 ms** | → 457 MB |
 
 **Capacity.** After items 9 and 10 the server keeps up at 40 orders/s with 500 subscribers for the whole hour with no
 event-loop stall: the server's event-loop delay was at most 512 ms in any 10-second window (211 ms at the median window;
@@ -6760,15 +6815,28 @@ minutes, as the tables grow (database ~1.1 GB after an hour at this load) — th
 from the 30-minute per-statement profile in item 10 (quote() runs ~1,400 times a second for the page workers' event
 lists; its open-interest and previous-price reads are the largest flat costs); (b) memory: 319 MB at 10 minutes, 335 MB
 at the end (the original run: 312 → 315); the operations worker now runs from the start (its own V8 heap and SQLite
-connection) instead of from the first audit; (c) with WAL shipping on (`npm start`, production) `server/backups.js`
-still checkpoints on the request thread right after each shipment (a TRUNCATE once the WAL passes 16 MB; shipments are
-10 s apart, ~200 MB of WAL at this load; busy timeout 0): the soak runs without shipping, so that path is unmeasured and
-likely to stall the same way; moving it off the request
-thread needs the shipping itself (read the frames, then checkpoint) in the worker under the write lock; (d) the 200
+connection) instead of from the first audit; (c) ~~WAL shipping checkpointed on the request thread~~ — done, item 11
+(shipping and its checkpoints in the operations worker, measured with backups on); (d) the 200
 orders/s target of §39.9 is still above one process's ceiling (the capacity plan stands: fan-out off the matching
 process, then 9B); (e) the perps book had the same pattern (resting orders summed per level on every order and
 order-book read): its levels are kept by triggers on `perp_orders` too (`perp_book_levels`, migration 0010; the perps
-invariants property suite checks them against a recount after every random action).
+invariants property suite checks them against a recount after every random action); (f) **the live -wal file between
+checkpoints**: it grows at the write rate whenever it cannot start over — measured 15 MB/s at 40 orders/s (every
+10-second window of both backup soaks) — and peaked at 423 / 408 / 621 MB in the two 20-minute backup soaks (~250 MB
+database). The peaks were 20–40 s runs where a shipment's catch-up passes did not get the WAL to start over (a reader
+still on older frames; `journal_size_limit` trims the file back to 64 MB afterwards); most did not coincide with the
+snapshots (taken at 2 and 17 minutes). A snapshot copy adds the same growth for as long as it reads the main file
+(checkpoints wait): sealing runs at ~350 MB/s on this machine idle, so a 4 GB database is ~12 s of copy (~180 MB more
+WAL) idle and perhaps 3–5x that on a busy disk (~0.5–0.9 GB). Taking the snapshot through SQLite instead (`VACUUM INTO`
+or the backup API from a read transaction in the worker) would not help: any consistent copy holds one read snapshot
+for its whole length, and the WAL cannot start over while a reader is on it, so it grows at the same rate; `VACUUM INTO`
+also rebuilds the database (slower, more CPU) and a stepped backup restarts on every write. Recommendation: keep the
+copy, and (i) expose the -wal size on the metrics port with an alert past e.g. 2 GB, (ii) find which reader holds the
+catch-up passes (page workers' read transactions are the candidates) — the next soak with backups should log each
+shipment's `checkpoint` result, (iii) with shipping on, interval snapshots matter only for restore time (the WAL gives
+point in time), so a large database can take them hourly (`backups.interval_minutes`) and halve the copies; (g)
+compression before encryption (`PLXB3`) makes an object's size depend on its content — the residual is described and
+accepted in SECURITY.md.
 
 ---
 

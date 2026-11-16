@@ -50,6 +50,8 @@ export const STRINGS = /* CONTENT_JSON_BEGIN */ {
   "admin.sysops.backups.last": "Newest backup: {kind}, {age} old, {size}",
   "admin.sysops.backups.wal": "Database changes shipped {age} ago (generation {gen})",
   "admin.sysops.backups.wal_off": "WAL shipping is off on this server",
+  "admin.sysops.backups.window": "Point-in-time window: {days} days · WAL kept: {size} in {count} segments ({hour} in the last hour) · earliest point: {oldest}",
+  "admin.sysops.backups.window_none": "Point-in-time window: {days} days · no WAL kept yet",
   "admin.sysops.backups.failure": "Last failure: {time} — {error}",
   "admin.sysops.backups.now": "Back up now",
   "admin.sysops.backups.done": "Backup written",

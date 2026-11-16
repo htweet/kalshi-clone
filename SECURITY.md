@@ -429,6 +429,20 @@ more during a backup (the worker seals the checkpointed main file directly). `np
 trading history no member is part of) refuses to run until an encrypted `pre_compaction` backup has been written and
 records itself in the audit chain.
 
+**Backups: WAL segment format version 3 (WAL volume fix 2026-11-16, `CLONE_SPEC.md` §39.3, §39.20 item 11).** New WAL
+segments are `PLXB3` = magic | key-id length | key id | IV (12) | ciphertext | GCM tag (16): the `PLXB1` envelope, with
+`PLXB3` as the AAD so a segment cannot be presented as the other format. The plaintext is a JSON line (generation, frame
+numbers, page size, time, codec) and the segment's frames reduced to the last version of each page and compressed (zstd,
+or brotli where Node lacks zstd) **before** sealing; GCM ciphertext does not compress. Frame checksums are zeroed in the
+segment and recomputed at restore, so integrity rests on the GCM tag and the manifest SHA-256 (as for every object), and
+SQLite's recovery still checks every recomputed checksum. `PLXB1` segments still open. Residual: compressing before
+encrypting makes an object's size depend on its content; someone who can both read object sizes in the bucket and write
+chosen data into the database (an order note, a chat message) could in principle learn whether that data repeats other
+text in the same pages. Each segment mixes ten seconds of everyone's writes, secrets (passwords, tokens, keys) are
+stored hashed or sealed per column, and the bucket is private; accepted. **Point-in-time window** (`backups.wal_keep_days`,
+7): shipped WAL past it is deleted even while older snapshots are kept, so the store no longer holds a year of every
+change (also a data-minimisation gain); changing the window needs step-up and is audited.
+
 ## Residual risks and planned work
 
 - Single-process SQLite: no horizontal scaling; Phase 9 moves to PostgreSQL (P9.2).

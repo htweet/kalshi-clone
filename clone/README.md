@@ -394,6 +394,7 @@ everything is audited, and the switch catalogue at the bottom lists every featur
 | Content › Languages | Each language (Pidgin, Hausa, Yoruba, Igbo) | off until translated, reviewed and covered |
 | Owner settings › Simulated markets | Simulated trading activity (`simulation.activity`: off / low / normal) | low |
 | Owner settings › Backups | Keep at most this many interval backups (`backups.keep_interval_count`, password) | 8 |
+| Owner settings › Backups | Point-in-time restore window (`backups.wal_keep_days`, password) | 7 days |
 | Feature flags › Content | News fetching from the publisher feeds (`content.news_ingest`) | on |
 | Feature flags › Content | Market text generator (`content.autogen`) | on |
 | Owner settings › Content operations | Generated market texts need review (`content.autogen_require_review`) | on |
@@ -447,7 +448,14 @@ behaviour grew by millions of rows a day (about 7,000 journal postings a minute;
 - **Backups on a laptop** — `npm start` keeps backups on (every 15 minutes, encrypted, in `data/backups`), but keeps at
   most 8 interval snapshots (owner setting *Keep at most this many interval backups*) besides the 48-hour window, the
   nightly 7 / 4 / 12 and the manual / pre-production / pre-compaction ones. Each snapshot is about the size of the
-  database. **Clearing `data/backups` safely:** take one fresh backup first (Admin › System › Back up now), stop the
+  database. Besides the snapshots, `data/backups/wal/` holds the database changes shipped every 10 seconds; they are
+  kept only for the **point-in-time restore window** (owner setting *Point-in-time restore window*, 7 days): within it
+  the database can be restored to any 10-second point; before it, to the snapshots that are kept, as they were taken.
+  Before 2026-11-16 these changes were kept as long as the oldest snapshot (up to a year) and stored uncompressed — the
+  cause of a `data/backups` of several GB on a busy laptop; the server now deletes them past the window at its next
+  hourly retention run (Admin › System › Backups shows the window, the WAL kept and the earliest restorable point), and
+  new ones are about ten times smaller. A shorter window (1 day) keeps the folder smaller still. **Clearing
+  `data/backups` by hand** (rarely needed now): take one fresh backup first (Admin › System › Back up now), stop the
   server, then delete whole folders under `data/backups/snapshots/<year>/<month>/<day>/` older than the days you want to
   keep, and `data/backups/wal/` generations older than the oldest snapshot you kept (a WAL generation is only useful on
   top of an older snapshot). Never delete `data/backup.key` (no key, no restore) or the newest snapshot; `npm run restore
