@@ -10,7 +10,9 @@
 //     trip left it on the server, published to, for the socket's lifetime);
 //   • a FIX session keeps at most 500 finished orders in memory, and a logon loads only resting orders (it kept, and
 //     reloaded, every order of the session key);
-//   • every registered structure is reported on the metrics port.
+//   • every registered structure is reported on the metrics port;
+//   • an order's own fills are read by order id (migration 0013): with 200,000 fills of one trader the read stays a
+//     lookup (it scanned all of the trader's fills on every order, the order-latency drift of the soak).
 const { test, before, after, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
@@ -152,4 +154,25 @@ test('a FIX session keeps at most 500 finished orders in memory; a logon loads o
 test('every registered structure is reported on the metrics port', async () => {
   const body = await H.srv.app.locals.obs.registry.render(); // what the private metrics port serves
   for (const n of H.srv.engine.memory.keys()) assert.match(body, new RegExp(`parlance_status\\{name="entries_${n}"\\} \\d+`), n);
+});
+
+test('an order reads its own fills by index, however many fills its trader has (migration 0013)', async () => {
+  const u = await H.user('heavyfills');
+  const { DatabaseSync } = require('node:sqlite');
+  const d = new DatabaseSync(H.DB_FILE);
+  try {
+    d.exec('PRAGMA foreign_keys = OFF'); d.exec('BEGIN');
+    const ins = d.prepare('INSERT INTO fills(id,trade_id,order_id,user_id,market_ticker,side,price_cents,count,is_taker,fee_cents,created_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+    const t0 = Date.now() - 86400000;
+    for (let i = 0; i < 200000; i++) ins.run(`hf_${i}`, `ht_${i}`, `ho_${i >> 1}`, u.uid, 'HEAVY-1', 'yes', 40, 100, 1, 1, t0 + i);
+    d.exec('COMMIT');
+  } finally { d.close(); }
+  const sql = 'SELECT COALESCE(SUM(count),0) n, COALESCE(SUM(count*price_cc),0) v FROM fills WHERE order_id=? AND user_id=?';
+  const plan = H.srv.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('x', u.uid).map((r) => r.detail).join(' | ');
+  assert.match(plan, /idx_fills_order/, plan);
+  const st = H.srv.db.prepare(sql);
+  const t = process.hrtime.bigint();
+  for (let i = 0; i < 200; i++) assert.equal(st.get(`ho_${i * 50}`, u.uid).n, 200);
+  const ms = Number(process.hrtime.bigint() - t) / 1e6;
+  assert.ok(ms < 500, `200 reads took ${ms.toFixed(0)} ms (a scan of the trader's 200,000 fills each time takes seconds)`);
 });
