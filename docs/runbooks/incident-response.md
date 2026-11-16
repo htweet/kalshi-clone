@@ -70,6 +70,10 @@ do (usually nothing), and when the review will be published.
 
 - Code or configuration problem: roll back to the previous image (README › Deployment › Rollback).
 - Data problem: restore to the moment before it (docs/runbooks/restore.md); verify; then lift read-only mode.
+- WAL growth (alert `wal_growth`): Admin › System › Backups shows WAL shipped in the last hour and the checkpoint
+  state. A large `-wal` file with shipping current means a long snapshot or read is holding the checkpoint: let the
+  snapshot finish, then confirm the file shrinks at the next checkpoint. A high hourly volume means a write burst or a
+  runaway job: find it in the job and request metrics, pause it with its feature flag, and check backup storage headroom.
 - Key compromise: rotate the master key (docs/runbooks/rotate-keys.md) and every secret listed there; sign everyone out.
 
 ## Post-incident review

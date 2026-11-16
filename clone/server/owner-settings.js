@@ -88,6 +88,8 @@ const REGISTRY = [
   ['alerts.order_p99_ms', 'alerts', 'int', 100, { min: 5, max: 10000, unit: 'ms', where: '/admin/system' }],
   ['alerts.job_stall_minutes', 'alerts', 'int', 10, { min: 1, max: 1440, unit: 'minutes', where: '/admin/system' }],
   ['alerts.disk_free_pct', 'alerts', 'int', 15, { min: 1, max: 90, unit: 'percent', where: '/admin/system' }],
+  ['alerts.wal_file_mb', 'alerts', 'int', 2048, { min: 1, max: 1048576, unit: 'mb', where: '/admin/system' }],
+  ['alerts.wal_mb_per_hour', 'alerts', 'int', 8192, { min: 1, max: 1048576, unit: 'mb', where: '/admin/system' }],
   ['alerts.cert_expiry_days', 'alerts', 'int', 14, { min: 1, max: 90, unit: 'days', where: '/admin/system' }],
   ['alerts.repeat_minutes', 'alerts', 'int', 60, { min: 5, max: 1440, unit: 'minutes', where: '/admin/system' }],
   ['ops.readyz_disk_free_mb', 'alerts', 'int', 500, { min: 50, max: 100000, unit: 'mb', where: '/admin/system' }],

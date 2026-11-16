@@ -32,6 +32,7 @@ const STRINGS = {
   'alert.rule.job_stalled': 'Background job stalled',
   'alert.rule.disk_filling': 'Disk filling up',
   'alert.rule.cert_expiry': 'TLS certificate expiring',
+  'alert.rule.wal_growth': 'Write-ahead log growing fast',
   // ---- Launch readiness: automatic checks
   'check.config_guard': 'Production configuration',
   'check.config_guard.help': 'Every production setting is in place: allowed origins, admin origin, scrypt cost, keys outside the data folder, demo accounts and simulators off, Secure cookies, trusted proxy ranges, off-site backups.',

@@ -5,7 +5,9 @@
 //
 // Rules (thresholds are owner settings): backup overdue, restore drill overdue, audit anchor overdue, verifier failure
 // (ledger / journal audit, audit chain, anchor comparison), error rate (5xx share over 5 minutes), order latency (p99
-// order-to-ack), job stalled, disk filling, certificate expiry (TLS_CERT_FILE, when the proxy's certificate is mounted).
+// order-to-ack), job stalled, disk filling, certificate expiry (TLS_CERT_FILE, when the proxy's certificate is mounted),
+// WAL growth (the live -wal file above `alerts.wal_file_mb`, or more WAL shipped in the last hour than
+// `alerts.wal_mb_per_hour`: checkpoints falling behind, a long snapshot pinning the WAL, or a write burst; §39.20).
 // A rule that starts firing is sent at once, repeated every `alerts.repeat_minutes` while it fires, and a resolution is
 // sent when it clears. Every alert is recorded (ops_alerts).
 //
@@ -18,7 +20,7 @@ const fs = require('node:fs');
 const kc = require('./crypto');
 const { newId } = require('./util');
 
-const RULES = ['backup_overdue', 'restore_drill_overdue', 'anchor_overdue', 'verifier_failure', 'error_rate', 'order_latency', 'job_stalled', 'disk_filling', 'cert_expiry'];
+const RULES = ['backup_overdue', 'restore_drill_overdue', 'anchor_overdue', 'verifier_failure', 'error_rate', 'order_latency', 'job_stalled', 'disk_filling', 'cert_expiry', 'wal_growth'];
 const CODE_TTL_MS = 30 * 60000;
 
 function createAlerts({ db, keyDir, settings, messaging = null, webpush = null, obs = null, logger = null, text, signals = {}, allowHosts = null, audit = () => {}, now = () => Date.now(), fetchImpl = fetch }) {
@@ -127,6 +129,13 @@ function createAlerts({ db, keyDir, settings, messaging = null, webpush = null, 
       if (j) { const stale = j.filter((x) => x.age_sec > Number(S('alerts.job_stall_minutes', 10)) * 60); fire('job_stalled', stale.length > 0, 'critical', { jobs: stale.map((x) => x.name) }); }
       const disk = signals.disk ? signals.disk() : null;
       if (disk && disk.total) fire('disk_filling', (100 * disk.free) / disk.total < Number(S('alerts.disk_free_pct', 15)), 'critical', { free_pct: Math.round((1000 * disk.free) / disk.total) / 10 });
+      const w = signals.wal ? signals.wal() : null;
+      if (w) {
+        const MB = 1048576;
+        const file = w.file_bytes > Number(S('alerts.wal_file_mb', 2048)) * MB;
+        const rate = w.last_hour_bytes > Number(S('alerts.wal_mb_per_hour', 8192)) * MB;
+        fire('wal_growth', file || rate, 'warning', { file_mb: Math.round(w.file_bytes / MB), last_hour_mb: Math.round(w.last_hour_bytes / MB), ...(file ? { file_over: true } : {}), ...(rate ? { rate_over: true } : {}) });
+      }
       const certFile = process.env.TLS_CERT_FILE;
       if (certFile) {
         try { const c = new crypto.X509Certificate(fs.readFileSync(certFile)); const days = (Date.parse(c.validTo) - t) / 86400000; fire('cert_expiry', days < Number(S('alerts.cert_expiry_days', 14)), 'critical', { days_left: Math.floor(days) }); } catch (e) { fire('cert_expiry', true, 'critical', { error: 'certificate unreadable' }); }

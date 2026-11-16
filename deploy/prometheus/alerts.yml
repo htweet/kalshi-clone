@@ -54,6 +54,11 @@ groups:
         for: 10m
         labels: { severity: critical }
         annotations: { summary: "Less than 15% free on the data volume" }
+      - alert: WalGrowth
+        expr: parlance_status{name="wal_file_bytes"} > 2048 * 1048576 or parlance_status{name="wal_shipped_bytes_last_hour"} > 8192 * 1048576
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "The write-ahead log is large or growing fast (checkpoints behind, a long snapshot, or a write burst)", runbook: "docs/runbooks/incident-response.md" }
       - alert: CertificateExpiring
         expr: (probe_ssl_earliest_cert_expiry{job="site"} - time()) / 86400 < 14
         for: 1h

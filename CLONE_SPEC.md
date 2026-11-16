@@ -6138,7 +6138,10 @@ document (audited, reason required) now returns a **signed URL valid for 60 seco
 - **Alerts** (`server/alerts.js`, every 30 s): backup overdue, restore drill overdue, anchor overdue, verifier failure,
   error rate over `alerts.error_rate_pct` (5 % of ≥ 20 requests in 5 minutes), order p99 over `alerts.order_p99_ms` (100),
   job stalled (`alerts.job_stall_minutes`, 10), disk below `alerts.disk_free_pct` (15 %), certificate expiry
-  (`TLS_CERT_FILE`, `alerts.cert_expiry_days`, 14). Sent when they start, every `alerts.repeat_minutes` (60) while firing,
+  (`TLS_CERT_FILE`, `alerts.cert_expiry_days`, 14), WAL growth (warning: the live `-wal` file above
+  `alerts.wal_file_mb`, 2048, or WAL shipped in the last hour above `alerts.wal_mb_per_hour`, 8192 — added 2026-11-16
+  after the soak, §39.20; metrics `wal_file_bytes`, `wal_shipped_bytes_last_hour`; migration 0015 indexes
+  `ops_wal_segments.created_ts` for the hourly sum). Sent when they start, every `alerts.repeat_minutes` (60) while firing,
   and when resolved, to every **confirmed** contact: email (through the email provider), webhook (JSON signed
   `X-Parlance-Signature: t=…,v1=HMAC-SHA256(t.body)` — an SMS gateway, a phone push service or a chat app), or push to a
   staff account's app. A contact is confirmed by entering the 6-digit code its test message carried. Prometheus rules in
@@ -6813,7 +6816,10 @@ window of 360 reached 2.56 s (at 2,960 s; the server's event-loop delay in it wa
 a stall — not yet attributed) and 10 were above 1 s; order p50 still rises ~60% over the hour, mostly in the last 20
 minutes, as the tables grow (database ~1.1 GB after an hour at this load) — the next statement-level pass should start
 from the 30-minute per-statement profile in item 10 (quote() runs ~1,400 times a second for the page workers' event
-lists; its open-interest and previous-price reads are the largest flat costs); (b) memory: 319 MB at 10 minutes, 335 MB
+lists; its open-interest and previous-price reads are the largest flat costs) — open interest done 2026-11-16 (item 12:
+it scanned the whole positions table on every call, the primary key starting with user_id; migration 0016 adds
+`idx_positions_market (market_ticker, yes_count, no_count)`, read from the index alone: 26.6 → 0.31 ms per quote with
+340,000 positions, test in `market-volume.e2e`; the previous-price reads already use `idx_trades_market`); (b) memory: 319 MB at 10 minutes, 335 MB
 at the end (the original run: 312 → 315); the operations worker now runs from the start (its own V8 heap and SQLite
 connection) instead of from the first audit; (c) ~~WAL shipping checkpointed on the request thread~~ — done, item 11
 (shipping and its checkpoints in the operations worker, measured with backups on); (d) the 200
@@ -6831,7 +6837,9 @@ WAL) idle and perhaps 3–5x that on a busy disk (~0.5–0.9 GB). Taking the sna
 or the backup API from a read transaction in the worker) would not help: any consistent copy holds one read snapshot
 for its whole length, and the WAL cannot start over while a reader is on it, so it grows at the same rate; `VACUUM INTO`
 also rebuilds the database (slower, more CPU) and a stepped backup restarts on every write. Recommendation: keep the
-copy, and (i) expose the -wal size on the metrics port with an alert past e.g. 2 GB, (ii) find which reader holds the
+copy, and (i) ~~expose the -wal size on the metrics port with an alert past e.g. 2 GB~~ — done 2026-11-16: alert rule
+`wal_growth` (owner settings `alerts.wal_file_mb` 2048 and `alerts.wal_mb_per_hour` 8192; metrics `wal_file_bytes`,
+`wal_shipped_bytes_last_hour`; Prometheus `WalGrowth`; runbook entry in incident-response.md), (ii) find which reader holds the
 catch-up passes (page workers' read transactions are the candidates) — the next soak with backups should log each
 shipment's `checkpoint` result, (iii) with shipping on, interval snapshots matter only for restore time (the WAL gives
 point in time), so a large database can take them hourly (`backups.interval_minutes`) and halve the copies; (g)

@@ -325,6 +325,64 @@ test('Admin › System: backup now, restore drill, key ages, audit anchor, migra
   await ap.waitForSelector('[data-testid=sys-contact][data-confirmed="1"]');
 });
 
+test('WAL growth alert: owner thresholds in Admin › Owner settings; firing in Admin › System and to the confirmed contact; metrics; resolved; persisted', async () => {
+  const ap = await newPage();
+  await uiLogIn(ap, ADM, ADMIN);
+  // Owner settings: both thresholds listed with their recommended defaults; lower the hourly one in the UI.
+  await ap.goto(`${ADM}/admin/owner_settings`);
+  for (const [key, def] of [['alerts.wal_file_mb', '2048'], ['alerts.wal_mb_per_hour', '8192']]) {
+    await ap.waitForSelector(`[data-testid=owner-setting][data-key="${key}"]`);
+    assert.equal(await ap.getAttribute(`[data-testid=owner-setting][data-key="${key}"] [data-testid=owner-recommended]`, 'data-default'), def);
+  }
+  const setUi = async (key, value) => {
+    await ap.click(`[data-testid=owner-setting][data-key="${key}"] [data-testid=owner-edit]`);
+    await ap.waitForSelector('[data-testid=owner-form]');
+    await ap.fill('[data-testid=owner-form] [name=value]', String(value));
+    await ap.fill('[data-testid=owner-form] [name=reason]', 'WAL alert e2e');
+    await ap.click('[data-testid=owner-form] button[type=submit]');
+    await answerStepUp(ap);
+    await ap.waitForSelector(`[data-testid=owner-setting][data-key="${key}"][data-value="${value}"]`);
+  };
+  await setUi('alerts.wal_mb_per_hour', 64);
+  assert.equal((await admin.call('GET', '/v1/admin/owner_settings/alerts.wal_mb_per_hour')).body.setting.value, 64);
+  assert.match(q1("SELECT value FROM admin_settings WHERE key LIKE '%alerts.wal_mb_per_hour'").value, /64/, 'persisted');
+  // A burst: 100 MB of WAL shipped in the last hour (one segment record) → the rule fires.
+  const segId = `wal_e2e_${stamp}`;
+  srv.db.prepare('INSERT INTO ops_wal_segments(id,generation,first_frame,frames,last_commit_ts,object_key,bytes,sha256,created_ts) VALUES(?,?,?,?,?,?,?,?,?)')
+    .run(segId, 999999, 1, 1, Date.now(), 'e2e/none', 100 * 1048576, '0'.repeat(64), Date.now());
+  const before = hooks.length;
+  assert.equal((await admin.call('POST', '/v1/admin/system/alerts/run', {})).status, 200);
+  const fired = await eventually(() => hooks.slice(before).find((h) => h.body.type === 'alert' && h.body.rule === 'wal_growth' && h.body.status === 'firing'));
+  assert.equal(fired.body.severity, 'warning');
+  assert.match(fired.body.text, /last_hour_mb.*100/);
+  assert.equal(q1("SELECT status FROM ops_alerts WHERE rule='wal_growth' AND test=0 ORDER BY started_ts DESC LIMIT 1").status, 'firing');
+  await ap.goto(`${ADM}/admin/system`);
+  await ap.waitForSelector('[data-testid=sys-alert-firing][data-rule=wal_growth]');
+  const m = await srv.app.locals.obs.registry.render(); // the private metrics port serves this text (ops-platform suite)
+  assert.match(m, /parlance_status\{name="wal_shipped_bytes_last_hour"\} (\d+)/);
+  assert.ok(Number(/parlance_status\{name="wal_shipped_bytes_last_hour"\} (\d+)/.exec(m)[1]) >= 100 * 1048576);
+  assert.match(m, /parlance_status\{name="wal_file_bytes"\} \d+/);
+  // Back to normal: the burst leaves the window, the recommended threshold is restored → resolved, sent once.
+  srv.db.prepare('DELETE FROM ops_wal_segments WHERE id=?').run(segId);
+  await ap.goto(`${ADM}/admin/owner_settings`);
+  await setUi('alerts.wal_mb_per_hour', 8192);
+  await admin.call('POST', '/v1/admin/system/alerts/run', {});
+  await eventually(() => hooks.slice(before).find((h) => h.body.rule === 'wal_growth' && h.body.status === 'resolved'));
+  assert.equal(q1("SELECT status FROM ops_alerts WHERE rule='wal_growth' AND test=0 ORDER BY started_ts DESC LIMIT 1").status, 'resolved');
+  await ap.goto(`${ADM}/admin/system`);
+  await ap.waitForSelector('[data-testid=sys-alert-history][data-rule=wal_growth]');
+  assert.equal(await ap.locator('[data-testid=sys-alert-firing][data-rule=wal_growth]').count(), 0);
+  // The -wal file threshold: a 1 MB limit under the file this suite has written fires on the file alone.
+  const walFile = fs.statSync(`${DB_FILE}-wal`, { throwIfNoEntry: false });
+  if (walFile && walFile.size > 1048576) {
+    srv.app.locals.ownerSettings.set('alerts.wal_file_mb', 1);
+    const r = srv.app.locals.alerts.evaluate().find((x) => x.rule === 'wal_growth');
+    assert.equal(r.firing, true); assert.equal(r.detail.file_over, true);
+    srv.app.locals.ownerSettings.set('alerts.wal_file_mb', 2048);
+  }
+  assert.deepEqual(ap.errors, []);
+});
+
 test('Launch readiness: checks turn green and red live; the production switch is refused with reasons, then allowed when green', async () => {
   const set = stepped(admin);
   // A request through the proxy over HTTPS has been seen (TLS check); keys, anchor, drill and contact are in place.

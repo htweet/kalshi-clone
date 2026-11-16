@@ -2,6 +2,7 @@
 const CS = require('./content/currency-strings'); // keyed user-facing wording (CLONE_SPEC.md §30)
 const C = require('./currency'); // display currency formatting (CLONE_SPEC.md §30)
 const express = require('express');
+const fs = require('node:fs');
 const { tx } = require('./db');
 const { nowIso, dollars, fp, ufp, ustr, toUnits, UNITS, usd, ApiError, E, encCursor, decCursor } = require('./util');
 const { marketVo, eventVo, orderVo, fillVo } = require('./serialize');
@@ -589,6 +590,13 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
   const backups = createBackups({ db, dbFile, storage: backupStorage, keyDir, settings: settingOf, audit: sysAudit, log: (r) => logger.log(r), options: { walShipping: !!opsOptions.schedule, firstSnapshotDelayMs: opsOptions.firstBackupDelayMs || 0, walFormat: opsOptions.walFormat } });
   const anchors = createAnchors({ db, keyDir, storage: backupStorage, logger, settings: settingOf, audit: sysAudit });
   const keyring = createKeyring({ db, keyDir, audit: sysAudit, log: (r) => logger.log(r) });
+  // WAL growth (alert rule wal_growth, metrics): the live -wal file and what was shipped in the last hour.
+  const walHourSt = db.prepare('SELECT COALESCE(SUM(bytes),0) b FROM ops_wal_segments WHERE created_ts>=?');
+  const walStats = () => {
+    let fileBytes = 0;
+    if (dbFile && dbFile !== ':memory:') { try { fileBytes = fs.statSync(`${dbFile}-wal`).size; } catch { /* no -wal file yet */ } }
+    return { file_bytes: fileBytes, last_hour_bytes: walHourSt.get(Date.now() - 3600000).b };
+  };
   const alerts = createAlerts({ db, keyDir, settings: settingOf, messaging: app.locals.identity && app.locals.identity.messaging, webpush: app.locals.webpush, logger, text: (k, v) => OPS_TEXT(k, v),
     allowHosts: opsOptions.alertLoopback ? () => true : null,
     signals: {
@@ -600,6 +608,7 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
       orderP99: () => obs.orderAck.quantile({}, 0.99),
       jobs: () => [...obs.jobs].filter(([n]) => ['backups', 'anchors', 'alerts'].includes(n)).map(([name, j]) => ({ name, age_sec: j.last_ok_ts ? (Date.now() - j.last_ok_ts) / 1000 : 0 })),
       disk: () => obs.diskFree(),
+      wal: () => walStats(),
     } });
   app.locals.backups = backups; app.locals.anchors = anchors; app.locals.alerts = alerts; app.locals.keyring = keyring;
   app.locals.ops = mountOperations({ v1, app, db, engine, auth, admin, flags, ownerSettings, security, keyDir, dbFile, mediaStorage: app.locals.mediaStorage, backups, backupStorage, obs, logger, anchors, alerts, keyring, options: opsOptions });
@@ -612,6 +621,9 @@ function createApp({ db, engine, hub, rate = { burst: 300, perSec: 150 }, rollin
     for (const k of ['ops.maintenance', 'ops.trading_halt', 'ops.read_only']) set({ name: `switch_${k.slice(4)}` }, flags.globalState(k).on ? 1 : 0);
     set({ name: 'schema_version' }, migrations.version(db));
     set({ name: 'alerts_firing' }, alerts.firing().length);
+    const ws = walStats();
+    set({ name: 'wal_file_bytes' }, ws.file_bytes);
+    set({ name: 'wal_shipped_bytes_last_hour' }, ws.last_hour_bytes);
     for (const [n, size] of engine.memory) { try { set({ name: `entries_${n}` }, size()); } catch { /* a closed module */ } }
   });
 

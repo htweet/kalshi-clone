@@ -10,7 +10,8 @@
 //     delete; engine.book() stays fast with 50,000 resting orders in one market (it summed them all, twice per order);
 //     the order book the browser shows matches the recount;
 //   • resting orders are read in index order (migration 0014): matching, queue position and a member's reserved total
-//     stay fast with 60,000 resting orders at one price (matching read and sorted all of them).
+//     stay fast with 60,000 resting orders at one price (matching read and sorted all of them);
+//   • open interest is read by market (migration 0016): quote() stays fast with 400,000 positions across markets.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -88,6 +89,38 @@ test('quote() stays fast with 300,000 trades in one market (it no longer reads t
   await page.waitForSelector('[data-testid=event-title]');
   const api = await (await fetch(`${BASE}/trade-api/v2/markets/${T.ticker}`)).json();
   assert.ok(Number(api.market.volume_fp) > 0, JSON.stringify(api.market).slice(0, 200));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('open interest is read by market: quote() stays fast with 400,000 positions across markets, and equals a recount; the event page shows it', async () => {
+  const d = srv.db; const iso = new Date().toISOString();
+  const markets = d.prepare("SELECT ticker FROM markets WHERE status='active' ORDER BY rowid LIMIT 40").all().map((m) => m.ticker);
+  if (!markets.includes(T.ticker)) markets[0] = T.ticker;
+  const insU = d.prepare('INSERT INTO users(id,email,display_name,password_hash,created_at) VALUES(?,?,?,?,?)');
+  const insP = d.prepare('INSERT INTO positions(user_id,market_ticker,yes_count,no_count,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,market_ticker) DO UPDATE SET yes_count=yes_count+excluded.yes_count');
+  d.exec('BEGIN');
+  for (let u = 0; u < 10000; u++) {
+    const id = `oi_u_${u}`; insU.run(id, `oi.${u}@example.test`, `OI ${u}`, 'x', iso);
+    for (const m of markets) insP.run(id, m, (u % 7) * 100, (u % 5) * 100, iso);
+  }
+  d.exec('COMMIT');
+  srv.engine.quote(T.ticker);
+  const times = [];
+  for (let i = 0; i < 15; i++) { const s = process.hrtime.bigint(); srv.engine.quote(T.ticker); times.push(Number(process.hrtime.bigint() - s) / 1e6); }
+  times.sort((a, b) => a - b);
+  const oi = d.prepare('SELECT SUM(yes_count) v FROM positions WHERE market_ticker=?').get(T.ticker).v;
+  assert.equal(srv.engine.quote(T.ticker).open_interest, oi);
+  assert.ok(times[7] < 5, `quote() took ${times[7].toFixed(1)} ms (median of 15) with ${d.prepare('SELECT COUNT(*) n FROM positions').get().n} positions`);
+  const plan = d.prepare('EXPLAIN QUERY PLAN SELECT COALESCE(SUM(yes_count),0) v FROM positions WHERE market_ticker=?').all('x').map((r) => r.detail).join(' | ');
+  assert.match(plan, /USING COVERING INDEX idx_positions_market/, plan);
+  // The page and the API show the same open interest.
+  const api = await (await fetch(`${BASE}/trade-api/v2/markets/${T.ticker}`)).json();
+  assert.equal(api.market.open_interest_fp, require('../server/util').ufp(oi), JSON.stringify(api.market).slice(0, 300));
+  const page = await browser.newPage();
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${BASE}/markets/${T.st.toLowerCase()}/${T.slug}/${T.ev.toLowerCase()}`);
+  await page.waitForSelector('[data-testid=event-title]');
   assert.deepEqual(errors, []);
   await page.close();
 });
