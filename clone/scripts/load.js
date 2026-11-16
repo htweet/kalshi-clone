@@ -7,7 +7,9 @@
 //   npm run load -- --profile soak --duration 3600  one hour; memory sampled every 10 s (growth is reported)
 //   npm run load -- --base https://staging.example.ng --traders 40 ...   against a running server (see below)
 //   --backups (or LOAD_BACKUPS=1), self mode: the server runs its backup schedule as under `npm start` — WAL shipping to a
-//   local store in the temporary folder every few seconds, interval snapshots, drills (CLONE_SPEC.md §39.3, §39.20 item 11)
+//   local store in the temporary folder every few seconds, interval snapshots, drills (CLONE_SPEC.md §39.3, §39.20 item 11).
+//   At 40 orders/s that store grows ~25 GB an hour, so the generator deletes shipped objects older than
+//   --backups-keep-min minutes (default 3) and all but the newest snapshot, as a store's lifecycle rule would.
 //
 // Scenarios, all at once: (1) order placement and cancels by N traders on K markets, crossing so trades happen
 // (order-to-ack latency = request to response, client side); (2) WebSocket fan-out to M clients subscribed to the ticker
@@ -84,6 +86,16 @@ async function main() {
     });
     base = `http://127.0.0.1:${port}`;
   }
+  // The backup store of self mode with --backups (see the header): bounded by deleting old objects.
+  const storeSweep = !a.base && (a.backups || process.env.LOAD_BACKUPS === '1') ? setInterval(() => {
+    const root = path.join(tmp, 'backups'); const keepMs = Number(a['backups-keep-min'] || 3) * 60000; const t = Date.now();
+    const files = [];
+    const walk = (d) => { let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else { try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone */ } } } };
+    walk(root);
+    const snaps = files.filter((x) => x.f.endsWith('.plxb')).sort((x, y) => y.m - x.m);
+    for (const x of files) if ((x.f.endsWith('.plxw') || x.f.endsWith('.plxw.json')) && t - x.m > keepMs) { try { fs.unlinkSync(x.f); } catch { /* gone */ } }
+    for (const x of snaps.slice(1)) { try { fs.unlinkSync(x.f); } catch { /* gone */ } }
+  }, 30000) : null;
   const q = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).all(...x); } finally { d.close(); } };
   const run = (sql, ...x) => { const d = new DatabaseSync(dbFile); d.exec('PRAGMA busy_timeout = 10000'); try { return d.prepare(sql).run(...x); } finally { d.close(); } };
   const stamp = Date.now();
@@ -252,6 +264,7 @@ async function main() {
     results, targets: TARGETS, within_targets: within };
   if (a.report) fs.writeFileSync(path.resolve(String(a.report)), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
+  if (storeSweep) clearInterval(storeSweep);
   if (srv) { srv.kill('SIGTERM'); await new Promise((r) => { srv.once('exit', r); setTimeout(r, 5000); }); }
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   // Smoke (CI): fail on errors that mean something broke, not on the machine's speed.
